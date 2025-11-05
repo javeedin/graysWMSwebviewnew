@@ -19,34 +19,27 @@ async function callApexAPINew(endpoint, method = 'GET', body = null) {
     try {
         console.log(`[API NEW] ${method} ${url}`, body || '');
 
-        // Use C# bridge instead of direct fetch() to avoid CORS issues
+        // Use C# bridge with the global callback system (window.pendingRequests)
         return await new Promise((resolve, reject) => {
             const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-            // Set up response listener
-            const messageHandler = (event) => {
-                try {
-                    const response = JSON.parse(event.data);
-                    if (response.requestId === requestId) {
-                        window.chrome.webview.removeEventListener('message', messageHandler);
+            // Initialize pendingRequests if not exists
+            if (!window.pendingRequests) {
+                window.pendingRequests = {};
+            }
 
-                        if (response.action === 'restResponse') {
-                            const data = typeof response.data === 'string'
-                                ? JSON.parse(response.data)
-                                : response.data;
-                            console.log('[API NEW] Response:', data);
-                            resolve(data);
-                        } else if (response.action === 'error') {
-                            console.error('[API NEW] Error:', response.data);
-                            reject(new Error(response.data.message || 'API call failed'));
-                        }
-                    }
-                } catch (err) {
-                    console.error('[API NEW] Response parse error:', err);
+            // Register callback in the global system
+            window.pendingRequests[requestId] = (error, data) => {
+                if (error) {
+                    console.error('[API NEW] Error:', error);
+                    reject(new Error(error));
+                } else {
+                    // Parse if string
+                    const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[API NEW] Response:', parsedData);
+                    resolve(parsedData);
                 }
             };
-
-            window.chrome.webview.addEventListener('message', messageHandler);
 
             // Send request to C# backend
             if (method === 'GET') {
@@ -66,8 +59,10 @@ async function callApexAPINew(endpoint, method = 'GET', body = null) {
 
             // Timeout after 30 seconds
             setTimeout(() => {
-                window.chrome.webview.removeEventListener('message', messageHandler);
-                reject(new Error('Request timeout'));
+                if (window.pendingRequests[requestId]) {
+                    delete window.pendingRequests[requestId];
+                    reject(new Error('Request timeout'));
+                }
             }, 30000);
         });
     } catch (error) {
