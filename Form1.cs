@@ -397,11 +397,13 @@ namespace WMSApp
             posButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 230, 210);
             posButton.Paint += ModuleButton_Paint;
 
-            // WMS Button - Warehouse Management  
-            posButton.Click += async (s, e) =>
+            // WMS Button - Warehouse Management
+            posButton.Click += (s, e) =>
             {
-                string apexUrl = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/graysapp/r/110/files/static/FusionClient/wmsindex.html";
-                await LoadModule("WMS", apexUrl);
+                // Load local index.html file
+                string indexPath = Path.Combine(Application.StartupPath, "index.html");
+                string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                Navigate(fileUrl);
             };
 
             moduleToolTip.SetToolTip(posButton, "WMS");
