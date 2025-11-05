@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 
-namespace commet_like
+namespace WMSApp
 {
     /// <summary>
     /// Generic REST API client that handles GET requests

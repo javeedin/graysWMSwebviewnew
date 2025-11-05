@@ -3,7 +3,7 @@ using Microsoft.Web.WebView2.WinForms;
 using System;
 using System.Text.Json;
 
-namespace commet_like
+namespace WMSApp
 {
     /// <summary>
     /// Handles communication between JavaScript and C# in WebView2

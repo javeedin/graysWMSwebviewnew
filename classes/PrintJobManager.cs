@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace commet_like.PrintManagement
+namespace WMSApp.PrintManagement
 {
     /// <summary>
     /// Orchestrates the complete print workflow: download, queue, print, monitor

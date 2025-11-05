@@ -6,7 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace commet_like.PrintManagement
+namespace WMSApp.PrintManagement
 {
     /// <summary>
     /// Manages printer operations including listing printers, printing PDFs, and monitoring print jobs

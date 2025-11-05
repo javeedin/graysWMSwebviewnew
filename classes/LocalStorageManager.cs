@@ -6,7 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 
-namespace commet_like.PrintManagement
+namespace WMSApp.PrintManagement
 {
     /// <summary>
     /// Manages local storage of print jobs and configurations

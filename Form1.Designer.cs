@@ -1,4 +1,4 @@
-﻿namespace commet_like
+﻿namespace WMSApp
 {
     partial class Form1
     {

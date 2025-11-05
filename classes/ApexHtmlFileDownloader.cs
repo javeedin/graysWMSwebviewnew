@@ -4,7 +4,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 
-namespace commet_like
+namespace WMSApp
 {
     /// <summary>
     /// Downloads HTML files from Oracle APEX and saves them to local temp directory

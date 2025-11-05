@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace commet_like
+namespace WMSApp
 {
     /// <summary>
     /// Registry that maps modules and pages to their REST endpoints

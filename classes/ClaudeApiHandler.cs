@@ -6,7 +6,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Microsoft.Web.WebView2.Core;
 
-namespace commet_like
+namespace WMSApp
 {
     /// <summary>
     /// Handles all Claude API operations for the WebView2 application

@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
-namespace commet_like.PrintManagement
+namespace WMSApp.PrintManagement
 {
     /// <summary>
     /// Downloads PDF reports from Oracle Fusion using SOAP API

@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using Newtonsoft.Json;
 
-namespace commet_like.PrintManagement
+namespace WMSApp.PrintManagement
 {
     /// <summary>
     /// Represents a print job for an order

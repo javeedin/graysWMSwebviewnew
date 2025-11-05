@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace commet_like
+namespace WMSApp
 {
     /// <summary>
     /// Manages saving and loading of prompt history

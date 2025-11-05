@@ -12,12 +12,12 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-using commet_like.PrintManagement;
+using WMSApp.PrintManagement;
 
 // ADD THIS LINE to resolve ambiguity:
 using JsonSerializer = System.Text.Json.JsonSerializer;
 
-namespace commet_like
+namespace WMSApp
 {
     public partial class Form1 : Form
     {
