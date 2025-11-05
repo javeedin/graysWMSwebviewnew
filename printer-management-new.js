@@ -15,28 +15,61 @@ let allPrintersDataNew = [];
 
 async function callApexAPINew(endpoint, method = 'GET', body = null) {
     const url = `${APEX_API_BASE_URL_NEW}${endpoint}`;
-    const options = {
-        method: method,
-        headers: {
-            'Content-Type': 'application/json'
-        }
-    };
-
-    if (body && method !== 'GET') {
-        options.body = JSON.stringify(body);
-    }
 
     try {
         console.log(`[API NEW] ${method} ${url}`, body || '');
-        const response = await fetch(url, options);
-        const data = await response.json();
 
-        if (!response.ok) {
-            throw new Error(data.message || `HTTP ${response.status}`);
-        }
+        // Use C# bridge instead of direct fetch() to avoid CORS issues
+        return await new Promise((resolve, reject) => {
+            const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-        console.log('[API NEW] Response:', data);
-        return data;
+            // Set up response listener
+            const messageHandler = (event) => {
+                try {
+                    const response = JSON.parse(event.data);
+                    if (response.requestId === requestId) {
+                        window.chrome.webview.removeEventListener('message', messageHandler);
+
+                        if (response.action === 'restResponse') {
+                            const data = typeof response.data === 'string'
+                                ? JSON.parse(response.data)
+                                : response.data;
+                            console.log('[API NEW] Response:', data);
+                            resolve(data);
+                        } else if (response.action === 'error') {
+                            console.error('[API NEW] Error:', response.data);
+                            reject(new Error(response.data.message || 'API call failed'));
+                        }
+                    }
+                } catch (err) {
+                    console.error('[API NEW] Response parse error:', err);
+                }
+            };
+
+            window.chrome.webview.addEventListener('message', messageHandler);
+
+            // Send request to C# backend
+            if (method === 'GET') {
+                window.chrome.webview.postMessage({
+                    action: 'executeGet',
+                    requestId: requestId,
+                    fullUrl: url
+                });
+            } else if (method === 'POST') {
+                window.chrome.webview.postMessage({
+                    action: 'executePost',
+                    requestId: requestId,
+                    fullUrl: url,
+                    body: JSON.stringify(body || {})
+                });
+            }
+
+            // Timeout after 30 seconds
+            setTimeout(() => {
+                window.chrome.webview.removeEventListener('message', messageHandler);
+                reject(new Error('Request timeout'));
+            }, 30000);
+        });
     } catch (error) {
         console.error('[API NEW] Error:', error);
         throw error;

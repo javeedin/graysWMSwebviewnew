@@ -912,6 +912,10 @@ namespace WMSApp
                                     await HandleRestApiRequest(wv, messageJson, requestId);
                                     break;
 
+                                case "executePost":
+                                    await HandleRestApiPostRequest(wv, messageJson, requestId);
+                                    break;
+
                                 case "claudeApiTest":
                                     await HandleClaudeApiTest(wv, messageJson, requestId);
                                     break;
@@ -1032,6 +1036,61 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST call failed: {ex.Message}");
+
+                var errorMessage = new
+                {
+                    action = "error",
+                    requestId = requestId,
+                    data = new { message = ex.Message }
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        private async Task HandleRestApiPostRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiPostWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing executePost request: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[C#] POST Body: {message.Body}");
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+                    var content = new StringContent(
+                        message.Body ?? "{}",
+                        Encoding.UTF8,
+                        "application/json"
+                    );
+
+                    var response = await httpClient.PostAsync(message.FullUrl, content);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST POST completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response: {responseContent}");
+
+                    var resultMessage = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+
+                    string resultJson = JsonSerializer.Serialize(resultMessage);
+                    wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST POST call failed: {ex.Message}");
 
                 var errorMessage = new
                 {
@@ -2230,6 +2289,21 @@ namespace WMSApp
 
         [JsonPropertyName("fullUrl")]
         public string FullUrl { get; set; }
+    }
+
+    public class RestApiPostWebMessage
+    {
+        [JsonPropertyName("action")]
+        public string Action { get; set; }
+
+        [JsonPropertyName("requestId")]
+        public string RequestId { get; set; }
+
+        [JsonPropertyName("fullUrl")]
+        public string FullUrl { get; set; }
+
+        [JsonPropertyName("body")]
+        public string Body { get; set; }
     }
 
 }
