@@ -1,0 +1,2233 @@
+﻿using Microsoft.Web.WebView2.Core;
+using Microsoft.Web.WebView2.WinForms;
+using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading.Tasks;
+using System.Windows.Forms;
+using commet_like.PrintManagement;
+
+// ADD THIS LINE to resolve ambiguity:
+using JsonSerializer = System.Text.Json.JsonSerializer;
+
+namespace commet_like
+{
+    public partial class Form1 : Form
+    {
+        private WebView2 webView;
+        private Panel urlPanel;
+        private TextBox urlTextBox;
+        private Button favoriteButton;
+        private Button profileButton;
+        private Button copilotButton;
+        private Button backButton;
+        private Button forwardButton;
+        private Button refreshButton;
+        private Button homeButton;
+        private Button openFileButton;
+        private Button clearCacheButton;
+        private Button glButton;
+        private Button arButton;
+        private Button apButton;
+        private Button omButton;
+        private Button faButton;
+        private Button caButton;
+        private Button posButton;
+        private Label securityIcon;
+        private FlowLayoutPanel tabBar;
+        private ToolTip moduleToolTip;
+        private ApexHtmlFileDownloader _apexDownloader;
+        private Dictionary<WebView2, WebViewMessageRouter> _messageRouters = new Dictionary<WebView2, WebViewMessageRouter>();
+        private Dictionary<string, Action<string, string>> _pendingRequests = new Dictionary<string, Action<string, string>>();
+
+        private ClaudeApiHandler _claudeApiHandler;
+        private PromptHistoryManager _promptHistoryManager;
+        private Button historyButton;
+
+        // Print Management Fields
+        private PrintJobManager _printJobManager;
+        private LocalStorageManager _storageManager;
+        private PrinterService _printerService;
+
+        public Form1()
+        {
+            InitializeComponent();
+            InitializeComponent1();
+
+            // ⭐ ADD THIS TEST
+            System.Diagnostics.Debug.WriteLine("========================================");
+            System.Diagnostics.Debug.WriteLine("🚀 APPLICATION STARTED - TESTING DEBUG OUTPUT");
+            System.Diagnostics.Debug.WriteLine("========================================");
+
+
+            SetupUI();
+
+            // Initialize the APEX downloader
+            _apexDownloader = new ApexHtmlFileDownloader();
+            _messageRouters = new Dictionary<WebView2, WebViewMessageRouter>();
+            var restClient = new RestApiClient();
+            _claudeApiHandler = new ClaudeApiHandler();
+            _promptHistoryManager = new PromptHistoryManager();
+
+            // Initialize Print Management Services
+            _printJobManager = new PrintJobManager();
+            _storageManager = new LocalStorageManager();
+            _printerService = new PrinterService();
+        }
+
+        private void InitializeComponent1()
+        {
+            this.Text = "Fusion Client Browser";
+            this.Size = new Size(1200, 800);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.BackColor = Color.FromArgb(240, 240, 240);
+        }
+
+
+        private void SetupUI()
+        {
+            // Initialize ToolTip
+            moduleToolTip = new ToolTip
+            {
+                AutoPopDelay = 3000,
+                InitialDelay = 500,
+                ReshowDelay = 200,
+                ShowAlways = true
+            };
+
+            // Title bar panel with tabs
+            Panel titleBarPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 35,
+                BackColor = Color.FromArgb(32, 32, 32)
+            };
+
+            // Tab bar (for custom tabs)
+            tabBar = new FlowLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.FromArgb(32, 32, 32),
+                WrapContents = false,
+                AutoScroll = false,
+                Padding = new Padding(5, 2, 5, 0)
+            };
+
+            // New Tab button in title bar
+            Button newTabButton = new Button
+            {
+                Text = "+",
+                Width = 35,
+                Height = 28,
+                FlatStyle = FlatStyle.Flat,
+                BackColor = Color.FromArgb(50, 50, 50),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 16, FontStyle.Bold),
+                Cursor = Cursors.Hand
+            };
+            newTabButton.FlatAppearance.BorderSize = 0;
+            newTabButton.Click += (s, e) => AddNewTab("https://www.google.com");
+
+            tabBar.Controls.Add(newTabButton);
+            titleBarPanel.Controls.Add(tabBar);
+
+            // Navigation panel
+            Panel navPanel = new Panel
+            {
+                Dock = DockStyle.Top,
+                Height = 50,
+                BackColor = Color.White,
+                Padding = new Padding(10, 10, 10, 10)
+            };
+
+            int leftPosition = 10;
+
+            // Back button - HIDDEN
+            backButton = new Button
+            {
+                Text = "←",
+                Width = 35,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 12),
+                Cursor = Cursors.Hand,
+                Visible = false
+            };
+            backButton.FlatAppearance.BorderColor = Color.LightGray;
+            backButton.Click += BackButton_Click;
+
+            // Forward button - HIDDEN
+            forwardButton = new Button
+            {
+                Text = "→",
+                Width = 35,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 12),
+                Cursor = Cursors.Hand,
+                Visible = false
+            };
+            forwardButton.FlatAppearance.BorderColor = Color.LightGray;
+            forwardButton.Click += ForwardButton_Click;
+
+            // Refresh button - VISIBLE
+            refreshButton = new Button
+            {
+                Text = "⟳",
+                Width = 35,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 12),
+                Cursor = Cursors.Hand
+            };
+            refreshButton.FlatAppearance.BorderColor = Color.LightGray;
+            refreshButton.Click += RefreshButton_Click;
+            leftPosition += 40;
+
+            // Home button - HIDDEN
+            homeButton = new Button
+            {
+                Text = "⌂",
+                Width = 35,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 12),
+                Cursor = Cursors.Hand,
+                Visible = false
+            };
+            homeButton.FlatAppearance.BorderColor = Color.LightGray;
+            homeButton.Click += HomeButton_Click;
+
+            // Open File button - VISIBLE
+            openFileButton = new Button
+            {
+                Text = "📁",
+                Width = 35,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 12),
+                Cursor = Cursors.Hand
+            };
+            openFileButton.FlatAppearance.BorderColor = Color.LightGray;
+            openFileButton.Click += OpenFileButton_Click;
+            leftPosition += 45;
+
+            // Clear Cache button - VISIBLE
+            clearCacheButton = new Button
+            {
+                Text = "🗑️",
+                Width = 35,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 12),
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(255, 240, 240)
+            };
+            clearCacheButton.FlatAppearance.BorderColor = Color.LightCoral;
+            clearCacheButton.Click += ClearCacheButton_Click;
+            moduleToolTip.SetToolTip(clearCacheButton, "Clear Browser Cache");
+            leftPosition += 45;
+
+            // GL Button - General Ledger
+            glButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(220, 240, 255),
+                Tag = "GL"
+            };
+            glButton.FlatAppearance.BorderColor = Color.FromArgb(100, 180, 255);
+            glButton.FlatAppearance.BorderSize = 2;
+            glButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 230, 255);
+            glButton.Paint += ModuleButton_Paint;
+
+            glButton.Click += async (s, e) =>
+            {
+                string apexUrl = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/files/static/v123456789/general_ledger.html";
+                await LoadModule("GL", apexUrl);
+            };
+
+            moduleToolTip.SetToolTip(glButton, "General Ledger");
+            leftPosition += 65;
+
+            // AR Button - Accounts Receivable
+            arButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(220, 255, 220),
+                Tag = "AR"
+            };
+            arButton.FlatAppearance.BorderColor = Color.FromArgb(80, 200, 80);
+            arButton.FlatAppearance.BorderSize = 2;
+            arButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 245, 200);
+            arButton.Paint += ModuleButton_Paint;
+            arButton.Click += (s, e) => LoadModule("AR", "https://www.google.com/search?q=Accounts+Receivable");
+            moduleToolTip.SetToolTip(arButton, "Accounts Receivable");
+            leftPosition += 65;
+
+            // AP Button - Accounts Payable
+            apButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(255, 230, 220),
+                Tag = "AP"
+            };
+            apButton.FlatAppearance.BorderColor = Color.FromArgb(255, 140, 100);
+            apButton.FlatAppearance.BorderSize = 2;
+            apButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 215, 200);
+            apButton.Paint += ModuleButton_Paint;
+            apButton.Click += (s, e) => LoadModule("AP", "https://www.google.com/search?q=Accounts+Payable");
+            moduleToolTip.SetToolTip(apButton, "Accounts Payable");
+            leftPosition += 65;
+
+            // OM Button - Order Management
+            omButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(240, 220, 255),
+                Tag = "OM"
+            };
+            omButton.FlatAppearance.BorderColor = Color.FromArgb(160, 100, 255);
+            omButton.FlatAppearance.BorderSize = 2;
+            omButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 210, 255);
+            omButton.Paint += ModuleButton_Paint;
+            omButton.Click += (s, e) => LoadModule("OM", "https://www.google.com/search?q=Order+Management");
+            moduleToolTip.SetToolTip(omButton, "Order Management");
+            leftPosition += 65;
+
+            // FA Button - Fixed Assets
+            faButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(245, 235, 220),
+                Tag = "FA"
+            };
+            faButton.FlatAppearance.BorderColor = Color.FromArgb(180, 140, 100);
+            faButton.FlatAppearance.BorderSize = 2;
+            faButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(235, 225, 210);
+            faButton.Paint += ModuleButton_Paint;
+            faButton.Click += (s, e) => LoadModule("FA", "https://www.google.com/search?q=Fixed+Assets");
+            moduleToolTip.SetToolTip(faButton, "Fixed Assets");
+            leftPosition += 65;
+
+            // CA Button - Cash Management
+            caButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(220, 255, 245),
+                Tag = "CA"
+            };
+            caButton.FlatAppearance.BorderColor = Color.FromArgb(80, 200, 180);
+            caButton.FlatAppearance.BorderSize = 2;
+            caButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(210, 245, 235);
+            caButton.Paint += ModuleButton_Paint;
+            caButton.Click += (s, e) => LoadModule("CA", "https://www.google.com/search?q=Cash+Management");
+            moduleToolTip.SetToolTip(caButton, "Cash Management");
+            leftPosition += 65;
+
+            // POS Button - Point of Sale
+            posButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(255, 240, 220),
+                Tag = "WMS"
+            };
+            posButton.FlatAppearance.BorderColor = Color.FromArgb(255, 160, 80);
+            posButton.FlatAppearance.BorderSize = 2;
+            posButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 230, 210);
+            posButton.Paint += ModuleButton_Paint;
+
+            // WMS Button - Warehouse Management  
+            posButton.Click += async (s, e) =>
+            {
+                string apexUrl = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/graysapp/r/110/files/static/FusionClient/wmsindex.html";
+                await LoadModule("WMS", apexUrl);
+            };
+
+            moduleToolTip.SetToolTip(posButton, "WMS");
+            leftPosition += 70;
+
+            // Compact Oval URL panel container
+            urlPanel = new Panel
+            {
+                Left = leftPosition,
+                Top = 10,
+                Width = this.ClientSize.Width - leftPosition - 250,
+                Height = 32,
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                BackColor = Color.White
+            };
+            urlPanel.Paint += UrlPanel_Paint;
+
+            // Security/Lock icon (inside oval panel on the left)
+            securityIcon = new Label
+            {
+                Text = "🔒",
+                Left = 8,
+                Top = 7,
+                Width = 20,
+                Height = 18,
+                Font = new Font("Segoe UI", 10),
+                TextAlign = ContentAlignment.MiddleCenter,
+                BackColor = Color.Transparent,
+                Cursor = Cursors.Hand
+            };
+            securityIcon.Click += SecurityIcon_Click;
+
+            // URL textbox (inside oval panel, after security icon)
+            urlTextBox = new TextBox
+            {
+                Left = 32,
+                Top = 7,
+                Height = 18,
+                BorderStyle = BorderStyle.None,
+                Font = new Font("Segoe UI", 9),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+            };
+            urlTextBox.Width = urlPanel.Width - 150;
+            urlTextBox.KeyDown += UrlTextBox_KeyDown;
+
+            // Favorite button (star icon) - compact version
+            favoriteButton = new Button
+            {
+                Text = "☆",
+                Width = 28,
+                Height = 22,
+                Top = 5,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 12),
+                BackColor = Color.White,
+                ForeColor = Color.Gray,
+                Cursor = Cursors.Hand,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                TabStop = false
+            };
+            favoriteButton.FlatAppearance.BorderSize = 0;
+            favoriteButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(245, 245, 245);
+            favoriteButton.Click += FavoriteButton_Click;
+
+            // Copilot button (icon version) - made more compact
+            copilotButton = new Button
+            {
+                Text = "🤖",
+                Width = 28,
+                Height = 22,
+                Top = 5,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 11),
+                BackColor = Color.White,
+                ForeColor = Color.FromArgb(0, 100, 200),
+                Cursor = Cursors.Hand,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                TabStop = false
+            };
+            copilotButton.FlatAppearance.BorderSize = 0;
+            copilotButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 240, 255);
+            copilotButton.Click += CopilotButton_Click;
+
+            // Add controls to URL panel
+            urlPanel.Controls.Add(securityIcon);
+            urlPanel.Controls.Add(urlTextBox);
+            urlPanel.Controls.Add(favoriteButton);
+            urlPanel.Controls.Add(copilotButton);
+
+            // Position buttons from right to left inside the URL panel
+            copilotButton.Left = urlPanel.Width - copilotButton.Width - 8;
+            favoriteButton.Left = copilotButton.Left - favoriteButton.Width - 2;
+            urlTextBox.Width = favoriteButton.Left - urlTextBox.Left - 5;
+
+            // Profile button (outside URL panel, to the right)
+            profileButton = new Button
+            {
+                Text = "👤",
+                Width = 35,
+                Height = 30,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 14),
+                BackColor = Color.White,
+                Cursor = Cursors.Hand,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                TabStop = false
+            };
+            profileButton.Left = urlPanel.Right + 10;
+            profileButton.FlatAppearance.BorderColor = Color.LightGray;
+            profileButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(240, 240, 240);
+            profileButton.Click += ProfileButton_Click;
+
+            // History button (after profile button)
+            historyButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(245, 235, 220),
+                Tag = "His"
+            };
+            historyButton.Left = profileButton.Right + 5;
+            historyButton.FlatAppearance.BorderColor = Color.LightGray;
+            historyButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(240, 240, 240);
+            historyButton.Click += HistoryButton_Click;
+
+            // Add to navigation panel
+            navPanel.Controls.Add(historyButton);
+
+            // Settings button (3 dots)
+            Button settingsButton = new Button
+            {
+                Text = "⋮",
+                Width = 35,
+                Height = 30,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI", 16, FontStyle.Bold),
+                Cursor = Cursors.Hand,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            settingsButton.Left = this.ClientSize.Width - 45;
+            settingsButton.FlatAppearance.BorderColor = Color.LightGray;
+
+            // Add controls to navigation panel
+            navPanel.Controls.Add(backButton);
+            navPanel.Controls.Add(forwardButton);
+            navPanel.Controls.Add(refreshButton);
+            navPanel.Controls.Add(homeButton);
+            navPanel.Controls.Add(openFileButton);
+            navPanel.Controls.Add(clearCacheButton);
+            navPanel.Controls.Add(glButton);
+            navPanel.Controls.Add(arButton);
+            navPanel.Controls.Add(apButton);
+            navPanel.Controls.Add(omButton);
+            navPanel.Controls.Add(faButton);
+            navPanel.Controls.Add(caButton);
+            navPanel.Controls.Add(posButton);
+            navPanel.Controls.Add(urlPanel);
+            navPanel.Controls.Add(profileButton);
+            navPanel.Controls.Add(settingsButton);
+
+            // Web content panel
+            Panel contentPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.White
+            };
+
+            // Add controls to form
+            this.Controls.Add(contentPanel);
+            this.Controls.Add(navPanel);
+            this.Controls.Add(titleBarPanel);
+
+            // Create initial tab
+            AddNewTab("https://www.google.com");
+        }
+
+        private void LogDebug(string message)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DEBUG] {DateTime.Now:HH:mm:ss} - {message}");
+        }
+
+        private void HistoryButton_Click(object sender, EventArgs e)
+        {
+            var viewer = new PromptHistoryViewer(_promptHistoryManager);
+            viewer.ShowDialog();
+        }
+
+        private void UrlPanel_Paint(object sender, PaintEventArgs e)
+        {
+            Panel panel = sender as Panel;
+            using (GraphicsPath path = GetRoundedRectangle(panel.ClientRectangle, 16))
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+                using (SolidBrush brush = new SolidBrush(Color.FromArgb(248, 248, 248)))
+                {
+                    e.Graphics.FillPath(brush, path);
+                }
+
+                using (Pen pen = new Pen(Color.FromArgb(220, 220, 220), 1.5f))
+                {
+                    e.Graphics.DrawPath(pen, path);
+                }
+            }
+        }
+
+        private GraphicsPath GetRoundedRectangle(Rectangle rect, int radius)
+        {
+            GraphicsPath path = new GraphicsPath();
+            int diameter = radius * 2;
+            path.AddArc(rect.X, rect.Y, diameter, diameter, 180, 90);
+            path.AddArc(rect.Right - diameter, rect.Y, diameter, diameter, 270, 90);
+            path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(rect.X, rect.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private async Task LoadModule(string moduleCode, string apexHtmlUrl)
+        {
+            try
+            {
+                string localFileName = GetHtmlFileNameForModule(moduleCode);
+                string localFileUrl = await _apexDownloader.DownloadApexHtmlFileAsync(apexHtmlUrl, localFileName);
+                Navigate(localFileUrl);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to load module '{moduleCode}': {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private string GetHtmlFileNameForModule(string moduleCode)
+        {
+            return moduleCode switch
+            {
+                "GL" => "general_ledger.html",
+                "AR" => "accounts_receivable.html",
+                "AP" => "accounts_payable.html",
+                "OM" => "order_management.html",
+                "FA" => "fixed_assets.html",
+                "CA" => "cash_management.html",
+                "WMS" => "warehouse.html",
+                _ => $"{moduleCode.ToLower()}.html"
+            };
+        }
+
+        private void ModuleButton_Paint(object sender, PaintEventArgs e)
+        {
+            Button btn = sender as Button;
+            if (btn == null) return;
+
+            string moduleCode = btn.Tag?.ToString() ?? "";
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            int iconX = 12;
+            int iconY = btn.Height / 2;
+
+            switch (moduleCode)
+            {
+                case "GL":
+                    using (Brush blueBrush = new SolidBrush(Color.FromArgb(30, 120, 255)))
+                    using (Pen bluePen = new Pen(Color.FromArgb(30, 120, 255), 1.5f))
+                    {
+                        e.Graphics.FillRectangle(blueBrush, iconX - 6, iconY + 1, 3, 4);
+                        e.Graphics.FillRectangle(blueBrush, iconX - 2, iconY - 2, 3, 7);
+                        e.Graphics.FillRectangle(blueBrush, iconX + 2, iconY - 4, 3, 9);
+                    }
+                    break;
+
+                case "AR":
+                    using (Font iconFont = new Font("Arial", 11, FontStyle.Bold))
+                    using (Brush greenBrush = new SolidBrush(Color.FromArgb(50, 180, 50)))
+                    {
+                        e.Graphics.DrawString("$", iconFont, greenBrush, iconX - 5, iconY - 9);
+                    }
+                    break;
+
+                case "AP":
+                    using (Brush orangeBrush = new SolidBrush(Color.FromArgb(255, 120, 60)))
+                    using (Pen orangePen = new Pen(Color.FromArgb(255, 120, 60), 1.5f))
+                    {
+                        Rectangle cardRect = new Rectangle(iconX - 6, iconY - 4, 12, 8);
+                        e.Graphics.DrawRectangle(orangePen, cardRect);
+                        e.Graphics.FillRectangle(orangeBrush, iconX - 6, iconY - 2, 12, 2);
+                    }
+                    break;
+
+                case "OM":
+                    using (Pen purplePen = new Pen(Color.FromArgb(140, 80, 220), 1.5f))
+                    {
+                        Rectangle boxRect = new Rectangle(iconX - 6, iconY - 4, 11, 8);
+                        e.Graphics.DrawRectangle(purplePen, boxRect);
+                        e.Graphics.DrawLine(purplePen, iconX - 6, iconY - 4, iconX, iconY - 1);
+                        e.Graphics.DrawLine(purplePen, iconX + 5, iconY - 4, iconX, iconY - 1);
+                        e.Graphics.DrawLine(purplePen, iconX, iconY - 1, iconX, iconY + 4);
+                    }
+                    break;
+
+                case "FA":
+                    using (Brush brownBrush = new SolidBrush(Color.FromArgb(160, 120, 80)))
+                    {
+                        Rectangle buildingRect = new Rectangle(iconX - 5, iconY - 5, 10, 10);
+                        e.Graphics.FillRectangle(brownBrush, buildingRect);
+                        using (Brush whiteBrush = new SolidBrush(Color.White))
+                        {
+                            e.Graphics.FillRectangle(whiteBrush, iconX - 4, iconY - 4, 2, 2);
+                            e.Graphics.FillRectangle(whiteBrush, iconX + 1, iconY - 4, 2, 2);
+                            e.Graphics.FillRectangle(whiteBrush, iconX - 4, iconY, 2, 2);
+                            e.Graphics.FillRectangle(whiteBrush, iconX + 1, iconY, 2, 2);
+                        }
+                    }
+                    break;
+
+                case "CA":
+                    using (Brush tealBrush = new SolidBrush(Color.FromArgb(60, 180, 160)))
+                    {
+                        e.Graphics.FillRectangle(tealBrush, iconX - 6, iconY - 1, 2, 6);
+                        e.Graphics.FillRectangle(tealBrush, iconX - 2, iconY - 1, 2, 6);
+                        e.Graphics.FillRectangle(tealBrush, iconX + 2, iconY - 1, 2, 6);
+                        Point[] roof = new Point[]
+                        {
+                            new Point(iconX - 7, iconY - 1),
+                            new Point(iconX, iconY - 5),
+                            new Point(iconX + 5, iconY - 1)
+                        };
+                        e.Graphics.FillPolygon(tealBrush, roof);
+                        e.Graphics.FillRectangle(tealBrush, iconX - 7, iconY + 5, 12, 1);
+                    }
+                    break;
+
+                case "POS":
+                    using (Pen orangePen = new Pen(Color.FromArgb(255, 140, 60), 1.5f))
+                    using (Brush orangeBrush = new SolidBrush(Color.FromArgb(255, 140, 60)))
+                    {
+                        e.Graphics.DrawRectangle(orangePen, iconX - 4, iconY - 4, 8, 6);
+                        e.Graphics.DrawLine(orangePen, iconX - 4, iconY - 4, iconX - 6, iconY - 6);
+                        e.Graphics.FillEllipse(orangeBrush, iconX - 2, iconY + 3, 2, 2);
+                        e.Graphics.FillEllipse(orangeBrush, iconX + 2, iconY + 3, 2, 2);
+                    }
+                    break;
+            }
+
+            Color textColor = Color.FromArgb(50, 50, 50);
+            using (Font textFont = new Font("Segoe UI", 9, FontStyle.Bold))
+            using (Brush textBrush = new SolidBrush(textColor))
+            {
+                StringFormat sf = new StringFormat
+                {
+                    Alignment = StringAlignment.Near,
+                    LineAlignment = StringAlignment.Center
+                };
+                e.Graphics.DrawString(moduleCode, textFont, textBrush, iconX + 14, iconY, sf);
+            }
+        }
+
+        private void SecurityIcon_Click(object sender, EventArgs e)
+        {
+            var wv = GetCurrentWebView();
+            if (wv?.CoreWebView2 != null)
+            {
+                string url = wv.Source?.ToString() ?? "";
+                string securityInfo;
+
+                if (url.StartsWith("https://"))
+                    securityInfo = "🔒 Secure connection (HTTPS)";
+                else if (url.StartsWith("http://"))
+                    securityInfo = "⚠️ Not secure (HTTP)";
+                else if (url.StartsWith("file://"))
+                    securityInfo = "📄 Local file";
+                else
+                    securityInfo = "ℹ️ Unknown protocol";
+
+                MessageBox.Show(securityInfo, "Site Security", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private void AddNewTab(string url)
+        {
+            CustomTabButton tabButton = new CustomTabButton
+            {
+                TabText = "New Tab",
+                Width = 200,
+                Height = 28,
+                BackColor = Color.FromArgb(50, 50, 50),
+                ForeColor = Color.White
+            };
+
+            WebView2 newWebView = new WebView2
+            {
+                Dock = DockStyle.Fill,
+                Visible = false
+            };
+
+            tabButton.WebView = newWebView;
+            tabButton.Click += TabButton_Click;
+            tabButton.CloseClicked += TabButton_CloseClicked;
+
+            int insertIndex = tabBar.Controls.Count - 1;
+            tabBar.Controls.Add(tabButton);
+            tabBar.Controls.SetChildIndex(tabButton, insertIndex);
+
+            Panel contentPanel = this.Controls[0] as Panel;
+            contentPanel.Controls.Add(newWebView);
+
+            SelectTab(tabButton);
+            InitializeWebView(newWebView, url);
+        }
+
+        private void TabButton_Click(object sender, EventArgs e)
+        {
+            SelectTab(sender as CustomTabButton);
+        }
+
+        private void SelectTab(CustomTabButton tabButton)
+        {
+            foreach (Control ctrl in tabBar.Controls)
+            {
+                if (ctrl is CustomTabButton tab)
+                {
+                    tab.IsSelected = false;
+                    tab.BackColor = Color.FromArgb(50, 50, 50);
+                    if (tab.WebView != null)
+                        tab.WebView.Visible = false;
+                }
+            }
+
+            tabButton.IsSelected = true;
+            tabButton.BackColor = Color.FromArgb(70, 70, 70);
+            if (tabButton.WebView != null)
+            {
+                tabButton.WebView.Visible = true;
+                if (tabButton.WebView.CoreWebView2 != null)
+                {
+                    urlTextBox.Text = tabButton.WebView.Source?.ToString() ?? "";
+                    UpdateNavigationButtons(tabButton.WebView);
+                    UpdateSecurityIcon(tabButton.WebView);
+                }
+            }
+        }
+
+        private void TabButton_CloseClicked(object sender, EventArgs e)
+        {
+            CustomTabButton tabButton = sender as CustomTabButton;
+
+            int index = tabBar.Controls.IndexOf(tabButton);
+            CustomTabButton nextTab = null;
+
+            if (index > 0)
+                nextTab = tabBar.Controls[index - 1] as CustomTabButton;
+            else if (tabBar.Controls.Count > 2)
+                nextTab = tabBar.Controls[index + 1] as CustomTabButton;
+
+            if (tabButton.WebView != null)
+            {
+                Panel contentPanel = this.Controls[0] as Panel;
+                contentPanel.Controls.Remove(tabButton.WebView);
+                tabButton.WebView.Dispose();
+            }
+
+            tabBar.Controls.Remove(tabButton);
+
+            if (nextTab != null)
+                SelectTab(nextTab);
+            else
+                this.Close();
+        }
+
+        private async void InitializeWebView(WebView2 wv, string url)
+        {
+            try
+            {
+                await wv.EnsureCoreWebView2Async(null);
+
+                wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
+                wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
+                wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
+
+                wv.CoreWebView2.WebMessageReceived += async (sender, args) =>
+                {
+                    try
+                    {
+                        string messageJson = args.WebMessageAsJson;
+                        System.Diagnostics.Debug.WriteLine($"[C# RECEIVED] {messageJson}");
+
+                        using (var doc = JsonDocument.Parse(messageJson))
+                        {
+                            var root = doc.RootElement;
+                            string action = root.GetProperty("action").GetString();
+                            string requestId = root.GetProperty("requestId").GetString();
+
+                            System.Diagnostics.Debug.WriteLine($"[C#] Action: {action}, RequestId: {requestId}");
+
+                            switch (action)
+                            {
+                                case "executeGet":
+                                    await HandleRestApiRequest(wv, messageJson, requestId);
+                                    break;
+
+                                case "claudeApiTest":
+                                    await HandleClaudeApiTest(wv, messageJson, requestId);
+                                    break;
+
+                                case "claudeApiRequest":
+                                    await HandleClaudeApiRequest(wv, messageJson, requestId);
+                                    break;
+
+                                // Print Management Cases
+                                case "enableAutoPrint":
+                                    await HandleEnableAutoPrint(wv, messageJson, requestId);
+                                    break;
+
+                                case "disableAutoPrint":
+                                    await HandleDisableAutoPrint(wv, messageJson, requestId);
+                                    break;
+
+                                case "downloadOrderPdf":
+                                    await HandleDownloadOrderPdf(wv, messageJson, requestId);
+                                    break;
+
+                                case "printOrder":
+                                    await HandlePrintOrder(wv, messageJson, requestId);
+                                    break;
+
+                                case "getPrintJobs":
+                                    await HandleGetPrintJobs(wv, messageJson, requestId);
+                                    break;
+
+                                case "retryFailedJobs":
+                                    await HandleRetryFailedJobs(wv, messageJson, requestId);
+                                    break;
+
+                                case "configurePrinter":
+                                    await HandleConfigurePrinter(wv, messageJson, requestId);
+                                    break;
+
+                                case "getPrinterConfig":
+                                    await HandleGetPrinterConfig(wv, messageJson, requestId);
+                                    break;
+
+                                case "getInstalledPrinters":
+                                    await HandleGetInstalledPrinters(wv, messageJson, requestId);
+                                    break;
+
+                                case "testPrinter":
+                                    await HandleTestPrinter(wv, messageJson, requestId);
+                                    break;
+                                case "getAllPrintJobs":
+                                    await HandleGetAllPrintJobs(wv, messageJson, requestId);
+                                    break;
+
+                                case "getPdfAsBase64":
+                                    await HandleGetPdfAsBase64(wv, messageJson, requestId);
+                                    break;
+
+                                case "openFileInExplorer":
+                                    await HandleOpenFileInExplorer(wv, messageJson, requestId);
+                                    break;
+
+                                default:
+                                    System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
+                                    break;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] Message processing failed: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+                    }
+                };
+
+                wv.CoreWebView2.NavigationStarting += CoreWebView2_NavigationStarting;
+                wv.CoreWebView2.NavigationCompleted += CoreWebView2_NavigationCompleted;
+                wv.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
+                wv.Source = new Uri(url);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error initializing browser: {ex.Message}", "Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // ========== REST API HANDLER ==========
+
+        private async Task HandleRestApiRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiWebMessage>(  // ← CHANGED HERE
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing executeGet request: {message.FullUrl}");
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    var response = await httpClient.GetAsync(message.FullUrl);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}");
+
+                    var resultMessage = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+
+                    string resultJson = JsonSerializer.Serialize(resultMessage);
+                    wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST call failed: {ex.Message}");
+
+                var errorMessage = new
+                {
+                    action = "error",
+                    requestId = requestId,
+                    data = new { message = ex.Message }
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        // ========== CLAUDE API HANDLERS ==========
+        private async Task HandleClaudeApiTest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<ClaudeApiTestMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Testing Claude API key...");
+
+                var testResult = await _claudeApiHandler.TestApiKeyAsync(message.ApiKey);
+
+                var resultMessage = new
+                {
+                    action = "claudeResponse",
+                    requestId = requestId,
+                    success = testResult.Success,
+                    data = testResult.Success ? "API key is valid" : null,
+                    error = testResult.Success ? null : testResult.Message
+                };
+
+                string resultJson = JsonSerializer.Serialize(resultMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Claude API test result: {testResult.Success}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Claude API test failed: {ex.Message}");
+
+                var errorMessage = new
+                {
+                    action = "claudeResponse",
+                    requestId = requestId,
+                    success = false,
+                    error = ex.Message
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        private async Task HandleClaudeApiRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<ClaudeApiRequestMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing Claude API request: {message.UserQuery}");
+
+                var queryResult = await _claudeApiHandler.QueryClaudeAsync(
+                    message.ApiKey,
+                    message.UserQuery,
+                    message.SystemPrompt,
+                    message.DataJson
+                );
+
+                var resultMessage = new
+                {
+                    action = "claudeResponse",
+                    requestId = requestId,
+                    success = queryResult.Success,
+                    data = queryResult.Success ? queryResult.ResponseJson : null,
+                    error = queryResult.Success ? null : queryResult.Error
+                };
+
+                string resultJson = JsonSerializer.Serialize(resultMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Claude API query completed: {queryResult.Success}");
+
+                if (queryResult.Success)
+                {
+                    this.Invoke(new Action(() =>
+                    {
+                        PromptSaveAfterResponse(message.UserQuery, queryResult.ResponseJson);
+                    }));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Claude API request failed: {ex.Message}");
+
+                var errorMessage = new
+                {
+                    action = "claudeResponse",
+                    requestId = requestId,
+                    success = false,
+                    error = ex.Message
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        private void PromptSaveAfterResponse(string prompt, string responseJson)
+        {
+            try
+            {
+                string responseText = ExtractClaudeResponseText(responseJson);
+
+                var result = MessageBox.Show(
+                    "💾 Would you like to save this prompt and response?",
+                    "Save Prompt",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question
+                );
+
+                if (result == DialogResult.Yes)
+                {
+                    bool saved = _promptHistoryManager.SavePrompt(prompt, responseText, "WMS Query");
+
+                    if (saved)
+                    {
+                        MessageBox.Show(
+                            "✅ Prompt saved successfully!\n\nView saved prompts by clicking the 📚 button.",
+                            "Saved",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information
+                        );
+                    }
+                    else
+                    {
+                        MessageBox.Show(
+                            "❌ Failed to save prompt.",
+                            "Error",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Error
+                        );
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ERROR] Failed to prompt save: {ex.Message}");
+            }
+        }
+
+        private string ExtractClaudeResponseText(string responseJson)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(responseJson))
+                {
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("content", out var content) && content.GetArrayLength() > 0)
+                    {
+                        var firstContent = content[0];
+                        if (firstContent.TryGetProperty("text", out var text))
+                        {
+                            return text.GetString();
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return responseJson;
+        }
+
+        // ========== PRINT MANAGEMENT HANDLERS ==========
+
+        private async Task HandleEnableAutoPrint(WebView2 wv, string messageJson, string requestId)
+        {
+            //MessageBox.Show($"HandleEnableAutoPrint called!\n\nRequestId: {requestId}", "Debug", MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine($"[C#] ⭐ HandleEnableAutoPrint STARTED");
+                System.Diagnostics.Debug.WriteLine($"[C#] RequestId: {requestId}");
+                System.Diagnostics.Debug.WriteLine($"[C#] Message JSON: {messageJson}");
+                System.Diagnostics.Debug.WriteLine("====================================");
+
+                var message = System.Text.Json.JsonSerializer.Deserialize<ToggleAutoPrintMessage>(
+                    messageJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Deserialized Message:");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - TripId: {message.TripId}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - TripDate: {message.TripDate}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Enabled: {message.Enabled}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Orders Count: {message.Orders?.Count ?? 0}");
+
+                if (message.Orders != null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] Order Details:");
+                    foreach (var order in message.Orders)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#]   - Order: {order.OrderNumber}, Customer: {order.CustomerName}, Account: {order.AccountNumber}");
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Calling _printJobManager.EnableAutoPrintAsync...");
+
+                var result = await _printJobManager.EnableAutoPrintAsync(
+                    message.TripId,
+                    message.TripDate,
+                    message.Orders
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] EnableAutoPrintAsync Result:");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Success: {result.Success}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Message: {result.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - TripConfig: {(result.TripConfig != null ? "Not Null" : "NULL")}");
+
+                if (result.TripConfig != null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#]   - TripConfig.Orders.Count: {result.TripConfig.Orders?.Count ?? 0}");
+                }
+
+                var response = new
+                {
+                    action = "autoPrintResponse",
+                    requestId = requestId,
+                    success = result.Success,
+                    message = result.Message,
+                    data = result.TripConfig
+                };
+
+                string responseJson = System.Text.Json.JsonSerializer.Serialize(response);
+                System.Diagnostics.Debug.WriteLine($"[C#] Sending response to JavaScript:");
+                System.Diagnostics.Debug.WriteLine($"[C#] {responseJson}");
+
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] ✅ HandleEnableAutoPrint COMPLETED");
+                System.Diagnostics.Debug.WriteLine("====================================");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] ❌ HandleEnableAutoPrint FAILED");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Exception: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack Trace: {ex.StackTrace}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+        private async Task HandleDisableAutoPrint(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<ToggleAutoPrintMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Disabling auto-print for trip {message.TripId}");
+
+                bool success = _printJobManager.DisableAutoPrint(message.TripId, message.TripDate);
+
+                var response = new
+                {
+                    action = "autoPrintResponse",
+                    requestId = requestId,
+                    success = success,
+                    message = success ? "Auto-print disabled" : "Failed to disable auto-print"
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Disable auto-print failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // 2. ADD THESE METHODS AT THE END OF Form1 CLASS:
+
+        /// <summary>
+        /// Get all print jobs with actual file status
+        /// </summary>
+        private async Task HandleGetAllPrintJobs(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Getting all print jobs...");
+
+                // Get all print jobs from PrintJobManager
+                var jobs = await PrintJobManager.GetAllPrintJobsAsync();
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Found {jobs.Count} print jobs");
+
+                // Check actual file status for each job
+                foreach (var job in jobs)
+                {
+                    // Check if PDF file actually exists
+                    if (!string.IsNullOrEmpty(job.FilePath) && File.Exists(job.FilePath))
+                    {
+                        // File exists - update status if needed
+                        if (job.Status == PrintJobStatus.Pending ||
+                            job.Status == PrintJobStatus.Failed)
+                        {
+                            job.Status = PrintJobStatus.Completed;
+                        }
+                    }
+                    else
+                    {
+                        // File doesn't exist - clear file path
+                        job.FilePath = null;
+
+                        // If status was completed but file is missing, mark as pending
+                        if (job.Status == PrintJobStatus.Completed)
+                        {
+                            job.Status = PrintJobStatus.Pending;
+                        }
+                    }
+                }
+
+                // Convert to JSON-friendly format
+                var jobsData = jobs.Select(j => new
+                {
+                    orderNumber = j.OrderNumber,
+                    tripId = j.TripId,
+                    tripDate = j.TripDate,
+                    status = j.Status.ToString(),
+                    filePath = j.FilePath ?? "",
+                    errorMessage = j.ErrorMessage ?? "",
+                    createdAt = j.CreatedAt.ToString("o"),
+                    updatedAt = j.UpdatedAt?.ToString("o") ?? ""
+                }).ToList();
+
+                var response = new
+                {
+                    action = "getAllPrintJobsResponse",
+                    requestId = requestId,
+                    success = true,
+                    data = new
+                    {
+                        jobs = jobsData,
+                        count = jobsData.Count
+                    }
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Sent {jobsData.Count} print jobs to UI");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Get all print jobs failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Get PDF file as Base64 for preview
+        /// </summary>
+        private async Task HandleGetPdfAsBase64(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Getting PDF as Base64...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    if (!File.Exists(filePath))
+                    {
+                        throw new FileNotFoundException($"PDF file not found: {filePath}");
+                    }
+
+                    // Read file and convert to Base64
+                    byte[] fileBytes = File.ReadAllBytes(filePath);
+                    string base64String = Convert.ToBase64String(fileBytes);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] PDF size: {fileBytes.Length} bytes");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Base64 length: {base64String.Length} chars");
+
+                    var response = new
+                    {
+                        action = "getPdfAsBase64Response",
+                        requestId = requestId,
+                        success = true,
+                        data = new
+                        {
+                            base64 = base64String,
+                            fileName = Path.GetFileName(filePath),
+                            fileSize = fileBytes.Length
+                        }
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] PDF sent to UI for preview");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Get PDF as Base64 failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Open file location in Windows Explorer
+        /// </summary>
+        private async Task HandleOpenFileInExplorer(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Opening file in Explorer...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    if (!File.Exists(filePath))
+                    {
+                        throw new FileNotFoundException($"File not found: {filePath}");
+                    }
+
+                    // Open Windows Explorer and select the file
+                    System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{filePath}\"");
+
+                    var response = new
+                    {
+                        action = "openFileInExplorerResponse",
+                        requestId = requestId,
+                        success = true,
+                        message = "File location opened in Explorer"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Explorer opened");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Open file in Explorer failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+        private async Task HandleDownloadOrderPdf(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<DownloadPdfMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Downloading PDF for order {message.OrderNumber}");
+
+                var result = await _printJobManager.DownloadSingleOrderAsync(
+                    message.OrderNumber,
+                    message.TripId,
+                    message.TripDate
+                );
+
+                var response = new
+                {
+                    action = "downloadPdfResponse",
+                    requestId = requestId,
+                    success = result.Success,
+                    message = result.Message,
+                    filePath = result.FilePath
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Download PDF failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandlePrintOrder(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<PrintPdfMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Printing order {message.OrderNumber}");
+
+                var result = await _printJobManager.PrintSingleOrderAsync(
+                    message.OrderNumber,
+                    message.TripId,
+                    message.TripDate
+                );
+
+                var response = new
+                {
+                    action = "printOrderResponse",
+                    requestId = requestId,
+                    success = result.Success,
+                    message = result.Success ? "Print job sent" : result.ErrorMessage
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Print order failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleGetPrintJobs(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine($"[C#] ⭐ HandleGetPrintJobs STARTED");
+                System.Diagnostics.Debug.WriteLine($"[C#] RequestId: {requestId}");
+                System.Diagnostics.Debug.WriteLine("====================================");
+
+                var message = System.Text.Json.JsonSerializer.Deserialize<GetPrintJobsMessage>(
+                    messageJson,
+                    new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Message Details:");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - TripId: {message.TripId ?? "NULL"}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - StartDate: {message.StartDate ?? "NULL"}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - EndDate: {message.EndDate ?? "NULL"}");
+
+                List<PrintJob> jobs;
+
+                if (!string.IsNullOrEmpty(message.TripId))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] Getting jobs for specific trip: {message.TripId}");
+                    jobs = _storageManager.GetTripPrintJobs(message.StartDate, message.TripId);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] Getting ALL print jobs");
+                    DateTime? startDate = string.IsNullOrEmpty(message.StartDate) ? null : DateTime.Parse(message.StartDate);
+                    DateTime? endDate = string.IsNullOrEmpty(message.EndDate) ? null : DateTime.Parse(message.EndDate);
+                    jobs = _storageManager.GetAllPrintJobs(startDate, endDate);
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Retrieved {jobs.Count} print jobs");
+
+                if (jobs.Count > 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sample jobs:");
+                    foreach (var job in jobs.Take(3))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#]   - Order: {job.OrderNumber}, Trip: {job.TripId}, Date: {job.TripDate}, Status: {job.DownloadStatus}");
+                    }
+                }
+
+                var stats = _storageManager.GetPrintJobStats();
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Print Job Stats:");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Total: {stats.TotalJobs}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Pending Download: {stats.PendingDownload}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Completed: {stats.DownloadCompleted}");
+
+                var response = new
+                {
+                    action = "printJobsResponse",
+                    requestId = requestId,
+                    success = true,
+                    data = new
+                    {
+                        jobs = jobs,
+                        stats = stats
+                    }
+                };
+
+                string responseJson = System.Text.Json.JsonSerializer.Serialize(response);
+                System.Diagnostics.Debug.WriteLine($"[C#] Sending response with {jobs.Count} jobs to JavaScript");
+
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] ✅ HandleGetPrintJobs COMPLETED");
+                System.Diagnostics.Debug.WriteLine("====================================");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] ❌ HandleGetPrintJobs FAILED");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Exception: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack Trace: {ex.StackTrace}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+        private async Task HandleRetryFailedJobs(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<GetPrintJobsMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Retrying failed jobs for trip {message.TripId}");
+
+                var result = await _printJobManager.RetryFailedJobsAsync(message.TripId, message.StartDate);
+
+                var response = new
+                {
+                    action = "retryJobsResponse",
+                    requestId = requestId,
+                    success = result.Success,
+                    message = result.Message,
+                    retriedCount = result.RetriedCount
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Retry failed jobs error: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleConfigurePrinter(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<ConfigurePrinterMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Configuring printer: {message.Config.PrinterName}");
+
+                bool success = _storageManager.SavePrinterConfig(message.Config);
+
+                var response = new
+                {
+                    action = "configurePrinterResponse",
+                    requestId = requestId,
+                    success = success,
+                    message = success ? "Printer configuration saved" : "Failed to save configuration"
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Configure printer failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleGetPrinterConfig(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Getting printer configuration");
+
+                var config = _storageManager.LoadPrinterConfig();
+
+                var response = new
+                {
+                    action = "printerConfigResponse",
+                    requestId = requestId,
+                    success = true,
+                    data = config
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Get printer config failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleGetInstalledPrinters(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Getting installed printers");
+
+                var printers = _printerService.GetInstalledPrinters();
+                var defaultPrinter = _printerService.GetDefaultPrinter();
+
+                var response = new
+                {
+                    action = "installedPrintersResponse",
+                    requestId = requestId,
+                    success = true,
+                    data = new
+                    {
+                        printers = printers,
+                        defaultPrinter = defaultPrinter
+                    }
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Found {printers.Count} printers");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Get printers failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleTestPrinter(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string printerName = root.GetProperty("printerName").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Testing printer: {printerName}");
+
+                    var result = await _printerService.TestPrinterAsync(printerName);
+
+                    var response = new
+                    {
+                        action = "testPrinterResponse",
+                        requestId = requestId,
+                        success = result.Success,
+                        message = result.Message,
+                        data = result
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Test printer failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private void SendErrorResponse(WebView2 wv, string requestId, string errorMessage)
+        {
+            var errorResponse = new
+            {
+                action = "error",
+                requestId = requestId,
+                success = false,
+                message = errorMessage
+            };
+
+            string errorJson = JsonSerializer.Serialize(errorResponse);
+            wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+        }
+
+        // ========== NAVIGATION METHODS ==========
+
+        private WebView2 GetCurrentWebView()
+        {
+            foreach (Control ctrl in tabBar.Controls)
+            {
+                if (ctrl is CustomTabButton tab && tab.IsSelected)
+                    return tab.WebView;
+            }
+            return null;
+        }
+
+        private CustomTabButton GetCurrentTab()
+        {
+            foreach (Control ctrl in tabBar.Controls)
+            {
+                if (ctrl is CustomTabButton tab && tab.IsSelected)
+                    return tab;
+            }
+            return null;
+        }
+
+        private void BackButton_Click(object sender, EventArgs e)
+        {
+            var wv = GetCurrentWebView();
+            if (wv?.CoreWebView2 != null && wv.CoreWebView2.CanGoBack)
+            {
+                wv.CoreWebView2.GoBack();
+            }
+        }
+
+        private void ForwardButton_Click(object sender, EventArgs e)
+        {
+            var wv = GetCurrentWebView();
+            if (wv?.CoreWebView2 != null && wv.CoreWebView2.CanGoForward)
+            {
+                wv.CoreWebView2.GoForward();
+            }
+        }
+
+        private void RefreshButton_Click(object sender, EventArgs e)
+        {
+            var wv = GetCurrentWebView();
+            wv?.CoreWebView2?.Reload();
+        }
+
+        private async void ClearCacheButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                var wv = GetCurrentWebView();
+                if (wv?.CoreWebView2 != null)
+                {
+                    var result = MessageBox.Show(
+                        "Clear browser cache and reload?\n\nThis will refresh all pages and clear cached files.",
+                        "Clear Cache",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        // Clear all browsing data
+                        await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                            CoreWebView2BrowsingDataKinds.AllDomStorage |
+                            CoreWebView2BrowsingDataKinds.CacheStorage |
+                            CoreWebView2BrowsingDataKinds.DiskCache |
+                            CoreWebView2BrowsingDataKinds.IndexedDb |
+                            CoreWebView2BrowsingDataKinds.LocalStorage |
+                            CoreWebView2BrowsingDataKinds.WebSql
+                        );
+
+                        // Reload the page
+                        wv.Reload();
+
+                        MessageBox.Show(
+                            "✓ Cache cleared successfully!\n\nPage is reloading...",
+                            "Success",
+                            MessageBoxButtons.OK,
+                            MessageBoxIcon.Information);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Error clearing cache:\n\n{ex.Message}",
+                    "Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+        }
+
+        private void HomeButton_Click(object sender, EventArgs e)
+        {
+            Navigate("https://www.google.com");
+        }
+
+        private void OpenFileButton_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog openFileDialog = new OpenFileDialog())
+            {
+                openFileDialog.Filter = "HTML Files (*.html;*.htm)|*.html;*.htm|All Files (*.*)|*.*";
+                openFileDialog.Title = "Open HTML File";
+
+                if (openFileDialog.ShowDialog() == DialogResult.OK)
+                {
+                    string filePath = openFileDialog.FileName;
+                    Navigate("file:///" + filePath.Replace("\\", "/"));
+                }
+            }
+        }
+
+        private void FavoriteButton_Click(object sender, EventArgs e)
+        {
+            if (favoriteButton.Text == "☆")
+            {
+                favoriteButton.Text = "★";
+                favoriteButton.ForeColor = Color.FromArgb(255, 200, 0);
+                MessageBox.Show("Added to favorites!", "Favorites", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            else
+            {
+                favoriteButton.Text = "☆";
+                favoriteButton.ForeColor = Color.Gray;
+                MessageBox.Show("Removed from favorites!", "Favorites", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+
+        private void ProfileButton_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("Profile settings", "Profile", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void CopilotButton_Click(object sender, EventArgs e)
+        {
+            MessageBox.Show("Ask Copilot feature coming soon!", "Copilot", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void UrlTextBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Enter)
+            {
+                Navigate(urlTextBox.Text);
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+            }
+            else if (e.Control && e.KeyCode == Keys.T)
+            {
+                AddNewTab("https://www.google.com");
+                e.Handled = true;
+            }
+            else if (e.Control && e.KeyCode == Keys.W)
+            {
+                var currentTab = GetCurrentTab();
+                if (currentTab != null)
+                    TabButton_CloseClicked(currentTab, EventArgs.Empty);
+                e.Handled = true;
+            }
+            else if (e.Control && e.KeyCode == Keys.O)
+            {
+                OpenFileButton_Click(sender, e);
+                e.Handled = true;
+            }
+        }
+
+        private void Navigate(string url)
+        {
+            var wv = GetCurrentWebView();
+            if (wv?.CoreWebView2 != null)
+            {
+                if (url.StartsWith("file:///") || url.StartsWith("file://"))
+                {
+                    try
+                    {
+                        wv.Source = new Uri(url);
+                    }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show($"Error loading file: {ex.Message}", "Error",
+                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                    return;
+                }
+
+                if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+                {
+                    url = "https://" + url;
+                }
+
+                try
+                {
+                    wv.Source = new Uri(url);
+                }
+                catch
+                {
+                    wv.Source = new Uri("https://www.google.com/search?q=" + Uri.EscapeDataString(url));
+                }
+            }
+        }
+
+        private void CoreWebView2_NavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs e)
+        {
+            urlTextBox.Text = e.Uri;
+            UpdateSecurityIcon(GetCurrentWebView());
+        }
+
+        private void CoreWebView2_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        {
+            var wv = sender as CoreWebView2;
+            if (wv != null)
+            {
+                urlTextBox.Text = wv.Source;
+
+                var currentTab = GetCurrentTab();
+                if (currentTab != null)
+                {
+                    string title = wv.DocumentTitle;
+                    if (string.IsNullOrEmpty(title))
+                        title = "New Tab";
+                    else if (title.Length > 20)
+                        title = title.Substring(0, 20) + "...";
+
+                    currentTab.TabText = title;
+                }
+
+                UpdateNavigationButtons(GetCurrentWebView());
+                UpdateSecurityIcon(GetCurrentWebView());
+            }
+        }
+
+        private void UpdateNavigationButtons(WebView2 wv)
+        {
+            if (wv?.CoreWebView2 != null)
+            {
+                backButton.Enabled = wv.CoreWebView2.CanGoBack;
+                forwardButton.Enabled = wv.CoreWebView2.CanGoForward;
+            }
+        }
+
+        private void UpdateSecurityIcon(WebView2 wv)
+        {
+            if (wv?.CoreWebView2 != null)
+            {
+                string url = wv.Source?.ToString() ?? "";
+                if (url.StartsWith("https://"))
+                {
+                    securityIcon.Text = "🔒";
+                    securityIcon.ForeColor = Color.Green;
+                }
+                else if (url.StartsWith("http://"))
+                {
+                    securityIcon.Text = "⚠️";
+                    securityIcon.ForeColor = Color.Orange;
+                }
+                else if (url.StartsWith("file://"))
+                {
+                    securityIcon.Text = "📄";
+                    securityIcon.ForeColor = Color.Blue;
+                }
+                else
+                {
+                    securityIcon.Text = "ℹ️";
+                    securityIcon.ForeColor = Color.Gray;
+                }
+            }
+        }
+
+        private void CoreWebView2_NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e)
+        {
+            e.Handled = true;
+            AddNewTab(e.Uri);
+        }
+
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        {
+            if (keyData == (Keys.Control | Keys.T))
+            {
+                AddNewTab("https://www.google.com");
+                return true;
+            }
+            else if (keyData == (Keys.Control | Keys.W))
+            {
+                var currentTab = GetCurrentTab();
+                if (currentTab != null)
+                    TabButton_CloseClicked(currentTab, EventArgs.Empty);
+                return true;
+            }
+            else if (keyData == (Keys.Control | Keys.O))
+            {
+                OpenFileButton_Click(null, EventArgs.Empty);
+                return true;
+            }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+    }
+
+    // ========== CUSTOM TAB BUTTON ==========
+    public class CustomTabButton : Control
+    {
+        private string tabText = "New Tab";
+        private bool isSelected = false;
+        private bool closeHover = false;
+        private Rectangle closeRect;
+        public WebView2 WebView { get; set; }
+        public event EventHandler CloseClicked;
+
+        public string TabText
+        {
+            get => tabText;
+            set
+            {
+                tabText = value;
+                Invalidate();
+            }
+        }
+
+        public bool IsSelected
+        {
+            get => isSelected;
+            set
+            {
+                isSelected = value;
+                Invalidate();
+            }
+        }
+
+        public CustomTabButton()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+            Cursor = Cursors.Hand;
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            base.OnPaint(e);
+
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+            using (SolidBrush brush = new SolidBrush(BackColor))
+            {
+                e.Graphics.FillRectangle(brush, ClientRectangle);
+            }
+
+            Rectangle iconRect = new Rectangle(8, 6, 16, 16);
+            using (Pen pen = new Pen(Color.LightGray, 1.5f))
+            {
+                e.Graphics.DrawEllipse(pen, iconRect);
+            }
+
+            Rectangle textRect = new Rectangle(30, 0, Width - 60, Height);
+            using (SolidBrush textBrush = new SolidBrush(ForeColor))
+            {
+                StringFormat sf = new StringFormat
+                {
+                    Alignment = StringAlignment.Near,
+                    LineAlignment = StringAlignment.Center,
+                    Trimming = StringTrimming.EllipsisCharacter
+                };
+                e.Graphics.DrawString(tabText, new Font("Segoe UI", 9), textBrush, textRect, sf);
+            }
+
+            closeRect = new Rectangle(Width - 22, 6, 16, 16);
+            Color closeColor = closeHover ? Color.Red : Color.LightGray;
+            using (Pen closePen = new Pen(closeColor, 2))
+            {
+                e.Graphics.DrawLine(closePen, closeRect.Left + 3, closeRect.Top + 3,
+                                   closeRect.Right - 3, closeRect.Bottom - 3);
+                e.Graphics.DrawLine(closePen, closeRect.Right - 3, closeRect.Top + 3,
+                                   closeRect.Left + 3, closeRect.Bottom - 3);
+            }
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            bool wasHover = closeHover;
+            closeHover = closeRect.Contains(e.Location);
+            if (wasHover != closeHover)
+                Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e)
+        {
+            base.OnMouseLeave(e);
+            closeHover = false;
+            Invalidate();
+        }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (closeRect.Contains(e.Location))
+            {
+                CloseClicked?.Invoke(this, EventArgs.Empty);
+            }
+        }
+    }
+
+    // ========== MESSAGE CLASSES ==========
+    // ========== MESSAGE CLASSES ==========
+    public class RestApiWebMessage
+    {
+        [JsonPropertyName("action")]
+        public string Action { get; set; }
+
+        [JsonPropertyName("requestId")]
+        public string RequestId { get; set; }
+
+        [JsonPropertyName("fullUrl")]
+        public string FullUrl { get; set; }
+    }
+
+}
