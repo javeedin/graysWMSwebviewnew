@@ -528,7 +528,10 @@ function displayPrintJobsGrid(jobs) {
                     icon: 'refresh',
                     text: 'Refresh',
                     onClick: function() {
-                        loadPrintJobs();
+                        // OLD: loadPrintJobs(); - Now uses APEX REST API
+                        if (typeof loadMonitoringTrips === 'function') {
+                            loadMonitoringTrips();
+                        }
                     }
                 }
             });
@@ -699,44 +702,30 @@ async function retryAllFailedJobs() {
     for (const job of failedJobs) {
         await downloadOrderPdf(job.orderNumber, job.tripId, job.tripDate);
     }
-    
+
     setTimeout(() => {
-        loadPrintJobs();
+        // OLD: loadPrintJobs(); - Now uses APEX REST API
+        if (typeof loadMonitoringTrips === 'function') {
+            loadMonitoringTrips();
+        }
         showNotification('Retry completed', 'success');
     }, 2000);
 }
 
 // ============================================================
-// Initialize on page load
+// Monitor Printing Page Navigation (REMOVED OLD AUTO-LOAD)
 // ============================================================
 
-// Auto-refresh every 30 seconds when on monitor printing page
-let monitorRefreshInterval = null;
+// NOTE: Monitor Printing now uses manual "Load Trips" button
+// The old auto-refresh has been removed to avoid conflicts
+// with the new APEX REST API in monitor-printing.js
 
 document.querySelectorAll('.menu-item').forEach(item => {
     item.addEventListener('click', function() {
         const page = this.getAttribute('data-page');
-        
-        if (page === 'monitor-printing') {
-            // Load print jobs when page opens
-            setTimeout(() => {
-                loadPrintJobs();
-            }, 100);
-            
-            // Start auto-refresh
-            if (monitorRefreshInterval) {
-                clearInterval(monitorRefreshInterval);
-            }
-            monitorRefreshInterval = setInterval(() => {
-                loadPrintJobs();
-            }, 30000); // 30 seconds
-        } else {
-            // Stop auto-refresh when leaving page
-            if (monitorRefreshInterval) {
-                clearInterval(monitorRefreshInterval);
-                monitorRefreshInterval = null;
-            }
-        }
+
+        // Removed old auto-load for monitor-printing
+        // User must now click "Load Trips" button manually
     });
 });
 
@@ -890,12 +879,9 @@ function toggleAutoPrint(tripId, tripDate, enabled, orders) {
                 statusDiv.style.borderLeft = '3px solid #28a745';
                 statusDiv.innerHTML = `✅ Enabled for ${orders.length} orders`;
             }
-            
-            const monitorPage = document.getElementById('monitor-printing');
-            if (monitorPage && monitorPage.style.display !== 'none') {
-                console.log('[JS] 🔄 Refreshing Monitor Printing...');
-                loadPrintJobs();
-            }
+
+            // Removed auto-refresh of monitor printing
+            // User must manually click "Load Trips" to refresh
         } else {
             if (statusDiv) {
                 statusDiv.style.display = 'none';
@@ -985,9 +971,11 @@ function updateAutoPrintStatus(tripId, tripDate, status) {
 // PRINT MANAGEMENT FUNCTIONS
 // ========================================
 
+// OLD FUNCTION - COMMENTED OUT - Now using APEX REST API in monitor-printing.js
+/*
 window.loadPrintJobs = function() {
     console.log('[JS] 🔄 Loading print jobs...');
-    
+
     sendMessageToCSharp({
         action: 'getPrintJobs',
         tripId: '',
@@ -998,10 +986,10 @@ window.loadPrintJobs = function() {
             console.error('[JS] ❌ Failed to load jobs:', error);
             return;
         }
-        
+
         console.log('[JS] ✅ Jobs loaded:', response);
         console.log('[JS] 📋 Raw jobs data:', response?.data?.jobs);
-        
+
         if (response && response.data) {
             const stats = response.data.stats || {};
             document.getElementById('stat-total-jobs').textContent = stats.totalJobs || 0;
@@ -1010,11 +998,11 @@ window.loadPrintJobs = function() {
             document.getElementById('stat-pending-print').textContent = stats.pendingPrint || 0;
             document.getElementById('stat-printed').textContent = stats.printed || 0;
             document.getElementById('stat-failed').textContent = (stats.downloadFailed || 0) + (stats.printFailed || 0);
-            
+
             // 🔧 FIX: Map C# field names to JavaScript grid column names
             const jobs = (response.data.jobs || []).map(job => {
                 console.log('[JS] 🔍 Original job:', job);
-                
+
                 const mappedJob = {
                     // Try both PascalCase and camelCase field names
                     orderNumber: job.orderNumber || job.OrderNumber || job.ORDER_NUMBER || '',
@@ -1026,13 +1014,13 @@ window.loadPrintJobs = function() {
                     printStatus: job.printStatus || job.PrintStatus || job.PRINT_STATUS || 'Pending',
                     pdfPath: job.pdfPath || job.PdfPath || job.PDF_PATH || ''
                 };
-                
+
                 console.log('[JS] ✅ Mapped job:', mappedJob);
                 return mappedJob;
             });
-            
+
             console.log('[JS] 📊 Total mapped jobs:', jobs.length);
-            
+
             const gridInstance = $('#print-jobs-grid').dxDataGrid('instance');
             if (gridInstance) {
                 gridInstance.option('dataSource', jobs);
@@ -1041,6 +1029,7 @@ window.loadPrintJobs = function() {
         }
     });
 };
+*/
 
 window.downloadOrderPdf = function(job) {
     console.log('[JS] 📥 Downloading PDF:', job.orderNumber);
@@ -1056,7 +1045,10 @@ window.downloadOrderPdf = function(job) {
             return;
         }
         alert('✓ PDF downloaded successfully!');
-        loadPrintJobs();
+        // OLD: loadPrintJobs(); - Now uses APEX REST API
+        if (typeof loadMonitoringTrips === 'function') {
+            loadMonitoringTrips();
+        }
     });
 };
 
@@ -1074,7 +1066,10 @@ window.printOrder = function(job) {
             return;
         }
         alert('✓ Print job sent!');
-        loadPrintJobs();
+        // OLD: loadPrintJobs(); - Now uses APEX REST API
+        if (typeof loadMonitoringTrips === 'function') {
+            loadMonitoringTrips();
+        }
     });
 };
 
@@ -1336,8 +1331,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (pageId === 'vehicles' && currentFullData.length > 0) {
                 initVehiclesPage();
             } else if (pageId === 'monitor-printing') {
-                loadPrintJobs();
-                initPrintJobsGrid();
+                // Removed old loadPrintJobs() - now uses monitor-printing.js
+                // User must click "Load Trips" button to load from APEX REST API
             } else if (pageId === 'printer-setup') {
                 loadInstalledPrinters();
                 loadPrinterConfiguration();

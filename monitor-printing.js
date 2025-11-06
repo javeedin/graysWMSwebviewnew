@@ -105,14 +105,16 @@ window.confirmPrinterSelection = async function() {
 
     try {
         console.log('[Monitor] Enabling auto-print with printer:', selectedPrinter?.printerName);
+        console.log('[Monitor] Orders to save:', currentTripForPrinterSelection.orders);
 
-        // Call APEX API to save the trip with selected printer
+        // Call APEX API to save the trip with selected printer AND order details
         const response = await callApexAPINew('/monitor-printing/enable', 'POST', {
             tripId: currentTripForPrinterSelection.tripId,
             tripDate: currentTripForPrinterSelection.tripDate,
             orderCount: currentTripForPrinterSelection.orderCount,
             printerConfigId: printerConfigId,
-            printerName: selectedPrinter?.printerName || 'Unknown'
+            printerName: selectedPrinter?.printerName || 'Unknown',
+            orders: currentTripForPrinterSelection.orders  // ✅ Include order details
         });
 
         console.log('[Monitor] Auto-print enabled successfully:', response);

@@ -200,8 +200,16 @@ DECLARE
     v_printer_config_id NUMBER;
     v_printer_name VARCHAR2(200);
     v_result VARCHAR2(500);
+    l_body BLOB;
+    v_body CLOB;
 BEGIN
+    -- Read request body (ORDS 20.x+)
+    l_body := :body;
+    v_body := UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(l_body, 32000, 1));
+
     -- Parse JSON body
+    APEX_JSON.parse(v_body);
+
     v_trip_id := APEX_JSON.get_varchar2(p_path => 'tripId');
     v_trip_date := APEX_JSON.get_varchar2(p_path => 'tripDate');
     v_order_count := APEX_JSON.get_number(p_path => 'orderCount');
@@ -222,8 +230,11 @@ BEGIN
     IF v_result = 'SUCCESS' THEN
         HTP.p('{"success":true,"message":"Auto-print enabled successfully"}');
     ELSE
-        HTP.p('{"success":false,"message":"' || REPLACE(v_result, '"', '\"') || '"}');
+        HTP.p('{"success":false,"error":"' || REPLACE(v_result, '"', '\"') || '"}');
     END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        HTP.p('{"success":false,"error":"' || REPLACE(SQLERRM, '"', '\"') || '"}');
 END;
 
 -- ----------------------------------------------------------------------------
@@ -237,8 +248,16 @@ DECLARE
     v_trip_id VARCHAR2(100);
     v_trip_date VARCHAR2(20);
     v_result VARCHAR2(500);
+    l_body BLOB;
+    v_body CLOB;
 BEGIN
+    -- Read request body (ORDS 20.x+)
+    l_body := :body;
+    v_body := UTL_RAW.CAST_TO_VARCHAR2(DBMS_LOB.SUBSTR(l_body, 32000, 1));
+
     -- Parse JSON body
+    APEX_JSON.parse(v_body);
+
     v_trip_id := APEX_JSON.get_varchar2(p_path => 'tripId');
     v_trip_date := APEX_JSON.get_varchar2(p_path => 'tripDate');
 
@@ -253,8 +272,11 @@ BEGIN
     IF v_result = 'SUCCESS' THEN
         HTP.p('{"success":true,"message":"Auto-print disabled successfully"}');
     ELSE
-        HTP.p('{"success":false,"message":"' || REPLACE(v_result, '"', '\"') || '"}');
+        HTP.p('{"success":false,"error":"' || REPLACE(v_result, '"', '\"') || '"}');
     END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        HTP.p('{"success":false,"error":"' || REPLACE(SQLERRM, '"', '\"') || '"}');
 END;
 
 -- ----------------------------------------------------------------------------

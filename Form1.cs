@@ -1016,11 +1016,13 @@ namespace WMSApp
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    httpClient.Timeout = TimeSpan.FromSeconds(60);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Making GET request to: {message.FullUrl}");
+
                     var response = await httpClient.GetAsync(message.FullUrl);
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}, Length: {responseContent.Length}");
 
                     var resultMessage = new
                     {
