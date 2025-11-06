@@ -274,15 +274,46 @@
         </div>
     </div>
 
-    <!-- Monitoring Trips Grid -->
+    <!-- Tabs for Trips and Trip Details -->
     <div class="grid-container">
-        <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
-            <div class="grid-title">Monitored Trips</div>
-            <div style="display: flex; gap: 1rem; align-items: center;">
-                <div id="filtered-count" style="color: #666; font-size: 14px;">0 trips</div>
+        <div class="grid-header" style="padding: 0;">
+            <div id="monitor-tab-header" class="tab-header" style="width: 100%;">
+                <div class="tab-item active" data-tab="trips">
+                    <span>Trips</span>
+                </div>
+                <div class="tab-item" data-tab="trip-details">
+                    <span>Trip Details</span>
+                </div>
             </div>
         </div>
-        <div id="print-jobs-grid" style="height: 600px;"></div>
+        <div id="monitor-tab-content" class="tab-content">
+            <!-- Tab 1: Trips List -->
+            <div id="monitor-trips-tab" class="tab-pane active">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title">Monitored Trips</div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="filtered-count" style="color: #666; font-size: 14px;">0 trips</div>
+                    </div>
+                </div>
+                <div id="print-jobs-grid" style="height: 600px;"></div>
+            </div>
+
+            <!-- Tab 2: Trip Details (Orders) -->
+            <div id="monitor-trip-details-tab" class="tab-pane">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title">
+                        <span id="trip-details-title">Trip Details</span>
+                        <button class="btn btn-secondary" onclick="backToTripsTab()" style="margin-left: 1rem; font-size: 12px; padding: 4px 12px;">
+                            <i class="fas fa-arrow-left"></i> Back to Trips
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="orders-count" style="color: #666; font-size: 14px;">0 orders</div>
+                    </div>
+                </div>
+                <div id="trip-orders-grid" style="height: 600px;"></div>
+            </div>
+        </div>
     </div>
 </div>
 

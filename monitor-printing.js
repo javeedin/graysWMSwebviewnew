@@ -324,7 +324,7 @@ function initializeMonitoringGrid() {
             },
             {
                 caption: 'Actions',
-                width: 120,
+                width: 180,
                 cellTemplate: function(container, options) {
                     const data = options.data;
 
@@ -333,6 +333,16 @@ function initializeMonitoringGrid() {
                         gap: '4px',
                         justifyContent: 'center'
                     });
+
+                    // View Details button
+                    const detailsBtn = $('<button>')
+                        .addClass('btn btn-sm btn-primary')
+                        .css({ fontSize: '11px', padding: '4px 8px' })
+                        .html('<i class="fas fa-eye"></i> Details')
+                        .attr('title', 'View Trip Details')
+                        .on('click', function() {
+                            viewTripDetails(data);
+                        });
 
                     // Disable button
                     const disableBtn = $('<button>')
@@ -344,6 +354,7 @@ function initializeMonitoringGrid() {
                             disableMonitoringTrip(data.tripId, data.tripDate);
                         });
 
+                    btnContainer.append(detailsBtn);
                     btnContainer.append(disableBtn);
                     container.append(btnContainer);
                 }
@@ -392,6 +403,256 @@ async function disableMonitoringTrip(tripId, tripDate) {
 }
 
 // ============================================================================
+// TAB SWITCHING
+// ============================================================================
+
+let currentTripDetails = null;
+let tripOrdersGrid = null;
+
+function switchMonitorTab(tabName) {
+    console.log('[Monitor] Switching to tab:', tabName);
+
+    // Update tab headers
+    const tabItems = document.querySelectorAll('#monitor-tab-header .tab-item');
+    tabItems.forEach(item => {
+        if (item.getAttribute('data-tab') === tabName) {
+            item.classList.add('active');
+        } else {
+            item.classList.remove('active');
+        }
+    });
+
+    // Update tab content
+    const tripPane = document.getElementById('monitor-trips-tab');
+    const detailsPane = document.getElementById('monitor-trip-details-tab');
+
+    if (tabName === 'trips') {
+        tripPane.classList.add('active');
+        detailsPane.classList.remove('active');
+    } else if (tabName === 'trip-details') {
+        tripPane.classList.remove('active');
+        detailsPane.classList.add('active');
+    }
+}
+
+window.backToTripsTab = function() {
+    switchMonitorTab('trips');
+};
+
+// ============================================================================
+// TRIP DETAILS - ORDER LEVEL
+// ============================================================================
+
+async function viewTripDetails(tripData) {
+    console.log('[Monitor] Loading trip details for:', tripData.tripId);
+
+    currentTripDetails = tripData;
+
+    // Update title
+    document.getElementById('trip-details-title').innerHTML = `
+        <i class="fas fa-box"></i> Trip Details: ${tripData.tripId} (${tripData.tripDate})
+    `;
+
+    // Switch to details tab
+    switchMonitorTab('trip-details');
+
+    // Show loading
+    document.getElementById('orders-count').textContent = 'Loading...';
+
+    try {
+        // Call APEX API to get order details
+        const data = await callApexAPINew(`/monitor-printing/orders?monitorId=${tripData.monitorId}`, 'GET');
+
+        const orders = data.items || [];
+        console.log('[Monitor] Loaded', orders.length, 'orders for trip', tripData.tripId);
+
+        // Update count
+        document.getElementById('orders-count').textContent = `${orders.length} order${orders.length !== 1 ? 's' : ''}`;
+
+        // Initialize or update grid
+        if (!tripOrdersGrid) {
+            initializeTripOrdersGrid(orders);
+        } else {
+            updateTripOrdersGrid(orders);
+        }
+
+    } catch (error) {
+        console.error('[Monitor] Failed to load trip details:', error);
+        document.getElementById('orders-count').textContent = 'Error loading orders';
+        alert('Failed to load trip details: ' + error.message);
+    }
+}
+
+function initializeTripOrdersGrid(orders) {
+    tripOrdersGrid = $('#trip-orders-grid').dxDataGrid({
+        dataSource: orders,
+        showBorders: true,
+        showRowLines: true,
+        rowAlternationEnabled: true,
+        columnAutoWidth: true,
+        wordWrapEnabled: false,
+        allowColumnResizing: true,
+        columnResizingMode: 'widget',
+        hoverStateEnabled: true,
+        paging: {
+            pageSize: 50
+        },
+        pager: {
+            visible: true,
+            showPageSizeSelector: true,
+            allowedPageSizes: [25, 50, 100, 200],
+            showInfo: true
+        },
+        searchPanel: {
+            visible: true,
+            width: 240,
+            placeholder: 'Search orders...'
+        },
+        headerFilter: {
+            visible: true
+        },
+        filterRow: {
+            visible: true
+        },
+        export: {
+            enabled: true,
+            fileName: `Trip_${currentTripDetails?.tripId}_Orders`
+        },
+        columns: [
+            {
+                dataField: 'orderNumber',
+                caption: 'Order Number',
+                width: 140,
+                fixed: true
+            },
+            {
+                dataField: 'customerName',
+                caption: 'Customer Name',
+                width: 200
+            },
+            {
+                dataField: 'accountNumber',
+                caption: 'Account Number',
+                width: 140
+            },
+            {
+                dataField: 'orderDate',
+                caption: 'Order Date',
+                dataType: 'date',
+                format: 'yyyy-MM-dd',
+                width: 120
+            },
+            {
+                dataField: 'pdfStatus',
+                caption: 'PDF Status',
+                width: 140,
+                cellTemplate: function(container, options) {
+                    const status = options.value || 'PENDING';
+                    let badge = '';
+
+                    switch (status) {
+                        case 'PENDING':
+                            badge = '<span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">⏳ Pending</span>';
+                            break;
+                        case 'DOWNLOADING':
+                            badge = '<span style="background: #dbeafe; color: #1e40af; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">📥 Downloading</span>';
+                            break;
+                        case 'DOWNLOADED':
+                            badge = '<span style="background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">✅ Downloaded</span>';
+                            break;
+                        case 'FAILED':
+                            badge = '<span style="background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">❌ Failed</span>';
+                            break;
+                        default:
+                            badge = `<span style="background: #f3f4f6; color: #374151; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">${status}</span>`;
+                    }
+
+                    container.append(badge);
+                }
+            },
+            {
+                dataField: 'printStatus',
+                caption: 'Print Status',
+                width: 140,
+                cellTemplate: function(container, options) {
+                    const status = options.value || 'PENDING';
+                    let badge = '';
+
+                    switch (status) {
+                        case 'PENDING':
+                            badge = '<span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">⏳ Pending</span>';
+                            break;
+                        case 'PRINTING':
+                            badge = '<span style="background: #e0e7ff; color: #3730a3; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">🖨️ Printing</span>';
+                            break;
+                        case 'PRINTED':
+                            badge = '<span style="background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">✅ Printed</span>';
+                            break;
+                        case 'FAILED':
+                            badge = '<span style="background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">❌ Failed</span>';
+                            break;
+                        default:
+                            badge = `<span style="background: #f3f4f6; color: #374151; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">${status}</span>`;
+                    }
+
+                    container.append(badge);
+                }
+            },
+            {
+                dataField: 'pdfPath',
+                caption: 'PDF Path',
+                width: 200,
+                visible: false
+            },
+            {
+                dataField: 'downloadAttempts',
+                caption: 'Download Attempts',
+                width: 120,
+                alignment: 'center'
+            },
+            {
+                dataField: 'printAttempts',
+                caption: 'Print Attempts',
+                width: 120,
+                alignment: 'center'
+            },
+            {
+                dataField: 'lastError',
+                caption: 'Last Error',
+                width: 250,
+                cellTemplate: function(container, options) {
+                    const error = options.value;
+                    if (error) {
+                        container.append(
+                            $('<span>')
+                                .css({ color: '#dc3545', fontSize: '12px' })
+                                .text(error)
+                                .attr('title', error)
+                        );
+                    } else {
+                        container.append('-');
+                    }
+                }
+            },
+            {
+                dataField: 'lastUpdated',
+                caption: 'Last Updated',
+                dataType: 'datetime',
+                format: 'yyyy-MM-dd HH:mm',
+                width: 150
+            }
+        ]
+    });
+}
+
+function updateTripOrdersGrid(orders) {
+    if (tripOrdersGrid) {
+        tripOrdersGrid.dxDataGrid('instance').option('dataSource', orders);
+        tripOrdersGrid.dxDataGrid('instance').refresh();
+    }
+}
+
+// ============================================================================
 // INITIALIZATION
 // ============================================================================
 
@@ -422,6 +683,24 @@ window.addEventListener('DOMContentLoaded', function() {
             icon.classList.toggle('collapsed');
         });
     }
+
+    // Setup tab switching for monitor tabs
+    const monitorTabItems = document.querySelectorAll('#monitor-tab-header .tab-item');
+    monitorTabItems.forEach(item => {
+        item.addEventListener('click', function() {
+            const tabName = this.getAttribute('data-tab');
+            if (tabName === 'trips') {
+                switchMonitorTab('trips');
+            } else if (tabName === 'trip-details') {
+                // Only allow switching to trip-details if we have data
+                if (currentTripDetails) {
+                    switchMonitorTab('trip-details');
+                } else {
+                    alert('Please select a trip first to view details');
+                }
+            }
+        });
+    });
 });
 
 console.log('[Monitor] monitor-printing.js loaded');
