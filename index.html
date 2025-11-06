@@ -9,6 +9,13 @@
     <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
     <link rel="stylesheet" href="styles.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        // DevExpress License Configuration
+        // Account: jshaik@grays.mu
+        // To get your license key: https://js.devexpress.com/Licensing/
+        // Uncomment and add your license key below:
+        // DevExpress.config({ licenseKey: "YOUR_LICENSE_KEY_HERE" });
+    </script>
     <script src="https://cdn3.devexpress.com/jslib/23.2.6/js/dx.all.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
@@ -235,74 +242,44 @@
                     <i class="fas fa-sync-alt" id="monitor-fetch-icon"></i>
                     <span id="monitor-fetch-text">Load Trips</span>
                 </button>
-                <button class="btn btn-secondary" onclick="retryAllFailedJobs()" style="height: 34px;">
-                    <i class="fas fa-redo"></i> Retry Failed
-                </button>
             </div>
         </div>
     </div>
 
     <!-- Statistics Cards -->
     <div class="print-stats-grid">
-        <div class="print-stat-card" onclick="filterByStatus('all')">
+        <div class="print-stat-card">
             <div class="print-stat-value" id="stat-total-jobs">0</div>
             <div class="print-stat-label">Total Jobs</div>
         </div>
-        <div class="print-stat-card" onclick="filterByStatus('pending')">
+        <div class="print-stat-card">
             <div class="print-stat-value" id="stat-pending-download">0</div>
             <div class="print-stat-label">Pending Download</div>
         </div>
-        <div class="print-stat-card" onclick="filterByStatus('downloaded')">
+        <div class="print-stat-card">
             <div class="print-stat-value" id="stat-completed-download">0</div>
             <div class="print-stat-label">Downloaded</div>
         </div>
-        <div class="print-stat-card" onclick="filterByStatus('printing')">
+        <div class="print-stat-card">
             <div class="print-stat-value" id="stat-pending-print">0</div>
             <div class="print-stat-label">Pending Print</div>
         </div>
-        <div class="print-stat-card" onclick="filterByStatus('completed')">
+        <div class="print-stat-card">
             <div class="print-stat-value" id="stat-printed">0</div>
             <div class="print-stat-label">Printed</div>
         </div>
-        <div class="print-stat-card" onclick="filterByStatus('failed')">
+        <div class="print-stat-card">
             <div class="print-stat-value" id="stat-failed">0</div>
             <div class="print-stat-label">Failed</div>
         </div>
     </div>
-    
-    <!-- Trip Filters Section -->
-    <div class="card" style="margin-bottom: 1.5rem;">
-        <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <i class="fas fa-filter" style="color: #667eea;"></i>
-                <strong style="font-size: 16px;">Filter by Trips</strong>
-                <span id="active-trip-count" style="background: #667eea; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px; font-weight: 600;">0 selected</span>
-            </div>
-            <div style="display: flex; gap: 0.5rem;">
-                <button class="btn btn-sm" onclick="selectAllTrips()" style="font-size: 13px; padding: 6px 12px;">
-                    <i class="fas fa-check-double"></i> Select All
-                </button>
-                <button class="btn btn-sm btn-secondary" onclick="clearAllTrips()" style="font-size: 13px; padding: 6px 12px;">
-                    <i class="fas fa-times"></i> Clear All
-                </button>
-            </div>
-        </div>
-        <div id="trip-filters-container" style="padding: 1rem 1.5rem; display: flex; flex-wrap: wrap; gap: 0.75rem; min-height: 60px;">
-            <div style="color: #999; width: 100%; text-align: center; padding: 20px 0;">
-                No trips available. Click Refresh to load trips.
-            </div>
-        </div>
-    </div>
-    
-    <!-- Print Jobs Grid -->
+
+    <!-- Monitoring Trips Grid -->
     <div class="grid-container">
         <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
-            <div class="grid-title">Print Jobs</div>
+            <div class="grid-title">Monitored Trips</div>
             <div style="display: flex; gap: 1rem; align-items: center;">
-                <div id="filtered-count" style="color: #666; font-size: 14px;">0 jobs</div>
-                <button class="btn btn-sm" onclick="exportPrintJobs()" style="font-size: 13px; padding: 6px 12px;">
-                    <i class="fas fa-download"></i> Export
-                </button>
+                <div id="filtered-count" style="color: #666; font-size: 14px;">0 trips</div>
             </div>
         </div>
         <div id="print-jobs-grid" style="height: 600px;"></div>

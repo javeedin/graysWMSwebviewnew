@@ -348,8 +348,9 @@ function initializeMonitoringGrid() {
             }
         ],
         onContentReady: function(e) {
+            const count = e.component.totalCount();
             document.getElementById('filtered-count').textContent =
-                `${e.component.totalCount()} jobs`;
+                `${count} trip${count !== 1 ? 's' : ''}`;
         }
     });
 }
