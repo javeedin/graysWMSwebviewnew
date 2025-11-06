@@ -887,6 +887,20 @@ namespace WMSApp
             {
                 await wv.EnsureCoreWebView2Async(null);
 
+                // CACHE FIX: Clear browser cache to ensure tabs load properly
+                try
+                {
+                    await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                        CoreWebView2BrowsingDataKinds.AllDomStorage |
+                        CoreWebView2BrowsingDataKinds.CacheStorage |
+                        CoreWebView2BrowsingDataKinds.DiskCache);
+                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully");
+                }
+                catch (Exception cacheEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[CACHE] Warning: Could not clear cache: {cacheEx.Message}");
+                }
+
                 wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
