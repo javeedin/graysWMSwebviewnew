@@ -313,6 +313,12 @@
                     </div>
                     <div style="display: flex; gap: 1rem; align-items: center;">
                         <div id="orders-count" style="color: #666; font-size: 14px;">0 orders</div>
+                        <button id="download-all-orders-btn" class="btn btn-primary" onclick="downloadAllOrdersPDF()" style="font-size: 12px; padding: 6px 16px; display: none;">
+                            <i class="fas fa-download"></i> Download All Orders PDF
+                        </button>
+                        <button id="refresh-orders-btn" class="btn btn-secondary" onclick="refreshOrdersStatus()" style="font-size: 12px; padding: 6px 16px; display: none;">
+                            <i class="fas fa-sync"></i> Refresh Status
+                        </button>
                     </div>
                 </div>
                 <div id="trip-orders-grid" style="height: 600px;"></div>
@@ -647,6 +653,6 @@
     <script src="app.js?v=20251106003"></script>
     <script src="printer-management.js?v=20251106002"></script>
     <script src="printer-management-new.js?v=20251106002"></script>
-    <script src="monitor-printing.js?v=20251106005"></script>
+    <script src="monitor-printing.js?v=20251106006"></script>
 </body>
 </html>

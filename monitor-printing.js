@@ -481,6 +481,10 @@ async function viewTripDetails(tripData) {
         // Update count
         document.getElementById('orders-count').textContent = `${orders.length} order${orders.length !== 1 ? 's' : ''}`;
 
+        // Show Download All and Refresh buttons if there are orders
+        document.getElementById('download-all-orders-btn').style.display = orders.length > 0 ? 'inline-block' : 'none';
+        document.getElementById('refresh-orders-btn').style.display = orders.length > 0 ? 'inline-block' : 'none';
+
         // Initialize or update grid
         if (!tripOrdersGrid) {
             initializeTripOrdersGrid(orders);
@@ -546,10 +550,54 @@ function initializeTripOrdersGrid(orders) {
         },
         columns: [
             {
+                caption: 'Actions',
+                width: 180,
+                fixed: true,
+                cellTemplate: function(container, options) {
+                    const rowData = options.data;
+                    const pdfStatus = rowData.pdfStatus || 'PENDING';
+
+                    // Preview button
+                    const previewBtn = $('<button>')
+                        .addClass('btn btn-sm btn-info')
+                        .css({
+                            marginRight: '4px',
+                            fontSize: '11px',
+                            padding: '4px 8px',
+                            cursor: pdfStatus === 'DOWNLOADED' ? 'pointer' : 'not-allowed',
+                            opacity: pdfStatus === 'DOWNLOADED' ? '1' : '0.5'
+                        })
+                        .html('<i class="fas fa-eye"></i>')
+                        .attr('title', pdfStatus === 'DOWNLOADED' ? 'Preview PDF' : 'PDF not available')
+                        .prop('disabled', pdfStatus !== 'DOWNLOADED')
+                        .on('click', function(e) {
+                            e.stopPropagation();
+                            if (pdfStatus === 'DOWNLOADED') {
+                                previewOrderPDF(rowData);
+                            }
+                        });
+
+                    // Download button
+                    const downloadBtn = $('<button>')
+                        .addClass('btn btn-sm btn-primary')
+                        .css({
+                            fontSize: '11px',
+                            padding: '4px 8px'
+                        })
+                        .html('<i class="fas fa-download"></i>')
+                        .attr('title', 'Download PDF')
+                        .on('click', function(e) {
+                            e.stopPropagation();
+                            downloadOrderPDF(rowData);
+                        });
+
+                    container.append(previewBtn).append(downloadBtn);
+                }
+            },
+            {
                 dataField: 'orderNumber',
                 caption: 'Order Number',
-                width: 140,
-                fixed: true
+                width: 140
             },
             {
                 dataField: 'customerName',
@@ -675,6 +723,166 @@ function updateTripOrdersGrid(orders) {
     if (tripOrdersGrid) {
         tripOrdersGrid.dxDataGrid('instance').option('dataSource', orders);
         tripOrdersGrid.dxDataGrid('instance').refresh();
+    }
+}
+
+// ============================================================================
+// PDF DOWNLOAD AND PREVIEW FUNCTIONS
+// ============================================================================
+
+async function downloadOrderPDF(orderData) {
+    console.log('[Monitor] Downloading PDF for order:', orderData.orderNumber);
+
+    try {
+        // Update status to DOWNLOADING
+        updateOrderStatus(orderData.detailId, 'DOWNLOADING', null);
+
+        // Call API to download PDF
+        const endpoint = `/monitor-printing/download-pdf?detailId=${orderData.detailId}&orderNumber=${encodeURIComponent(orderData.orderNumber)}`;
+        const response = await callApexAPINew(endpoint, 'GET');
+
+        if (response.success && response.pdfUrl) {
+            // Open PDF in new tab for download
+            window.open(response.pdfUrl, '_blank');
+
+            // Update status to DOWNLOADED
+            updateOrderStatus(orderData.detailId, 'DOWNLOADED', null, response.pdfPath);
+
+            console.log('[Monitor] ✅ PDF downloaded successfully');
+        } else {
+            throw new Error(response.error || 'Failed to get PDF URL');
+        }
+
+    } catch (error) {
+        console.error('[Monitor] ❌ Failed to download PDF:', error);
+        updateOrderStatus(orderData.detailId, 'FAILED', error.message);
+        alert(`Failed to download PDF for order ${orderData.orderNumber}:\n${error.message}`);
+    }
+}
+
+async function previewOrderPDF(orderData) {
+    console.log('[Monitor] Previewing PDF for order:', orderData.orderNumber);
+
+    if (!orderData.pdfPath) {
+        alert('PDF file path not available. Please download the PDF first.');
+        return;
+    }
+
+    try {
+        // Show preview modal
+        const modal = document.getElementById('pdf-preview-modal');
+        const iframe = document.getElementById('pdf-preview-iframe');
+        const orderInfo = document.getElementById('preview-order-info');
+
+        orderInfo.textContent = `Order: ${orderData.orderNumber} - ${orderData.customerName}`;
+
+        // Set PDF URL in iframe
+        iframe.src = orderData.pdfPath;
+
+        // Show modal
+        modal.style.display = 'flex';
+
+    } catch (error) {
+        console.error('[Monitor] ❌ Failed to preview PDF:', error);
+        alert(`Failed to preview PDF: ${error.message}`);
+    }
+}
+
+async function downloadAllOrdersPDF() {
+    console.log('[Monitor] Downloading all orders PDF for trip:', currentTripDetails.tripId);
+
+    if (!currentTripDetails) {
+        alert('No trip selected');
+        return;
+    }
+
+    const confirmed = confirm(`Download PDFs for all orders in trip ${currentTripDetails.tripId}?\n\nThis will download ${currentTripDetails.orderCount} order PDFs.`);
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        // Get all orders from grid
+        const gridInstance = tripOrdersGrid.dxDataGrid('instance');
+        const allOrders = gridInstance.option('dataSource');
+
+        console.log(`[Monitor] Starting download for ${allOrders.length} orders`);
+
+        // Download each order PDF with delay
+        let successCount = 0;
+        let failCount = 0;
+
+        for (let i = 0; i < allOrders.length; i++) {
+            const order = allOrders[i];
+
+            console.log(`[Monitor] Downloading ${i + 1}/${allOrders.length}: ${order.orderNumber}`);
+
+            try {
+                await downloadOrderPDF(order);
+                successCount++;
+
+                // Delay between downloads to avoid overwhelming the server
+                if (i < allOrders.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            } catch (error) {
+                console.error(`[Monitor] Failed to download order ${order.orderNumber}:`, error);
+                failCount++;
+            }
+        }
+
+        // Refresh grid to show updated statuses
+        await refreshOrdersStatus();
+
+        alert(`Download complete!\n\nSuccess: ${successCount}\nFailed: ${failCount}\nTotal: ${allOrders.length}`);
+
+    } catch (error) {
+        console.error('[Monitor] ❌ Failed to download all orders:', error);
+        alert(`Failed to download all orders: ${error.message}`);
+    }
+}
+
+async function refreshOrdersStatus() {
+    console.log('[Monitor] Refreshing orders status for trip:', currentTripDetails.tripId);
+
+    if (!currentTripDetails) {
+        return;
+    }
+
+    try {
+        // Reload trip details
+        await viewTripDetails(currentTripDetails);
+        console.log('[Monitor] ✅ Orders status refreshed');
+    } catch (error) {
+        console.error('[Monitor] ❌ Failed to refresh orders status:', error);
+        alert(`Failed to refresh orders status: ${error.message}`);
+    }
+}
+
+function updateOrderStatus(detailId, pdfStatus, errorMessage, pdfPath) {
+    // Update the grid data
+    if (tripOrdersGrid) {
+        const gridInstance = tripOrdersGrid.dxDataGrid('instance');
+        const dataSource = gridInstance.option('dataSource');
+
+        const orderIndex = dataSource.findIndex(o => o.detailId === detailId);
+
+        if (orderIndex >= 0) {
+            dataSource[orderIndex].pdfStatus = pdfStatus;
+
+            if (errorMessage) {
+                dataSource[orderIndex].errorMessage = errorMessage;
+            }
+
+            if (pdfPath) {
+                dataSource[orderIndex].pdfPath = pdfPath;
+            }
+
+            // Refresh grid
+            gridInstance.option('dataSource', dataSource);
+            gridInstance.refresh();
+        }
     }
 }
 
