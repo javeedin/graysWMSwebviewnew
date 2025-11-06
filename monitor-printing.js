@@ -334,14 +334,14 @@ function initializeMonitoringGrid() {
                         justifyContent: 'center'
                     });
 
-                    // View Details button
+                    // View Details button - ✅ ISSUE #4 FIX: Open in new tab
                     const detailsBtn = $('<button>')
                         .addClass('btn btn-sm btn-primary')
                         .css({ fontSize: '11px', padding: '4px 8px' })
-                        .html('<i class="fas fa-eye"></i> Details')
-                        .attr('title', 'View Trip Details')
+                        .html('<i class="fas fa-external-link-alt"></i> Open')
+                        .attr('title', 'Open Trip Details in New Tab')
                         .on('click', function() {
-                            viewTripDetails(data);
+                            openTripInNewTab(data);
                         });
 
                     // Disable button
@@ -442,6 +442,28 @@ window.backToTripsTab = function() {
 // ============================================================================
 // TRIP DETAILS - ORDER LEVEL
 // ============================================================================
+
+// ✅ ISSUE #4 FIX: Open trip details in new browser tab
+function openTripInNewTab(tripData) {
+    console.log('[Monitor] Opening trip in new tab:', tripData);
+
+    // Encode trip data as URL parameters
+    const params = new URLSearchParams({
+        tripId: tripData.tripId,
+        tripDate: tripData.tripDate,
+        orderCount: tripData.orderCount || 0,
+        autoView: 'true'  // Flag to auto-load trip details
+    });
+
+    // Get current page URL without parameters
+    const baseUrl = window.location.origin + window.location.pathname;
+    const newTabUrl = `${baseUrl}?${params.toString()}`;
+
+    console.log('[Monitor] Opening URL:', newTabUrl);
+
+    // Open in new tab
+    window.open(newTabUrl, '_blank');
+}
 
 async function viewTripDetails(tripData) {
     console.log('[Monitor] Loading trip details for:', tripData);
@@ -821,8 +843,10 @@ async function downloadOrderPDF(orderData) {
 
             console.log('[Monitor] ✅ PDF downloaded successfully to:', response.filePath);
 
-            // Show success message
-            alert(`✓ PDF downloaded successfully!\n\nSaved to: ${response.filePath}`);
+            // ✅ REMOVED POPUP - No alert during individual download
+            // ✅ ADDED: Save status to APEX database
+            await saveOrderStatusToAPEX(orderData.detailId, 'DOWNLOADED', response.filePath);
+
         } else {
             throw new Error(response.message || response.error || 'Failed to download PDF');
         }
@@ -848,21 +872,57 @@ async function previewOrderPDF(orderData) {
     }
 
     try {
-        // Open PDF in default viewer (uses app.js viewPdf function)
-        // Local file paths can't be loaded in iframe due to security restrictions
-        // So we open in default PDF viewer instead
-        if (typeof viewPdf === 'function') {
-            viewPdf(orderData.pdfPath);
-        } else {
-            // Fallback: open as file:// URL
+        // ✅ ISSUE #1 FIX: Open PDF in modal dialog with base64
+        const modal = document.getElementById('pdf-preview-modal');
+        if (!modal) {
+            console.error('[Monitor] PDF preview modal not found');
+            // Fallback to window.open
             window.open('file:///' + orderData.pdfPath.replace(/\\/g, '/'), '_blank');
+            return;
         }
 
-        console.log('[Monitor] ✅ Opened PDF:', orderData.pdfPath);
+        modal.style.display = 'flex';
+        document.getElementById('pdf-loading').style.display = 'block';
+
+        // Update info
+        document.getElementById('preview-order-info').textContent =
+            `Order: ${orderData.orderNumber} | Trip: ${currentTripDetails.tripId}`;
+        document.getElementById('preview-file-info').textContent =
+            `File: ${orderData.pdfPath.split('\\').pop()}`;
+
+        // Request PDF as base64 from C#
+        const response = await new Promise((resolve, reject) => {
+            sendMessageToCSharp({
+                action: 'getPdfAsBase64',
+                filePath: orderData.pdfPath
+            }, function(error, response) {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
+
+        if (response.success && response.data && response.data.base64) {
+            // Load PDF in iframe
+            const iframe = document.getElementById('pdf-preview-iframe');
+            iframe.src = `data:application/pdf;base64,${response.data.base64}`;
+
+            // Hide loading
+            document.getElementById('pdf-loading').style.display = 'none';
+
+            console.log('[Monitor] ✅ PDF loaded in modal dialog');
+        } else {
+            throw new Error(response.message || 'Failed to load PDF');
+        }
 
     } catch (error) {
         console.error('[Monitor] ❌ Failed to preview PDF:', error);
         alert(`Failed to preview PDF: ${error.message}`);
+        // Close modal on error
+        const modal = document.getElementById('pdf-preview-modal');
+        if (modal) modal.style.display = 'none';
     }
 }
 
@@ -913,7 +973,8 @@ async function downloadAllOrdersPDF() {
         // Refresh grid to show updated statuses
         await refreshOrdersStatus();
 
-        alert(`Download complete!\n\nSuccess: ${successCount}\nFailed: ${failCount}\nTotal: ${allOrders.length}`);
+        // ✅ REMOVED POPUP - No alert after bulk download
+        console.log(`[Monitor] ✅ Download complete! Success: ${successCount}, Failed: ${failCount}, Total: ${allOrders.length}`);
 
     } catch (error) {
         console.error('[Monitor] ❌ Failed to download all orders:', error);
@@ -964,12 +1025,74 @@ function updateOrderStatus(detailId, pdfStatus, errorMessage, pdfPath) {
     }
 }
 
+// ✅ ISSUE #3 FIX: Save PDF status to APEX database
+async function saveOrderStatusToAPEX(detailId, pdfStatus, pdfPath) {
+    try {
+        console.log('[Monitor] 💾 Saving status to APEX...');
+        console.log('[Monitor] Detail ID:', detailId);
+        console.log('[Monitor] PDF Status:', pdfStatus);
+        console.log('[Monitor] PDF Path:', pdfPath);
+
+        const payload = {
+            detail_id: detailId,
+            pdf_status: pdfStatus,
+            pdf_path: pdfPath || null,
+            updated_at: new Date().toISOString()
+        };
+
+        const response = await fetch(API_BASE + '/trip-order-status', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log('[Monitor] ✅ Status saved to APEX:', result);
+
+        return result;
+
+    } catch (error) {
+        console.error('[Monitor] ❌ Failed to save status to APEX:', error);
+        // Don't throw - this is non-critical, PDF already downloaded locally
+        return null;
+    }
+}
+
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
 
 // Set default dates (last 7 days) when page loads
 window.addEventListener('DOMContentLoaded', function() {
+    // ✅ ISSUE #4 FIX: Check if opened with trip parameters (from new tab)
+    const urlParams = new URLSearchParams(window.location.search);
+    const tripId = urlParams.get('tripId');
+    const tripDate = urlParams.get('tripDate');
+    const orderCount = urlParams.get('orderCount');
+    const autoView = urlParams.get('autoView');
+
+    if (tripId && tripDate && autoView === 'true') {
+        console.log('[Monitor] 🔗 Detected trip parameters in URL, auto-loading trip:', tripId);
+
+        // Build trip data object
+        const tripData = {
+            tripId: tripId,
+            tripDate: tripDate,
+            orderCount: parseInt(orderCount) || 0
+        };
+
+        // Auto-load trip details
+        setTimeout(() => {
+            viewTripDetails(tripData);
+        }, 500);  // Small delay to ensure DOM is ready
+    }
+
     const today = new Date();
     const lastWeek = new Date(today);
     lastWeek.setDate(lastWeek.getDate() - 7);
