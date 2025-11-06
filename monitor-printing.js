@@ -979,4 +979,173 @@ window.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+// ============================================================================
+// DIAGNOSTIC FUNCTIONS
+// ============================================================================
+
+window.runDiagnosticCheckButtons = function() {
+    const status = document.getElementById('diagnostic-status');
+    status.textContent = 'Checking...';
+    status.style.color = '#ffc107';
+
+    const downloadBtn = document.getElementById('download-all-orders-btn');
+    const refreshBtn = document.getElementById('refresh-orders-btn');
+
+    const results = {
+        'Download All Button': downloadBtn ? {
+            exists: true,
+            display: downloadBtn.style.display,
+            visible: downloadBtn.offsetParent !== null,
+            disabled: downloadBtn.disabled,
+            innerHTML: downloadBtn.innerHTML.substring(0, 50)
+        } : { exists: false },
+        'Refresh Button': refreshBtn ? {
+            exists: true,
+            display: refreshBtn.style.display,
+            visible: refreshBtn.offsetParent !== null,
+            disabled: refreshBtn.disabled
+        } : { exists: false }
+    };
+
+    console.log('=== BUTTON DIAGNOSTIC ===');
+    console.table(results);
+    console.log('Full Download Button:', downloadBtn);
+    console.log('Full Refresh Button:', refreshBtn);
+
+    alert('Button Diagnostic Complete!\n\nDownload All: ' + (downloadBtn ? 'EXISTS' : 'NOT FOUND') +
+          '\nRefresh: ' + (refreshBtn ? 'EXISTS' : 'NOT FOUND') +
+          '\n\nCheck console (F12) for details');
+
+    status.textContent = 'Check Complete';
+    status.style.color = '#00ff88';
+};
+
+window.runDiagnosticShowButtons = function() {
+    const status = document.getElementById('diagnostic-status');
+    status.textContent = 'Forcing...';
+    status.style.color = '#ffc107';
+
+    const downloadBtn = document.getElementById('download-all-orders-btn');
+    const refreshBtn = document.getElementById('refresh-orders-btn');
+
+    if (downloadBtn) {
+        downloadBtn.style.display = 'inline-block';
+        downloadBtn.style.visibility = 'visible';
+        downloadBtn.style.opacity = '1';
+        downloadBtn.disabled = false;
+        console.log('✅ Download All button forced visible');
+    } else {
+        console.error('❌ Download All button not found');
+    }
+
+    if (refreshBtn) {
+        refreshBtn.style.display = 'inline-block';
+        refreshBtn.style.visibility = 'visible';
+        refreshBtn.style.opacity = '1';
+        console.log('✅ Refresh button forced visible');
+    } else {
+        console.error('❌ Refresh button not found');
+    }
+
+    alert('Buttons forced visible!\n\nDownload All: ' + (downloadBtn ? 'SHOWN' : 'NOT FOUND') +
+          '\nRefresh: ' + (refreshBtn ? 'SHOWN' : 'NOT FOUND'));
+
+    status.textContent = 'Buttons Forced';
+    status.style.color = '#00ff88';
+};
+
+window.runDiagnosticCheckGrid = function() {
+    const status = document.getElementById('diagnostic-status');
+    status.textContent = 'Checking...';
+    status.style.color = '#ffc107';
+
+    console.log('=== GRID DIAGNOSTIC ===');
+    console.log('tripOrdersGrid:', tripOrdersGrid);
+    console.log('currentTripDetails:', currentTripDetails);
+
+    if (tripOrdersGrid) {
+        const gridInstance = tripOrdersGrid.dxDataGrid('instance');
+        const dataSource = gridInstance.option('dataSource');
+        console.log('Grid DataSource:', dataSource);
+        console.log('Grid Row Count:', dataSource ? dataSource.length : 0);
+    }
+
+    const gridElement = document.getElementById('trip-orders-grid');
+    console.log('Grid Element:', gridElement);
+    console.log('Grid Element Visible:', gridElement ? gridElement.offsetParent !== null : false);
+
+    alert('Grid Diagnostic Complete!\n\nGrid Initialized: ' + (tripOrdersGrid ? 'YES' : 'NO') +
+          '\nCurrent Trip: ' + (currentTripDetails ? currentTripDetails.tripId : 'NONE') +
+          '\n\nCheck console for details');
+
+    status.textContent = 'Grid Checked';
+    status.style.color = '#00ff88';
+};
+
+window.runDiagnosticCheckTab = function() {
+    const status = document.getElementById('diagnostic-status');
+    status.textContent = 'Checking...';
+    status.style.color = '#ffc107';
+
+    const tripDetailsTab = document.getElementById('monitor-trip-details-tab');
+    const tripsTab = document.getElementById('monitor-trips-tab');
+
+    console.log('=== TAB VISIBILITY DIAGNOSTIC ===');
+    console.log('Trip Details Tab:', {
+        exists: !!tripDetailsTab,
+        display: tripDetailsTab?.style.display,
+        className: tripDetailsTab?.className,
+        visible: tripDetailsTab?.offsetParent !== null
+    });
+    console.log('Trips Tab:', {
+        exists: !!tripsTab,
+        display: tripsTab?.style.display,
+        className: tripsTab?.className,
+        visible: tripsTab?.offsetParent !== null
+    });
+
+    alert('Tab Diagnostic Complete!\n\nTrip Details Tab Visible: ' +
+          (tripDetailsTab?.offsetParent !== null ? 'YES' : 'NO') +
+          '\n\nCheck console for details');
+
+    status.textContent = 'Tab Checked';
+    status.style.color = '#00ff88';
+};
+
+window.runDiagnosticShowConsole = function() {
+    const status = document.getElementById('diagnostic-status');
+    status.textContent = 'Logging...';
+    status.style.color = '#ffc107';
+
+    console.log('╔════════════════════════════════════════╗');
+    console.log('║     COMPLETE DIAGNOSTIC REPORT        ║');
+    console.log('╚════════════════════════════════════════╝');
+    console.log('');
+
+    runDiagnosticCheckButtons();
+    runDiagnosticCheckGrid();
+    runDiagnosticCheckTab();
+
+    console.log('');
+    console.log('Current Trip Details:', currentTripDetails);
+    console.log('Trip Orders Grid:', tripOrdersGrid);
+    console.log('');
+    console.log('All Monitor Variables:', {
+        currentTripDetails,
+        tripOrdersGrid,
+        currentMonitoringTrips,
+        MONITOR_API_BASE_URL
+    });
+
+    status.textContent = 'All Info Logged';
+    status.style.color = '#00ff88';
+};
+
+window.toggleDiagnosticToolbar = function() {
+    const toolbar = document.getElementById('diagnostic-toolbar');
+    if (toolbar) {
+        toolbar.style.display = toolbar.style.display === 'none' ? 'flex' : 'none';
+    }
+};
+
 console.log('[Monitor] monitor-printing.js loaded');
