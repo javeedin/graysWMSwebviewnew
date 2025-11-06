@@ -444,7 +444,9 @@ window.backToTripsTab = function() {
 // ============================================================================
 
 async function viewTripDetails(tripData) {
-    console.log('[Monitor] Loading trip details for:', tripData.tripId);
+    console.log('[Monitor] Loading trip details for:', tripData);
+    console.log('[Monitor] MonitorId:', tripData.monitorId);
+    console.log('[Monitor] TripId:', tripData.tripId);
 
     currentTripDetails = tripData;
 
@@ -460,11 +462,21 @@ async function viewTripDetails(tripData) {
     document.getElementById('orders-count').textContent = 'Loading...';
 
     try {
+        const endpoint = `/monitor-printing/orders?monitorId=${tripData.monitorId}`;
+        console.log('[Monitor] Calling endpoint:', endpoint);
+        console.log('[Monitor] Full URL:', `${MONITOR_API_BASE_URL}${endpoint}`);
+
         // Call APEX API to get order details
-        const data = await callApexAPINew(`/monitor-printing/orders?monitorId=${tripData.monitorId}`, 'GET');
+        const data = await callApexAPINew(endpoint, 'GET');
+
+        console.log('[Monitor] Raw API response:', data);
 
         const orders = data.items || [];
         console.log('[Monitor] Loaded', orders.length, 'orders for trip', tripData.tripId);
+
+        if (orders.length === 0) {
+            console.warn('[Monitor] ⚠️ No orders found in response. Check if monitorId', tripData.monitorId, 'exists in database');
+        }
 
         // Update count
         document.getElementById('orders-count').textContent = `${orders.length} order${orders.length !== 1 ? 's' : ''}`;
@@ -477,9 +489,24 @@ async function viewTripDetails(tripData) {
         }
 
     } catch (error) {
-        console.error('[Monitor] Failed to load trip details:', error);
+        console.error('[Monitor] ❌ Failed to load trip details:', error);
+        console.error('[Monitor] Error details:', {
+            message: error.message,
+            stack: error.stack,
+            monitorId: tripData.monitorId,
+            tripId: tripData.tripId
+        });
+
         document.getElementById('orders-count').textContent = 'Error loading orders';
-        alert('Failed to load trip details: ' + error.message);
+
+        // Show detailed error to user
+        alert(`Failed to load trip details for Trip ${tripData.tripId}:\n\n` +
+              `Error: ${error.message}\n\n` +
+              `MonitorId: ${tripData.monitorId}\n\n` +
+              `Please check:\n` +
+              `1. Browser console (F12) for detailed logs\n` +
+              `2. API endpoint is accessible\n` +
+              `3. MonitorId ${tripData.monitorId} exists in database`);
     }
 }
 
