@@ -481,9 +481,28 @@ async function viewTripDetails(tripData) {
         // Update count
         document.getElementById('orders-count').textContent = `${orders.length} order${orders.length !== 1 ? 's' : ''}`;
 
-        // Show Download All and Refresh buttons if there are orders
-        document.getElementById('download-all-orders-btn').style.display = orders.length > 0 ? 'inline-block' : 'none';
-        document.getElementById('refresh-orders-btn').style.display = orders.length > 0 ? 'inline-block' : 'none';
+        // Always show buttons for easier testing - disable Download All if no orders
+        const downloadAllBtn = document.getElementById('download-all-orders-btn');
+        const refreshBtn = document.getElementById('refresh-orders-btn');
+
+        if (downloadAllBtn && refreshBtn) {
+            downloadAllBtn.style.display = 'inline-block';
+            refreshBtn.style.display = 'inline-block';
+
+            // Disable Download All button if no orders
+            downloadAllBtn.disabled = orders.length === 0;
+            if (orders.length === 0) {
+                downloadAllBtn.style.opacity = '0.5';
+                downloadAllBtn.style.cursor = 'not-allowed';
+            } else {
+                downloadAllBtn.style.opacity = '1';
+                downloadAllBtn.style.cursor = 'pointer';
+            }
+
+            console.log('[Monitor] ✅ Buttons visible - Download All:', orders.length > 0 ? 'enabled' : 'disabled');
+        } else {
+            console.error('[Monitor] ❌ Buttons not found in DOM!');
+        }
 
         // Initialize or update grid
         if (!tripOrdersGrid) {
@@ -501,6 +520,18 @@ async function viewTripDetails(tripData) {
         });
 
         document.getElementById('orders-count').textContent = 'Error loading orders';
+
+        // Show buttons even on error
+        const downloadAllBtn = document.getElementById('download-all-orders-btn');
+        const refreshBtn = document.getElementById('refresh-orders-btn');
+
+        if (downloadAllBtn && refreshBtn) {
+            downloadAllBtn.style.display = 'inline-block';
+            refreshBtn.style.display = 'inline-block';
+            downloadAllBtn.disabled = true;
+            downloadAllBtn.style.opacity = '0.5';
+            console.log('[Monitor] ✅ Buttons shown (error state)');
+        }
 
         // Show detailed error to user
         alert(`Failed to load trip details for Trip ${tripData.tripId}:\n\n` +
@@ -737,20 +768,32 @@ async function downloadOrderPDF(orderData) {
         // Update status to DOWNLOADING
         updateOrderStatus(orderData.detailId, 'DOWNLOADING', null);
 
-        // Call API to download PDF
-        const endpoint = `/monitor-printing/download-pdf?detailId=${orderData.detailId}&orderNumber=${encodeURIComponent(orderData.orderNumber)}`;
-        const response = await callApexAPINew(endpoint, 'GET');
+        // Call C# to download PDF from Oracle Fusion
+        const response = await new Promise((resolve, reject) => {
+            sendMessageToCSharp({
+                action: 'downloadOrderPdf',
+                orderNumber: orderData.orderNumber,
+                tripId: currentTripDetails.tripId,
+                tripDate: currentTripDetails.tripDate
+            }, function(error, response) {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
 
-        if (response.success && response.pdfUrl) {
-            // Open PDF in new tab for download
-            window.open(response.pdfUrl, '_blank');
-
+        if (response.success && response.filePath) {
             // Update status to DOWNLOADED
-            updateOrderStatus(orderData.detailId, 'DOWNLOADED', null, response.pdfPath);
+            updateOrderStatus(orderData.detailId, 'DOWNLOADED', null, response.filePath);
 
-            console.log('[Monitor] ✅ PDF downloaded successfully');
+            console.log('[Monitor] ✅ PDF downloaded successfully to:', response.filePath);
+
+            // Show success message
+            alert(`✓ PDF downloaded successfully!\n\nSaved to: ${response.filePath}`);
         } else {
-            throw new Error(response.error || 'Failed to get PDF URL');
+            throw new Error(response.message || 'Failed to download PDF');
         }
 
     } catch (error) {
@@ -769,18 +812,17 @@ async function previewOrderPDF(orderData) {
     }
 
     try {
-        // Show preview modal
-        const modal = document.getElementById('pdf-preview-modal');
-        const iframe = document.getElementById('pdf-preview-iframe');
-        const orderInfo = document.getElementById('preview-order-info');
+        // Open PDF in default viewer (uses app.js viewPdf function)
+        // Local file paths can't be loaded in iframe due to security restrictions
+        // So we open in default PDF viewer instead
+        if (typeof viewPdf === 'function') {
+            viewPdf(orderData.pdfPath);
+        } else {
+            // Fallback: open as file:// URL
+            window.open('file:///' + orderData.pdfPath.replace(/\\/g, '/'), '_blank');
+        }
 
-        orderInfo.textContent = `Order: ${orderData.orderNumber} - ${orderData.customerName}`;
-
-        // Set PDF URL in iframe
-        iframe.src = orderData.pdfPath;
-
-        // Show modal
-        modal.style.display = 'flex';
+        console.log('[Monitor] ✅ Opened PDF:', orderData.pdfPath);
 
     } catch (error) {
         console.error('[Monitor] ❌ Failed to preview PDF:', error);
