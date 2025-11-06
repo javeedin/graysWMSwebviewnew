@@ -762,20 +762,49 @@ function updateTripOrdersGrid(orders) {
 // ============================================================================
 
 async function downloadOrderPDF(orderData) {
-    console.log('[Monitor] Downloading PDF for order:', orderData.orderNumber);
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] DOWNLOAD PDF STARTED');
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] Order Data:', orderData);
+    console.log('[Monitor] Order Number:', orderData.orderNumber);
+    console.log('[Monitor] Detail ID:', orderData.detailId);
+    console.log('[Monitor] Current Trip Details:', currentTripDetails);
 
     try {
+        // Validate currentTripDetails
+        if (!currentTripDetails) {
+            throw new Error('No trip selected. currentTripDetails is undefined.');
+        }
+
+        if (!currentTripDetails.tripId) {
+            throw new Error('Trip ID missing in currentTripDetails: ' + JSON.stringify(currentTripDetails));
+        }
+
+        if (!currentTripDetails.tripDate) {
+            throw new Error('Trip Date missing in currentTripDetails: ' + JSON.stringify(currentTripDetails));
+        }
+
+        console.log('[Monitor] ✅ Trip details validated');
+        console.log('[Monitor] Trip ID:', currentTripDetails.tripId);
+        console.log('[Monitor] Trip Date:', currentTripDetails.tripDate);
+
         // Update status to DOWNLOADING
         updateOrderStatus(orderData.detailId, 'DOWNLOADING', null);
 
+        // Build message for C#
+        const message = {
+            action: 'downloadOrderPdf',
+            orderNumber: orderData.orderNumber,
+            tripId: currentTripDetails.tripId,
+            tripDate: currentTripDetails.tripDate
+        };
+
+        console.log('[Monitor] 📤 Sending to C#:', message);
+
         // Call C# to download PDF from Oracle Fusion
         const response = await new Promise((resolve, reject) => {
-            sendMessageToCSharp({
-                action: 'downloadOrderPdf',
-                orderNumber: orderData.orderNumber,
-                tripId: currentTripDetails.tripId,
-                tripDate: currentTripDetails.tripDate
-            }, function(error, response) {
+            sendMessageToCSharp(message, function(error, response) {
+                console.log('[Monitor] 📨 Response from C#:', { error, response });
                 if (error) {
                     reject(new Error(error));
                 } else {
@@ -783,6 +812,8 @@ async function downloadOrderPDF(orderData) {
                 }
             });
         });
+
+        console.log('[Monitor] C# Response:', response);
 
         if (response.success && response.filePath) {
             // Update status to DOWNLOADED
@@ -793,14 +824,19 @@ async function downloadOrderPDF(orderData) {
             // Show success message
             alert(`✓ PDF downloaded successfully!\n\nSaved to: ${response.filePath}`);
         } else {
-            throw new Error(response.message || 'Failed to download PDF');
+            throw new Error(response.message || response.error || 'Failed to download PDF');
         }
 
     } catch (error) {
         console.error('[Monitor] ❌ Failed to download PDF:', error);
+        console.error('[Monitor] Error stack:', error.stack);
         updateOrderStatus(orderData.detailId, 'FAILED', error.message);
-        alert(`Failed to download PDF for order ${orderData.orderNumber}:\n${error.message}`);
+        alert(`Failed to download PDF for order ${orderData.orderNumber}:\n\n${error.message}\n\nCheck console (F12) for details`);
     }
+
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] DOWNLOAD PDF ENDED');
+    console.log('[Monitor] ========================================');
 }
 
 async function previewOrderPDF(orderData) {
@@ -982,6 +1018,44 @@ window.addEventListener('DOMContentLoaded', function() {
 // ============================================================================
 // DIAGNOSTIC FUNCTIONS
 // ============================================================================
+
+window.runDiagnosticCheckTripData = function() {
+    const status = document.getElementById('diagnostic-status');
+    status.textContent = 'Checking Trip Data...';
+    status.style.color = '#ffc107';
+
+    console.log('=== TRIP DATA DIAGNOSTIC ===');
+    console.log('currentTripDetails:', currentTripDetails);
+    console.log('currentTripDetails type:', typeof currentTripDetails);
+
+    if (currentTripDetails) {
+        console.log('Trip ID:', currentTripDetails.tripId);
+        console.log('Trip Date:', currentTripDetails.tripDate);
+        console.log('Order Count:', currentTripDetails.orderCount);
+        console.log('All properties:', Object.keys(currentTripDetails));
+        console.log('Full object:', JSON.stringify(currentTripDetails, null, 2));
+    }
+
+    const gridInstance = tripOrdersGrid ? tripOrdersGrid.dxDataGrid('instance') : null;
+    const gridData = gridInstance ? gridInstance.option('dataSource') : null;
+
+    console.log('Grid Data:', gridData);
+    console.log('Grid Row Count:', gridData ? gridData.length : 0);
+
+    if (gridData && gridData.length > 0) {
+        console.log('First Order Sample:', gridData[0]);
+    }
+
+    const message = 'Trip Data Diagnostic:\n\n' +
+        'Current Trip: ' + (currentTripDetails ? currentTripDetails.tripId : 'NONE') + '\n' +
+        'Trip Date: ' + (currentTripDetails ? currentTripDetails.tripDate : 'N/A') + '\n' +
+        'Orders in Grid: ' + (gridData ? gridData.length : 0) + '\n\n' +
+        'Check console (F12) for full details';
+
+    alert(message);
+    status.textContent = 'Trip Data Checked';
+    status.style.color = '#00ff88';
+};
 
 window.runDiagnosticCheckButtons = function() {
     const status = document.getElementById('diagnostic-status');
