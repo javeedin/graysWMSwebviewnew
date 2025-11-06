@@ -1331,8 +1331,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (pageId === 'vehicles' && currentFullData.length > 0) {
                 initVehiclesPage();
             } else if (pageId === 'monitor-printing') {
-                // Removed old loadPrintJobs() - now uses monitor-printing.js
-                // User must click "Load Trips" button to load from APEX REST API
+                // ✅ Restore grid data if available (don't refresh unless user clicks Fetch Trips)
+                if (typeof restoreMonitoringGridIfNeeded === 'function') {
+                    restoreMonitoringGridIfNeeded();
+                }
             } else if (pageId === 'printer-setup') {
                 loadInstalledPrinters();
                 loadPrinterConfiguration();

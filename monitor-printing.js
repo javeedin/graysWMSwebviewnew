@@ -375,6 +375,28 @@ function updateMonitoringGrid() {
     }
 }
 
+// ✅ ISSUE #3 FIX: Restore grid data when navigating back to Monitor Printing
+window.restoreMonitoringGridIfNeeded = function() {
+    console.log('[Monitor] Checking if grid needs restoration...');
+    console.log('[Monitor] Data available:', monitoringTripsData.length, 'trips');
+    console.log('[Monitor] Grid initialized:', !!monitoringGrid);
+
+    // If we have data but no grid, initialize it
+    if (monitoringTripsData.length > 0 && !monitoringGrid) {
+        console.log('[Monitor] Initializing grid with existing data');
+        initializeMonitoringGrid();
+        updateMonitoringGrid();
+    }
+    // If we have both data and grid, just refresh
+    else if (monitoringTripsData.length > 0 && monitoringGrid) {
+        console.log('[Monitor] Refreshing grid with existing data');
+        updateMonitoringGrid();
+    }
+    else {
+        console.log('[Monitor] No data to restore');
+    }
+};
+
 async function disableMonitoringTrip(tripId, tripDate) {
     if (!confirm(`Are you sure you want to disable auto-print for Trip ${tripId}?`)) {
         return;
@@ -449,6 +471,7 @@ function openTripInNewTab(tripData) {
 
     // Encode trip data as URL parameters
     const params = new URLSearchParams({
+        page: 'monitor-printing',  // ✅ Stay on Monitor Printing page
         tripId: tripData.tripId,
         tripDate: tripData.tripDate,
         orderCount: tripData.orderCount || 0,
@@ -471,7 +494,10 @@ async function viewTripDetails(tripData) {
 
     currentTripDetails = tripData;
 
-    // Update title
+    // ✅ Set browser tab title to trip ID
+    document.title = `Trip ${tripData.tripId} - WMS`;
+
+    // Update page title
     document.getElementById('trip-details-title').innerHTML = `
         <i class="fas fa-box"></i> Trip Details: ${tripData.tripId} (${tripData.tripDate})
     `;
@@ -1070,13 +1096,37 @@ async function saveOrderStatusToAPEX(detailId, pdfStatus, pdfPath) {
 
 // Set default dates (last 7 days) when page loads
 window.addEventListener('DOMContentLoaded', function() {
-    // ✅ ISSUE #4 FIX: Check if opened with trip parameters (from new tab)
+    // ✅ ISSUE #4 FIX: Check if opened with URL parameters (from new tab)
     const urlParams = new URLSearchParams(window.location.search);
+    const page = urlParams.get('page');
     const tripId = urlParams.get('tripId');
     const tripDate = urlParams.get('tripDate');
     const orderCount = urlParams.get('orderCount');
     const autoView = urlParams.get('autoView');
 
+    // ✅ Activate the correct page (Monitor Printing instead of Trip Management)
+    if (page === 'monitor-printing') {
+        console.log('[Monitor] 🔗 Activating Monitor Printing page from URL');
+
+        // Hide all pages
+        document.querySelectorAll('.page-content').forEach(p => p.style.display = 'none');
+
+        // Show monitor-printing page
+        const monitorPage = document.getElementById('monitor-printing');
+        if (monitorPage) {
+            monitorPage.style.display = 'block';
+        }
+
+        // Update menu active state
+        document.querySelectorAll('.menu-item').forEach(item => {
+            item.classList.remove('active');
+            if (item.getAttribute('data-page') === 'monitor-printing') {
+                item.classList.add('active');
+            }
+        });
+    }
+
+    // ✅ Auto-load trip details if trip parameters present
     if (tripId && tripDate && autoView === 'true') {
         console.log('[Monitor] 🔗 Detected trip parameters in URL, auto-loading trip:', tripId);
 
