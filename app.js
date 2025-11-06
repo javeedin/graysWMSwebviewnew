@@ -2105,7 +2105,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Use stored tripMap for better data access
     window.openTripDetails = function(tripId, tripDate, lorryNumber) {
         console.log('[JS] Opening trip details for:', tripId);
-        
+        console.log('[JS] currentFullData length:', currentFullData.length);
+
+        // Check if data has been loaded
+        if (!currentFullData || currentFullData.length === 0) {
+            alert('No trip data loaded!\n\nPlease click "Fetch Trips" button first to load the data, then try viewing trip details again.');
+            return;
+        }
+
         // Filter trip data - match original logic (case-insensitive, trip_id OR TRIP_ID)
         const tripData = currentFullData.filter(trip => {
             const tripIdLower = (trip.trip_id || '').toString().toLowerCase();
@@ -2113,11 +2120,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const searchId = tripId.toString().toLowerCase();
             return tripIdLower === searchId || tripIdUpper === searchId;
         });
-        
+
         console.log('[JS] Found', tripData.length, 'records for trip:', tripId);
-        
+
         if (tripData.length === 0) {
-            alert('No data found for trip: ' + tripId);
+            alert('No data found for trip: ' + tripId + '\n\nThe trip might not be in the current date range.\nPlease adjust the date range and click "Fetch Trips" again.');
             return;
         }
         
@@ -2229,15 +2236,23 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Initialize grid
         setTimeout(() => {
-            const gridContainer = $(`#grid-${tabId}`);
-            
-            if (tripData.length === 0) {
-                gridContainer.html('<div style="padding:2rem;text-align:center;color:#64748b;">No data found</div>');
-                return;
-            }
-            
-            const first = tripData[0];
-            const columns = Object.keys(first).map(key => {
+            try {
+                console.log('[JS] Initializing DevExpress grid for trip:', tripId);
+                const gridContainer = $(`#grid-${tabId}`);
+
+                if (!gridContainer || gridContainer.length === 0) {
+                    console.error('[JS] Grid container not found:', `#grid-${tabId}`);
+                    return;
+                }
+
+                if (tripData.length === 0) {
+                    gridContainer.html('<div style="padding:2rem;text-align:center;color:#64748b;">No data found</div>');
+                    return;
+                }
+
+                console.log('[JS] Creating grid with', tripData.length, 'records');
+                const first = tripData[0];
+                const columns = Object.keys(first).map(key => {
                 let col = { dataField: key, caption: key.replace(/_/g, ' ') };
                 if (key === 'LINE_STATUS') {
                     col.cellTemplate = (container, options) => {
@@ -2286,6 +2301,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 height: '100%'
             });
+
+            console.log('[JS] ✅ Grid initialized successfully for trip:', tripId);
+
+        } catch (error) {
+            console.error('[JS] ❌ Error initializing grid:', error);
+            const gridContainer = $(`#grid-${tabId}`);
+            if (gridContainer && gridContainer.length > 0) {
+                gridContainer.html(`
+                    <div style="padding:2rem;text-align:center;">
+                        <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#ef4444;margin-bottom:1rem;"></i>
+                        <h3 style="color:#1f2937;margin-bottom:0.5rem;">Grid Initialization Error</h3>
+                        <p style="color:#6b7280;">Error: ${error.message}</p>
+                        <p style="color:#6b7280;font-size:0.85rem;">Check browser console for details.</p>
+                    </div>
+                `);
+            }
+        }
         }, 100);
     };
 
