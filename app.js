@@ -784,31 +784,23 @@ function sanitizeDateForPath(dateStr) {
 
 window.handleAutoPrintToggle = function(tripId, tripDate, enabled, orderCount) {
     console.log('[JS] ⭐ handleAutoPrintToggle:', { tripId, tripDate, enabled });
-    
+
     // 🔧 FIX: Sanitize tripDate immediately
     const safeTripDate = sanitizeDateForPath(tripDate);
     console.log('[JS] 🔧 Sanitized tripDate:', tripDate, '->', safeTripDate);
-    
+
     const statusDiv = document.getElementById(`status_${tripId}_${tripDate}`);
-    if (statusDiv) {
-        statusDiv.style.display = 'block';
-        statusDiv.className = 'auto-print-status';
-        statusDiv.style.background = '#dbeafe';
-        statusDiv.style.borderLeft = '3px solid #3b82f6';
-        statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-    }
-    
+
     if (enabled) {
         const data = window.currentFullData || [];
         console.log('[JS] currentFullData length:', data.length);
-        
+
         if (data.length === 0) {
             alert('No trip data loaded. Please click "Fetch Trips" first.');
             document.getElementById(`autoPrint_${tripId}_${tripDate}`).checked = false;
-            if (statusDiv) statusDiv.style.display = 'none';
             return;
         }
-        
+
         // Use the SAME filtering logic as openTripDetails (trip_id only, no date filter)
         const orders = data.filter(t => {
             const tripIdLower = (t.trip_id || '').toString().toLowerCase();
@@ -819,7 +811,7 @@ window.handleAutoPrintToggle = function(tripId, tripDate, enabled, orderCount) {
             // 🔧 FIX: Sanitize orderDate as well
             const rawOrderDate = order.ORDER_DATE || order.order_date || tripDate;
             const safeOrderDate = sanitizeDateForPath(rawOrderDate);
-            
+
             return {
                 orderNumber: order.ORDER_NUMBER || order.order_number,
                 customerName: order.account_name || order.ACCOUNT_NAME || 'Unknown',
@@ -829,20 +821,36 @@ window.handleAutoPrintToggle = function(tripId, tripDate, enabled, orderCount) {
                 tripDate: safeTripDate     // 🔧 Now safe for paths
             };
         });
-        
+
         console.log('[JS] ✅ Found', orders.length, 'orders for trip:', tripId);
-        
+
         if (orders.length === 0) {
             alert('No orders found for this trip!\n\nTrip ID: ' + tripId + '\nPlease check the console for details.');
             console.error('[JS] Available trip IDs:', [...new Set(data.map(o => o.trip_id || o.TRIP_ID))].slice(0, 10));
             document.getElementById(`autoPrint_${tripId}_${tripDate}`).checked = false;
-            if (statusDiv) statusDiv.style.display = 'none';
             return;
         }
-        
-        toggleAutoPrint(tripId, safeTripDate, true, orders);  // 🔧 Use sanitized date
+
+        // Show printer selection modal instead of directly enabling
+        if (typeof showPrinterSelectionModal === 'function') {
+            showPrinterSelectionModal(tripId, safeTripDate, orders.length, orders);
+        } else {
+            console.error('[JS] showPrinterSelectionModal function not found!');
+            alert('Error: Printer selection not available. Please refresh the page.');
+            document.getElementById(`autoPrint_${tripId}_${tripDate}`).checked = false;
+        }
     } else {
-        toggleAutoPrint(tripId, safeTripDate, false, []);  // 🔧 Use sanitized date
+        // Disable auto-print
+        if (statusDiv) {
+            statusDiv.style.display = 'block';
+            statusDiv.style.background = '#f3f4f6';
+            statusDiv.style.borderLeft = '3px solid #9ca3af';
+            statusDiv.innerHTML = '⏸️ Auto-print disabled';
+
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 2000);
+        }
     }
 };
 

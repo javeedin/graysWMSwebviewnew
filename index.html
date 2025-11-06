@@ -213,18 +213,35 @@
 <!-- ============================================================ -->
 
 <div id="monitor-printing" class="page-content" style="display: none;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-        <h2 class="page-title" style="margin: 0;">📊 Monitor Printing</h2>
-        <div style="display: flex; gap: 0.5rem;">
-            <button class="btn btn-primary" onclick="loadPrintJobs()">
-                <i class="fas fa-sync-alt"></i> Refresh
-            </button>
-            <button class="btn btn-secondary" onclick="retryAllFailedJobs()">
-                <i class="fas fa-redo"></i> Retry Failed
-            </button>
+    <div style="margin-bottom: 1.5rem;">
+        <h2 class="page-title" style="margin: 0 0 1rem 0;">📊 Monitor Printing</h2>
+
+        <!-- Search Parameters -->
+        <div class="parameters-section">
+            <div class="parameters-header" id="monitor-parameters-toggle">
+                <h3>Query Parameters</h3>
+                <i class="fas fa-chevron-down collapse-icon" id="monitor-collapse-icon"></i>
+            </div>
+            <div class="parameters-content" id="monitor-parameters-content">
+                <div class="form-group" style="margin-bottom: 0; min-width: 160px;">
+                    <label for="monitor-date-from">From Date</label>
+                    <input type="date" id="monitor-date-from" class="form-control">
+                </div>
+                <div class="form-group" style="margin-bottom: 0; min-width: 160px;">
+                    <label for="monitor-date-to">To Date</label>
+                    <input type="date" id="monitor-date-to" class="form-control">
+                </div>
+                <button id="load-monitor-trips-btn" class="btn" style="height: 34px;" onclick="loadMonitoringTrips()">
+                    <i class="fas fa-sync-alt" id="monitor-fetch-icon"></i>
+                    <span id="monitor-fetch-text">Load Trips</span>
+                </button>
+                <button class="btn btn-secondary" onclick="retryAllFailedJobs()" style="height: 34px;">
+                    <i class="fas fa-redo"></i> Retry Failed
+                </button>
+            </div>
         </div>
     </div>
-    
+
     <!-- Statistics Cards -->
     <div class="print-stats-grid">
         <div class="print-stat-card" onclick="filterByStatus('all')">
@@ -331,7 +348,65 @@
             </div>
         </div>
     </div>
-</div>      
+</div>
+
+<!-- Printer Selection Modal for Auto-Print -->
+<div id="printer-selection-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+    <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0;">
+            <h3 style="margin: 0; font-size: 18px; color: #333;">
+                <i class="fas fa-print" style="color: #667eea;"></i> Select Printer for Auto-Print
+            </h3>
+            <p style="margin: 8px 0 0 0; font-size: 14px; color: #666;">
+                Choose a printer to automatically download and print documents
+            </p>
+        </div>
+
+        <div style="padding: 1.5rem;">
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-truck" style="color: #667eea;"></i> Trip ID
+                </label>
+                <div id="modal-trip-id" style="padding: 0.75rem; background: #f7fafc; border-radius: 6px; font-family: 'Courier New', monospace; font-weight: 600; color: #2d3748;"></div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-calendar" style="color: #667eea;"></i> Trip Date
+                </label>
+                <div id="modal-trip-date" style="padding: 0.75rem; background: #f7fafc; border-radius: 6px; color: #2d3748;"></div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-box" style="color: #667eea;"></i> Total Orders
+                </label>
+                <div id="modal-order-count" style="padding: 0.75rem; background: #f7fafc; border-radius: 6px; color: #2d3748;"></div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <label for="modal-printer-select" style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-print" style="color: #667eea;"></i> Select Printer <span style="color: #dc3545;">*</span>
+                </label>
+                <select id="modal-printer-select" class="form-control" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <option value="">-- Loading printers... --</option>
+                </select>
+            </div>
+
+            <div id="printer-selection-error" style="display: none; padding: 0.75rem; background: #fee2e2; border-left: 4px solid #dc3545; border-radius: 4px; margin-bottom: 1rem; color: #991b1b; font-size: 14px;"></div>
+        </div>
+
+        <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button class="btn btn-secondary" onclick="closePrinterSelectionModal()">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+            <button class="btn btn-primary" onclick="confirmPrinterSelection()">
+                <i class="fas fa-check"></i> Enable Auto-Print
+            </button>
+        </div>
+    </div>
+</div>
+
             <div id="printer-setup" class="page-content" style="display: none;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <h2 class="page-title" style="margin: 0;">🖨️ Printer Management</h2>
@@ -560,5 +635,6 @@
     <script src="app.js"></script>
     <script src="printer-management.js"></script>
     <script src="printer-management-new.js"></script>
+    <script src="monitor-printing.js"></script>
 </body>
 </html>
