@@ -887,6 +887,20 @@ namespace WMSApp
             {
                 await wv.EnsureCoreWebView2Async(null);
 
+                // CACHE FIX: Clear browser cache to ensure tabs load properly
+                try
+                {
+                    await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                        CoreWebView2BrowsingDataKinds.AllDomStorage |
+                        CoreWebView2BrowsingDataKinds.CacheStorage |
+                        CoreWebView2BrowsingDataKinds.DiskCache);
+                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully");
+                }
+                catch (Exception cacheEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[CACHE] Warning: Could not clear cache: {cacheEx.Message}");
+                }
+
                 wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
@@ -1016,11 +1030,26 @@ namespace WMSApp
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    httpClient.Timeout = TimeSpan.FromSeconds(60);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Making GET request to: {message.FullUrl}");
+
                     var response = await httpClient.GetAsync(message.FullUrl);
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                    // Log error responses for debugging
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] HTTP {response.StatusCode}: {response.ReasonPhrase}");
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] Response body: {responseContent.Substring(0, Math.Min(500, responseContent.Length))}");
+                    }
+
+                    // Log first 200 chars of successful responses for debugging
+                    if (response.IsSuccessStatusCode && responseContent.Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Response preview: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
+                    }
 
                     var resultMessage = new
                     {
