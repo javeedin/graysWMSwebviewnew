@@ -9,7 +9,8 @@ console.log('[Distribution] ========================================');
 
 let distributionConfig = {
     distributionFolder: 'C:\\fusion\\fusionclientweb\\wms',
-    githubReleaseAPI: 'https://raw.githubusercontent.com/javeedin/graysWMSwebviewnew/main/latest-release.json',
+    // TESTING: Using current feature branch - CHANGE TO 'main' after merging this branch
+    githubReleaseAPI: 'https://raw.githubusercontent.com/javeedin/graysWMSwebviewnew/claude/fix-monitor-printing-caching-011CUsuWNCyAa4XEbjUB4kCJ/latest-release.json',
     isDownloading: false
 };
 
