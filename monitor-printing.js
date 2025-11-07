@@ -322,7 +322,7 @@ function initializeMonitoringGrid() {
             },
             {
                 caption: 'Actions',
-                width: 120,
+                width: 160,
                 cellTemplate: function(container, options) {
                     const data = options.data;
 
@@ -331,6 +331,19 @@ function initializeMonitoringGrid() {
                         gap: '4px',
                         justifyContent: 'center'
                     });
+
+                    // Open Trip button - opens trip in Trip Management page without navigating
+                    const openBtn = $('<button>')
+                        .addClass('btn btn-sm btn-primary')
+                        .css({ fontSize: '11px', padding: '4px 8px' })
+                        .html('<i class="fas fa-folder-open"></i>')
+                        .attr('title', 'Open Trip Details')
+                        .on('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            // Open trip details in Trip Management without navigating
+                            openTripFromMonitorPrinting(data.tripId, data.tripDate);
+                        });
 
                     // Disable button
                     const disableBtn = $('<button>')
@@ -342,7 +355,7 @@ function initializeMonitoringGrid() {
                             disableMonitoringTrip(data.tripId, data.tripDate);
                         });
 
-                    btnContainer.append(disableBtn);
+                    btnContainer.append(openBtn, disableBtn);
                     container.append(btnContainer);
                 }
             }
@@ -388,6 +401,36 @@ async function disableMonitoringTrip(tripId, tripDate) {
         alert('Failed to disable auto-print: ' + error.message);
     }
 }
+
+// Function to open trip details from Monitor Printing page
+window.openTripFromMonitorPrinting = function(tripId, tripDate) {
+    console.log('[Monitor] Opening trip details for:', tripId, tripDate);
+
+    // Switch to Trip Management page first
+    document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+    document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
+
+    const tripMgmtMenuItem = document.querySelector('.menu-item[data-page="trip-management"]');
+    if (tripMgmtMenuItem) {
+        tripMgmtMenuItem.classList.add('active');
+    }
+
+    const tripMgmtPage = document.getElementById('trip-management');
+    if (tripMgmtPage) {
+        tripMgmtPage.style.display = 'block';
+        document.title = 'WMS v1.1 - Trip Management';
+    }
+
+    // Wait a bit for the page to render, then open the trip details
+    setTimeout(() => {
+        if (typeof window.openTripDetails === 'function') {
+            window.openTripDetails(tripId, tripDate, 'N/A');
+        } else {
+            console.error('[Monitor] openTripDetails function not available');
+            alert('Unable to open trip details. Please try again.');
+        }
+    }, 100);
+};
 
 // ============================================================================
 // INITIALIZATION

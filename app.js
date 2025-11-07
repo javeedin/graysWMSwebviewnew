@@ -1327,7 +1327,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById(pageId).style.display = 'block';
             
             const pageTitle = this.textContent.trim();
-            document.title = `WMS - ${pageTitle}`;
+            document.title = `WMS v1.1 - ${pageTitle}`;
             
             if (pageId === 'vehicles' && currentFullData.length > 0) {
                 initVehiclesPage();
