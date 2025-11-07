@@ -294,14 +294,12 @@
                 <div class="tab-item active" data-tab="trips">
                     <span>Trips</span>
                 </div>
-                <div class="tab-item" data-tab="trip-details">
-                    <span>Trip Details</span>
-                </div>
+                <!-- Trip detail tabs will be added dynamically here -->
             </div>
         </div>
         <div id="monitor-tab-content" class="tab-content">
             <!-- Tab 1: Trips List -->
-            <div id="monitor-trips-tab" class="tab-pane active">
+            <div id="monitor-trips-tab" class="tab-pane active" data-tab-content="trips">
                 <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
                     <div class="grid-title">Monitored Trips</div>
                     <div style="display: flex; gap: 1rem; align-items: center;">
@@ -311,27 +309,7 @@
                 <div id="print-jobs-grid" style="height: 600px;"></div>
             </div>
 
-            <!-- Tab 2: Trip Details (Orders) -->
-            <div id="monitor-trip-details-tab" class="tab-pane">
-                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
-                    <div class="grid-title">
-                        <span id="trip-details-title">Trip Details</span>
-                        <button class="btn btn-secondary" onclick="backToTripsTab()" style="margin-left: 1rem; font-size: 12px; padding: 4px 12px;">
-                            <i class="fas fa-arrow-left"></i> Back to Trips
-                        </button>
-                    </div>
-                    <div style="display: flex; gap: 1rem; align-items: center;">
-                        <div id="orders-count" style="color: #666; font-size: 14px;">0 orders</div>
-                        <button id="download-all-orders-btn" class="btn btn-primary" onclick="downloadAllOrdersPDF()" style="font-size: 12px; padding: 6px 16px;">
-                            <i class="fas fa-download"></i> Download All Orders PDF
-                        </button>
-                        <button id="refresh-orders-btn" class="btn btn-secondary" onclick="refreshOrdersStatus()" style="font-size: 12px; padding: 6px 16px;">
-                            <i class="fas fa-sync"></i> Refresh Status
-                        </button>
-                    </div>
-                </div>
-                <div id="trip-orders-grid" style="height: 600px;"></div>
-            </div>
+            <!-- Trip detail tab panes will be added dynamically here -->
         </div>
     </div>
 </div>

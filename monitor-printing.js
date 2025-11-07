@@ -425,11 +425,12 @@ async function disableMonitoringTrip(tripId, tripDate) {
 }
 
 // ============================================================================
-// TAB SWITCHING
+// TAB SWITCHING - Support multiple trip tabs
 // ============================================================================
 
-let currentTripDetails = null;
-let tripOrdersGrid = null;
+// Store trip details and grids for each tab
+let tripDetailsMap = new Map(); // Map of tripId -> { tripData, gridInstance }
+let currentActiveTripId = null;
 
 function switchMonitorTab(tabName) {
     console.log('[Monitor] Switching to tab:', tabName);
@@ -444,20 +445,53 @@ function switchMonitorTab(tabName) {
         }
     });
 
-    // Update tab content
-    const tripPane = document.getElementById('monitor-trips-tab');
-    const detailsPane = document.getElementById('monitor-trip-details-tab');
+    // Update tab content - hide all, show the requested one
+    const tabPanes = document.querySelectorAll('#monitor-tab-content .tab-pane');
+    tabPanes.forEach(pane => {
+        pane.classList.remove('active');
+    });
 
-    if (tabName === 'trips') {
-        tripPane.classList.add('active');
-        detailsPane.classList.remove('active');
-    } else if (tabName === 'trip-details') {
-        tripPane.classList.remove('active');
-        detailsPane.classList.add('active');
+    // Show the selected tab pane
+    const selectedPane = document.querySelector(`#monitor-tab-content [data-tab-content="${tabName}"]`);
+    if (selectedPane) {
+        selectedPane.classList.add('active');
+    }
+
+    // Track active trip
+    if (tabName.startsWith('trip-detail-')) {
+        currentActiveTripId = tabName.replace('trip-detail-', '');
+    } else {
+        currentActiveTripId = null;
     }
 }
 
 window.backToTripsTab = function() {
+    switchMonitorTab('trips');
+};
+
+window.closeTripDetailTab = function(tripId, event) {
+    if (event) {
+        event.stopPropagation();
+    }
+
+    console.log('[Monitor] Closing tab for trip:', tripId);
+
+    // Remove tab header
+    const tabHeader = document.querySelector(`#monitor-tab-header .tab-item[data-tab="trip-detail-${tripId}"]`);
+    if (tabHeader) {
+        tabHeader.remove();
+    }
+
+    // Remove tab content
+    const tabContent = document.querySelector(`#monitor-tab-content [data-tab-content="trip-detail-${tripId}"]`);
+    if (tabContent) {
+        tabContent.remove();
+    }
+
+    // Remove from map
+    tripDetailsMap.delete(tripId);
+
+    // Switch to trips tab
     switchMonitorTab('trips');
 };
 
@@ -488,56 +522,271 @@ function openTripInNewTab(tripData) {
     window.open(newTabUrl, '_blank');
 }
 
+function getOrderGridColumns(tripId) {
+    return [
+        {
+            caption: 'Actions',
+            width: 180,
+            fixed: true,
+            cellTemplate: function(container, options) {
+                const rowData = options.data;
+                const pdfStatus = rowData.pdfStatus || 'PENDING';
+
+                // Preview button
+                const previewBtn = $('<button>')
+                    .addClass('btn btn-sm btn-info')
+                    .css({
+                        marginRight: '4px',
+                        fontSize: '11px',
+                        padding: '4px 8px',
+                        cursor: pdfStatus === 'DOWNLOADED' ? 'pointer' : 'not-allowed',
+                        opacity: pdfStatus === 'DOWNLOADED' ? '1' : '0.5'
+                    })
+                    .html('<i class="fas fa-eye"></i>')
+                    .attr('title', pdfStatus === 'DOWNLOADED' ? 'Preview PDF' : 'PDF not available')
+                    .prop('disabled', pdfStatus !== 'DOWNLOADED')
+                    .on('click', function(e) {
+                        e.stopPropagation();
+                        if (pdfStatus === 'DOWNLOADED') {
+                            previewOrderPDF(rowData);
+                        }
+                    });
+
+                // Download button
+                const downloadBtn = $('<button>')
+                    .addClass('btn btn-sm btn-primary')
+                    .css({
+                        fontSize: '11px',
+                        padding: '4px 8px'
+                    })
+                    .html('<i class="fas fa-download"></i>')
+                    .attr('title', 'Download PDF')
+                    .on('click', function(e) {
+                        e.stopPropagation();
+                        downloadOrderPDF(rowData);
+                    });
+
+                container.append(previewBtn).append(downloadBtn);
+            }
+        },
+        {
+            dataField: 'orderNumber',
+            caption: 'Order Number',
+            width: 140
+        },
+        {
+            dataField: 'customerName',
+            caption: 'Customer Name',
+            width: 200
+        },
+        {
+            dataField: 'accountNumber',
+            caption: 'Account Number',
+            width: 140
+        },
+        {
+            dataField: 'orderDate',
+            caption: 'Order Date',
+            dataType: 'date',
+            format: 'yyyy-MM-dd',
+            width: 120
+        },
+        {
+            dataField: 'pdfStatus',
+            caption: 'PDF Status',
+            width: 140,
+            cellTemplate: function(container, options) {
+                const status = options.value || 'PENDING';
+                let badge = '';
+
+                switch (status) {
+                    case 'PENDING':
+                        badge = '<span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">⏳ Pending</span>';
+                        break;
+                    case 'DOWNLOADING':
+                        badge = '<span style="background: #dbeafe; color: #1e40af; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">📥 Downloading</span>';
+                        break;
+                    case 'DOWNLOADED':
+                        badge = '<span style="background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">✅ Downloaded</span>';
+                        break;
+                    case 'FAILED':
+                        badge = '<span style="background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">❌ Failed</span>';
+                        break;
+                    default:
+                        badge = `<span style="background: #f3f4f6; color: #374151; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">${status}</span>`;
+                }
+
+                container.append(badge);
+            }
+        },
+        {
+            dataField: 'printStatus',
+            caption: 'Print Status',
+            width: 140,
+            cellTemplate: function(container, options) {
+                const status = options.value || 'PENDING';
+                let badge = '';
+
+                switch (status) {
+                    case 'PENDING':
+                        badge = '<span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">⏳ Pending</span>';
+                        break;
+                    case 'PRINTING':
+                        badge = '<span style="background: #e0e7ff; color: #3730a3; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">🖨️ Printing</span>';
+                        break;
+                    case 'PRINTED':
+                        badge = '<span style="background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">✅ Printed</span>';
+                        break;
+                    case 'FAILED':
+                        badge = '<span style="background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">❌ Failed</span>';
+                        break;
+                    default:
+                        badge = `<span style="background: #f3f4f6; color: #374151; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">${status}</span>`;
+                }
+
+                container.append(badge);
+            }
+        },
+        {
+            dataField: 'pdfPath',
+            caption: 'PDF Path',
+            width: 200,
+            visible: false
+        },
+        {
+            dataField: 'downloadAttempts',
+            caption: 'Download Attempts',
+            width: 120,
+            alignment: 'center'
+        },
+        {
+            dataField: 'printAttempts',
+            caption: 'Print Attempts',
+            width: 120,
+            alignment: 'center'
+        },
+        {
+            dataField: 'lastError',
+            caption: 'Last Error',
+            width: 250,
+            cellTemplate: function(container, options) {
+                const error = options.value;
+                if (error) {
+                    container.append(
+                        $('<span>')
+                            .css({ color: '#dc3545', fontSize: '12px' })
+                            .text(error)
+                            .attr('title', error)
+                    );
+                } else {
+                    container.append('-');
+                }
+            }
+        },
+        {
+            dataField: 'lastUpdated',
+            caption: 'Last Updated',
+            dataType: 'datetime',
+            format: 'yyyy-MM-dd HH:mm',
+            width: 150
+        }
+    ];
+}
+
 async function viewTripDetails(tripData) {
     console.log('[Monitor] Loading trip details for:', tripData);
     console.log('[Monitor] TripId:', tripData.tripId);
 
-    currentTripDetails = tripData;
+    const tripId = tripData.tripId;
+    const tabName = `trip-detail-${tripId}`;
 
-    // ✅ Set browser tab title to trip ID
-    document.title = `Trip ${tripData.tripId} - WMS`;
+    // Check if tab already exists
+    const existingTab = document.querySelector(`#monitor-tab-header .tab-item[data-tab="${tabName}"]`);
+    if (existingTab) {
+        console.log('[Monitor] Tab already exists for trip:', tripId, '- switching to it');
+        switchMonitorTab(tabName);
+        return;
+    }
 
-    // Update page title
-    document.getElementById('trip-details-title').innerHTML = `
-        <i class="fas fa-box"></i> Trip Details: ${tripData.tripId} (${tripData.tripDate})
+    console.log('[Monitor] Creating new tab for trip:', tripId);
+
+    // Create tab header with trip ID as title and close button
+    const tabHeader = document.createElement('div');
+    tabHeader.className = 'tab-item';
+    tabHeader.setAttribute('data-tab', tabName);
+    tabHeader.innerHTML = `
+        <span>${tripId}</span>
+        <span class="close-tab" onclick="closeTripDetailTab('${tripId}', event)" title="Close tab">&times;</span>
+    `;
+    tabHeader.addEventListener('click', function(e) {
+        if (!e.target.classList.contains('close-tab')) {
+            switchMonitorTab(tabName);
+        }
+    });
+
+    // Add tab header after "Trips" tab
+    const tabHeaderContainer = document.getElementById('monitor-tab-header');
+    tabHeaderContainer.appendChild(tabHeader);
+
+    // Create tab content pane
+    const tabPane = document.createElement('div');
+    tabPane.className = 'tab-pane';
+    tabPane.setAttribute('data-tab-content', tabName);
+    tabPane.innerHTML = `
+        <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+            <div class="grid-title">
+                <span id="trip-details-title-${tripId}"><i class="fas fa-box"></i> Trip Details: ${tripId} (${tripData.tripDate})</span>
+                <button class="btn btn-secondary" onclick="closeTripDetailTab('${tripId}', event)" style="margin-left: 1rem; font-size: 12px; padding: 4px 12px;">
+                    <i class="fas fa-arrow-left"></i> Close
+                </button>
+            </div>
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <div id="orders-count-${tripId}" style="color: #666; font-size: 14px;">Loading...</div>
+                <button id="download-all-orders-btn-${tripId}" class="btn btn-primary" onclick="downloadAllOrdersPDF('${tripId}')" style="font-size: 12px; padding: 6px 16px;">
+                    <i class="fas fa-download"></i> Download All Orders PDF
+                </button>
+                <button id="refresh-orders-btn-${tripId}" class="btn btn-secondary" onclick="refreshOrdersStatus('${tripId}')" style="font-size: 12px; padding: 6px 16px;">
+                    <i class="fas fa-sync"></i> Refresh Status
+                </button>
+            </div>
+        </div>
+        <div id="trip-orders-grid-${tripId}" style="height: 600px;"></div>
     `;
 
-    // Switch to details tab
-    switchMonitorTab('trip-details');
+    // Add tab pane to container
+    const tabContentContainer = document.getElementById('monitor-tab-content');
+    tabContentContainer.appendChild(tabPane);
 
-    // Show loading
-    document.getElementById('orders-count').textContent = 'Loading...';
+    // Switch to the new tab
+    switchMonitorTab(tabName);
 
+    // Load orders for this trip
     try {
-        // FIXED: Use trip_id parameter instead of monitorId (join is on trip_id, not monitor_id)
-        const endpoint = `/monitor-printing/orders?trip_id=${tripData.tripId}`;
+        const endpoint = `/monitor-printing/orders?trip_id=${tripId}`;
         console.log('[Monitor] Calling endpoint:', endpoint);
         console.log('[Monitor] Full URL:', `${MONITOR_API_BASE_URL}${endpoint}`);
 
-        // Call APEX API to get order details
         const data = await callApexAPINew(endpoint, 'GET');
-
         console.log('[Monitor] Raw API response:', data);
 
         const orders = data.items || [];
-        console.log('[Monitor] Loaded', orders.length, 'orders for trip', tripData.tripId);
+        console.log('[Monitor] Loaded', orders.length, 'orders for trip', tripId);
 
         if (orders.length === 0) {
-            console.warn('[Monitor] ⚠️ No orders found in response. Check if trip_id', tripData.tripId, 'exists in wms_monitor_printing_details table');
+            console.warn('[Monitor] ⚠️ No orders found in response. Check if trip_id', tripId, 'exists in wms_monitor_printing_details table');
         }
 
         // Update count
-        document.getElementById('orders-count').textContent = `${orders.length} order${orders.length !== 1 ? 's' : ''}`;
+        document.getElementById(`orders-count-${tripId}`).textContent = `${orders.length} order${orders.length !== 1 ? 's' : ''}`;
 
-        // Always show buttons for easier testing - disable Download All if no orders
-        const downloadAllBtn = document.getElementById('download-all-orders-btn');
-        const refreshBtn = document.getElementById('refresh-orders-btn');
+        // Update buttons
+        const downloadAllBtn = document.getElementById(`download-all-orders-btn-${tripId}`);
+        const refreshBtn = document.getElementById(`refresh-orders-btn-${tripId}`);
 
         if (downloadAllBtn && refreshBtn) {
             downloadAllBtn.style.display = 'inline-block';
             refreshBtn.style.display = 'inline-block';
 
-            // Disable Download All button if no orders
             downloadAllBtn.disabled = orders.length === 0;
             if (orders.length === 0) {
                 downloadAllBtn.style.opacity = '0.5';
@@ -548,47 +797,82 @@ async function viewTripDetails(tripData) {
             }
 
             console.log('[Monitor] ✅ Buttons visible - Download All:', orders.length > 0 ? 'enabled' : 'disabled');
-        } else {
-            console.error('[Monitor] ❌ Buttons not found in DOM!');
         }
 
-        // Initialize or update grid
-        if (!tripOrdersGrid) {
-            initializeTripOrdersGrid(orders);
-        } else {
-            updateTripOrdersGrid(orders);
-        }
+        // Initialize grid for this trip
+        const gridInstance = $(`#trip-orders-grid-${tripId}`).dxDataGrid({
+            dataSource: orders,
+            showBorders: true,
+            showRowLines: true,
+            rowAlternationEnabled: true,
+            columnAutoWidth: true,
+            wordWrapEnabled: false,
+            allowColumnResizing: true,
+            columnResizingMode: 'widget',
+            hoverStateEnabled: true,
+            paging: {
+                pageSize: 50
+            },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [25, 50, 100, 200],
+                showInfo: true
+            },
+            searchPanel: {
+                visible: true,
+                width: 240,
+                placeholder: 'Search orders...'
+            },
+            headerFilter: {
+                visible: true
+            },
+            filterRow: {
+                visible: true
+            },
+            export: {
+                enabled: true,
+                fileName: `Trip_${tripId}_Orders`
+            },
+            columns: getOrderGridColumns(tripId)
+        }).dxDataGrid('instance');
+
+        // Store in map
+        tripDetailsMap.set(tripId, {
+            tripData: tripData,
+            gridInstance: gridInstance,
+            orders: orders
+        });
+
+        console.log('[Monitor] ✅ Trip details loaded and stored for:', tripId);
 
     } catch (error) {
         console.error('[Monitor] ❌ Failed to load trip details:', error);
         console.error('[Monitor] Error details:', {
             message: error.message,
             stack: error.stack,
-            tripId: tripData.tripId
+            tripId: tripId
         });
 
-        document.getElementById('orders-count').textContent = 'Error loading orders';
+        document.getElementById(`orders-count-${tripId}`).textContent = 'Error loading orders';
 
-        // Show buttons even on error
-        const downloadAllBtn = document.getElementById('download-all-orders-btn');
-        const refreshBtn = document.getElementById('refresh-orders-btn');
+        const downloadAllBtn = document.getElementById(`download-all-orders-btn-${tripId}`);
+        const refreshBtn = document.getElementById(`refresh-orders-btn-${tripId}`);
 
         if (downloadAllBtn && refreshBtn) {
             downloadAllBtn.style.display = 'inline-block';
             refreshBtn.style.display = 'inline-block';
             downloadAllBtn.disabled = true;
             downloadAllBtn.style.opacity = '0.5';
-            console.log('[Monitor] ✅ Buttons shown (error state)');
         }
 
-        // Show detailed error to user
-        alert(`Failed to load trip details for Trip ${tripData.tripId}:\n\n` +
+        alert(`Failed to load trip details for Trip ${tripId}:\n\n` +
               `Error: ${error.message}\n\n` +
-              `Trip ID: ${tripData.tripId}\n\n` +
+              `Trip ID: ${tripId}\n\n` +
               `Please check:\n` +
               `1. Browser console (F12) for detailed logs\n` +
               `2. API endpoint is accessible\n` +
-              `3. Trip ID '${tripData.tripId}' exists in wms_monitor_printing_details table`);
+              `3. Trip ID '${tripId}' exists in wms_monitor_printing_details table`);
     }
 }
 
@@ -952,24 +1236,24 @@ async function previewOrderPDF(orderData) {
     }
 }
 
-async function downloadAllOrdersPDF() {
-    console.log('[Monitor] Downloading all orders PDF for trip:', currentTripDetails.tripId);
+async function downloadAllOrdersPDF(tripId) {
+    console.log('[Monitor] Downloading all orders PDF for trip:', tripId);
 
-    if (!currentTripDetails) {
-        alert('No trip selected');
+    const tripDetails = tripDetailsMap.get(tripId);
+    if (!tripDetails) {
+        alert('Trip details not found');
         return;
     }
 
-    const confirmed = confirm(`Download PDFs for all orders in trip ${currentTripDetails.tripId}?\n\nThis will download ${currentTripDetails.orderCount} order PDFs.`);
+    const confirmed = confirm(`Download PDFs for all orders in trip ${tripId}?\n\nThis will download ${tripDetails.orders.length} order PDFs.`);
 
     if (!confirmed) {
         return;
     }
 
     try {
-        // Get all orders from grid
-        const gridInstance = tripOrdersGrid.dxDataGrid('instance');
-        const allOrders = gridInstance.option('dataSource');
+        // Get all orders from the stored orders
+        const allOrders = tripDetails.orders;
 
         console.log(`[Monitor] Starting download for ${allOrders.length} orders`);
 
@@ -997,7 +1281,7 @@ async function downloadAllOrdersPDF() {
         }
 
         // Refresh grid to show updated statuses
-        await refreshOrdersStatus();
+        await refreshOrdersStatus(tripId);
 
         // ✅ REMOVED POPUP - No alert after bulk download
         console.log(`[Monitor] ✅ Download complete! Success: ${successCount}, Failed: ${failCount}, Total: ${allOrders.length}`);
@@ -1008,16 +1292,18 @@ async function downloadAllOrdersPDF() {
     }
 }
 
-async function refreshOrdersStatus() {
-    console.log('[Monitor] Refreshing orders status for trip:', currentTripDetails.tripId);
+async function refreshOrdersStatus(tripId) {
+    console.log('[Monitor] Refreshing orders status for trip:', tripId);
 
-    if (!currentTripDetails) {
+    const tripDetails = tripDetailsMap.get(tripId);
+    if (!tripDetails) {
+        console.error('[Monitor] Trip details not found for:', tripId);
         return;
     }
 
     try {
         // Reload trip details
-        await viewTripDetails(currentTripDetails);
+        await viewTripDetails(tripDetails.tripData);
         console.log('[Monitor] ✅ Orders status refreshed');
     } catch (error) {
         console.error('[Monitor] ❌ Failed to refresh orders status:', error);
