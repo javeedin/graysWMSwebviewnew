@@ -268,10 +268,18 @@ namespace WMSApp
             wmsDistributionButton.FlatAppearance.BorderSize = 2;
             wmsDistributionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
             wmsDistributionButton.Paint += ModuleButton_Paint;
-            wmsDistributionButton.Click += (s, e) =>
+            wmsDistributionButton.Click += async (s, e) =>
             {
                 // Use distribution system - send message to check folder
-                webView.CoreWebView2.ExecuteScriptAsync("if (typeof launchWMSModule === 'function') { launchWMSModule(); } else { alert('Distribution system not loaded'); }");
+                var wv = GetCurrentWebView();
+                if (wv?.CoreWebView2 != null)
+                {
+                    await wv.CoreWebView2.ExecuteScriptAsync("if (typeof launchWMSModule === 'function') { launchWMSModule(); } else { alert('Distribution system not loaded'); }");
+                }
+                else
+                {
+                    MessageBox.Show("WebView not ready. Please wait for the page to load.", "Not Ready", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
             };
             moduleToolTip.SetToolTip(wmsDistributionButton, "WMS - Warehouse Management");
             leftPosition += 70;
