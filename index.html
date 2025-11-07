@@ -11,9 +11,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
-    <link rel="stylesheet" href="styles.css?v=20251106002">
+    <link rel="stylesheet" href="styles.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
+        // Dynamic cache busting - generate unique timestamp
+        window.APP_CACHE_BUSTER = Date.now();
+
         // DevExpress License Configuration
         // Account: jshaik@grays.mu
         DevExpress.config({
@@ -24,7 +27,10 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <script src="config.js?v=20251106002"></script>
+    <script>
+        // Load config.js with cache buster
+        document.write('<script src="config.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
 </head>
 <body>
     <header class="header">
@@ -681,9 +687,23 @@
         </div>
     </div>
 
-    <script src="app.js?v=20251106012"></script>
-    <script src="printer-management.js?v=20251106002"></script>
-    <script src="printer-management-new.js?v=20251106002"></script>
-    <script src="monitor-printing.js?v=20251106013"></script>
+    <!-- Dynamic cache busting - forces fresh load every time -->
+    <script>
+        // Load JavaScript files with cache buster (using timestamp from header)
+        const scripts = [
+            'app.js',
+            'printer-management.js',
+            'printer-management-new.js',
+            'monitor-printing.js'
+        ];
+
+        scripts.forEach(function(src) {
+            const script = document.createElement('script');
+            script.src = src + '?v=' + window.APP_CACHE_BUSTER;
+            document.body.appendChild(script);
+        });
+
+        console.log('[Cache Buster] All files loaded with timestamp:', window.APP_CACHE_BUSTER);
+    </script>
 </body>
 </html>
