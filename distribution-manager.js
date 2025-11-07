@@ -410,6 +410,23 @@ function handleLaunchWMSModule(message) {
 // Initialize on load
 // ========================================
 
-console.log('[Distribution] Module loaded');
+console.log('[Distribution] ========================================');
+console.log('[Distribution] Module FULLY loaded');
 console.log('[Distribution] Distribution folder:', distributionConfig.distributionFolder);
 console.log('[Distribution] Release API:', distributionConfig.githubReleaseAPI);
+
+// Verify functions are defined
+console.log('[Distribution] Function check:');
+console.log('[Distribution] - launchWMSModule:', typeof launchWMSModule);
+console.log('[Distribution] - downloadNewVersion:', typeof downloadNewVersion);
+console.log('[Distribution] - updateDownloadButtonState:', typeof updateDownloadButtonState);
+console.log('[Distribution] - showDownloadProgress:', typeof showDownloadProgress);
+
+// Make functions globally accessible (in case of scope issues)
+window.launchWMSModule = launchWMSModule;
+window.downloadNewVersion = downloadNewVersion;
+
+console.log('[Distribution] Functions exposed to window object');
+console.log('[Distribution] - window.launchWMSModule:', typeof window.launchWMSModule);
+console.log('[Distribution] - window.downloadNewVersion:', typeof window.downloadNewVersion);
+console.log('[Distribution] ========================================');
