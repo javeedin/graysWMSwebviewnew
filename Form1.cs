@@ -301,18 +301,26 @@ namespace WMSApp
                         string launcherUrl = "file:///" + launcherPath.Replace("\\", "/");
                         Navigate(launcherUrl);
 
-                        // Wait for page to load, then trigger download
-                        System.Threading.Tasks.Task.Delay(1000).ContinueWith(_ =>
+                        // Wait for page to load, then trigger download (using UI thread timer)
+                        var downloadTimer = new System.Windows.Forms.Timer();
+                        downloadTimer.Interval = 1500; // 1.5 seconds
+                        downloadTimer.Tick += (sender2, e2) =>
                         {
+                            downloadTimer.Stop();
+                            downloadTimer.Dispose();
+
                             var wv = GetCurrentWebView();
                             if (wv?.CoreWebView2 != null)
                             {
-                                this.Invoke((MethodInvoker)(() =>
-                                {
-                                    wv.CoreWebView2.ExecuteScriptAsync("if (typeof downloadNewVersion === 'function') { downloadNewVersion(); }");
-                                }));
+                                System.Diagnostics.Debug.WriteLine("[WMS] Triggering download via JavaScript...");
+                                wv.CoreWebView2.ExecuteScriptAsync("if (typeof downloadNewVersion === 'function') { downloadNewVersion(); }");
                             }
-                        });
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("[WMS] WebView not ready for download trigger");
+                            }
+                        };
+                        downloadTimer.Start();
                     }
                 }
             };
