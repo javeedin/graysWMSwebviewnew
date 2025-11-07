@@ -334,14 +334,14 @@ function initializeMonitoringGrid() {
                         justifyContent: 'center'
                     });
 
-                    // View Details button - ✅ ISSUE #4 FIX: Open in new tab
+                    // View Details button - Opens trip details in Trip Details tab (same page)
                     const detailsBtn = $('<button>')
                         .addClass('btn btn-sm btn-primary')
                         .css({ fontSize: '11px', padding: '4px 8px' })
-                        .html('<i class="fas fa-external-link-alt"></i> Open')
-                        .attr('title', 'Open Trip Details in New Tab')
+                        .html('<i class="fas fa-folder-open"></i> Open')
+                        .attr('title', 'View Trip Details')
                         .on('click', function() {
-                            openTripInNewTab(data);
+                            viewTripDetails(data);
                         });
 
                     // Disable button
