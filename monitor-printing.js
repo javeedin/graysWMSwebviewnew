@@ -1151,7 +1151,7 @@ async function downloadOrderPDF(orderData) {
         console.log('[Monitor] Trip Date:', currentTripData.tripDate);
 
         // 🔧 FIX: Update status in the specific trip's grid
-        updateOrderStatus(orderData.detailId, 'DOWNLOADING', null, currentActiveTripId);
+        updateOrderStatus(orderData.detailId, 'DOWNLOADING', null, null, currentActiveTripId);
 
         // Build message for C#
         const message = {
@@ -1178,8 +1178,8 @@ async function downloadOrderPDF(orderData) {
         console.log('[Monitor] C# Response:', response);
 
         if (response.success && response.filePath) {
-            // Update status to DOWNLOADED
-            updateOrderStatus(orderData.detailId, 'DOWNLOADED', null, response.filePath);
+            // 🔧 FIX: Update status to DOWNLOADED with tripId
+            updateOrderStatus(orderData.detailId, 'DOWNLOADED', null, response.filePath, currentActiveTripId);
 
             console.log('[Monitor] ✅ PDF downloaded successfully to:', response.filePath);
 
@@ -1194,7 +1194,8 @@ async function downloadOrderPDF(orderData) {
     } catch (error) {
         console.error('[Monitor] ❌ Failed to download PDF:', error);
         console.error('[Monitor] Error stack:', error.stack);
-        updateOrderStatus(orderData.detailId, 'FAILED', error.message);
+        // 🔧 FIX: Update status to FAILED with tripId
+        updateOrderStatus(orderData.detailId, 'FAILED', error.message, null, currentActiveTripId);
         alert(`Failed to download PDF for order ${orderData.orderNumber}:\n\n${error.message}\n\nCheck console (F12) for details`);
     }
 
@@ -1378,29 +1379,49 @@ async function refreshOrdersStatus(tripId) {
     }
 }
 
-function updateOrderStatus(detailId, pdfStatus, errorMessage, pdfPath) {
-    // Update the grid data
-    if (tripOrdersGrid) {
-        const gridInstance = tripOrdersGrid.dxDataGrid('instance');
-        const dataSource = gridInstance.option('dataSource');
+// 🔧 FIX: Update order status in the correct trip's grid
+function updateOrderStatus(detailId, pdfStatus, errorMessage, pdfPath, tripId) {
+    console.log('[Monitor] Updating order status:', { detailId, pdfStatus, errorMessage, pdfPath, tripId });
 
-        const orderIndex = dataSource.findIndex(o => o.detailId === detailId);
+    // 🔧 FIX: Get the grid from the tripDetailsMap using tripId
+    if (!tripId) {
+        console.error('[Monitor] ❌ No tripId provided to updateOrderStatus!');
+        return;
+    }
 
-        if (orderIndex >= 0) {
-            dataSource[orderIndex].pdfStatus = pdfStatus;
+    const tripDetails = tripDetailsMap.get(tripId);
+    if (!tripDetails) {
+        console.error('[Monitor] ❌ Trip details not found in map for tripId:', tripId);
+        return;
+    }
 
-            if (errorMessage) {
-                dataSource[orderIndex].errorMessage = errorMessage;
-            }
+    const gridInstance = tripDetails.gridInstance;
+    if (!gridInstance) {
+        console.error('[Monitor] ❌ Grid instance not found for tripId:', tripId);
+        return;
+    }
 
-            if (pdfPath) {
-                dataSource[orderIndex].pdfPath = pdfPath;
-            }
+    const dataSource = gridInstance.option('dataSource');
+    const orderIndex = dataSource.findIndex(o => o.detailId === detailId);
 
-            // Refresh grid
-            gridInstance.option('dataSource', dataSource);
-            gridInstance.refresh();
+    if (orderIndex >= 0) {
+        dataSource[orderIndex].pdfStatus = pdfStatus;
+
+        if (errorMessage) {
+            dataSource[orderIndex].errorMessage = errorMessage;
         }
+
+        if (pdfPath) {
+            dataSource[orderIndex].pdfPath = pdfPath;
+        }
+
+        // Refresh grid
+        gridInstance.option('dataSource', dataSource);
+        gridInstance.refresh();
+
+        console.log('[Monitor] ✅ Order status updated in grid for trip:', tripId);
+    } else {
+        console.warn('[Monitor] ⚠️ Order not found in grid:', detailId);
     }
 }
 
