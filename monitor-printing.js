@@ -848,11 +848,10 @@ async function viewTripDetails(tripData) {
             console.log('[Monitor] ✅ Buttons visible - Download All:', orders.length > 0 ? 'enabled' : 'disabled');
         }
 
-        // 🔧 FIX: Use APEX status as source of truth, only update pdfPath from local check
+        // 🔧 FIX: Use ONLY APEX status - removed local file check
         console.log('[Monitor] ========================================');
-        console.log('[Monitor] Syncing local PDF paths with APEX status...');
+        console.log('[Monitor] Using APEX status directly (no local file check)');
         console.log('[Monitor] Trip ID:', tripId);
-        console.log('[Monitor] Trip Date:', tripData.tripDate);
         console.log('[Monitor] Total orders:', orders.length);
         console.log('[Monitor] ========================================');
 
@@ -863,53 +862,22 @@ async function viewTripDetails(tripData) {
             console.log(`[Monitor]   APEX printStatus: ${order.printStatus || 'null'}`);
             console.log(`[Monitor]   APEX pdfPath: ${order.pdfPath || 'null'}`);
 
-            // Check if local file exists
-            const pdfCheck = await checkPdfExists(order.orderNumber, tripId, tripData.tripDate);
-
-            if (pdfCheck.exists) {
-                console.log(`[Monitor]   ✅ Local PDF EXISTS at: ${pdfCheck.filePath}`);
-
-                // Update pdfPath if not already set
-                if (!orders[i].pdfPath) {
-                    orders[i].pdfPath = pdfCheck.filePath;
-                    console.log(`[Monitor]   📝 Updated pdfPath from local check`);
-                }
-
-                // If APEX status is null/undefined/PENDING but file exists, update to DOWNLOADED
-                if (!orders[i].pdfStatus || orders[i].pdfStatus === 'PENDING') {
-                    orders[i].pdfStatus = 'DOWNLOADED';
-                    console.log(`[Monitor]   📝 Updated pdfStatus to DOWNLOADED (file exists but APEX was ${orders[i].pdfStatus || 'null'})`);
-                } else {
-                    console.log(`[Monitor]   ✅ Keeping APEX pdfStatus: ${orders[i].pdfStatus}`);
-                }
-            } else {
-                console.log(`[Monitor]   ⚠️ Local PDF NOT FOUND`);
-
-                // If APEX says DOWNLOADED but file doesn't exist, keep APEX status
-                // (file might have been moved or on different machine)
-                if (orders[i].pdfStatus === 'DOWNLOADED') {
-                    console.log(`[Monitor]   ⚠️ APEX says DOWNLOADED but file missing - keeping APEX status`);
-                } else {
-                    // Set to PENDING if no status from APEX
-                    if (!orders[i].pdfStatus) {
-                        orders[i].pdfStatus = 'PENDING';
-                        console.log(`[Monitor]   📝 Set pdfStatus to PENDING (no APEX status, no file)`);
-                    } else {
-                        console.log(`[Monitor]   ✅ Keeping APEX pdfStatus: ${orders[i].pdfStatus}`);
-                    }
-                }
+            // Set defaults for null values
+            if (!orders[i].pdfStatus) {
+                orders[i].pdfStatus = 'PENDING';
+                console.log(`[Monitor]   📝 Set pdfStatus to PENDING (was null)`);
             }
 
-            // Ensure printStatus has a value
             if (!orders[i].printStatus) {
                 orders[i].printStatus = 'PENDING';
+                console.log(`[Monitor]   📝 Set printStatus to PENDING (was null)`);
             }
 
-            console.log(`[Monitor]   Final pdfStatus: ${orders[i].pdfStatus}`);
-            console.log(`[Monitor]   Final printStatus: ${orders[i].printStatus}`);
+            console.log(`[Monitor]   ✅ Final pdfStatus: ${orders[i].pdfStatus}`);
+            console.log(`[Monitor]   ✅ Final printStatus: ${orders[i].printStatus}`);
         }
         console.log('[Monitor] ========================================');
-        console.log('[Monitor] ✅ Status sync completed');
+        console.log('[Monitor] ✅ APEX status loaded successfully');
         console.log('[Monitor] ========================================');
 
         // Initialize grid for this trip
