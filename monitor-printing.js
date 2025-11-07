@@ -432,15 +432,22 @@ let currentTripDetails = null;
 let tripOrdersGrid = null;
 
 function switchMonitorTab(tabName) {
-    console.log('[Monitor] Switching to tab:', tabName);
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] SWITCH TAB STARTED');
+    console.log('[Monitor] Target tab:', tabName);
 
     // Update tab headers
     const tabItems = document.querySelectorAll('#monitor-tab-header .tab-item');
+    console.log('[Monitor] Found', tabItems.length, 'tab header items');
+
     tabItems.forEach(item => {
-        if (item.getAttribute('data-tab') === tabName) {
+        const itemTab = item.getAttribute('data-tab');
+        if (itemTab === tabName) {
             item.classList.add('active');
+            console.log('[Monitor] ✅ Activated tab header:', itemTab);
         } else {
             item.classList.remove('active');
+            console.log('[Monitor] Deactivated tab header:', itemTab);
         }
     });
 
@@ -448,13 +455,29 @@ function switchMonitorTab(tabName) {
     const tripPane = document.getElementById('monitor-trips-tab');
     const detailsPane = document.getElementById('monitor-trip-details-tab');
 
+    console.log('[Monitor] Trips pane exists:', !!tripPane);
+    console.log('[Monitor] Details pane exists:', !!detailsPane);
+
+    if (!tripPane || !detailsPane) {
+        console.error('[Monitor] ❌ Tab panes not found!');
+        return;
+    }
+
     if (tabName === 'trips') {
         tripPane.classList.add('active');
         detailsPane.classList.remove('active');
+        console.log('[Monitor] ✅ Showing Trips tab, hiding Details tab');
     } else if (tabName === 'trip-details') {
         tripPane.classList.remove('active');
         detailsPane.classList.add('active');
+        console.log('[Monitor] ✅ Showing Details tab, hiding Trips tab');
     }
+
+    // Verify the switch happened
+    console.log('[Monitor] Trips tab classes:', tripPane.className);
+    console.log('[Monitor] Details tab classes:', detailsPane.className);
+    console.log('[Monitor] SWITCH TAB COMPLETE');
+    console.log('[Monitor] ========================================');
 }
 
 window.backToTripsTab = function() {
@@ -489,24 +512,38 @@ function openTripInNewTab(tripData) {
 }
 
 async function viewTripDetails(tripData) {
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] VIEW TRIP DETAILS STARTED');
     console.log('[Monitor] Loading trip details for:', tripData);
     console.log('[Monitor] TripId:', tripData.tripId);
+    console.log('[Monitor] ========================================');
 
     currentTripDetails = tripData;
 
-    // ✅ Set browser tab title to trip ID
-    document.title = `Trip ${tripData.tripId} - WMS`;
+    // Update page title (do NOT change document.title to avoid triggering navigation)
+    const titleElement = document.getElementById('trip-details-title');
+    if (titleElement) {
+        titleElement.innerHTML = `
+            <i class="fas fa-box"></i> Trip Details: ${tripData.tripId} (${tripData.tripDate})
+        `;
+        console.log('[Monitor] ✅ Title updated');
+    } else {
+        console.error('[Monitor] ❌ trip-details-title element not found!');
+    }
 
-    // Update page title
-    document.getElementById('trip-details-title').innerHTML = `
-        <i class="fas fa-box"></i> Trip Details: ${tripData.tripId} (${tripData.tripDate})
-    `;
+    // Show loading state BEFORE switching tabs
+    const ordersCountElement = document.getElementById('orders-count');
+    if (ordersCountElement) {
+        ordersCountElement.textContent = 'Loading...';
+        console.log('[Monitor] ✅ Loading state shown');
+    } else {
+        console.error('[Monitor] ❌ orders-count element not found!');
+    }
 
-    // Switch to details tab
+    // Switch to details tab - DO THIS LAST to ensure elements are ready
+    console.log('[Monitor] Switching to trip-details tab...');
     switchMonitorTab('trip-details');
-
-    // Show loading
-    document.getElementById('orders-count').textContent = 'Loading...';
+    console.log('[Monitor] ✅ Tab switched');
 
     try {
         // FIXED: Use trip_id parameter instead of monitorId (join is on trip_id, not monitor_id)
