@@ -36,6 +36,7 @@ namespace WMSApp
         private Button homeButton;
         private Button openFileButton;
         private Button clearCacheButton;
+        private Button wmsDistributionButton;
         private Button glButton;
         private Button arButton;
         private Button apButton;
@@ -249,6 +250,31 @@ namespace WMSApp
             clearCacheButton.Click += ClearCacheButton_Click;
             moduleToolTip.SetToolTip(clearCacheButton, "Clear Browser Cache");
             leftPosition += 45;
+
+            // WMS Distribution Button - Launches WMS from distribution folder
+            wmsDistributionButton = new Button
+            {
+                Text = "",
+                Width = 60,
+                Height = 30,
+                Left = leftPosition,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Cursor = Cursors.Hand,
+                BackColor = Color.FromArgb(100, 180, 255),
+                Tag = "WMS"
+            };
+            wmsDistributionButton.FlatAppearance.BorderColor = Color.FromArgb(50, 150, 255);
+            wmsDistributionButton.FlatAppearance.BorderSize = 2;
+            wmsDistributionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
+            wmsDistributionButton.Paint += ModuleButton_Paint;
+            wmsDistributionButton.Click += (s, e) =>
+            {
+                // Use distribution system - send message to check folder
+                webView.CoreWebView2.ExecuteScriptAsync("if (typeof launchWMSModule === 'function') { launchWMSModule(); } else { alert('Distribution system not loaded'); }");
+            };
+            moduleToolTip.SetToolTip(wmsDistributionButton, "WMS - Warehouse Management");
+            leftPosition += 70;
 
             // GL Button - General Ledger
             glButton = new Button
@@ -563,7 +589,8 @@ namespace WMSApp
             navPanel.Controls.Add(homeButton);
             navPanel.Controls.Add(openFileButton);
             navPanel.Controls.Add(clearCacheButton);
-            navPanel.Controls.Add(posButton);  // WMS button - moved to be right after Clear Cache
+            navPanel.Controls.Add(wmsDistributionButton);  // New WMS distribution button
+            navPanel.Controls.Add(posButton);  // Old WMS button - will be hidden
             navPanel.Controls.Add(glButton);
             navPanel.Controls.Add(arButton);
             navPanel.Controls.Add(apButton);
@@ -574,15 +601,16 @@ namespace WMSApp
             navPanel.Controls.Add(profileButton);
             navPanel.Controls.Add(settingsButton);
 
-            // Hide module buttons (GL, AR, AP, OM, FA, CA)
-            // Keep WMS button (posButton) visible
+            // Hide module buttons (GL, AR, AP, OM, FA, CA, and old POS/WMS)
+            // Keep wmsDistributionButton visible
             glButton.Visible = false;
             arButton.Visible = false;
             apButton.Visible = false;
             omButton.Visible = false;
             faButton.Visible = false;
             caButton.Visible = false;
-            // posButton is WMS button - keep it visible (default is true)
+            posButton.Visible = false;  // Hide old WMS/POS button
+            // wmsDistributionButton is visible (default is true)
 
             // Web content panel
             Panel contentPanel = new Panel

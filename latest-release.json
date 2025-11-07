@@ -3,5 +3,6 @@
   "release_date": "2025-11-07T10:30:00Z",
   "html_package_url": "https://github.com/javeedin/graysWMSwebviewnew/releases/download/v1.1.0/wms-webview-html-1.1.0.zip",
   "exe_url": "",
-  "changelog_url": "https://github.com/javeedin/graysWMSwebviewnew/releases/tag/v1.1.0"
+  "changelog_url": "https://github.com/javeedin/graysWMSwebviewnew/releases/tag/v1.1.0",
+  "changelog": "APEX Integration + Print Queue System + Distribution System"
 }
