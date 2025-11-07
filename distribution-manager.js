@@ -429,4 +429,15 @@ window.downloadNewVersion = downloadNewVersion;
 console.log('[Distribution] Functions exposed to window object');
 console.log('[Distribution] - window.launchWMSModule:', typeof window.launchWMSModule);
 console.log('[Distribution] - window.downloadNewVersion:', typeof window.downloadNewVersion);
+
+// Enable "Get New Version" button now that script is fully loaded
+const downloadButton = document.getElementById('btn-download-version');
+if (downloadButton) {
+    downloadButton.disabled = false;
+    downloadButton.style.opacity = '1';
+    console.log('[Distribution] ✅ "Get New Version" button enabled');
+} else {
+    console.warn('[Distribution] ⚠️ "Get New Version" button not found in DOM');
+}
+
 console.log('[Distribution] ========================================');
