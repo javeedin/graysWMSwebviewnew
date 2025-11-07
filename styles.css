@@ -88,8 +88,55 @@ body {
     font-size: 1rem;
 }
 
-.user-info {
+.module-buttons {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
     margin-left: auto;
+    margin-right: 1rem;
+}
+
+.module-btn {
+    padding: 0.5rem 1rem;
+    background: var(--gray-100);
+    border: 1px solid var(--gray-300);
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.module-btn:hover {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(99, 102, 241, 0.2);
+}
+
+.module-btn[data-module="WMS"] {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+    color: white;
+    border: none;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+}
+
+.module-btn[data-module="WMS"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+}
+
+.module-btn.hidden {
+    display: none;
+}
+
+.user-info {
+    margin-left: 0;
     display: flex;
     align-items: center;
     gap: 0.75rem;

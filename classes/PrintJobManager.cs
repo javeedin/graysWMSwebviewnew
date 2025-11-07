@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -473,6 +474,7 @@ namespace WMSApp.PrintManagement
 
         /// <summary>
         /// Manually downloads a single order PDF
+        /// MODIFIED: Bypasses config files, uses hardcoded credentials
         /// </summary>
         public async Task<DownloadResult> DownloadSingleOrderAsync(
             string orderNumber,
@@ -481,43 +483,85 @@ namespace WMSApp.PrintManagement
         {
             try
             {
-                var printerConfig = _storageManager.LoadPrinterConfig();
-                var tripConfig = LocalStorageManager.LoadTripPrintConfig(tripDate, tripId);
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ⭐ DownloadSingleOrderAsync STARTED");
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] OrderNumber: {orderNumber}");
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] TripId: {tripId}");
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] TripDate: {tripDate}");
 
-                if (tripConfig == null)
+                // BYPASS CONFIG FILES - Use hardcoded credentials
+                string instance = "TEST";
+                string username = "shaik";
+                string password = "fusion1234";
+
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Using hardcoded credentials: {username} on {instance}");
+
+                // Download PDF directly without requiring trip config
+                var result = await _pdfDownloader.DownloadAndSavePdfAsync(
+                    orderNumber,
+                    tripId,
+                    tripDate,
+                    instance,
+                    username,
+                    password
+                );
+
+                if (result.Success)
                 {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ✅ Download SUCCESS: {result.FilePath}");
+
+                    // Optionally update trip config if it exists
+                    try
+                    {
+                        var tripConfig = LocalStorageManager.LoadTripPrintConfig(tripDate, tripId);
+                        if (tripConfig != null)
+                        {
+                            var job = tripConfig.Orders.FirstOrDefault(o => o.OrderNumber == orderNumber);
+                            if (job != null)
+                            {
+                                _storageManager.UpdatePrintJobStatus(
+                                    tripDate,
+                                    tripId,
+                                    orderNumber,
+                                    downloadStatus: DownloadStatus.Completed
+                                );
+                                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Updated trip config status");
+                            }
+                        }
+                    }
+                    catch (Exception configEx)
+                    {
+                        // Ignore config update errors
+                        System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Config update skipped: {configEx.Message}");
+                    }
+
+                    return new DownloadResult
+                    {
+                        Success = true,
+                        Message = "Download completed successfully",
+                        FilePath = result.FilePath
+                    };
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Download FAILED: {result.ErrorMessage}");
+
                     return new DownloadResult
                     {
                         Success = false,
-                        Message = "Trip configuration not found"
+                        Message = result.ErrorMessage,
+                        FilePath = null
                     };
                 }
-
-                var job = tripConfig.Orders.FirstOrDefault(o => o.OrderNumber == orderNumber);
-                if (job == null)
-                {
-                    return new DownloadResult
-                    {
-                        Success = false,
-                        Message = "Order not found in trip"
-                    };
-                }
-
-                bool success = await DownloadOrderPdfAsync(job, printerConfig);
-
-                return new DownloadResult
-                {
-                    Success = success,
-                    Message = success ? "Download completed" : job.ErrorMessage,
-                    FilePath = job.PdfPath
-                };
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ EXCEPTION: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Stack trace: {ex.StackTrace}");
+
                 return new DownloadResult
                 {
                     Success = false,
-                    Message = ex.Message
+                    Message = $"Exception: {ex.Message}"
                 };
             }
         }

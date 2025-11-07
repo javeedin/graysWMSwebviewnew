@@ -5,6 +5,9 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
+using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
@@ -887,6 +890,20 @@ namespace WMSApp
             {
                 await wv.EnsureCoreWebView2Async(null);
 
+                // CACHE FIX: Clear browser cache to ensure tabs load properly
+                try
+                {
+                    await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                        CoreWebView2BrowsingDataKinds.AllDomStorage |
+                        CoreWebView2BrowsingDataKinds.CacheStorage |
+                        CoreWebView2BrowsingDataKinds.DiskCache);
+                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully");
+                }
+                catch (Exception cacheEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[CACHE] Warning: Could not clear cache: {cacheEx.Message}");
+                }
+
                 wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
@@ -937,6 +954,11 @@ namespace WMSApp
                                     await HandleDownloadOrderPdf(wv, messageJson, requestId);
                                     break;
 
+                                // 🔧 NEW: Check if PDF exists locally
+                                case "checkPdfExists":
+                                    await HandleCheckPdfExists(wv, messageJson, requestId);
+                                    break;
+
                                 case "printOrder":
                                     await HandlePrintOrder(wv, messageJson, requestId);
                                     break;
@@ -974,6 +996,24 @@ namespace WMSApp
 
                                 case "openFileInExplorer":
                                     await HandleOpenFileInExplorer(wv, messageJson, requestId);
+                                    break;
+
+                                // 🔧 NEW: Open PDF file with default viewer
+                                case "openPdfFile":
+                                    await HandleOpenPdfFile(wv, messageJson, requestId);
+                                    break;
+
+                                // Distribution System Cases
+                                case "check-distribution-folder":
+                                    await HandleCheckDistributionFolder(wv, messageJson, requestId);
+                                    break;
+
+                                case "download-distribution":
+                                    await HandleDownloadDistribution(wv, messageJson, requestId);
+                                    break;
+
+                                case "launch-wms-module":
+                                    await HandleLaunchWMSModule(wv, messageJson, requestId);
                                     break;
 
                                 default:
@@ -1016,11 +1056,26 @@ namespace WMSApp
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    httpClient.Timeout = TimeSpan.FromSeconds(60);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Making GET request to: {message.FullUrl}");
+
                     var response = await httpClient.GetAsync(message.FullUrl);
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                    // Log error responses for debugging
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] HTTP {response.StatusCode}: {response.ReasonPhrase}");
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] Response body: {responseContent.Substring(0, Math.Min(500, responseContent.Length))}");
+                    }
+
+                    // Log first 200 chars of successful responses for debugging
+                    if (response.IsSuccessStatusCode && responseContent.Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Response preview: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
+                    }
 
                     var resultMessage = new
                     {
@@ -1557,6 +1612,291 @@ namespace WMSApp
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
+
+        // 🔧 NEW: Open PDF file with default PDF viewer
+        private async Task HandleOpenPdfFile(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Opening PDF file with default viewer...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    if (!File.Exists(filePath))
+                    {
+                        throw new FileNotFoundException($"PDF file not found: {filePath}");
+                    }
+
+                    // Open PDF with default application (e.g., Adobe Reader, Edge, etc.)
+                    var processStartInfo = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = filePath,
+                        UseShellExecute = true  // This uses the Windows file association
+                    };
+
+                    System.Diagnostics.Process.Start(processStartInfo);
+
+                    var response = new
+                    {
+                        action = "openPdfFileResponse",
+                        requestId = requestId,
+                        success = true,
+                        message = "PDF opened with default viewer"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ PDF opened successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Open PDF file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // ========== DISTRIBUTION SYSTEM HANDLERS ==========
+
+        private async Task HandleCheckDistributionFolder(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Checking distribution folder...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string folder = root.GetProperty("folder").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Distribution folder: {folder}");
+
+                    // Check if folder exists and contains index.html
+                    bool exists = Directory.Exists(folder) &&
+                                  File.Exists(Path.Combine(folder, "index.html"));
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Folder exists with index.html: {exists}");
+
+                    var response = new
+                    {
+                        type = "distribution-folder-exists",
+                        exists = exists,
+                        folder = folder,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ Distribution folder check complete");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Check distribution folder failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleDownloadDistribution(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Starting distribution download...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string version = root.GetProperty("version").GetString();
+                    string packageUrl = root.GetProperty("packageUrl").GetString();
+                    string extractTo = root.GetProperty("extractTo").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Version: {version}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Package URL: {packageUrl}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extract to: {extractTo}");
+
+                    // Create temp path for download
+                    string tempZipPath = Path.Combine(Path.GetTempPath(), $"wms-distribution-{version}.zip");
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Temp ZIP path: {tempZipPath}");
+
+                    // Download file with progress reporting
+                    using (WebClient client = new WebClient())
+                    {
+                        client.DownloadProgressChanged += (s, e) =>
+                        {
+                            // Send progress updates to JavaScript
+                            var progressResponse = new
+                            {
+                                type = "distribution-download-progress",
+                                percent = e.ProgressPercentage,
+                                bytesReceived = e.BytesReceived,
+                                totalBytes = e.TotalBytesToReceive,
+                                requestId = requestId
+                            };
+
+                            string progressJson = JsonSerializer.Serialize(progressResponse);
+                            wv.CoreWebView2.PostWebMessageAsJson(progressJson);
+                        };
+
+                        System.Diagnostics.Debug.WriteLine($"[C#] Downloading from GitHub...");
+                        await client.DownloadFileTaskAsync(packageUrl, tempZipPath);
+                        System.Diagnostics.Debug.WriteLine($"[C#] Download complete!");
+                    }
+
+                    // Create extraction folder if it doesn't exist
+                    if (!Directory.Exists(extractTo))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Creating distribution folder: {extractTo}");
+                        Directory.CreateDirectory(extractTo);
+                    }
+
+                    // Backup existing files if folder already has content
+                    string backupFolder = extractTo + ".backup";
+                    if (Directory.Exists(extractTo) && Directory.GetFiles(extractTo).Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Backing up existing files to: {backupFolder}");
+
+                        if (Directory.Exists(backupFolder))
+                        {
+                            Directory.Delete(backupFolder, true);
+                        }
+
+                        // Copy current files to backup
+                        CopyDirectory(extractTo, backupFolder);
+                    }
+
+                    // Extract ZIP file
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extracting ZIP file...");
+                    ZipFile.ExtractToDirectory(tempZipPath, extractTo, overwriteFiles: true);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extraction complete!");
+
+                    // Clean up temp file
+                    File.Delete(tempZipPath);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Temp file deleted");
+
+                    // Send success message
+                    var response = new
+                    {
+                        type = "distribution-download-complete",
+                        version = version,
+                        folder = extractTo,
+                        success = true,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ Distribution download complete!");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Distribution download failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+
+                // Send error message
+                var errorResponse = new
+                {
+                    type = "distribution-download-failed",
+                    error = ex.Message,
+                    requestId = requestId
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorResponse);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        private async Task HandleLaunchWMSModule(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Launching WMS module...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string indexPath = root.GetProperty("indexPath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Index path: {indexPath}");
+
+                    // Verify file exists
+                    if (!File.Exists(indexPath))
+                    {
+                        throw new FileNotFoundException($"WMS module not found at: {indexPath}");
+                    }
+
+                    // Convert Windows path to file:/// URL format
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Navigating to: {fileUrl}");
+
+                    // Navigate the WebView2 control to the local HTML file
+                    wv.CoreWebView2.Navigate(fileUrl);
+
+                    // Send success message
+                    var response = new
+                    {
+                        type = "launch-wms-module",
+                        success = true,
+                        indexPath = indexPath,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ WMS module launched successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Launch WMS module failed: {ex.Message}");
+
+                // Send error message
+                var errorResponse = new
+                {
+                    type = "launch-wms-module",
+                    success = false,
+                    error = ex.Message,
+                    requestId = requestId
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorResponse);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        // Helper method: Copy directory recursively
+        private void CopyDirectory(string sourceDir, string destDir)
+        {
+            // Create destination directory
+            Directory.CreateDirectory(destDir);
+
+            // Copy files
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string fileName = Path.GetFileName(file);
+                string destFile = Path.Combine(destDir, fileName);
+                File.Copy(file, destFile, true);
+            }
+
+            // Copy subdirectories
+            foreach (string subDir in Directory.GetDirectories(sourceDir))
+            {
+                string dirName = Path.GetFileName(subDir);
+                string destSubDir = Path.Combine(destDir, dirName);
+                CopyDirectory(subDir, destSubDir);
+            }
+        }
+
         private async Task HandleDownloadOrderPdf(WebView2 wv, string messageJson, string requestId)
         {
             try
@@ -1589,6 +1929,44 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Download PDF failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // 🔧 NEW: Check if PDF exists locally
+        private async Task HandleCheckPdfExists(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<CheckPdfExistsMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Checking PDF existence for order {message.OrderNumber}");
+
+                // Construct PDF path: C:\fusion\{tripDate}\{tripId}\{orderNumber}.pdf
+                string pdfPath = Path.Combine(@"C:\fusion", message.TripDate, message.TripId.ToString(), $"{message.OrderNumber}.pdf");
+                bool exists = File.Exists(pdfPath);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] PDF Path: {pdfPath}");
+                System.Diagnostics.Debug.WriteLine($"[C#] PDF Exists: {exists}");
+
+                var response = new
+                {
+                    action = "checkPdfExistsResponse",
+                    requestId = requestId,
+                    exists = exists,
+                    filePath = exists ? pdfPath : null,
+                    orderNumber = message.OrderNumber
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Check PDF exists failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
@@ -2042,7 +2420,7 @@ namespace WMSApp
             }
         }
 
-        private void Navigate(string url)
+        private async void Navigate(string url)
         {
             var wv = GetCurrentWebView();
             if (wv?.CoreWebView2 != null)
@@ -2051,6 +2429,14 @@ namespace WMSApp
                 {
                     try
                     {
+                        // AGGRESSIVE CACHE CLEARING - Clear ALL cache before loading local files
+                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing ALL cache before loading local file...");
+                        await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                            CoreWebView2BrowsingDataKinds.AllDomStorage |
+                            CoreWebView2BrowsingDataKinds.CacheStorage |
+                            CoreWebView2BrowsingDataKinds.DiskCache);
+                        System.Diagnostics.Debug.WriteLine("[CACHE] ✅ Cache cleared successfully!");
+
                         wv.Source = new Uri(url);
                     }
                     catch (Exception ex)
