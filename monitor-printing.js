@@ -1289,7 +1289,12 @@ async function checkPdfExists(orderNumber, tripId, tripDate) {
 }
 
 async function previewOrderPDF(orderData) {
-    console.log('[Monitor] Previewing PDF for order:', orderData.orderNumber);
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] PREVIEW PDF STARTED');
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] Order Data:', orderData);
+    console.log('[Monitor] Order Number:', orderData.orderNumber);
+    console.log('[Monitor] PDF Path:', orderData.pdfPath);
 
     if (!orderData.pdfPath) {
         alert('PDF file path not available. Please download the PDF first.');
@@ -1297,38 +1302,17 @@ async function previewOrderPDF(orderData) {
     }
 
     try {
-        // 🔧 FIX: Get trip details from active tab
-        const tripDetails = tripDetailsMap.get(currentActiveTripId);
-        if (!tripDetails) {
-            console.error('[Monitor] No active trip found');
-            alert('No active trip found. Please open a trip first.');
-            return;
-        }
+        // 🔧 SIMPLIFIED FIX: Open PDF using Windows file association (most reliable)
+        console.log('[Monitor] Opening PDF with system default viewer...');
 
-        // ✅ ISSUE #1 FIX: Open PDF in modal dialog with base64
-        const modal = document.getElementById('pdf-preview-modal');
-        if (!modal) {
-            console.error('[Monitor] PDF preview modal not found');
-            // Fallback to window.open
-            window.open('file:///' + orderData.pdfPath.replace(/\\/g, '/'), '_blank');
-            return;
-        }
+        const message = {
+            action: 'openPdfFile',
+            filePath: orderData.pdfPath
+        };
 
-        modal.style.display = 'flex';
-        document.getElementById('pdf-loading').style.display = 'block';
-
-        // 🔧 FIX: Update info using currentActiveTripId
-        document.getElementById('preview-order-info').textContent =
-            `Order: ${orderData.orderNumber} | Trip: ${currentActiveTripId}`;
-        document.getElementById('preview-file-info').textContent =
-            `File: ${orderData.pdfPath.split('\\').pop()}`;
-
-        // Request PDF as base64 from C#
         const response = await new Promise((resolve, reject) => {
-            sendMessageToCSharp({
-                action: 'getPdfAsBase64',
-                filePath: orderData.pdfPath
-            }, function(error, response) {
+            sendMessageToCSharp(message, function(error, response) {
+                console.log('[Monitor] C# Response:', { error, response });
                 if (error) {
                     reject(new Error(error));
                 } else {
@@ -1337,26 +1321,23 @@ async function previewOrderPDF(orderData) {
             });
         });
 
-        if (response.success && response.data && response.data.base64) {
-            // Load PDF in iframe
-            const iframe = document.getElementById('pdf-preview-iframe');
-            iframe.src = `data:application/pdf;base64,${response.data.base64}`;
+        console.log('[Monitor] Full response:', response);
 
-            // Hide loading
-            document.getElementById('pdf-loading').style.display = 'none';
-
-            console.log('[Monitor] ✅ PDF loaded in modal dialog');
+        if (response.success) {
+            console.log('[Monitor] ✅ PDF opened successfully in default viewer');
         } else {
-            throw new Error(response.message || 'Failed to load PDF');
+            throw new Error(response.message || response.error || 'Failed to open PDF');
         }
 
     } catch (error) {
         console.error('[Monitor] ❌ Failed to preview PDF:', error);
-        alert(`Failed to preview PDF: ${error.message}`);
-        // Close modal on error
-        const modal = document.getElementById('pdf-preview-modal');
-        if (modal) modal.style.display = 'none';
+        console.error('[Monitor] Error stack:', error.stack);
+        alert(`Failed to preview PDF: ${error.message}\n\nPDF Path: ${orderData.pdfPath}`);
     }
+
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] PREVIEW PDF ENDED');
+    console.log('[Monitor] ========================================');
 }
 
 // 🔧 NEW: Print individual order PDF

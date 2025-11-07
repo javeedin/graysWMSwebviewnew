@@ -995,6 +995,11 @@ namespace WMSApp
                                     await HandleOpenFileInExplorer(wv, messageJson, requestId);
                                     break;
 
+                                // 🔧 NEW: Open PDF file with default viewer
+                                case "openPdfFile":
+                                    await HandleOpenPdfFile(wv, messageJson, requestId);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -1591,6 +1596,56 @@ namespace WMSApp
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
+
+        // 🔧 NEW: Open PDF file with default PDF viewer
+        private async Task HandleOpenPdfFile(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Opening PDF file with default viewer...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    if (!File.Exists(filePath))
+                    {
+                        throw new FileNotFoundException($"PDF file not found: {filePath}");
+                    }
+
+                    // Open PDF with default application (e.g., Adobe Reader, Edge, etc.)
+                    var processStartInfo = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = filePath,
+                        UseShellExecute = true  // This uses the Windows file association
+                    };
+
+                    System.Diagnostics.Process.Start(processStartInfo);
+
+                    var response = new
+                    {
+                        action = "openPdfFileResponse",
+                        requestId = requestId,
+                        success = true,
+                        message = "PDF opened with default viewer"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ PDF opened successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Open PDF file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
         private async Task HandleDownloadOrderPdf(WebView2 wv, string messageJson, string requestId)
         {
             try
