@@ -268,17 +268,52 @@ namespace WMSApp
             wmsDistributionButton.FlatAppearance.BorderSize = 2;
             wmsDistributionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
             wmsDistributionButton.Paint += ModuleButton_Paint;
-            wmsDistributionButton.Click += async (s, e) =>
+            wmsDistributionButton.Click += (s, e) =>
             {
-                // Use distribution system - send message to check folder
-                var wv = GetCurrentWebView();
-                if (wv?.CoreWebView2 != null)
+                // Check if distribution folder exists
+                string distributionFolder = "C:\\fusion\\fusionclientweb\\wms";
+                string indexPath = Path.Combine(distributionFolder, "index.html");
+
+                if (Directory.Exists(distributionFolder) && File.Exists(indexPath))
                 {
-                    await wv.CoreWebView2.ExecuteScriptAsync("if (typeof launchWMSModule === 'function') { launchWMSModule(); } else { alert('Distribution system not loaded'); }");
+                    // Distribution exists - navigate to it
+                    System.Diagnostics.Debug.WriteLine($"[WMS] Launching from distribution folder: {indexPath}");
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
                 }
                 else
                 {
-                    MessageBox.Show("WebView not ready. Please wait for the page to load.", "Not Ready", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    // Distribution doesn't exist - prompt to download
+                    System.Diagnostics.Debug.WriteLine($"[WMS] Distribution folder not found: {distributionFolder}");
+                    var result = MessageBox.Show(
+                        "WMS module not installed yet.\n\n" +
+                        "Would you like to download it now?\n" +
+                        "This will download ~2MB from GitHub and install to:\n" +
+                        distributionFolder,
+                        "WMS Not Installed",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        // User wants to download - open launcher page with download
+                        string launcherPath = Path.Combine(Application.StartupPath, "index.html");
+                        string launcherUrl = "file:///" + launcherPath.Replace("\\", "/");
+                        Navigate(launcherUrl);
+
+                        // Wait for page to load, then trigger download
+                        System.Threading.Tasks.Task.Delay(1000).ContinueWith(_ =>
+                        {
+                            var wv = GetCurrentWebView();
+                            if (wv?.CoreWebView2 != null)
+                            {
+                                this.Invoke((MethodInvoker)(() =>
+                                {
+                                    wv.CoreWebView2.ExecuteScriptAsync("if (typeof downloadNewVersion === 'function') { downloadNewVersion(); }");
+                                }));
+                            }
+                        });
+                    }
                 }
             };
             moduleToolTip.SetToolTip(wmsDistributionButton, "WMS - Warehouse Management");
