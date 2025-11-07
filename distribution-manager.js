@@ -3,29 +3,46 @@
 // Handles WMS module distribution and updates
 // ========================================
 
+console.log('[Distribution] ========================================');
+console.log('[Distribution] Module loading...');
+console.log('[Distribution] ========================================');
+
 let distributionConfig = {
     distributionFolder: 'C:\\fusion\\fusionclientweb\\wms',
     githubReleaseAPI: 'https://raw.githubusercontent.com/javeedin/graysWMSwebviewnew/main/latest-release.json',
     isDownloading: false
 };
 
+console.log('[Distribution] Configuration loaded:');
+console.log('[Distribution] - Folder:', distributionConfig.distributionFolder);
+console.log('[Distribution] - API:', distributionConfig.githubReleaseAPI);
+
 // ========================================
 // Launch WMS Module
 // ========================================
 
 function launchWMSModule() {
-    console.log('[Distribution] Launching WMS module...');
+    console.log('[Distribution] ========================================');
+    console.log('[Distribution] launchWMSModule() called');
+    console.log('[Distribution] ========================================');
 
     // Check if distribution folder exists
+    const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
     const message = {
         action: 'check-distribution-folder',
-        folder: distributionConfig.distributionFolder
+        folder: distributionConfig.distributionFolder,
+        requestId: requestId
     };
 
+    console.log('[Distribution] Sending message to C#:', message);
+
     if (window.chrome && window.chrome.webview) {
+        console.log('[Distribution] WebView2 available - sending message');
         window.chrome.webview.postMessage(message);
+        console.log('[Distribution] Message sent successfully');
     } else {
-        console.warn('[Distribution] WebView2 not available');
+        console.error('[Distribution] WebView2 NOT available!');
         alert('WMS module not available. Please download the latest version first.');
     }
 }
@@ -35,30 +52,43 @@ function launchWMSModule() {
 // ========================================
 
 async function downloadNewVersion() {
+    console.log('[Distribution] ========================================');
+    console.log('[Distribution] downloadNewVersion() called');
+    console.log('[Distribution] ========================================');
+
     if (distributionConfig.isDownloading) {
+        console.warn('[Distribution] Download already in progress');
         alert('Download already in progress. Please wait...');
         return;
     }
 
-    console.log('[Distribution] Starting download...');
+    console.log('[Distribution] Step 1: Starting download process...');
 
     try {
         distributionConfig.isDownloading = true;
 
         // Update button state
+        console.log('[Distribution] Step 2: Updating button state...');
         updateDownloadButtonState('Checking for updates...');
 
         // Fetch latest release info
-        const response = await fetch(distributionConfig.githubReleaseAPI + '?t=' + Date.now());
+        console.log('[Distribution] Step 3: Fetching release info from:', distributionConfig.githubReleaseAPI);
+        const fetchUrl = distributionConfig.githubReleaseAPI + '?t=' + Date.now();
+        console.log('[Distribution] Full URL:', fetchUrl);
+
+        const response = await fetch(fetchUrl);
+        console.log('[Distribution] Fetch response status:', response.status);
+        console.log('[Distribution] Fetch response ok:', response.ok);
 
         if (!response.ok) {
             throw new Error(`Failed to fetch release info: ${response.status}`);
         }
 
         const releaseInfo = await response.json();
-
-        console.log('[Distribution] Latest version:', releaseInfo.version);
-        console.log('[Distribution] Package URL:', releaseInfo.html_package_url);
+        console.log('[Distribution] Step 4: Release info received:');
+        console.log('[Distribution] - Version:', releaseInfo.version);
+        console.log('[Distribution] - Package URL:', releaseInfo.html_package_url);
+        console.log('[Distribution] - Release date:', releaseInfo.release_date);
 
         // Confirm download with user
         const confirmMsg = `Download WMS version ${releaseInfo.version}?\n\n` +
@@ -66,7 +96,11 @@ async function downloadNewVersion() {
                           `${distributionConfig.distributionFolder}\n\n` +
                           `Size: ~2MB\nTime: ~30 seconds`;
 
-        if (!confirm(confirmMsg)) {
+        console.log('[Distribution] Step 5: Asking user for confirmation...');
+        const userConfirmed = confirm(confirmMsg);
+        console.log('[Distribution] User confirmed:', userConfirmed);
+
+        if (!userConfirmed) {
             console.log('[Distribution] Download cancelled by user');
             updateDownloadButtonState('Get New Version');
             distributionConfig.isDownloading = false;
@@ -74,26 +108,42 @@ async function downloadNewVersion() {
         }
 
         // Send download request to C# backend
+        console.log('[Distribution] Step 6: Preparing download message for C#...');
         updateDownloadButtonState('Downloading...');
+
+        const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
         const downloadMessage = {
             action: 'download-distribution',
             version: releaseInfo.version,
             packageUrl: releaseInfo.html_package_url,
-            extractTo: distributionConfig.distributionFolder
+            extractTo: distributionConfig.distributionFolder,
+            requestId: requestId
         };
 
+        console.log('[Distribution] Step 7: Sending download message to C#:');
+        console.log('[Distribution] Message:', JSON.stringify(downloadMessage, null, 2));
+
         if (window.chrome && window.chrome.webview) {
+            console.log('[Distribution] WebView2 available - sending message');
             window.chrome.webview.postMessage(downloadMessage);
+            console.log('[Distribution] Message sent successfully');
 
             // Show progress message
+            console.log('[Distribution] Step 8: Showing progress overlay...');
             showDownloadProgress(releaseInfo.version);
         } else {
+            console.error('[Distribution] WebView2 NOT available!');
             throw new Error('WebView2 not available');
         }
 
     } catch (error) {
-        console.error('[Distribution] Download failed:', error);
+        console.error('[Distribution] ========================================');
+        console.error('[Distribution] ERROR in downloadNewVersion:');
+        console.error('[Distribution] Error message:', error.message);
+        console.error('[Distribution] Error stack:', error.stack);
+        console.error('[Distribution] ========================================');
+
         alert('Failed to download new version:\n' + error.message);
 
         updateDownloadButtonState('Get New Version');
@@ -205,67 +255,112 @@ function closeDownloadProgress() {
 // ========================================
 
 // Listen for messages from C# backend
+console.log('[Distribution] Setting up message listener for C# responses...');
 if (window.chrome && window.chrome.webview) {
+    console.log('[Distribution] WebView2 available - listener registered');
     window.chrome.webview.addEventListener('message', function(event) {
+        console.log('[Distribution] ========================================');
+        console.log('[Distribution] Message received from C#:');
+        console.log('[Distribution] Message data:', event.data);
+        console.log('[Distribution] ========================================');
+
         const message = event.data;
+
+        console.log('[Distribution] Message type:', message.type);
 
         switch (message.type) {
             case 'distribution-folder-exists':
+                console.log('[Distribution] Routing to: handleDistributionFolderExists');
                 handleDistributionFolderExists(message);
                 break;
 
             case 'distribution-download-progress':
+                console.log('[Distribution] Routing to: handleDownloadProgress');
                 handleDownloadProgress(message);
                 break;
 
             case 'distribution-download-complete':
+                console.log('[Distribution] Routing to: handleDownloadComplete');
                 handleDownloadComplete(message);
                 break;
 
             case 'distribution-download-failed':
+                console.log('[Distribution] Routing to: handleDownloadFailed');
                 handleDownloadFailed(message);
                 break;
 
             case 'launch-wms-module':
+                console.log('[Distribution] Routing to: handleLaunchWMSModule');
                 handleLaunchWMSModule(message);
                 break;
+
+            default:
+                console.warn('[Distribution] Unknown message type:', message.type);
         }
     });
+} else {
+    console.error('[Distribution] WebView2 NOT available - cannot register message listener!');
 }
 
 function handleDistributionFolderExists(message) {
-    console.log('[Distribution] Folder check result:', message.exists);
+    console.log('[Distribution] ========================================');
+    console.log('[Distribution] handleDistributionFolderExists called');
+    console.log('[Distribution] Exists:', message.exists);
+    console.log('[Distribution] Folder:', message.folder);
+    console.log('[Distribution] ========================================');
 
     if (message.exists) {
         // Launch index.html from distribution folder
+        console.log('[Distribution] Folder exists - launching WMS module...');
+
+        const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        const indexPath = distributionConfig.distributionFolder + '\\index.html';
+
         const launchMessage = {
             action: 'launch-wms-module',
-            indexPath: distributionConfig.distributionFolder + '\\index.html'
+            indexPath: indexPath,
+            requestId: requestId
         };
 
+        console.log('[Distribution] Launch message:', launchMessage);
+
         if (window.chrome && window.chrome.webview) {
+            console.log('[Distribution] Sending launch message to C#...');
             window.chrome.webview.postMessage(launchMessage);
+            console.log('[Distribution] Launch message sent');
+        } else {
+            console.error('[Distribution] WebView2 not available!');
         }
     } else {
+        console.log('[Distribution] Folder does not exist - prompting user...');
         const download = confirm(
             'WMS module not installed yet.\n\n' +
             'Would you like to download it now?\n' +
             'This will download ~2MB from GitHub.'
         );
 
+        console.log('[Distribution] User response:', download);
+
         if (download) {
+            console.log('[Distribution] User confirmed - calling downloadNewVersion()');
             downloadNewVersion();
+        } else {
+            console.log('[Distribution] User cancelled');
         }
     }
 }
 
 function handleDownloadProgress(message) {
-    console.log('[Distribution] Download progress:', message.percent);
+    console.log('[Distribution] Download progress:', message.percent + '%');
     updateProgressBar(message.percent);
 }
 
 function handleDownloadComplete(message) {
+    console.log('[Distribution] ========================================');
     console.log('[Distribution] Download complete!');
+    console.log('[Distribution] Version:', message.version);
+    console.log('[Distribution] Folder:', message.folder);
+    console.log('[Distribution] ========================================');
 
     // Update progress to 100%
     updateProgressBar(100);
