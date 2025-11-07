@@ -2071,7 +2071,7 @@ namespace WMSApp
             }
         }
 
-        private void Navigate(string url)
+        private async void Navigate(string url)
         {
             var wv = GetCurrentWebView();
             if (wv?.CoreWebView2 != null)
@@ -2080,6 +2080,14 @@ namespace WMSApp
                 {
                     try
                     {
+                        // AGGRESSIVE CACHE CLEARING - Clear ALL cache before loading local files
+                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing ALL cache before loading local file...");
+                        await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                            CoreWebView2BrowsingDataKinds.AllDomStorage |
+                            CoreWebView2BrowsingDataKinds.CacheStorage |
+                            CoreWebView2BrowsingDataKinds.DiskCache);
+                        System.Diagnostics.Debug.WriteLine("[CACHE] ✅ Cache cleared successfully!");
+
                         wv.Source = new Uri(url);
                     }
                     catch (Exception ex)
