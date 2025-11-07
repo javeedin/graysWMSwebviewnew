@@ -1100,35 +1100,45 @@ async function downloadOrderPDF(orderData) {
     console.log('[Monitor] Order Data:', orderData);
     console.log('[Monitor] Order Number:', orderData.orderNumber);
     console.log('[Monitor] Detail ID:', orderData.detailId);
-    console.log('[Monitor] Current Trip Details:', currentTripDetails);
+
+    // 🔧 FIX: Get trip details from active tab instead of global currentTripDetails
+    console.log('[Monitor] Current Active Trip ID:', currentActiveTripId);
 
     try {
-        // Validate currentTripDetails
-        if (!currentTripDetails) {
-            throw new Error('No trip selected. currentTripDetails is undefined.');
+        // 🔧 FIX: Validate we have an active trip tab
+        if (!currentActiveTripId) {
+            throw new Error('No trip tab active. Please open a trip first.');
         }
 
-        if (!currentTripDetails.tripId) {
-            throw new Error('Trip ID missing in currentTripDetails: ' + JSON.stringify(currentTripDetails));
+        // 🔧 FIX: Get trip details from the tripDetailsMap
+        const tripDetails = tripDetailsMap.get(currentActiveTripId);
+        if (!tripDetails) {
+            throw new Error('Trip details not found in map for trip: ' + currentActiveTripId);
         }
 
-        if (!currentTripDetails.tripDate) {
-            throw new Error('Trip Date missing in currentTripDetails: ' + JSON.stringify(currentTripDetails));
+        const currentTripData = tripDetails.tripData;
+
+        if (!currentTripData.tripId) {
+            throw new Error('Trip ID missing in trip data: ' + JSON.stringify(currentTripData));
+        }
+
+        if (!currentTripData.tripDate) {
+            throw new Error('Trip Date missing in trip data: ' + JSON.stringify(currentTripData));
         }
 
         console.log('[Monitor] ✅ Trip details validated');
-        console.log('[Monitor] Trip ID:', currentTripDetails.tripId);
-        console.log('[Monitor] Trip Date:', currentTripDetails.tripDate);
+        console.log('[Monitor] Trip ID:', currentTripData.tripId);
+        console.log('[Monitor] Trip Date:', currentTripData.tripDate);
 
-        // Update status to DOWNLOADING
-        updateOrderStatus(orderData.detailId, 'DOWNLOADING', null);
+        // 🔧 FIX: Update status in the specific trip's grid
+        updateOrderStatus(orderData.detailId, 'DOWNLOADING', null, currentActiveTripId);
 
         // Build message for C#
         const message = {
             action: 'downloadOrderPdf',
             orderNumber: orderData.orderNumber,
-            tripId: currentTripDetails.tripId,
-            tripDate: currentTripDetails.tripDate
+            tripId: currentTripData.tripId,
+            tripDate: currentTripData.tripDate
         };
 
         console.log('[Monitor] 📤 Sending to C#:', message);
