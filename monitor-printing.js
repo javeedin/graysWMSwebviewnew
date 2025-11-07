@@ -526,11 +526,12 @@ function getOrderGridColumns(tripId) {
     return [
         {
             caption: 'Actions',
-            width: 180,
+            width: 250, // 🔧 NEW: Increased width for print button
             fixed: true,
             cellTemplate: function(container, options) {
                 const rowData = options.data;
                 const pdfStatus = rowData.pdfStatus || 'PENDING';
+                const printStatus = rowData.printStatus || 'PENDING';
 
                 // Preview button
                 const previewBtn = $('<button>')
@@ -556,6 +557,7 @@ function getOrderGridColumns(tripId) {
                 const downloadBtn = $('<button>')
                     .addClass('btn btn-sm btn-primary')
                     .css({
+                        marginRight: '4px',
                         fontSize: '11px',
                         padding: '4px 8px'
                     })
@@ -566,7 +568,26 @@ function getOrderGridColumns(tripId) {
                         downloadOrderPDF(rowData);
                     });
 
-                container.append(previewBtn).append(downloadBtn);
+                // 🔧 NEW: Print button
+                const printBtn = $('<button>')
+                    .addClass('btn btn-sm btn-success')
+                    .css({
+                        fontSize: '11px',
+                        padding: '4px 8px',
+                        cursor: pdfStatus === 'DOWNLOADED' ? 'pointer' : 'not-allowed',
+                        opacity: pdfStatus === 'DOWNLOADED' ? '1' : '0.5'
+                    })
+                    .html('<i class="fas fa-print"></i>')
+                    .attr('title', pdfStatus === 'DOWNLOADED' ? 'Print PDF' : 'PDF not available')
+                    .prop('disabled', pdfStatus !== 'DOWNLOADED')
+                    .on('click', function(e) {
+                        e.stopPropagation();
+                        if (pdfStatus === 'DOWNLOADED') {
+                            printOrderPDF(rowData);
+                        }
+                    });
+
+                container.append(previewBtn).append(downloadBtn).append(printBtn);
             }
         },
         {
@@ -650,8 +671,22 @@ function getOrderGridColumns(tripId) {
         {
             dataField: 'pdfPath',
             caption: 'PDF Path',
-            width: 200,
-            visible: false
+            width: 300,
+            visible: true, // 🔧 FIX: Made visible to show download location
+            cellTemplate: function(container, options) {
+                const path = options.value;
+                if (path) {
+                    // Show full path with tooltip
+                    container.append(
+                        $('<span>')
+                            .css({ fontSize: '11px', color: '#059669', fontFamily: 'monospace' })
+                            .text(path)
+                            .attr('title', path)
+                    );
+                } else {
+                    container.append('-');
+                }
+            }
         },
         {
             dataField: 'downloadAttempts',
@@ -743,10 +778,13 @@ async function viewTripDetails(tripData) {
             <div style="display: flex; gap: 1rem; align-items: center;">
                 <div id="orders-count-${tripId}" style="color: #666; font-size: 14px;">Loading...</div>
                 <button id="download-all-orders-btn-${tripId}" class="btn btn-primary" onclick="downloadAllOrdersPDF('${tripId}')" style="font-size: 12px; padding: 6px 16px;">
-                    <i class="fas fa-download"></i> Download All Orders PDF
+                    <i class="fas fa-download"></i> Download All
+                </button>
+                <button id="print-all-orders-btn-${tripId}" class="btn btn-success" onclick="printAllOrdersPDF('${tripId}')" style="font-size: 12px; padding: 6px 16px;">
+                    <i class="fas fa-print"></i> Print All
                 </button>
                 <button id="refresh-orders-btn-${tripId}" class="btn btn-secondary" onclick="refreshOrdersStatus('${tripId}')" style="font-size: 12px; padding: 6px 16px;">
-                    <i class="fas fa-sync"></i> Refresh Status
+                    <i class="fas fa-sync"></i> Refresh
                 </button>
             </div>
         </div>
@@ -800,24 +838,33 @@ async function viewTripDetails(tripData) {
         }
 
         // 🔧 NEW: Check local PDFs and update status
+        console.log('[Monitor] ========================================');
         console.log('[Monitor] Checking local PDFs for all orders...');
+        console.log('[Monitor] Trip ID:', tripId);
+        console.log('[Monitor] Trip Date:', tripData.tripDate);
+        console.log('[Monitor] Total orders to check:', orders.length);
+        console.log('[Monitor] ========================================');
+
         for (let i = 0; i < orders.length; i++) {
             const order = orders[i];
+            console.log(`[Monitor] Checking order ${i+1}/${orders.length}: ${order.orderNumber}`);
             const pdfCheck = await checkPdfExists(order.orderNumber, tripId, tripData.tripDate);
 
             if (pdfCheck.exists) {
-                console.log(`[Monitor] ✅ PDF exists for order ${order.orderNumber}`);
+                console.log(`[Monitor] ✅ PDF EXISTS for order ${order.orderNumber} at: ${pdfCheck.filePath}`);
                 orders[i].pdfStatus = 'DOWNLOADED';
                 orders[i].pdfPath = pdfCheck.filePath;
             } else {
-                console.log(`[Monitor] ⚠️ PDF not found for order ${order.orderNumber}`);
+                console.log(`[Monitor] ⚠️ PDF NOT FOUND for order ${order.orderNumber}`);
                 // Keep the status from APEX or set to PENDING if null
                 if (!orders[i].pdfStatus) {
                     orders[i].pdfStatus = 'PENDING';
                 }
             }
         }
+        console.log('[Monitor] ========================================');
         console.log('[Monitor] ✅ Local PDF check completed');
+        console.log('[Monitor] ========================================');
 
         // Initialize grid for this trip
         const gridInstance = $(`#trip-orders-grid-${tripId}`).dxDataGrid({
@@ -1250,6 +1297,14 @@ async function previewOrderPDF(orderData) {
     }
 
     try {
+        // 🔧 FIX: Get trip details from active tab
+        const tripDetails = tripDetailsMap.get(currentActiveTripId);
+        if (!tripDetails) {
+            console.error('[Monitor] No active trip found');
+            alert('No active trip found. Please open a trip first.');
+            return;
+        }
+
         // ✅ ISSUE #1 FIX: Open PDF in modal dialog with base64
         const modal = document.getElementById('pdf-preview-modal');
         if (!modal) {
@@ -1262,9 +1317,9 @@ async function previewOrderPDF(orderData) {
         modal.style.display = 'flex';
         document.getElementById('pdf-loading').style.display = 'block';
 
-        // Update info
+        // 🔧 FIX: Update info using currentActiveTripId
         document.getElementById('preview-order-info').textContent =
-            `Order: ${orderData.orderNumber} | Trip: ${currentTripDetails.tripId}`;
+            `Order: ${orderData.orderNumber} | Trip: ${currentActiveTripId}`;
         document.getElementById('preview-file-info').textContent =
             `File: ${orderData.pdfPath.split('\\').pop()}`;
 
@@ -1301,6 +1356,113 @@ async function previewOrderPDF(orderData) {
         // Close modal on error
         const modal = document.getElementById('pdf-preview-modal');
         if (modal) modal.style.display = 'none';
+    }
+}
+
+// 🔧 NEW: Print individual order PDF
+async function printOrderPDF(orderData) {
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] PRINT PDF STARTED');
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] Order Data:', orderData);
+    console.log('[Monitor] Order Number:', orderData.orderNumber);
+
+    // 🔧 FIX: Get trip details from active tab
+    if (!currentActiveTripId) {
+        alert('No trip tab active. Please open a trip first.');
+        return;
+    }
+
+    const tripDetails = tripDetailsMap.get(currentActiveTripId);
+    if (!tripDetails) {
+        alert('Trip details not found');
+        return;
+    }
+
+    const currentTripData = tripDetails.tripData;
+
+    try {
+        // Update status to PRINTING
+        updateOrderStatus(orderData.detailId, orderData.pdfStatus, null, orderData.pdfPath, currentActiveTripId);
+        updatePrintStatus(orderData.detailId, 'PRINTING', currentActiveTripId);
+
+        // Build message for C#
+        const message = {
+            action: 'printOrder',
+            orderNumber: orderData.orderNumber,
+            tripId: currentTripData.tripId,
+            tripDate: currentTripData.tripDate
+        };
+
+        console.log('[Monitor] 📤 Sending print request to C#:', message);
+
+        // Call C# to print PDF
+        const response = await new Promise((resolve, reject) => {
+            sendMessageToCSharp(message, function(error, response) {
+                console.log('[Monitor] 📨 Response from C#:', { error, response });
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
+
+        console.log('[Monitor] C# Print Response:', response);
+
+        if (response.success) {
+            // Update status to PRINTED
+            updatePrintStatus(orderData.detailId, 'PRINTED', currentActiveTripId);
+            console.log('[Monitor] ✅ Print job sent successfully');
+        } else {
+            throw new Error(response.message || 'Failed to print PDF');
+        }
+
+    } catch (error) {
+        console.error('[Monitor] ❌ Failed to print PDF:', error);
+        updatePrintStatus(orderData.detailId, 'FAILED', currentActiveTripId);
+        alert(`Failed to print PDF for order ${orderData.orderNumber}:\n\n${error.message}`);
+    }
+
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] PRINT PDF ENDED');
+    console.log('[Monitor] ========================================');
+}
+
+// 🔧 NEW: Update print status in grid
+function updatePrintStatus(detailId, printStatus, tripId) {
+    console.log('[Monitor] Updating print status:', { detailId, printStatus, tripId });
+
+    if (!tripId) {
+        console.error('[Monitor] ❌ No tripId provided to updatePrintStatus!');
+        return;
+    }
+
+    const tripDetails = tripDetailsMap.get(tripId);
+    if (!tripDetails) {
+        console.error('[Monitor] ❌ Trip details not found in map for tripId:', tripId);
+        return;
+    }
+
+    const gridInstance = tripDetails.gridInstance;
+    if (!gridInstance) {
+        console.error('[Monitor] ❌ Grid instance not found for tripId:', tripId);
+        return;
+    }
+
+    const dataSource = gridInstance.option('dataSource');
+    const orderIndex = dataSource.findIndex(o => o.detailId === detailId);
+
+    if (orderIndex >= 0) {
+        dataSource[orderIndex].printStatus = printStatus;
+
+        // Refresh grid
+        gridInstance.option('dataSource', dataSource);
+        gridInstance.refresh();
+
+        console.log('[Monitor] ✅ Print status updated in grid for trip:', tripId);
+    } else {
+        console.warn('[Monitor] ⚠️ Order not found in grid:', detailId);
     }
 }
 
@@ -1357,6 +1519,66 @@ async function downloadAllOrdersPDF(tripId) {
     } catch (error) {
         console.error('[Monitor] ❌ Failed to download all orders:', error);
         alert(`Failed to download all orders: ${error.message}`);
+    }
+}
+
+// 🔧 NEW: Print all orders for a trip
+async function printAllOrdersPDF(tripId) {
+    console.log('[Monitor] Printing all orders PDF for trip:', tripId);
+
+    const tripDetails = tripDetailsMap.get(tripId);
+    if (!tripDetails) {
+        alert('Trip details not found');
+        return;
+    }
+
+    // Get only downloaded PDFs
+    const downloadedOrders = tripDetails.orders.filter(o => o.pdfStatus === 'DOWNLOADED');
+
+    if (downloadedOrders.length === 0) {
+        alert('No PDFs available to print. Please download PDFs first.');
+        return;
+    }
+
+    const confirmed = confirm(`Print PDFs for all downloaded orders in trip ${tripId}?\n\nThis will print ${downloadedOrders.length} order PDFs.`);
+
+    if (!confirmed) {
+        return;
+    }
+
+    try {
+        console.log(`[Monitor] Starting print for ${downloadedOrders.length} orders`);
+
+        // Print each order PDF with delay
+        let successCount = 0;
+        let failCount = 0;
+
+        for (let i = 0; i < downloadedOrders.length; i++) {
+            const order = downloadedOrders[i];
+
+            console.log(`[Monitor] Printing ${i + 1}/${downloadedOrders.length}: ${order.orderNumber}`);
+
+            try {
+                await printOrderPDF(order);
+                successCount++;
+
+                // Delay between prints to avoid overwhelming the printer
+                if (i < downloadedOrders.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            } catch (error) {
+                console.error(`[Monitor] Failed to print order ${order.orderNumber}:`, error);
+                failCount++;
+            }
+        }
+
+        // Show summary
+        alert(`Print Complete!\n\nSuccess: ${successCount}\nFailed: ${failCount}\nTotal: ${downloadedOrders.length}`);
+        console.log(`[Monitor] ✅ Print complete! Success: ${successCount}, Failed: ${failCount}, Total: ${downloadedOrders.length}`);
+
+    } catch (error) {
+        console.error('[Monitor] ❌ Failed to print all orders:', error);
+        alert(`Failed to print all orders: ${error.message}`);
     }
 }
 
