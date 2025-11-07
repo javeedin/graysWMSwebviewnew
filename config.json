@@ -6,5 +6,9 @@
   "PDF_FOLDER": "C:\\fusion",
   "CHECK_UPDATES_ON_START": true,
   "FALLBACK_TO_LOCAL": false,
-  "CACHE_BUSTER_ENABLED": true
+  "CACHE_BUSTER_ENABLED": true,
+  "GITHUB_RELEASE_API": "https://raw.githubusercontent.com/javeedin/graysWMSwebviewnew/main/latest-release.json",
+  "AUTO_UPDATE_HTML": true,
+  "AUTO_UPDATE_EXE": false,
+  "UPDATE_CHECK_INTERVAL_MINUTES": 60
 }

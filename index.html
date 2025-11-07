@@ -80,6 +80,10 @@
                 <i class="fas fa-print"></i>
                 <span>Printer Setup New</span>
             </div>
+            <div class="menu-item" data-page="settings">
+                <i class="fas fa-cog"></i>
+                <span>Settings & Updates</span>
+            </div>
         </aside>
         
         <main class="main-content" id="main-content">
@@ -654,6 +658,90 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Settings & Updates Page -->
+            <div id="settings" class="page-content" style="display: none;">
+                <h2 class="page-title">⚙️ Settings & Updates</h2>
+
+                <div class="grid-container" style="max-width: 800px; margin: 0 auto;">
+                    <!-- Application Information -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-info-circle" style="color: #4CAF50;"></i>
+                            Application Information
+                        </h3>
+                        <div style="display: grid; gap: 1rem;">
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: #666;">Current Version:</span>
+                                <strong id="current-version-display" style="color: #333;">Loading...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: #666;">Build Date:</span>
+                                <strong id="build-date-display" style="color: #333;">Loading...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+                                <span style="color: #666;">Update Status:</span>
+                                <strong id="update-status-display" style="color: #4CAF50;">Checking...</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Update Settings -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-sync-alt" style="color: #2196F3;"></i>
+                            Update Settings
+                        </h3>
+                        <div style="display: grid; gap: 1.5rem;">
+                            <div>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="auto-update-html-checkbox" checked>
+                                    <span>Automatically download HTML/JS updates</span>
+                                </label>
+                                <p style="margin: 0.5rem 0 0 1.5rem; font-size: 0.875rem; color: #666;">
+                                    Updates will be applied on next restart
+                                </p>
+                            </div>
+                            <div>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="check-updates-on-start-checkbox" checked>
+                                    <span>Check for updates on startup</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem; color: #666;">
+                                    Update check interval (minutes):
+                                </label>
+                                <input type="number" id="update-interval-input" value="60" min="15" max="1440"
+                                       style="width: 100px; padding: 0.5rem; border: 1px solid #ddd; border-radius: 6px;">
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="saveUpdateSettings()">
+                                    <i class="fas fa-save"></i> Save Settings
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Update Actions -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-cloud-download-alt" style="color: #FF9800;"></i>
+                            Update Actions
+                        </h3>
+                        <div style="display: grid; gap: 1rem;">
+                            <button class="btn btn-primary" onclick="manualCheckForUpdates()" style="width: 100%; justify-content: center;">
+                                <i class="fas fa-sync-alt"></i> Check for Updates Now
+                            </button>
+                            <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #2196F3;">
+                                <p style="margin: 0; font-size: 0.875rem; color: #666;">
+                                    <strong>Last checked:</strong> <span id="last-update-check-time">Never</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -697,6 +785,7 @@
         document.write('<script src="app.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="printer-management-new.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="monitor-printing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="update-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </body>
 </html>
