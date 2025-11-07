@@ -716,20 +716,16 @@ let monitorRefreshInterval = null;
 document.querySelectorAll('.menu-item').forEach(item => {
     item.addEventListener('click', function() {
         const page = this.getAttribute('data-page');
-        
+
         if (page === 'monitor-printing') {
-            // Load print jobs when page opens
-            setTimeout(() => {
-                loadPrintJobs();
-            }, 100);
-            
-            // Start auto-refresh
+            // Note: monitor-printing.js handles its own data loading
+            // No auto-refresh needed - user manually loads trips with date range
+
+            // Clear any old auto-refresh interval
             if (monitorRefreshInterval) {
                 clearInterval(monitorRefreshInterval);
+                monitorRefreshInterval = null;
             }
-            monitorRefreshInterval = setInterval(() => {
-                loadPrintJobs();
-            }, 30000); // 30 seconds
         } else {
             // Stop auto-refresh when leaving page
             if (monitorRefreshInterval) {
@@ -1336,8 +1332,8 @@ document.addEventListener('DOMContentLoaded', function() {
             if (pageId === 'vehicles' && currentFullData.length > 0) {
                 initVehiclesPage();
             } else if (pageId === 'monitor-printing') {
-                loadPrintJobs();
-                initPrintJobsGrid();
+                // Data persistence: Don't reload - preserve existing monitoring data
+                // The monitor-printing.js handles its own data loading via loadMonitoringTrips()
             } else if (pageId === 'printer-setup') {
                 loadInstalledPrinters();
                 loadPrinterConfiguration();
