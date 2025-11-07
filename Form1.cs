@@ -563,13 +563,13 @@ namespace WMSApp
             navPanel.Controls.Add(homeButton);
             navPanel.Controls.Add(openFileButton);
             navPanel.Controls.Add(clearCacheButton);
+            navPanel.Controls.Add(posButton);  // WMS button - moved to be right after Clear Cache
             navPanel.Controls.Add(glButton);
             navPanel.Controls.Add(arButton);
             navPanel.Controls.Add(apButton);
             navPanel.Controls.Add(omButton);
             navPanel.Controls.Add(faButton);
             navPanel.Controls.Add(caButton);
-            navPanel.Controls.Add(posButton);
             navPanel.Controls.Add(urlPanel);
             navPanel.Controls.Add(profileButton);
             navPanel.Controls.Add(settingsButton);

@@ -30,6 +30,12 @@
     <None Update="monitor-printing.js">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="update-manager.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="distribution-manager.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="styles.css">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
