@@ -10,5 +10,7 @@
   "GITHUB_RELEASE_API": "https://raw.githubusercontent.com/javeedin/graysWMSwebviewnew/main/latest-release.json",
   "AUTO_UPDATE_HTML": true,
   "AUTO_UPDATE_EXE": false,
-  "UPDATE_CHECK_INTERVAL_MINUTES": 60
+  "UPDATE_CHECK_INTERVAL_MINUTES": 60,
+  "DISTRIBUTION_FOLDER": "C:\\fusion\\fusionclientweb\\wms",
+  "DISTRIBUTION_MODE": "github-releases"
 }

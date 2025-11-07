@@ -42,7 +42,18 @@
         </button>
         <div class="logo">
             <i class="fas fa-warehouse"></i>
-            <span>WMS</span>
+            <span>Fusion Client</span>
+        </div>
+        <div class="module-buttons">
+            <button class="module-btn hidden" data-module="GL" title="General Ledger">GL</button>
+            <button class="module-btn hidden" data-module="AR" title="Accounts Receivable">AR</button>
+            <button class="module-btn hidden" data-module="AP" title="Accounts Payable">AP</button>
+            <button class="module-btn hidden" data-module="OM" title="Order Management">OM</button>
+            <button class="module-btn hidden" data-module="FA" title="Fixed Assets">FA</button>
+            <button class="module-btn hidden" data-module="CA" title="Cash Management">CA</button>
+            <button class="module-btn" data-module="WMS" title="Warehouse Management" onclick="launchWMSModule()">
+                <i class="fas fa-warehouse"></i> WMS
+            </button>
         </div>
         <div class="user-info">
             <i class="fas fa-user-circle"></i>
@@ -767,6 +778,9 @@
             <button onclick="runDiagnosticCheckTripData()" class="btn btn-sm" style="background: #ff9800; color: white; border: 1px solid #f57c00; padding: 4px 10px; font-size: 11px; font-weight: 600;">
                 Check Trip Data
             </button>
+            <button onclick="downloadNewVersion()" class="btn btn-sm" style="background: #4CAF50; color: white; border: 1px solid #45a049; padding: 4px 10px; font-size: 11px; font-weight: 600;">
+                <i class="fas fa-download"></i> Get New Version
+            </button>
         </div>
         <div style="display: flex; gap: 8px; align-items: center;">
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
@@ -786,6 +800,7 @@
         document.write('<script src="printer-management-new.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="monitor-printing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="update-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="distribution-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </body>
 </html>
