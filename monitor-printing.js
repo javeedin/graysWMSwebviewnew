@@ -799,6 +799,26 @@ async function viewTripDetails(tripData) {
             console.log('[Monitor] ✅ Buttons visible - Download All:', orders.length > 0 ? 'enabled' : 'disabled');
         }
 
+        // 🔧 NEW: Check local PDFs and update status
+        console.log('[Monitor] Checking local PDFs for all orders...');
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const pdfCheck = await checkPdfExists(order.orderNumber, tripId, tripData.tripDate);
+
+            if (pdfCheck.exists) {
+                console.log(`[Monitor] ✅ PDF exists for order ${order.orderNumber}`);
+                orders[i].pdfStatus = 'DOWNLOADED';
+                orders[i].pdfPath = pdfCheck.filePath;
+            } else {
+                console.log(`[Monitor] ⚠️ PDF not found for order ${order.orderNumber}`);
+                // Keep the status from APEX or set to PENDING if null
+                if (!orders[i].pdfStatus) {
+                    orders[i].pdfStatus = 'PENDING';
+                }
+            }
+        }
+        console.log('[Monitor] ✅ Local PDF check completed');
+
         // Initialize grid for this trip
         const gridInstance = $(`#trip-orders-grid-${tripId}`).dxDataGrid({
             dataSource: orders,
@@ -1181,6 +1201,43 @@ async function downloadOrderPDF(orderData) {
     console.log('[Monitor] ========================================');
     console.log('[Monitor] DOWNLOAD PDF ENDED');
     console.log('[Monitor] ========================================');
+}
+
+// 🔧 NEW: Check if PDF exists locally
+async function checkPdfExists(orderNumber, tripId, tripDate) {
+    console.log('[Monitor] Checking if PDF exists locally:', { orderNumber, tripId, tripDate });
+
+    try {
+        const message = {
+            action: 'checkPdfExists',
+            orderNumber: orderNumber,
+            tripId: tripId,
+            tripDate: tripDate
+        };
+
+        const response = await new Promise((resolve, reject) => {
+            sendMessageToCSharp(message, function(error, response) {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
+
+        console.log('[Monitor] Check PDF exists response:', response);
+        return {
+            exists: response.exists,
+            filePath: response.filePath
+        };
+
+    } catch (error) {
+        console.error('[Monitor] Failed to check PDF existence:', error);
+        return {
+            exists: false,
+            filePath: null
+        };
+    }
 }
 
 async function previewOrderPDF(orderData) {

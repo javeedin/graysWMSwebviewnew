@@ -951,6 +951,11 @@ namespace WMSApp
                                     await HandleDownloadOrderPdf(wv, messageJson, requestId);
                                     break;
 
+                                // 🔧 NEW: Check if PDF exists locally
+                                case "checkPdfExists":
+                                    await HandleCheckPdfExists(wv, messageJson, requestId);
+                                    break;
+
                                 case "printOrder":
                                     await HandlePrintOrder(wv, messageJson, requestId);
                                     break;
@@ -1618,6 +1623,44 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Download PDF failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // 🔧 NEW: Check if PDF exists locally
+        private async Task HandleCheckPdfExists(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<CheckPdfExistsMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Checking PDF existence for order {message.OrderNumber}");
+
+                // Construct PDF path: C:\fusion\{tripDate}\{tripId}\{orderNumber}.pdf
+                string pdfPath = Path.Combine(@"C:\fusion", message.TripDate, message.TripId.ToString(), $"{message.OrderNumber}.pdf");
+                bool exists = File.Exists(pdfPath);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] PDF Path: {pdfPath}");
+                System.Diagnostics.Debug.WriteLine($"[C#] PDF Exists: {exists}");
+
+                var response = new
+                {
+                    action = "checkPdfExistsResponse",
+                    requestId = requestId,
+                    exists = exists,
+                    filePath = exists ? pdfPath : null,
+                    orderNumber = message.OrderNumber
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Check PDF exists failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
