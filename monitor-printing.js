@@ -1096,6 +1096,11 @@ async function saveOrderStatusToAPEX(detailId, pdfStatus, pdfPath) {
 
 // Set default dates (last 7 days) when page loads
 window.addEventListener('DOMContentLoaded', function() {
+    console.log('[Monitor] ========================================');
+    console.log('[Monitor] DOMContentLoaded FIRED');
+    console.log('[Monitor] Current URL:', window.location.href);
+    console.log('[Monitor] ========================================');
+
     // ✅ ISSUE #4 FIX: Check if opened with URL parameters (from new tab)
     const urlParams = new URLSearchParams(window.location.search);
     const page = urlParams.get('page');
@@ -1104,26 +1109,55 @@ window.addEventListener('DOMContentLoaded', function() {
     const orderCount = urlParams.get('orderCount');
     const autoView = urlParams.get('autoView');
 
+    console.log('[Monitor] URL Parameters:');
+    console.log('[Monitor]   page:', page);
+    console.log('[Monitor]   tripId:', tripId);
+    console.log('[Monitor]   tripDate:', tripDate);
+    console.log('[Monitor]   orderCount:', orderCount);
+    console.log('[Monitor]   autoView:', autoView);
+
     // ✅ Activate the correct page (Monitor Printing instead of Trip Management)
     if (page === 'monitor-printing') {
         console.log('[Monitor] 🔗 Activating Monitor Printing page from URL');
+        console.log('[Monitor] Step 1: Hiding all pages...');
 
         // Hide all pages
-        document.querySelectorAll('.page-content').forEach(p => p.style.display = 'none');
+        const allPages = document.querySelectorAll('.page-content');
+        console.log('[Monitor] Found', allPages.length, 'pages to hide');
+        allPages.forEach(p => {
+            console.log('[Monitor] Hiding page:', p.id);
+            p.style.display = 'none';
+        });
 
+        console.log('[Monitor] Step 2: Showing monitor-printing page...');
         // Show monitor-printing page
         const monitorPage = document.getElementById('monitor-printing');
         if (monitorPage) {
             monitorPage.style.display = 'block';
+            console.log('[Monitor] ✅ monitor-printing page shown!');
+        } else {
+            console.error('[Monitor] ❌ monitor-printing page NOT FOUND!');
         }
 
+        console.log('[Monitor] Step 3: Updating menu active state...');
         // Update menu active state
-        document.querySelectorAll('.menu-item').forEach(item => {
+        const allMenuItems = document.querySelectorAll('.menu-item');
+        console.log('[Monitor] Found', allMenuItems.length, 'menu items');
+        allMenuItems.forEach(item => {
             item.classList.remove('active');
-            if (item.getAttribute('data-page') === 'monitor-printing') {
+            const itemPage = item.getAttribute('data-page');
+            console.log('[Monitor] Menu item:', itemPage);
+            if (itemPage === 'monitor-printing') {
                 item.classList.add('active');
+                console.log('[Monitor] ✅ Activated menu item:', itemPage);
             }
         });
+
+        console.log('[Monitor] ========================================');
+        console.log('[Monitor] Page activation COMPLETE');
+        console.log('[Monitor] ========================================');
+    } else {
+        console.log('[Monitor] No page parameter or not monitor-printing, showing default page');
     }
 
     // ✅ Auto-load trip details if trip parameters present
