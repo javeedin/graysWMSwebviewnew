@@ -574,6 +574,16 @@ namespace WMSApp
             navPanel.Controls.Add(profileButton);
             navPanel.Controls.Add(settingsButton);
 
+            // Hide module buttons (GL, AR, AP, OM, FA, CA)
+            // Keep WMS button (posButton) visible
+            glButton.Visible = false;
+            arButton.Visible = false;
+            apButton.Visible = false;
+            omButton.Visible = false;
+            faButton.Visible = false;
+            caButton.Visible = false;
+            // posButton is WMS button - keep it visible (default is true)
+
             // Web content panel
             Panel contentPanel = new Panel
             {
