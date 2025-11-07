@@ -1,0 +1,10 @@
+{
+  "APP_VERSION": "1.1.0",
+  "HTML_SOURCE": "network",
+  "NETWORK_PATH": "\\\\server\\WMS\\html",
+  "APEX_BASE_URL": "https://your-apex-server.com/ords/workspace",
+  "PDF_FOLDER": "C:\\fusion",
+  "CHECK_UPDATES_ON_START": true,
+  "FALLBACK_TO_LOCAL": false,
+  "CACHE_BUSTER_ENABLED": true
+}
