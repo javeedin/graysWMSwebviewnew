@@ -11,6 +11,11 @@ let currentTripForPrinterSelection = null;
 let monitoringTripsData = [];
 let monitoringGrid = null;
 
+// 🔧 NEW: Print Queue System
+let printQueue = [];
+let printQueueGrid = null;
+let isPrintQueueProcessing = false;
+
 // ============================================================================
 // PRINTER SELECTION MODAL
 // ============================================================================
@@ -455,6 +460,12 @@ function switchMonitorTab(tabName) {
     const selectedPane = document.querySelector(`#monitor-tab-content [data-tab-content="${tabName}"]`);
     if (selectedPane) {
         selectedPane.classList.add('active');
+    }
+
+    // 🔧 NEW: Initialize Print Queue grid when tab is shown
+    if (tabName === 'print-queue') {
+        initializePrintQueueGrid();
+        updatePrintQueueCount();
     }
 
     // Track active trip
@@ -1230,9 +1241,8 @@ async function downloadOrderPDF(orderData) {
 
             console.log('[Monitor] ✅ PDF downloaded successfully to:', response.filePath);
 
-            // ✅ REMOVED POPUP - No alert during individual download
-            // ✅ ADDED: Save status to APEX database
-            await saveOrderStatusToAPEX(orderData.detailId, 'DOWNLOADED', response.filePath);
+            // 🔧 FIX: Save status to APEX database with correct parameters
+            await saveOrderStatusToAPEX(orderData.detailId, 'DOWNLOADED', null, response.filePath, null);
 
         } else {
             throw new Error(response.message || response.error || 'Failed to download PDF');
@@ -1395,6 +1405,9 @@ async function printOrderPDF(orderData) {
             // Update status to PRINTED
             updatePrintStatus(orderData.detailId, 'PRINTED', currentActiveTripId);
             console.log('[Monitor] ✅ Print job sent successfully');
+
+            // 🔧 NEW: Save print status to APEX
+            await saveOrderStatusToAPEX(orderData.detailId, null, 'PRINTED', orderData.pdfPath, null);
         } else {
             throw new Error(response.message || 'Failed to print PDF');
         }
@@ -1402,6 +1415,10 @@ async function printOrderPDF(orderData) {
     } catch (error) {
         console.error('[Monitor] ❌ Failed to print PDF:', error);
         updatePrintStatus(orderData.detailId, 'FAILED', currentActiveTripId);
+
+        // 🔧 NEW: Save failed status to APEX
+        await saveOrderStatusToAPEX(orderData.detailId, null, 'FAILED', orderData.pdfPath, error.message);
+
         alert(`Failed to print PDF for order ${orderData.orderNumber}:\n\n${error.message}`);
     }
 
@@ -1504,8 +1521,9 @@ async function downloadAllOrdersPDF(tripId) {
 }
 
 // 🔧 NEW: Print all orders for a trip
+// 🔧 NEW: Add all orders to print queue and start processing
 async function printAllOrdersPDF(tripId) {
-    console.log('[Monitor] Printing all orders PDF for trip:', tripId);
+    console.log('[Monitor] Adding all orders to print queue for trip:', tripId);
 
     const tripDetails = tripDetailsMap.get(tripId);
     if (!tripDetails) {
@@ -1521,46 +1539,26 @@ async function printAllOrdersPDF(tripId) {
         return;
     }
 
-    const confirmed = confirm(`Print PDFs for all downloaded orders in trip ${tripId}?\n\nThis will print ${downloadedOrders.length} order PDFs.`);
+    const confirmed = confirm(`Add ${downloadedOrders.length} orders to print queue and start printing?\n\nYou can monitor progress in the Print Queue tab.`);
 
     if (!confirmed) {
         return;
     }
 
-    try {
-        console.log(`[Monitor] Starting print for ${downloadedOrders.length} orders`);
+    console.log(`[Monitor] Adding ${downloadedOrders.length} orders to print queue...`);
 
-        // Print each order PDF with delay
-        let successCount = 0;
-        let failCount = 0;
-
-        for (let i = 0; i < downloadedOrders.length; i++) {
-            const order = downloadedOrders[i];
-
-            console.log(`[Monitor] Printing ${i + 1}/${downloadedOrders.length}: ${order.orderNumber}`);
-
-            try {
-                await printOrderPDF(order);
-                successCount++;
-
-                // Delay between prints to avoid overwhelming the printer
-                if (i < downloadedOrders.length - 1) {
-                    await new Promise(resolve => setTimeout(resolve, 500));
-                }
-            } catch (error) {
-                console.error(`[Monitor] Failed to print order ${order.orderNumber}:`, error);
-                failCount++;
-            }
-        }
-
-        // Show summary
-        alert(`Print Complete!\n\nSuccess: ${successCount}\nFailed: ${failCount}\nTotal: ${downloadedOrders.length}`);
-        console.log(`[Monitor] ✅ Print complete! Success: ${successCount}, Failed: ${failCount}, Total: ${downloadedOrders.length}`);
-
-    } catch (error) {
-        console.error('[Monitor] ❌ Failed to print all orders:', error);
-        alert(`Failed to print all orders: ${error.message}`);
+    // Add all orders to queue
+    for (const order of downloadedOrders) {
+        addToPrintQueue(tripId, order);
     }
+
+    console.log(`[Monitor] ✅ ${downloadedOrders.length} jobs added to print queue`);
+
+    // Show message
+    alert(`${downloadedOrders.length} jobs added to Print Queue!\n\nClick OK to start printing.`);
+
+    // Start processing the queue
+    await processPrintQueue();
 }
 
 async function refreshOrdersStatus(tripId) {
@@ -1628,43 +1626,342 @@ function updateOrderStatus(detailId, pdfStatus, errorMessage, pdfPath, tripId) {
     }
 }
 
-// ✅ ISSUE #3 FIX: Save PDF status to APEX database
-async function saveOrderStatusToAPEX(detailId, pdfStatus, pdfPath) {
+// 🔧 FIX: Save order status to APEX database
+async function saveOrderStatusToAPEX(detailId, pdfStatus, printStatus, pdfPath, errorMessage) {
     try {
         console.log('[Monitor] 💾 Saving status to APEX...');
         console.log('[Monitor] Detail ID:', detailId);
         console.log('[Monitor] PDF Status:', pdfStatus);
+        console.log('[Monitor] Print Status:', printStatus);
         console.log('[Monitor] PDF Path:', pdfPath);
+        console.log('[Monitor] Error Message:', errorMessage);
 
         const payload = {
-            detail_id: detailId,
-            pdf_status: pdfStatus,
-            pdf_path: pdfPath || null,
-            updated_at: new Date().toISOString()
+            detailId: detailId,
+            pdfStatus: pdfStatus || null,
+            printStatus: printStatus || null,
+            pdfPath: pdfPath || null,
+            errorMessage: errorMessage || null
         };
 
-        const response = await fetch(API_BASE + '/trip-order-status', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(payload)
-        });
+        console.log('[Monitor] Payload:', payload);
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
+        const response = await callApexAPINew('/monitor-printing/update-order-status', 'POST', payload);
 
-        const result = await response.json();
-        console.log('[Monitor] ✅ Status saved to APEX:', result);
-
-        return result;
+        console.log('[Monitor] ✅ Status saved to APEX:', response);
+        return response;
 
     } catch (error) {
         console.error('[Monitor] ❌ Failed to save status to APEX:', error);
         // Don't throw - this is non-critical, PDF already downloaded locally
         return null;
     }
+}
+
+// ============================================================================
+// PRINT QUEUE SYSTEM
+// ============================================================================
+
+// 🔧 NEW: Initialize Print Queue Grid
+function initializePrintQueueGrid() {
+    if (printQueueGrid) {
+        // Grid already initialized, just refresh
+        printQueueGrid.option('dataSource', printQueue);
+        printQueueGrid.refresh();
+        return;
+    }
+
+    console.log('[PrintQueue] Initializing Print Queue grid...');
+
+    printQueueGrid = $('#print-queue-grid').dxDataGrid({
+        dataSource: printQueue,
+        showBorders: true,
+        showRowLines: true,
+        rowAlternationEnabled: true,
+        columnAutoWidth: true,
+        wordWrapEnabled: false,
+        allowColumnResizing: true,
+        columnResizingMode: 'widget',
+        hoverStateEnabled: true,
+        paging: {
+            pageSize: 50
+        },
+        pager: {
+            visible: true,
+            showPageSizeSelector: true,
+            allowedPageSizes: [25, 50, 100],
+            showInfo: true
+        },
+        columns: [
+            {
+                dataField: 'tripId',
+                caption: 'Trip ID',
+                width: 100
+            },
+            {
+                dataField: 'orderNumber',
+                caption: 'Order Number',
+                width: 150
+            },
+            {
+                dataField: 'customerName',
+                caption: 'Customer Name',
+                width: 200
+            },
+            {
+                dataField: 'status',
+                caption: 'Status',
+                width: 140,
+                cellTemplate: function(container, options) {
+                    const status = options.value || 'QUEUED';
+                    let badge = '';
+
+                    switch (status) {
+                        case 'QUEUED':
+                            badge = '<span style="background: #e0e7ff; color: #3730a3; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">⏳ Queued</span>';
+                            break;
+                        case 'PRINTING':
+                            badge = '<span style="background: #fef3c7; color: #92400e; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">🖨️ Printing</span>';
+                            break;
+                        case 'PRINTED':
+                            badge = '<span style="background: #d1fae5; color: #065f46; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">✅ Printed</span>';
+                            break;
+                        case 'FAILED':
+                            badge = '<span style="background: #fee2e2; color: #991b1b; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">❌ Failed</span>';
+                            break;
+                        default:
+                            badge = `<span style="background: #f3f4f6; color: #374151; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 600;">${status}</span>`;
+                    }
+
+                    container.append(badge);
+                }
+            },
+            {
+                dataField: 'errorMessage',
+                caption: 'Error',
+                width: 250,
+                cellTemplate: function(container, options) {
+                    const error = options.value;
+                    if (error) {
+                        container.append(
+                            $('<span>')
+                                .css({ color: '#dc3545', fontSize: '11px' })
+                                .text(error)
+                                .attr('title', error)
+                        );
+                    } else {
+                        container.append('-');
+                    }
+                }
+            },
+            {
+                dataField: 'addedAt',
+                caption: 'Added At',
+                dataType: 'datetime',
+                format: 'HH:mm:ss',
+                width: 100
+            }
+        ]
+    }).dxDataGrid('instance');
+
+    console.log('[PrintQueue] ✅ Print Queue grid initialized');
+}
+
+// 🔧 NEW: Add job to print queue
+function addToPrintQueue(tripId, orderData) {
+    const job = {
+        id: `${tripId}_${orderData.orderNumber}_${Date.now()}`,
+        tripId: tripId,
+        orderNumber: orderData.orderNumber,
+        customerName: orderData.customerName,
+        orderData: orderData,
+        status: 'QUEUED',
+        errorMessage: null,
+        addedAt: new Date()
+    };
+
+    printQueue.push(job);
+    console.log(`[PrintQueue] Added job to queue: ${orderData.orderNumber}`);
+
+    // Update grid if visible
+    if (printQueueGrid) {
+        printQueueGrid.option('dataSource', printQueue);
+        printQueueGrid.refresh();
+    }
+
+    // Update count
+    updatePrintQueueCount();
+
+    return job;
+}
+
+// 🔧 NEW: Update print queue count
+function updatePrintQueueCount() {
+    const countElement = document.getElementById('print-queue-count');
+    if (countElement) {
+        const queuedCount = printQueue.filter(j => j.status === 'QUEUED').length;
+        const printingCount = printQueue.filter(j => j.status === 'PRINTING').length;
+        const totalCount = printQueue.length;
+
+        countElement.textContent = `${totalCount} jobs (${queuedCount} queued, ${printingCount} printing)`;
+    }
+}
+
+// 🔧 NEW: Update print job status in queue
+function updatePrintJobStatus(jobId, status, errorMessage) {
+    const job = printQueue.find(j => j.id === jobId);
+    if (job) {
+        job.status = status;
+        if (errorMessage) {
+            job.errorMessage = errorMessage;
+        }
+
+        // Update grid
+        if (printQueueGrid) {
+            printQueueGrid.option('dataSource', printQueue);
+            printQueueGrid.refresh();
+        }
+
+        // Update count
+        updatePrintQueueCount();
+
+        console.log(`[PrintQueue] Updated job ${jobId} status to ${status}`);
+    }
+}
+
+// 🔧 NEW: Process print queue
+async function processPrintQueue() {
+    if (isPrintQueueProcessing) {
+        console.log('[PrintQueue] Queue is already being processed');
+        return;
+    }
+
+    const queuedJobs = printQueue.filter(j => j.status === 'QUEUED');
+    if (queuedJobs.length === 0) {
+        console.log('[PrintQueue] No jobs in queue');
+        alert('Print queue is empty!');
+        return;
+    }
+
+    isPrintQueueProcessing = true;
+    console.log(`[PrintQueue] ========================================`);
+    console.log(`[PrintQueue] Starting to process ${queuedJobs.length} jobs`);
+    console.log(`[PrintQueue] ========================================`);
+
+    // Switch to Print Queue tab to show progress
+    switchMonitorTab('print-queue');
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const job of queuedJobs) {
+        console.log(`[PrintQueue] Processing job: ${job.orderNumber}`);
+
+        // Update status to PRINTING
+        updatePrintJobStatus(job.id, 'PRINTING', null);
+
+        try {
+            // Print the order
+            await printOrderPDFFromQueue(job);
+
+            // Update status to PRINTED
+            updatePrintJobStatus(job.id, 'PRINTED', null);
+            successCount++;
+
+            console.log(`[PrintQueue] ✅ Job ${job.orderNumber} printed successfully`);
+
+        } catch (error) {
+            console.error(`[PrintQueue] ❌ Job ${job.orderNumber} failed:`, error);
+
+            // Update status to FAILED
+            updatePrintJobStatus(job.id, 'FAILED', error.message);
+            failCount++;
+        }
+
+        // Small delay between prints
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    isPrintQueueProcessing = false;
+
+    console.log(`[PrintQueue] ========================================`);
+    console.log(`[PrintQueue] Queue processing completed`);
+    console.log(`[PrintQueue] Success: ${successCount}, Failed: ${failCount}`);
+    console.log(`[PrintQueue] ========================================`);
+
+    // Show summary
+    alert(`Print Queue Completed!\n\nSuccess: ${successCount}\nFailed: ${failCount}\nTotal: ${queuedJobs.length}`);
+}
+
+// 🔧 NEW: Print order from queue
+async function printOrderPDFFromQueue(job) {
+    const orderData = job.orderData;
+    const tripId = job.tripId;
+
+    console.log(`[PrintQueue] Printing order: ${orderData.orderNumber} from trip: ${tripId}`);
+
+    // Get trip details
+    const tripDetails = tripDetailsMap.get(tripId);
+    if (!tripDetails) {
+        throw new Error('Trip details not found');
+    }
+
+    const currentTripData = tripDetails.tripData;
+
+    // Build message for C#
+    const message = {
+        action: 'printOrder',
+        orderNumber: orderData.orderNumber,
+        tripId: currentTripData.tripId,
+        tripDate: currentTripData.tripDate
+    };
+
+    // Call C# to print PDF
+    const response = await new Promise((resolve, reject) => {
+        sendMessageToCSharp(message, function(error, response) {
+            if (error) {
+                reject(new Error(error));
+            } else {
+                resolve(response);
+            }
+        });
+    });
+
+    if (!response.success) {
+        throw new Error(response.message || 'Print failed');
+    }
+
+    // Save print status to APEX
+    await saveOrderStatusToAPEX(orderData.detailId, null, 'PRINTED', orderData.pdfPath, null);
+
+    // Update status in trip grid if tab is open
+    updatePrintStatus(orderData.detailId, 'PRINTED', tripId);
+
+    return response;
+}
+
+// 🔧 NEW: Clear print queue
+window.clearPrintQueue = function() {
+    if (printQueue.length === 0) {
+        alert('Print queue is already empty!');
+        return;
+    }
+
+    const confirmed = confirm(`Clear all ${printQueue.length} jobs from print queue?\n\nThis action cannot be undone.`);
+    if (!confirmed) {
+        return;
+    }
+
+    printQueue = [];
+
+    if (printQueueGrid) {
+        printQueueGrid.option('dataSource', printQueue);
+        printQueueGrid.refresh();
+    }
+
+    updatePrintQueueCount();
+
+    console.log('[PrintQueue] ✅ Print queue cleared');
 }
 
 // ============================================================================

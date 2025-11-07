@@ -291,8 +291,11 @@
     <div class="grid-container">
         <div class="grid-header" style="padding: 0;">
             <div id="monitor-tab-header" class="tab-header" style="width: 100%;">
-                <div class="tab-item active" data-tab="trips">
+                <div class="tab-item active" data-tab="trips" onclick="switchMonitorTab('trips')">
                     <span>Trips</span>
+                </div>
+                <div class="tab-item" data-tab="print-queue" onclick="switchMonitorTab('print-queue')">
+                    <span><i class="fas fa-print"></i> Print Queue</span>
                 </div>
                 <!-- Trip detail tabs will be added dynamically here -->
             </div>
@@ -307,6 +310,23 @@
                     </div>
                 </div>
                 <div id="print-jobs-grid" style="height: 600px;"></div>
+            </div>
+
+            <!-- Tab 2: Print Queue -->
+            <div id="monitor-print-queue-tab" class="tab-pane" data-tab-content="print-queue">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title"><i class="fas fa-print"></i> Print Queue</div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="print-queue-count" style="color: #666; font-size: 14px;">0 jobs</div>
+                        <button id="start-print-queue-btn" class="btn btn-success" onclick="processPrintQueue()" style="font-size: 12px; padding: 6px 16px;">
+                            <i class="fas fa-play"></i> Start Printing
+                        </button>
+                        <button id="clear-print-queue-btn" class="btn btn-secondary" onclick="clearPrintQueue()" style="font-size: 12px; padding: 6px 16px;">
+                            <i class="fas fa-trash"></i> Clear Queue
+                        </button>
+                    </div>
+                </div>
+                <div id="print-queue-grid" style="height: 600px;"></div>
             </div>
 
             <!-- Trip detail tab panes will be added dynamically here -->
