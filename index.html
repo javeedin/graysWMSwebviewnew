@@ -690,22 +690,15 @@
         </div>
     </div>
 
-    <!-- Dynamic cache busting - forces fresh load every time -->
+    <!-- Dynamic cache busting - Load scripts synchronously to ensure DOMContentLoaded fires -->
     <script>
-        // Load JavaScript files with cache buster (using timestamp from header)
-        const scripts = [
-            'app.js',
-            'printer-management-new.js',
-            'monitor-printing.js'
-        ];
+        // Load JavaScript files synchronously with cache buster
+        console.log('[Cache Buster] Loading scripts synchronously with timestamp:', window.APP_CACHE_BUSTER);
 
-        scripts.forEach(function(src) {
-            const script = document.createElement('script');
-            script.src = src + '?v=' + window.APP_CACHE_BUSTER;
-            document.body.appendChild(script);
-        });
-
-        console.log('[Cache Buster] All files loaded with timestamp:', window.APP_CACHE_BUSTER);
+        // Use document.write to load synchronously (ensures scripts execute BEFORE DOMContentLoaded)
+        document.write('<script src="app.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="printer-management-new.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="monitor-printing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </body>
 </html>
