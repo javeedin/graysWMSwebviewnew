@@ -528,7 +528,10 @@ function displayPrintJobsGrid(jobs) {
                     icon: 'refresh',
                     text: 'Refresh',
                     onClick: function() {
-                        loadPrintJobs();
+                        // OLD: loadPrintJobs(); - Now uses APEX REST API
+                        if (typeof loadMonitoringTrips === 'function') {
+                            loadMonitoringTrips();
+                        }
                     }
                 }
             });
@@ -699,44 +702,30 @@ async function retryAllFailedJobs() {
     for (const job of failedJobs) {
         await downloadOrderPdf(job.orderNumber, job.tripId, job.tripDate);
     }
-    
+
     setTimeout(() => {
-        loadPrintJobs();
+        // OLD: loadPrintJobs(); - Now uses APEX REST API
+        if (typeof loadMonitoringTrips === 'function') {
+            loadMonitoringTrips();
+        }
         showNotification('Retry completed', 'success');
     }, 2000);
 }
 
 // ============================================================
-// Initialize on page load
+// Monitor Printing Page Navigation (REMOVED OLD AUTO-LOAD)
 // ============================================================
 
-// Auto-refresh every 30 seconds when on monitor printing page
-let monitorRefreshInterval = null;
+// NOTE: Monitor Printing now uses manual "Load Trips" button
+// The old auto-refresh has been removed to avoid conflicts
+// with the new APEX REST API in monitor-printing.js
 
 document.querySelectorAll('.menu-item').forEach(item => {
     item.addEventListener('click', function() {
         const page = this.getAttribute('data-page');
-        
-        if (page === 'monitor-printing') {
-            // Load print jobs when page opens
-            setTimeout(() => {
-                loadPrintJobs();
-            }, 100);
-            
-            // Start auto-refresh
-            if (monitorRefreshInterval) {
-                clearInterval(monitorRefreshInterval);
-            }
-            monitorRefreshInterval = setInterval(() => {
-                loadPrintJobs();
-            }, 30000); // 30 seconds
-        } else {
-            // Stop auto-refresh when leaving page
-            if (monitorRefreshInterval) {
-                clearInterval(monitorRefreshInterval);
-                monitorRefreshInterval = null;
-            }
-        }
+
+        // Removed old auto-load for monitor-printing
+        // User must now click "Load Trips" button manually
     });
 });
 
@@ -890,12 +879,9 @@ function toggleAutoPrint(tripId, tripDate, enabled, orders) {
                 statusDiv.style.borderLeft = '3px solid #28a745';
                 statusDiv.innerHTML = `✅ Enabled for ${orders.length} orders`;
             }
-            
-            const monitorPage = document.getElementById('monitor-printing');
-            if (monitorPage && monitorPage.style.display !== 'none') {
-                console.log('[JS] 🔄 Refreshing Monitor Printing...');
-                loadPrintJobs();
-            }
+
+            // Removed auto-refresh of monitor printing
+            // User must manually click "Load Trips" to refresh
         } else {
             if (statusDiv) {
                 statusDiv.style.display = 'none';
@@ -985,9 +971,11 @@ function updateAutoPrintStatus(tripId, tripDate, status) {
 // PRINT MANAGEMENT FUNCTIONS
 // ========================================
 
+// OLD FUNCTION - COMMENTED OUT - Now using APEX REST API in monitor-printing.js
+/*
 window.loadPrintJobs = function() {
     console.log('[JS] 🔄 Loading print jobs...');
-    
+
     sendMessageToCSharp({
         action: 'getPrintJobs',
         tripId: '',
@@ -998,10 +986,10 @@ window.loadPrintJobs = function() {
             console.error('[JS] ❌ Failed to load jobs:', error);
             return;
         }
-        
+
         console.log('[JS] ✅ Jobs loaded:', response);
         console.log('[JS] 📋 Raw jobs data:', response?.data?.jobs);
-        
+
         if (response && response.data) {
             const stats = response.data.stats || {};
             document.getElementById('stat-total-jobs').textContent = stats.totalJobs || 0;
@@ -1010,11 +998,11 @@ window.loadPrintJobs = function() {
             document.getElementById('stat-pending-print').textContent = stats.pendingPrint || 0;
             document.getElementById('stat-printed').textContent = stats.printed || 0;
             document.getElementById('stat-failed').textContent = (stats.downloadFailed || 0) + (stats.printFailed || 0);
-            
+
             // 🔧 FIX: Map C# field names to JavaScript grid column names
             const jobs = (response.data.jobs || []).map(job => {
                 console.log('[JS] 🔍 Original job:', job);
-                
+
                 const mappedJob = {
                     // Try both PascalCase and camelCase field names
                     orderNumber: job.orderNumber || job.OrderNumber || job.ORDER_NUMBER || '',
@@ -1026,13 +1014,13 @@ window.loadPrintJobs = function() {
                     printStatus: job.printStatus || job.PrintStatus || job.PRINT_STATUS || 'Pending',
                     pdfPath: job.pdfPath || job.PdfPath || job.PDF_PATH || ''
                 };
-                
+
                 console.log('[JS] ✅ Mapped job:', mappedJob);
                 return mappedJob;
             });
-            
+
             console.log('[JS] 📊 Total mapped jobs:', jobs.length);
-            
+
             const gridInstance = $('#print-jobs-grid').dxDataGrid('instance');
             if (gridInstance) {
                 gridInstance.option('dataSource', jobs);
@@ -1041,6 +1029,7 @@ window.loadPrintJobs = function() {
         }
     });
 };
+*/
 
 window.downloadOrderPdf = function(job) {
     console.log('[JS] 📥 Downloading PDF:', job.orderNumber);
@@ -1056,7 +1045,10 @@ window.downloadOrderPdf = function(job) {
             return;
         }
         alert('✓ PDF downloaded successfully!');
-        loadPrintJobs();
+        // OLD: loadPrintJobs(); - Now uses APEX REST API
+        if (typeof loadMonitoringTrips === 'function') {
+            loadMonitoringTrips();
+        }
     });
 };
 
@@ -1074,7 +1066,10 @@ window.printOrder = function(job) {
             return;
         }
         alert('✓ Print job sent!');
-        loadPrintJobs();
+        // OLD: loadPrintJobs(); - Now uses APEX REST API
+        if (typeof loadMonitoringTrips === 'function') {
+            loadMonitoringTrips();
+        }
     });
 };
 
@@ -1336,8 +1331,10 @@ document.addEventListener('DOMContentLoaded', function() {
             if (pageId === 'vehicles' && currentFullData.length > 0) {
                 initVehiclesPage();
             } else if (pageId === 'monitor-printing') {
-                loadPrintJobs();
-                initPrintJobsGrid();
+                // ✅ Restore grid data if available (don't refresh unless user clicks Fetch Trips)
+                if (typeof restoreMonitoringGridIfNeeded === 'function') {
+                    restoreMonitoringGridIfNeeded();
+                }
             } else if (pageId === 'printer-setup') {
                 loadInstalledPrinters();
                 loadPrinterConfiguration();
@@ -2110,7 +2107,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // Use stored tripMap for better data access
     window.openTripDetails = function(tripId, tripDate, lorryNumber) {
         console.log('[JS] Opening trip details for:', tripId);
-        
+        console.log('[JS] currentFullData length:', currentFullData.length);
+
+        // Check if data has been loaded
+        if (!currentFullData || currentFullData.length === 0) {
+            alert('No trip data loaded!\n\nPlease click "Fetch Trips" button first to load the data, then try viewing trip details again.');
+            return;
+        }
+
         // Filter trip data - match original logic (case-insensitive, trip_id OR TRIP_ID)
         const tripData = currentFullData.filter(trip => {
             const tripIdLower = (trip.trip_id || '').toString().toLowerCase();
@@ -2118,11 +2122,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const searchId = tripId.toString().toLowerCase();
             return tripIdLower === searchId || tripIdUpper === searchId;
         });
-        
+
         console.log('[JS] Found', tripData.length, 'records for trip:', tripId);
-        
+
         if (tripData.length === 0) {
-            alert('No data found for trip: ' + tripId);
+            alert('No data found for trip: ' + tripId + '\n\nThe trip might not be in the current date range.\nPlease adjust the date range and click "Fetch Trips" again.');
             return;
         }
         
@@ -2234,15 +2238,23 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Initialize grid
         setTimeout(() => {
-            const gridContainer = $(`#grid-${tabId}`);
-            
-            if (tripData.length === 0) {
-                gridContainer.html('<div style="padding:2rem;text-align:center;color:#64748b;">No data found</div>');
-                return;
-            }
-            
-            const first = tripData[0];
-            const columns = Object.keys(first).map(key => {
+            try {
+                console.log('[JS] Initializing DevExpress grid for trip:', tripId);
+                const gridContainer = $(`#grid-${tabId}`);
+
+                if (!gridContainer || gridContainer.length === 0) {
+                    console.error('[JS] Grid container not found:', `#grid-${tabId}`);
+                    return;
+                }
+
+                if (tripData.length === 0) {
+                    gridContainer.html('<div style="padding:2rem;text-align:center;color:#64748b;">No data found</div>');
+                    return;
+                }
+
+                console.log('[JS] Creating grid with', tripData.length, 'records');
+                const first = tripData[0];
+                const columns = Object.keys(first).map(key => {
                 let col = { dataField: key, caption: key.replace(/_/g, ' ') };
                 if (key === 'LINE_STATUS') {
                     col.cellTemplate = (container, options) => {
@@ -2291,6 +2303,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 height: '100%'
             });
+
+            console.log('[JS] ✅ Grid initialized successfully for trip:', tripId);
+
+        } catch (error) {
+            console.error('[JS] ❌ Error initializing grid:', error);
+            const gridContainer = $(`#grid-${tabId}`);
+            if (gridContainer && gridContainer.length > 0) {
+                gridContainer.html(`
+                    <div style="padding:2rem;text-align:center;">
+                        <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#ef4444;margin-bottom:1rem;"></i>
+                        <h3 style="color:#1f2937;margin-bottom:0.5rem;">Grid Initialization Error</h3>
+                        <p style="color:#6b7280;">Error: ${error.message}</p>
+                        <p style="color:#6b7280;font-size:0.85rem;">Check browser console for details.</p>
+                    </div>
+                `);
+            }
+        }
         }, 100);
     };
 

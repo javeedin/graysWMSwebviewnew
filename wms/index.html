@@ -4,23 +4,36 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WMS - Trip Management</title>
+    <!-- Prevent aggressive caching in WebView2 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
     <link rel="stylesheet" href="styles.css">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
-        // DevExpress License Configuration
+        // Dynamic cache busting - generate unique timestamp
+        window.APP_CACHE_BUSTER = Date.now();
+        console.log('[Cache Buster] Timestamp generated:', window.APP_CACHE_BUSTER);
+    </script>
+    <script src="https://cdn3.devexpress.com/jslib/23.2.6/js/dx.all.js"></script>
+    <script>
+        // DevExpress License Configuration - AFTER library loads
         // Account: jshaik@grays.mu
         DevExpress.config({
             licenseKey: "ewogICJmb3JtYXQiOiAxLAogICJjdXN0b21lcklkIjogImVlOWVhYTEwLTlkN2QtNGY5OS04YWM1LTdjZmI0ZDA1NWYwZCIsCiAgIm1heFZlcnNpb25BbGxvd2VkIjogMjMyCn0=.Vea066tbF42irVJqwpiFoZQvJi9X4UgfbFNGbmIgqrDv54JlxP+P4/WSJjiy5XpZkqTTbhMRnin//dl0sg1K5kCGOE3XquKboK++pqSbJ+vG7jzjJpfnx8BY10M28dh9iO7Wfw=="
         });
+        console.log('[DevExpress] License configured');
     </script>
-    <script src="https://cdn3.devexpress.com/jslib/23.2.6/js/dx.all.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <script src="config.js"></script>
+    <script>
+        // Load config.js with cache buster
+        document.write('<script src="config.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
 </head>
 <body>
     <header class="header">
@@ -29,7 +42,19 @@
         </button>
         <div class="logo">
             <i class="fas fa-warehouse"></i>
-            <span>WMS</span>
+            <span>Fusion Client</span>
+            <span id="app-version-badge" style="font-size: 10px; background: #4CAF50; color: white; padding: 2px 6px; border-radius: 3px; margin-left: 8px; font-weight: 600;">v1.1.1</span>
+        </div>
+        <div class="module-buttons">
+            <button class="module-btn hidden" data-module="GL" title="General Ledger" style="display: none;">GL</button>
+            <button class="module-btn hidden" data-module="AR" title="Accounts Receivable" style="display: none;">AR</button>
+            <button class="module-btn hidden" data-module="AP" title="Accounts Payable" style="display: none;">AP</button>
+            <button class="module-btn hidden" data-module="OM" title="Order Management" style="display: none;">OM</button>
+            <button class="module-btn hidden" data-module="FA" title="Fixed Assets" style="display: none;">FA</button>
+            <button class="module-btn hidden" data-module="CA" title="Cash Management" style="display: none;">CA</button>
+            <button class="module-btn" data-module="WMS" title="Warehouse Management" onclick="launchWMSModule()">
+                <i class="fas fa-warehouse"></i> WMS
+            </button>
         </div>
         <div class="user-info">
             <i class="fas fa-user-circle"></i>
@@ -66,6 +91,10 @@
             <div class="menu-item" data-page="printer-setup-new">
                 <i class="fas fa-print"></i>
                 <span>Printer Setup New</span>
+            </div>
+            <div class="menu-item" data-page="settings">
+                <i class="fas fa-cog"></i>
+                <span>Settings & Updates</span>
             </div>
         </aside>
         
@@ -274,15 +303,50 @@
         </div>
     </div>
 
-    <!-- Monitoring Trips Grid -->
+    <!-- Tabs for Trips and Trip Details -->
     <div class="grid-container">
-        <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
-            <div class="grid-title">Monitored Trips</div>
-            <div style="display: flex; gap: 1rem; align-items: center;">
-                <div id="filtered-count" style="color: #666; font-size: 14px;">0 trips</div>
+        <div class="grid-header" style="padding: 0;">
+            <div id="monitor-tab-header" class="tab-header" style="width: 100%;">
+                <div class="tab-item active" data-tab="trips" onclick="switchMonitorTab('trips')">
+                    <span>Trips</span>
+                </div>
+                <div class="tab-item" data-tab="print-queue" onclick="switchMonitorTab('print-queue')">
+                    <span><i class="fas fa-print"></i> Print Queue</span>
+                </div>
+                <!-- Trip detail tabs will be added dynamically here -->
             </div>
         </div>
-        <div id="print-jobs-grid" style="height: 600px;"></div>
+        <div id="monitor-tab-content" class="tab-content">
+            <!-- Tab 1: Trips List -->
+            <div id="monitor-trips-tab" class="tab-pane active" data-tab-content="trips">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title">Monitored Trips</div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="filtered-count" style="color: #666; font-size: 14px;">0 trips</div>
+                    </div>
+                </div>
+                <div id="print-jobs-grid" style="height: 600px;"></div>
+            </div>
+
+            <!-- Tab 2: Print Queue -->
+            <div id="monitor-print-queue-tab" class="tab-pane" data-tab-content="print-queue">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title"><i class="fas fa-print"></i> Print Queue</div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="print-queue-count" style="color: #666; font-size: 14px;">0 jobs</div>
+                        <button id="start-print-queue-btn" class="btn btn-success" onclick="processPrintQueue()" style="font-size: 12px; padding: 6px 16px;">
+                            <i class="fas fa-play"></i> Start Printing
+                        </button>
+                        <button id="clear-print-queue-btn" class="btn btn-secondary" onclick="clearPrintQueue()" style="font-size: 12px; padding: 6px 16px;">
+                            <i class="fas fa-trash"></i> Clear Queue
+                        </button>
+                    </div>
+                </div>
+                <div id="print-queue-grid" style="height: 600px;"></div>
+            </div>
+
+            <!-- Trip detail tab panes will be added dynamically here -->
+        </div>
     </div>
 </div>
 
@@ -606,12 +670,138 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Settings & Updates Page -->
+            <div id="settings" class="page-content" style="display: none;">
+                <h2 class="page-title">⚙️ Settings & Updates</h2>
+
+                <div class="grid-container" style="max-width: 800px; margin: 0 auto;">
+                    <!-- Application Information -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-info-circle" style="color: #4CAF50;"></i>
+                            Application Information
+                        </h3>
+                        <div style="display: grid; gap: 1rem;">
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: #666;">Current Version:</span>
+                                <strong id="current-version-display" style="color: #333;">Loading...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: #666;">Build Date:</span>
+                                <strong id="build-date-display" style="color: #333;">Loading...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+                                <span style="color: #666;">Update Status:</span>
+                                <strong id="update-status-display" style="color: #4CAF50;">Checking...</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Update Settings -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-sync-alt" style="color: #2196F3;"></i>
+                            Update Settings
+                        </h3>
+                        <div style="display: grid; gap: 1.5rem;">
+                            <div>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="auto-update-html-checkbox" checked>
+                                    <span>Automatically download HTML/JS updates</span>
+                                </label>
+                                <p style="margin: 0.5rem 0 0 1.5rem; font-size: 0.875rem; color: #666;">
+                                    Updates will be applied on next restart
+                                </p>
+                            </div>
+                            <div>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="check-updates-on-start-checkbox" checked>
+                                    <span>Check for updates on startup</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem; color: #666;">
+                                    Update check interval (minutes):
+                                </label>
+                                <input type="number" id="update-interval-input" value="60" min="15" max="1440"
+                                       style="width: 100px; padding: 0.5rem; border: 1px solid #ddd; border-radius: 6px;">
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="saveUpdateSettings()">
+                                    <i class="fas fa-save"></i> Save Settings
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Update Actions -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-cloud-download-alt" style="color: #FF9800;"></i>
+                            Update Actions
+                        </h3>
+                        <div style="display: grid; gap: 1rem;">
+                            <button class="btn btn-primary" onclick="manualCheckForUpdates()" style="width: 100%; justify-content: center;">
+                                <i class="fas fa-sync-alt"></i> Check for Updates Now
+                            </button>
+                            <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #2196F3;">
+                                <p style="margin: 0; font-size: 0.875rem; color: #666;">
+                                    <strong>Last checked:</strong> <span id="last-update-check-time">Never</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
-    <script src="app.js"></script>
-    <script src="printer-management.js"></script>
-    <script src="printer-management-new.js"></script>
-    <script src="monitor-printing.js"></script>
+    <!-- Diagnostic Toolbar (Bottom) -->
+    <div id="diagnostic-toolbar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 9999; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); font-size: 12px;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-weight: 600; color: #00d4ff;">🔧 Diagnostics:</span>
+            <button onclick="runDiagnosticCheckButtons()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Buttons
+            </button>
+            <button onclick="runDiagnosticShowButtons()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Force Show Buttons
+            </button>
+            <button onclick="runDiagnosticCheckGrid()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Grid
+            </button>
+            <button onclick="runDiagnosticCheckTab()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Tab Visibility
+            </button>
+            <button onclick="runDiagnosticShowConsole()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Show All Info
+            </button>
+            <button onclick="runDiagnosticCheckTripData()" class="btn btn-sm" style="background: #ff9800; color: white; border: 1px solid #f57c00; padding: 4px 10px; font-size: 11px; font-weight: 600;">
+                Check Trip Data
+            </button>
+            <button id="btn-download-version" disabled onclick="if(typeof downloadNewVersion === 'function') { downloadNewVersion(); } else { console.error('downloadNewVersion function not loaded!'); alert('Distribution manager not loaded. Please refresh the page.'); }" class="btn btn-sm" style="background: #4CAF50; color: white; border: 1px solid #45a049; padding: 4px 10px; font-size: 11px; font-weight: 600; opacity: 0.6;">
+                <i class="fas fa-download"></i> Get New Version
+            </button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
+            <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
+                Hide
+            </button>
+        </div>
+    </div>
+
+    <!-- Dynamic cache busting - Load scripts synchronously to ensure DOMContentLoaded fires -->
+    <script>
+        // Load JavaScript files synchronously with cache buster
+        console.log('[Cache Buster] Loading scripts synchronously with timestamp:', window.APP_CACHE_BUSTER);
+
+        // Use document.write to load synchronously (ensures scripts execute BEFORE DOMContentLoaded)
+        document.write('<script src="app.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="printer-management-new.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="monitor-printing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="update-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="distribution-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
 </body>
 </html>

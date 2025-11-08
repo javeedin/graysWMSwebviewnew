@@ -57,13 +57,13 @@ async function callApexAPINew(endpoint, method = 'GET', body = null) {
                 });
             }
 
-            // Timeout after 30 seconds
+            // Timeout after 60 seconds (increased for slow APEX responses)
             setTimeout(() => {
                 if (window.pendingRequests[requestId]) {
                     delete window.pendingRequests[requestId];
-                    reject(new Error('Request timeout'));
+                    reject(new Error(`Request timeout after 60s: ${method} ${url}`));
                 }
-            }, 30000);
+            }, 60000);
         });
     } catch (error) {
         console.error('[API NEW] Error:', error);
