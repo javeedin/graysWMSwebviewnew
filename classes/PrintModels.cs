@@ -255,6 +255,27 @@ namespace WMSApp.PrintManagement
     }
 
     /// <summary>
+    /// 🔧 NEW: Message from JavaScript to check if PDF exists locally
+    /// </summary>
+    public class CheckPdfExistsMessage
+    {
+        [JsonProperty("action")]
+        public string Action { get; set; }
+
+        [JsonProperty("requestId")]
+        public string RequestId { get; set; }
+
+        [JsonProperty("orderNumber")]
+        public string OrderNumber { get; set; }
+
+        [JsonProperty("tripId")]
+        public string TripId { get; set; }
+
+        [JsonProperty("tripDate")]
+        public string TripDate { get; set; }
+    }
+
+    /// <summary>
     /// Message from JavaScript to print PDF
     /// </summary>
     public class PrintPdfMessage
