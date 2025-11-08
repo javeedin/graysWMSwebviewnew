@@ -952,7 +952,7 @@ body {
 }
 
 .parameters-header {
-    padding: 1rem 1.5rem;
+    padding: 0.6rem 1rem;
     background: var(--gray-50);
     border-bottom: 2px solid var(--gray-200);
     display: flex;
@@ -967,7 +967,7 @@ body {
 }
 
 .parameters-header h3 {
-    font-size: 0.9rem;
+    font-size: 0.8rem;
     font-weight: 700;
     color: var(--gray-700);
     text-transform: uppercase;
@@ -976,7 +976,7 @@ body {
 }
 
 .collapse-icon {
-    font-size: 1.2rem;
+    font-size: 1rem;
     color: var(--primary);
     transition: transform 0.3s;
 }
