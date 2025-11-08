@@ -43,7 +43,7 @@
         <div class="logo">
             <i class="fas fa-warehouse"></i>
             <span>WMS</span>
-            <span id="app-version-badge" style="font-size: 9px; background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600;">v1.1.2</span>
+            <span id="app-version-badge" style="font-size: 9px; background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600;">Loading...</span>
         </div>
         <div class="module-buttons">
             <!-- Module buttons hidden - navigation handled by C# Form -->
@@ -53,7 +53,34 @@
             <span>Admin</span>
         </div>
     </header>
-    
+
+    <!-- Fetch and display latest version from GitHub -->
+    <script>
+        (async function() {
+            try {
+                console.log('[Version Badge] Fetching latest version from GitHub API...');
+                const response = await fetch('https://api.github.com/repos/javeedin/graysWMSwebviewnew/releases/latest');
+
+                if (response.ok) {
+                    const release = await response.json();
+                    const version = release.tag_name || 'Unknown';
+                    const badge = document.getElementById('app-version-badge');
+
+                    if (badge) {
+                        badge.textContent = version;
+                        console.log('[Version Badge] Updated to:', version);
+                    }
+                } else {
+                    console.warn('[Version Badge] Failed to fetch version:', response.status);
+                    // Keep "Loading..." if fetch fails
+                }
+            } catch (error) {
+                console.error('[Version Badge] Error fetching version:', error);
+                // Keep "Loading..." if error occurs
+            }
+        })();
+    </script>
+
     <div class="container">
         <aside class="sidebar" id="sidebar">
             <div class="menu-item active" data-page="trip-management">
