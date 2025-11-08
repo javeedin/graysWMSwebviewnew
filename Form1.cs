@@ -106,7 +106,7 @@ namespace WMSApp
             Panel titleBarPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 35,
+                Height = 32,
                 BackColor = Color.FromArgb(32, 32, 32)
             };
 
@@ -125,7 +125,7 @@ namespace WMSApp
             {
                 Text = "+",
                 Width = 35,
-                Height = 28,
+                Height = 26,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(50, 50, 50),
                 ForeColor = Color.White,
@@ -875,7 +875,7 @@ namespace WMSApp
             {
                 TabText = "New Tab",
                 Width = 200,
-                Height = 28,
+                Height = 26,
                 BackColor = Color.FromArgb(50, 50, 50),
                 ForeColor = Color.White
             };
@@ -2699,7 +2699,7 @@ namespace WMSApp
                     LineAlignment = StringAlignment.Center,
                     Trimming = StringTrimming.EllipsisCharacter
                 };
-                e.Graphics.DrawString(tabText, new Font("Segoe UI", 9), textBrush, textRect, sf);
+                e.Graphics.DrawString(tabText, new Font("Segoe UI", 8), textBrush, textRect, sf);
             }
 
             closeRect = new Rectangle(Width - 22, 6, 16, 16);
