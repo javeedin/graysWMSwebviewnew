@@ -1145,7 +1145,7 @@ namespace WMSApp
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(60);
+                    httpClient.Timeout = TimeSpan.FromSeconds(1060);
                     System.Diagnostics.Debug.WriteLine($"[C#] Making GET request to: {message.FullUrl}");
 
                     var response = await httpClient.GetAsync(message.FullUrl);

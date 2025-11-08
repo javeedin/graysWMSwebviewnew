@@ -1,0 +1,111 @@
+================================================================================
+POSTMAN TESTING - QUICK TROUBLESHOOTING
+================================================================================
+
+BASIC SETUP
+================================================================================
+Method:  GET
+URL:     https://your-apex-url/ords/workspace/wms/v1/config/printer
+Headers: Accept: application/json
+
+
+COMMON ERRORS
+================================================================================
+
+ERROR: 404 Not Found
+FIX:
+  1. Check URL is correct (includes /ords/, /workspace/, /wms/v1/)
+  2. Check module is Published in APEX
+  3. Verify endpoint exists in APEX
+
+ERROR: 500 Internal Server Error (table not found)
+FIX:
+  Run in SQL: @01_create_tables.sql
+
+ERROR: 500 Internal Server Error (procedure not found)
+FIX:
+  Run in SQL: @03_get_procedures.sql
+
+ERROR: Empty items array {"items": []}
+FIX:
+  Run in SQL: @05_test_data.sql
+
+ERROR: Could not send request
+FIX:
+  1. Check internet connection
+  2. Test URL in browser first
+  3. Make sure URL starts with https://
+
+
+DEBUGGING STEPS
+================================================================================
+
+STEP 1: Test in APEX First
+  → Go to APEX → RESTful Services → wms_api → config/printer → GET
+  → Click Test button
+  → Does it show JSON?
+     YES → Copy the exact URL to Postman
+     NO  → Fix APEX setup first
+
+STEP 2: Test in Browser
+  → Copy your URL
+  → Paste in browser
+  → Do you see JSON?
+     YES → URL is correct, use it in Postman
+     NO  → APEX endpoint not working
+
+STEP 3: Check Module Published
+  → APEX → RESTful Services → wms_api
+  → Look for "Published" toggle at top
+  → Must be ON (enabled)
+
+
+WHAT TO CHECK
+================================================================================
+☐ Method = GET
+☐ URL has https://
+☐ URL includes /ords/
+☐ URL includes /workspace/
+☐ URL includes /wms/v1/
+☐ URL ends with /config/printer
+☐ No trailing slash
+☐ Module Published in APEX
+☐ Test button works in APEX
+☐ Tables created
+☐ Procedures created
+☐ Data exists
+
+
+CORRECT URL FORMAT
+================================================================================
+https://[apex-host]/ords/[workspace]/wms/v1/config/printer
+
+Examples:
+✓ https://apex.oracle.com/pls/apex/mywork/wms/v1/config/printer
+✓ https://abc123.adb.region.cloud.com/ords/app/wms/v1/config/printer
+
+Wrong:
+✗ https://apex.oracle.com/wms/v1/config/printer     (missing ords)
+✗ https://apex.oracle.com/ords/mywork/config/printer (missing wms/v1)
+
+
+GET YOUR EXACT URL
+================================================================================
+1. Login to APEX
+2. SQL Workshop → RESTful Services
+3. Click wms_api module
+4. Look at "Full URL" at top of page
+5. Copy that URL
+6. Add "/config/printer" at the end
+7. Use in Postman
+
+
+STILL NOT WORKING?
+================================================================================
+Tell me:
+1. Exact error message in Postman
+2. Status code (200, 404, 500, etc.)
+3. Does Test button work in APEX? (Yes/No)
+4. Your APEX URL format
+
+Then I can help debug!

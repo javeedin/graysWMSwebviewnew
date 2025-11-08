@@ -1,0 +1,51 @@
+# Gray's WMS WebView Application - Distribution Package
+
+## Quick Start
+
+1. Ensure you have .NET 8.0 Runtime installed:
+   - Download from: https://dotnet.microsoft.com/download/dotnet/8.0
+   - You need the ".NET Desktop Runtime" for Windows
+
+2. Ensure WebView2 Runtime is installed:
+   - Usually pre-installed on Windows 11
+   - Download from: https://developer.microsoft.com/microsoft-edge/webview2/
+
+3. Run the application:
+   - Double-click WMSApp.exe
+
+## Setup
+
+### Configure API Connection
+1. Edit config.js and update the APEX_BASE_URL
+2. Point it to your Oracle APEX instance
+
+### Setup Database
+Run the SQL scripts in the apex_sql folder in order:
+1. 01_tables.sql
+2. 02_procedures_get.sql
+3. 03_procedures_post.sql
+4. 04_apex_endpoints_get.sql
+5. 05_apex_endpoints_post.sql
+6. 06_additional_printer_procedures.sql
+7. 07_printer_management_endpoints.sql
+
+### Configure Printers
+1. Launch the application
+2. Go to "Printer Setup New" menu
+3. Add your printers with Oracle Fusion credentials
+4. Test and set as active
+
+## Files Included
+
+- WMSApp.exe - Main application
+- *.dll - Required libraries
+- *.js, *.html, *.css - Web UI files
+- apex_sql/ - Database setup scripts
+- docs/ - Additional documentation
+
+## Support
+
+For issues or questions, refer to README.md or contact the development team.
+
+Built on: 08-11-2025 15:35:31.08
+Configuration: Release
