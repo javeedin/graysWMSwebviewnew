@@ -267,8 +267,11 @@ namespace WMSApp
             wmsDevButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 240, 180);
             wmsDevButton.Click += (s, e) =>
             {
-                // Load local development version
-                string indexPath = Path.Combine(Application.StartupPath, "wms", "index.html");
+                // Load local development version from repository root
+                // Navigate from bin/debug/net8.0 up to repository root
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+
                 if (File.Exists(indexPath))
                 {
                     System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
@@ -334,7 +337,8 @@ namespace WMSApp
                     if (result == DialogResult.Yes)
                     {
                         // Navigate to local WMS page which has the distribution manager
-                        string launcherPath = Path.Combine(Application.StartupPath, "wms", "index.html");
+                        string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                        string launcherPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
                         if (File.Exists(launcherPath))
                         {
                             string launcherUrl = "file:///" + launcherPath.Replace("\\", "/");
@@ -394,7 +398,8 @@ namespace WMSApp
             modulesContextMenu = new ContextMenuStrip();
             modulesContextMenu.Items.Add("WMS - Warehouse Management").Click += (s, e) =>
             {
-                string indexPath = Path.Combine(Application.StartupPath, "wms", "index.html");
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
                 if (File.Exists(indexPath))
                 {
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
@@ -404,7 +409,8 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("GL - General Ledger").Click += (s, e) =>
             {
-                string indexPath = Path.Combine(Application.StartupPath, "gl", "index.html");
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "gl", "index.html"));
                 if (File.Exists(indexPath))
                 {
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
@@ -414,7 +420,8 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("AR - Accounts Receivable").Click += (s, e) =>
             {
-                string indexPath = Path.Combine(Application.StartupPath, "ar", "index.html");
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ar", "index.html"));
                 if (File.Exists(indexPath))
                 {
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
@@ -424,7 +431,8 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("AP - Accounts Payable").Click += (s, e) =>
             {
-                string indexPath = Path.Combine(Application.StartupPath, "ap", "index.html");
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ap", "index.html"));
                 if (File.Exists(indexPath))
                 {
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
@@ -434,7 +442,8 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("OM - Order Management").Click += (s, e) =>
             {
-                string indexPath = Path.Combine(Application.StartupPath, "om", "index.html");
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "om", "index.html"));
                 if (File.Exists(indexPath))
                 {
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
@@ -444,7 +453,8 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("FA - Fixed Assets").Click += (s, e) =>
             {
-                string indexPath = Path.Combine(Application.StartupPath, "fa", "index.html");
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "fa", "index.html"));
                 if (File.Exists(indexPath))
                 {
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
@@ -454,7 +464,8 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("CA - Cash Management").Click += (s, e) =>
             {
-                string indexPath = Path.Combine(Application.StartupPath, "ca", "index.html");
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ca", "index.html"));
                 if (File.Exists(indexPath))
                 {
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
@@ -464,7 +475,8 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("POS - Point of Sale").Click += (s, e) =>
             {
-                string indexPath = Path.Combine(Application.StartupPath, "pos", "index.html");
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "pos", "index.html"));
                 if (File.Exists(indexPath))
                 {
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
