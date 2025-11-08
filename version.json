@@ -1,5 +1,5 @@
 {
-    "version": "1.1.1",
+    "version": "1.1.2",
     "build_date": "2025-11-08",
     "files": {
         "index.html": "2025-11-08T18:10:36Z",
@@ -7,5 +7,5 @@
         "monitor-printing.js": "2025-11-08T18:10:36Z",
         "styles.css": "2025-11-08T18:10:36Z"
     },
-    "changelog": "WMS Dev/Prod buttons + Modules dropdown + Auto-versioning system"
+    "changelog": "UI improvements: Reduced sizes, removed page titles, tab beautification"
 }
