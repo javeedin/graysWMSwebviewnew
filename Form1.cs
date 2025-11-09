@@ -418,6 +418,17 @@ namespace WMSApp
                 }
             };
 
+            modulesContextMenu.Items.Add("SYNC - Oracle Fusion Sync").Click += (s, e) =>
+            {
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "sync", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
             modulesContextMenu.Items.Add("AR - Accounts Receivable").Click += (s, e) =>
             {
                 string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
