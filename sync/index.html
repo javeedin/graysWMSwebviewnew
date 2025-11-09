@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sync Module - Oracle Fusion Integration</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <button class="hamburger" id="hamburger">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="logo">
+            <i class="fas fa-sync-alt"></i>
+            <span>Sync Module</span>
+            <span style="font-size: 9px; background: #10b981; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600;">v1.0</span>
+        </div>
+        <div class="user-info">
+            <i class="fas fa-user-circle"></i>
+            <span>Admin</span>
+        </div>
+    </header>
+
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <!-- Administration Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-cog"></i>
+                    <span>Administration</span>
+                </div>
+
+                <div class="menu-item active" data-page="admin-credentials">
+                    <i class="fas fa-key"></i>
+                    <span>Fusion Credentials</span>
+                </div>
+
+                <div class="menu-item" data-page="admin-endpoints">
+                    <i class="fas fa-link"></i>
+                    <span>API Endpoints</span>
+                </div>
+
+                <div class="menu-item" data-page="admin-apex">
+                    <i class="fas fa-database"></i>
+                    <span>APEX Configuration</span>
+                </div>
+
+                <div class="menu-item" data-page="connection-test">
+                    <i class="fas fa-plug"></i>
+                    <span>Test Connections</span>
+                </div>
+            </div>
+
+            <!-- Module Sync Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-sync"></i>
+                    <span>Module Sync</span>
+                </div>
+
+                <div class="menu-item" data-page="sync-gl">
+                    <i class="fas fa-book"></i>
+                    <span>GL Sync</span>
+                </div>
+
+                <div class="menu-item" data-page="sync-ap">
+                    <i class="fas fa-file-invoice-dollar"></i>
+                    <span>AP Sync</span>
+                </div>
+
+                <div class="menu-item" data-page="sync-ar">
+                    <i class="fas fa-hand-holding-usd"></i>
+                    <span>AR Sync</span>
+                </div>
+
+                <div class="menu-item" data-page="sync-fa">
+                    <i class="fas fa-building"></i>
+                    <span>FA Sync</span>
+                </div>
+
+                <div class="menu-item" data-page="sync-po">
+                    <i class="fas fa-shopping-cart"></i>
+                    <span>PO Sync</span>
+                </div>
+            </div>
+
+            <!-- Monitoring Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Monitoring</span>
+                </div>
+
+                <div class="menu-item" data-page="sync-history">
+                    <i class="fas fa-history"></i>
+                    <span>Sync History</span>
+                </div>
+
+                <div class="menu-item" data-page="sync-logs">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Sync Logs</span>
+                </div>
+
+                <div class="menu-item" data-page="error-reports">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <span>Error Reports</span>
+                </div>
+
+                <div class="menu-item" data-page="statistics">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Statistics</span>
+                </div>
+            </div>
+
+            <!-- Utilities Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-tools"></i>
+                    <span>Utilities</span>
+                </div>
+
+                <div class="menu-item" data-page="data-mapping">
+                    <i class="fas fa-project-diagram"></i>
+                    <span>Data Mapping</span>
+                </div>
+
+                <div class="menu-item" data-page="transform-rules">
+                    <i class="fas fa-exchange-alt"></i>
+                    <span>Transform Rules</span>
+                </div>
+
+                <div class="menu-item" data-page="scheduler">
+                    <i class="fas fa-clock"></i>
+                    <span>Sync Scheduler</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content" id="mainContent">
+            <!-- Content will be loaded dynamically -->
+        </main>
+    </div>
+
+    <script src="sync-api.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,352 @@
+-- ============================================================================
+-- SYNC MODULE SCHEMA
+-- Oracle Fusion to APEX Synchronization
+-- Version: 1.0
+-- Date: November 9, 2025
+-- ============================================================================
+
+-- ============================================================================
+-- 1. FUSION CREDENTIALS TABLE
+-- ============================================================================
+CREATE TABLE SYNC_FUSION_CREDENTIALS (
+    CREDENTIAL_ID           NUMBER PRIMARY KEY,
+    INSTANCE_URL            VARCHAR2(500) NOT NULL,
+    AUTH_TYPE               VARCHAR2(20) CHECK (AUTH_TYPE IN ('BASIC', 'OAUTH', 'JWT')),
+    USERNAME                VARCHAR2(100),
+    PASSWORD_ENCRYPTED      VARCHAR2(500),
+    CLIENT_ID               VARCHAR2(200),
+    CLIENT_SECRET_ENCRYPTED VARCHAR2(500),
+    IS_ACTIVE               VARCHAR2(1) DEFAULT 'Y' CHECK (IS_ACTIVE IN ('Y', 'N')),
+    LAST_TEST_DATE          DATE,
+    LAST_TEST_STATUS        VARCHAR2(20) CHECK (LAST_TEST_STATUS IN ('SUCCESS', 'FAILED', 'PENDING')),
+    ERROR_MESSAGE           VARCHAR2(1000),
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL
+);
+
+CREATE SEQUENCE SYNC_FUSION_CREDENTIALS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX SYNC_FUSION_CRED_N1 ON SYNC_FUSION_CREDENTIALS(IS_ACTIVE);
+
+COMMENT ON TABLE SYNC_FUSION_CREDENTIALS IS 'Stores Oracle Fusion connection credentials (encrypted)';
+
+-- ============================================================================
+-- 2. API ENDPOINTS CONFIGURATION
+-- ============================================================================
+CREATE TABLE SYNC_API_ENDPOINTS (
+    ENDPOINT_ID             NUMBER PRIMARY KEY,
+    MODULE_NAME             VARCHAR2(30) NOT NULL CHECK (MODULE_NAME IN ('GL', 'AP', 'AR', 'FA', 'PO')),
+    ENDPOINT_NAME           VARCHAR2(100) NOT NULL,
+    ENDPOINT_PATH           VARCHAR2(500) NOT NULL,
+    HTTP_METHOD             VARCHAR2(10) CHECK (HTTP_METHOD IN ('GET', 'POST', 'PUT', 'DELETE', 'PATCH')),
+    DESCRIPTION             VARCHAR2(500),
+    IS_ACTIVE               VARCHAR2(1) DEFAULT 'Y' CHECK (IS_ACTIVE IN ('Y', 'N')),
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL,
+    CONSTRAINT SYNC_API_ENDPOINTS_U1 UNIQUE (MODULE_NAME, ENDPOINT_NAME)
+);
+
+CREATE SEQUENCE SYNC_API_ENDPOINTS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX SYNC_API_ENDPOINTS_N1 ON SYNC_API_ENDPOINTS(MODULE_NAME);
+
+COMMENT ON TABLE SYNC_API_ENDPOINTS IS 'Stores Fusion REST API endpoint configurations';
+
+-- Default GL Endpoints
+INSERT INTO SYNC_API_ENDPOINTS (
+    ENDPOINT_ID, MODULE_NAME, ENDPOINT_NAME, ENDPOINT_PATH, HTTP_METHOD,
+    DESCRIPTION, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    SYNC_API_ENDPOINTS_SEQ.NEXTVAL, 'GL', 'Journal Batches', 'journalBatches', 'GET',
+    'Fetch journal batches from Fusion', SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO SYNC_API_ENDPOINTS (
+    ENDPOINT_ID, MODULE_NAME, ENDPOINT_NAME, ENDPOINT_PATH, HTTP_METHOD,
+    DESCRIPTION, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    SYNC_API_ENDPOINTS_SEQ.NEXTVAL, 'GL', 'Journal Headers', 'journalHeaders', 'GET',
+    'Fetch journal headers from Fusion', SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO SYNC_API_ENDPOINTS (
+    ENDPOINT_ID, MODULE_NAME, ENDPOINT_NAME, ENDPOINT_PATH, HTTP_METHOD,
+    DESCRIPTION, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    SYNC_API_ENDPOINTS_SEQ.NEXTVAL, 'GL', 'Journal Lines', 'journalLines', 'GET',
+    'Fetch journal lines from Fusion', SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO SYNC_API_ENDPOINTS (
+    ENDPOINT_ID, MODULE_NAME, ENDPOINT_NAME, ENDPOINT_PATH, HTTP_METHOD,
+    DESCRIPTION, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    SYNC_API_ENDPOINTS_SEQ.NEXTVAL, 'GL', 'Chart of Accounts', 'chartOfAccounts', 'GET',
+    'Fetch chart of accounts from Fusion', SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO SYNC_API_ENDPOINTS (
+    ENDPOINT_ID, MODULE_NAME, ENDPOINT_NAME, ENDPOINT_PATH, HTTP_METHOD,
+    DESCRIPTION, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    SYNC_API_ENDPOINTS_SEQ.NEXTVAL, 'GL', 'Ledgers', 'ledgers', 'GET',
+    'Fetch ledgers from Fusion', SYSDATE, 0, SYSDATE, 0
+);
+
+-- ============================================================================
+-- 3. APEX DATABASE CONFIGURATION
+-- ============================================================================
+CREATE TABLE SYNC_APEX_CONFIG (
+    CONFIG_ID               NUMBER PRIMARY KEY,
+    APEX_BASE_URL           VARCHAR2(500) NOT NULL,
+    WORKSPACE               VARCHAR2(100),
+    SCHEMA_NAME             VARCHAR2(100),
+    IS_ACTIVE               VARCHAR2(1) DEFAULT 'Y' CHECK (IS_ACTIVE IN ('Y', 'N')),
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL
+);
+
+CREATE SEQUENCE SYNC_APEX_CONFIG_SEQ START WITH 1 INCREMENT BY 1;
+
+COMMENT ON TABLE SYNC_APEX_CONFIG IS 'Stores APEX REST API configuration';
+
+-- ============================================================================
+-- 4. SYNC JOBS TABLE
+-- ============================================================================
+CREATE TABLE SYNC_JOBS (
+    JOB_ID                  NUMBER PRIMARY KEY,
+    MODULE_NAME             VARCHAR2(30) NOT NULL,
+    JOB_TYPE                VARCHAR2(30) CHECK (JOB_TYPE IN ('FULL', 'INCREMENTAL', 'MANUAL')),
+    STATUS                  VARCHAR2(20) CHECK (STATUS IN ('PENDING', 'RUNNING', 'SUCCESS', 'FAILED', 'PAUSED', 'CANCELLED')),
+    START_TIME              TIMESTAMP NOT NULL,
+    END_TIME                TIMESTAMP,
+    DURATION_SECONDS        NUMBER,
+    DATE_FROM               DATE,
+    DATE_TO                 DATE,
+    RECORDS_FETCHED         NUMBER DEFAULT 0,
+    RECORDS_INSERTED        NUMBER DEFAULT 0,
+    RECORDS_UPDATED         NUMBER DEFAULT 0,
+    RECORDS_FAILED          NUMBER DEFAULT 0,
+    RECORDS_SKIPPED         NUMBER DEFAULT 0,
+    ERROR_MESSAGE           CLOB,
+    SYNC_DETAILS            CLOB,              -- JSON with detailed info
+    CREATED_BY              NUMBER NOT NULL,
+    CREATION_DATE           DATE NOT NULL,
+    LAST_UPDATE_DATE        DATE
+);
+
+CREATE SEQUENCE SYNC_JOBS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX SYNC_JOBS_N1 ON SYNC_JOBS(MODULE_NAME);
+CREATE INDEX SYNC_JOBS_N2 ON SYNC_JOBS(STATUS);
+CREATE INDEX SYNC_JOBS_N3 ON SYNC_JOBS(START_TIME);
+
+COMMENT ON TABLE SYNC_JOBS IS 'Tracks all synchronization jobs';
+
+-- ============================================================================
+-- 5. SYNC JOB DETAILS TABLE
+-- ============================================================================
+CREATE TABLE SYNC_JOB_DETAILS (
+    DETAIL_ID               NUMBER PRIMARY KEY,
+    JOB_ID                  NUMBER NOT NULL,
+    ENTITY_TYPE             VARCHAR2(50) NOT NULL,  -- BATCH, HEADER, LINE, COA, LEDGER
+    FUSION_ID               NUMBER,
+    APEX_ID                 NUMBER,
+    STATUS                  VARCHAR2(20) CHECK (STATUS IN ('SUCCESS', 'FAILED', 'SKIPPED')),
+    ERROR_MESSAGE           VARCHAR2(1000),
+    SYNC_TIMESTAMP          TIMESTAMP NOT NULL,
+    FOREIGN KEY (JOB_ID) REFERENCES SYNC_JOBS(JOB_ID) ON DELETE CASCADE
+);
+
+CREATE SEQUENCE SYNC_JOB_DETAILS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX SYNC_JOB_DETAILS_N1 ON SYNC_JOB_DETAILS(JOB_ID);
+CREATE INDEX SYNC_JOB_DETAILS_N2 ON SYNC_JOB_DETAILS(ENTITY_TYPE);
+CREATE INDEX SYNC_JOB_DETAILS_N3 ON SYNC_JOB_DETAILS(STATUS);
+
+COMMENT ON TABLE SYNC_JOB_DETAILS IS 'Detailed tracking of individual sync records';
+
+-- ============================================================================
+-- 6. SYNC ERRORS LOG TABLE
+-- ============================================================================
+CREATE TABLE SYNC_ERROR_LOG (
+    ERROR_ID                NUMBER PRIMARY KEY,
+    JOB_ID                  NUMBER,
+    MODULE_NAME             VARCHAR2(30),
+    ENTITY_TYPE             VARCHAR2(50),
+    FUSION_ID               NUMBER,
+    ERROR_CODE              VARCHAR2(50),
+    ERROR_MESSAGE           CLOB,
+    ERROR_STACK             CLOB,
+    REQUEST_PAYLOAD         CLOB,
+    RESPONSE_PAYLOAD        CLOB,
+    RETRY_COUNT             NUMBER DEFAULT 0,
+    RESOLVED_FLAG           VARCHAR2(1) DEFAULT 'N' CHECK (RESOLVED_FLAG IN ('Y', 'N')),
+    RESOLVED_DATE           DATE,
+    RESOLVED_BY             NUMBER,
+    ERROR_TIMESTAMP         TIMESTAMP NOT NULL,
+    FOREIGN KEY (JOB_ID) REFERENCES SYNC_JOBS(JOB_ID) ON DELETE SET NULL
+);
+
+CREATE SEQUENCE SYNC_ERROR_LOG_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX SYNC_ERROR_LOG_N1 ON SYNC_ERROR_LOG(JOB_ID);
+CREATE INDEX SYNC_ERROR_LOG_N2 ON SYNC_ERROR_LOG(MODULE_NAME);
+CREATE INDEX SYNC_ERROR_LOG_N3 ON SYNC_ERROR_LOG(RESOLVED_FLAG);
+
+COMMENT ON TABLE SYNC_ERROR_LOG IS 'Logs all sync errors for troubleshooting';
+
+-- ============================================================================
+-- 7. DATA MAPPING TABLE
+-- ============================================================================
+CREATE TABLE SYNC_DATA_MAPPING (
+    MAPPING_ID              NUMBER PRIMARY KEY,
+    MODULE_NAME             VARCHAR2(30) NOT NULL,
+    ENTITY_TYPE             VARCHAR2(50) NOT NULL,
+    FUSION_FIELD_NAME       VARCHAR2(100) NOT NULL,
+    APEX_FIELD_NAME         VARCHAR2(100) NOT NULL,
+    DATA_TYPE               VARCHAR2(30),
+    TRANSFORM_RULE          VARCHAR2(500),        -- e.g., 'UPPER', 'TRIM', custom function
+    IS_REQUIRED             VARCHAR2(1) DEFAULT 'N' CHECK (IS_REQUIRED IN ('Y', 'N')),
+    DEFAULT_VALUE           VARCHAR2(200),
+    DESCRIPTION             VARCHAR2(500),
+    IS_ACTIVE               VARCHAR2(1) DEFAULT 'Y' CHECK (IS_ACTIVE IN ('Y', 'N')),
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL,
+    CONSTRAINT SYNC_DATA_MAPPING_U1 UNIQUE (MODULE_NAME, ENTITY_TYPE, FUSION_FIELD_NAME)
+);
+
+CREATE SEQUENCE SYNC_DATA_MAPPING_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX SYNC_DATA_MAPPING_N1 ON SYNC_DATA_MAPPING(MODULE_NAME, ENTITY_TYPE);
+
+COMMENT ON TABLE SYNC_DATA_MAPPING IS 'Field mapping between Fusion and APEX';
+
+-- Sample GL Batch Mappings
+INSERT INTO SYNC_DATA_MAPPING (
+    MAPPING_ID, MODULE_NAME, ENTITY_TYPE, FUSION_FIELD_NAME, APEX_FIELD_NAME,
+    DATA_TYPE, IS_REQUIRED, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    SYNC_DATA_MAPPING_SEQ.NEXTVAL, 'GL', 'BATCH', 'JeBatchId', 'FUSION_BATCH_ID',
+    'NUMBER', 'Y', SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO SYNC_DATA_MAPPING (
+    MAPPING_ID, MODULE_NAME, ENTITY_TYPE, FUSION_FIELD_NAME, APEX_FIELD_NAME,
+    DATA_TYPE, IS_REQUIRED, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    SYNC_DATA_MAPPING_SEQ.NEXTVAL, 'GL', 'BATCH', 'Name', 'NAME',
+    'VARCHAR2', 'Y', SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO SYNC_DATA_MAPPING (
+    MAPPING_ID, MODULE_NAME, ENTITY_TYPE, FUSION_FIELD_NAME, APEX_FIELD_NAME,
+    DATA_TYPE, IS_REQUIRED, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    SYNC_DATA_MAPPING_SEQ.NEXTVAL, 'GL', 'BATCH', 'Status', 'STATUS',
+    'VARCHAR2', 'Y', SYSDATE, 0, SYSDATE, 0
+);
+
+-- ============================================================================
+-- 8. SYNC SCHEDULER TABLE
+-- ============================================================================
+CREATE TABLE SYNC_SCHEDULER (
+    SCHEDULE_ID             NUMBER PRIMARY KEY,
+    MODULE_NAME             VARCHAR2(30) NOT NULL,
+    SCHEDULE_NAME           VARCHAR2(100) NOT NULL,
+    SCHEDULE_TYPE           VARCHAR2(20) CHECK (SCHEDULE_TYPE IN ('DAILY', 'WEEKLY', 'MONTHLY', 'CUSTOM')),
+    CRON_EXPRESSION         VARCHAR2(100),
+    START_TIME              TIME,
+    FREQUENCY_HOURS         NUMBER,
+    IS_ACTIVE               VARCHAR2(1) DEFAULT 'Y' CHECK (IS_ACTIVE IN ('Y', 'N')),
+    LAST_RUN_DATE           TIMESTAMP,
+    NEXT_RUN_DATE           TIMESTAMP,
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL
+);
+
+CREATE SEQUENCE SYNC_SCHEDULER_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX SYNC_SCHEDULER_N1 ON SYNC_SCHEDULER(MODULE_NAME);
+CREATE INDEX SYNC_SCHEDULER_N2 ON SYNC_SCHEDULER(IS_ACTIVE);
+
+COMMENT ON TABLE SYNC_SCHEDULER IS 'Schedules for automatic syncs';
+
+-- ============================================================================
+-- 9. SYNC STATISTICS TABLE
+-- ============================================================================
+CREATE TABLE SYNC_STATISTICS (
+    STAT_ID                 NUMBER PRIMARY KEY,
+    MODULE_NAME             VARCHAR2(30) NOT NULL,
+    STAT_DATE               DATE NOT NULL,
+    TOTAL_JOBS              NUMBER DEFAULT 0,
+    SUCCESSFUL_JOBS         NUMBER DEFAULT 0,
+    FAILED_JOBS             NUMBER DEFAULT 0,
+    TOTAL_RECORDS_SYNCED    NUMBER DEFAULT 0,
+    TOTAL_ERRORS            NUMBER DEFAULT 0,
+    AVG_DURATION_SECONDS    NUMBER,
+    CREATION_DATE           DATE NOT NULL,
+    CONSTRAINT SYNC_STATISTICS_U1 UNIQUE (MODULE_NAME, STAT_DATE)
+);
+
+CREATE SEQUENCE SYNC_STATISTICS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX SYNC_STATISTICS_N1 ON SYNC_STATISTICS(MODULE_NAME, STAT_DATE);
+
+COMMENT ON TABLE SYNC_STATISTICS IS 'Daily sync statistics for reporting';
+
+-- ============================================================================
+-- 10. Add sync tracking columns to GL tables
+-- ============================================================================
+
+-- Add to GL_JE_BATCHES
+ALTER TABLE GL_JE_BATCHES ADD (
+    FUSION_BATCH_ID         NUMBER,
+    SYNC_STATUS             VARCHAR2(20) CHECK (SYNC_STATUS IN ('SYNCED', 'MODIFIED', 'NEW', 'ERROR')),
+    LAST_SYNC_DATE          DATE,
+    SYNC_SOURCE             VARCHAR2(30) CHECK (SYNC_SOURCE IN ('FUSION', 'MANUAL')),
+    SYNC_JOB_ID             NUMBER
+);
+
+CREATE INDEX GL_JE_BATCHES_N10 ON GL_JE_BATCHES(FUSION_BATCH_ID);
+CREATE INDEX GL_JE_BATCHES_N11 ON GL_JE_BATCHES(SYNC_STATUS);
+
+-- Add to GL_JE_HEADERS
+ALTER TABLE GL_JE_HEADERS ADD (
+    FUSION_HEADER_ID        NUMBER,
+    SYNC_STATUS             VARCHAR2(20) CHECK (SYNC_STATUS IN ('SYNCED', 'MODIFIED', 'NEW', 'ERROR')),
+    LAST_SYNC_DATE          DATE,
+    SYNC_SOURCE             VARCHAR2(30) CHECK (SYNC_SOURCE IN ('FUSION', 'MANUAL')),
+    SYNC_JOB_ID             NUMBER
+);
+
+CREATE INDEX GL_JE_HEADERS_N10 ON GL_JE_HEADERS(FUSION_HEADER_ID);
+CREATE INDEX GL_JE_HEADERS_N11 ON GL_JE_HEADERS(SYNC_STATUS);
+
+-- Add to GL_JE_LINES
+ALTER TABLE GL_JE_LINES ADD (
+    FUSION_LINE_ID          NUMBER,
+    SYNC_STATUS             VARCHAR2(20) CHECK (SYNC_STATUS IN ('SYNCED', 'MODIFIED', 'NEW', 'ERROR')),
+    LAST_SYNC_DATE          DATE,
+    SYNC_SOURCE             VARCHAR2(30) CHECK (SYNC_SOURCE IN ('FUSION', 'MANUAL')),
+    SYNC_JOB_ID             NUMBER
+);
+
+CREATE INDEX GL_JE_LINES_N10 ON GL_JE_LINES(FUSION_LINE_ID);
+CREATE INDEX GL_JE_LINES_N11 ON GL_JE_LINES(SYNC_STATUS);
+
+COMMIT;
+
+-- ============================================================================
+-- END OF SYNC MODULE SCHEMA
+-- ============================================================================
