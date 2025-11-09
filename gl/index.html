@@ -3,39 +3,417 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>General Ledger Module</title>
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            margin: 0;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        }
-        .container {
-            text-align: center;
-            background: white;
-            padding: 3rem;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
-        }
-        h1 {
-            color: #667eea;
-            margin-bottom: 1rem;
-        }
-        p {
-            color: #666;
-            font-size: 1.1rem;
-        }
-    </style>
+    <title>General Ledger - GL Module</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+    <!-- Header -->
+    <header class="header">
+        <button class="hamburger" id="hamburger">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="logo">
+            <i class="fas fa-book"></i>
+            <span>General Ledger</span>
+            <span style="font-size: 9px; background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600;">v1.0</span>
+        </div>
+        <div class="user-info">
+            <i class="fas fa-user-circle"></i>
+            <span>Admin</span>
+        </div>
+    </header>
+
     <div class="container">
-        <h1>📊 General Ledger Module</h1>
-        <p>GL Module - Coming Soon</p>
-        <p style="font-size: 0.9rem; color: #999; margin-top: 2rem;">This module is under development</p>
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <!-- Setups Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-cog"></i>
+                    <span>Setups</span>
+                </div>
+
+                <div class="menu-item has-submenu" data-page="ledger-setup">
+                    <i class="fas fa-building"></i>
+                    <span>Ledger Setup</span>
+                </div>
+                <div class="submenu">
+                    <div class="submenu-item" data-page="ledger-setup-define">Define Ledger</div>
+                    <div class="submenu-item" data-page="ledger-setup-currencies">Currencies</div>
+                    <div class="submenu-item" data-page="ledger-setup-calendar">Accounting Calendar</div>
+                </div>
+
+                <div class="menu-item has-submenu" data-page="chart-of-accounts">
+                    <i class="fas fa-list-alt"></i>
+                    <span>Chart of Accounts</span>
+                </div>
+                <div class="submenu">
+                    <div class="submenu-item" data-page="coa-segments">Define Segments</div>
+                    <div class="submenu-item" data-page="coa-values">Segment Values</div>
+                    <div class="submenu-item" data-page="coa-combinations">Account Combinations</div>
+                </div>
+
+                <div class="menu-item has-submenu" data-page="period-management">
+                    <i class="fas fa-calendar-alt"></i>
+                    <span>Period Management</span>
+                </div>
+                <div class="submenu">
+                    <div class="submenu-item" data-page="period-open">Open Period</div>
+                    <div class="submenu-item" data-page="period-close">Close Period</div>
+                    <div class="submenu-item" data-page="period-status">Period Status</div>
+                </div>
+
+                <div class="menu-item" data-page="journal-sources">
+                    <i class="fas fa-tag"></i>
+                    <span>Journal Sources</span>
+                </div>
+
+                <div class="menu-item" data-page="journal-categories">
+                    <i class="fas fa-folder"></i>
+                    <span>Journal Categories</span>
+                </div>
+            </div>
+
+            <!-- Transactions Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-exchange-alt"></i>
+                    <span>Transactions</span>
+                </div>
+
+                <div class="menu-item active" data-page="journal-entry">
+                    <i class="fas fa-file-invoice"></i>
+                    <span>Journal Entry</span>
+                </div>
+
+                <div class="menu-item" data-page="post-journals">
+                    <i class="fas fa-check-circle"></i>
+                    <span>Post Journals</span>
+                </div>
+
+                <div class="menu-item" data-page="reverse-journals">
+                    <i class="fas fa-undo"></i>
+                    <span>Reverse Journals</span>
+                </div>
+
+                <div class="menu-item has-submenu" data-page="recurring-journals">
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Recurring Journals</span>
+                </div>
+                <div class="submenu">
+                    <div class="submenu-item" data-page="recurring-define">Define Recurring</div>
+                    <div class="submenu-item" data-page="recurring-generate">Generate</div>
+                </div>
+
+                <div class="menu-item" data-page="import-journals">
+                    <i class="fas fa-upload"></i>
+                    <span>Import Journals</span>
+                </div>
+            </div>
+
+            <!-- Budgets Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-chart-line"></i>
+                    <span>Budgets</span>
+                </div>
+
+                <div class="menu-item" data-page="define-budget">
+                    <i class="fas fa-plus-circle"></i>
+                    <span>Define Budget</span>
+                </div>
+
+                <div class="menu-item" data-page="enter-budget">
+                    <i class="fas fa-edit"></i>
+                    <span>Enter Budget</span>
+                </div>
+
+                <div class="menu-item" data-page="budget-inquiry">
+                    <i class="fas fa-search-dollar"></i>
+                    <span>Budget Inquiry</span>
+                </div>
+            </div>
+
+            <!-- Inquiry Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-search"></i>
+                    <span>Inquiry</span>
+                </div>
+
+                <div class="menu-item" data-page="account-inquiry">
+                    <i class="fas fa-calculator"></i>
+                    <span>Account Inquiry</span>
+                </div>
+
+                <div class="menu-item" data-page="journal-inquiry">
+                    <i class="fas fa-file-alt"></i>
+                    <span>Journal Inquiry</span>
+                </div>
+
+                <div class="menu-item" data-page="balance-inquiry">
+                    <i class="fas fa-balance-scale"></i>
+                    <span>Balance Inquiry</span>
+                </div>
+            </div>
+
+            <!-- Reports Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-chart-bar"></i>
+                    <span>Reports</span>
+                </div>
+
+                <div class="menu-item" data-page="trial-balance">
+                    <i class="fas fa-list"></i>
+                    <span>Trial Balance</span>
+                </div>
+
+                <div class="menu-item" data-page="gl-report">
+                    <i class="fas fa-file-pdf"></i>
+                    <span>General Ledger Report</span>
+                </div>
+
+                <div class="menu-item" data-page="account-analysis">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>Account Analysis</span>
+                </div>
+
+                <div class="menu-item" data-page="journal-register">
+                    <i class="fas fa-book-open"></i>
+                    <span>Journal Register</span>
+                </div>
+            </div>
+
+            <!-- Administration Category -->
+            <div class="menu-category">
+                <div class="category-header">
+                    <i class="fas fa-tools"></i>
+                    <span>Administration</span>
+                </div>
+
+                <div class="menu-item" data-page="copilot-admin">
+                    <i class="fas fa-robot"></i>
+                    <span>Co-Pilot Admin</span>
+                </div>
+
+                <div class="menu-item" data-page="user-management">
+                    <i class="fas fa-users-cog"></i>
+                    <span>User Management</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content" id="mainContent">
+            <!-- Content will be loaded dynamically -->
+        </main>
     </div>
+
+    <!-- Co-Pilot Floating Action Button -->
+    <button class="copilot-fab" id="copilotFab" title="Open Co-Pilot Assistant">
+        <i class="fas fa-robot"></i>
+        <span class="notification-badge" id="copilotBadge" style="display: none;">3</span>
+    </button>
+
+    <!-- Co-Pilot Overlay -->
+    <div class="copilot-overlay" id="copilotOverlay"></div>
+
+    <!-- Co-Pilot Panel -->
+    <div class="copilot-panel" id="copilotPanel">
+        <!-- Header -->
+        <div class="copilot-header">
+            <h3>
+                <i class="fas fa-robot"></i>
+                GL Co-Pilot
+            </h3>
+            <button class="copilot-close" id="copilotClose">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="copilot-quick-actions">
+            <div class="quick-actions-title">Quick Actions</div>
+            <button class="quick-action-btn" onclick="copilotQuickAction('create-journal')">
+                <i class="fas fa-plus-circle"></i>
+                Create Journal Entry
+            </button>
+            <button class="quick-action-btn" onclick="copilotQuickAction('account-balance')">
+                <i class="fas fa-calculator"></i>
+                Check Account Balance
+            </button>
+            <button class="quick-action-btn" onclick="copilotQuickAction('trial-balance')">
+                <i class="fas fa-list"></i>
+                Run Trial Balance
+            </button>
+            <button class="quick-action-btn" onclick="copilotQuickAction('period-status')">
+                <i class="fas fa-calendar-check"></i>
+                Check Period Status
+            </button>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="copilot-chat" id="copilotChat">
+            <!-- Welcome message -->
+            <div class="chat-message copilot">
+                <div class="chat-avatar">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div>
+                    <div class="chat-bubble">
+                        👋 Hello! I'm your GL Co-Pilot assistant. I can help you with:
+                        <br><br>
+                        • Creating and posting journal entries<br>
+                        • Checking account balances<br>
+                        • Running reports<br>
+                        • Managing periods<br>
+                        • Navigating the system<br>
+                        <br>
+                        How can I assist you today?
+                    </div>
+                    <div class="chat-time">
+                        <i class="fas fa-clock"></i>
+                        Just now
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="copilot-input">
+            <div class="input-wrapper">
+                <input type="text" id="copilotInput" placeholder="Type your message..." />
+                <div class="input-actions">
+                    <button class="input-btn" title="Attach file">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    <button class="input-btn send" id="copilotSend" title="Send message">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Page Templates -->
+    <script id="journalEntryTemplate" type="text/template">
+        <div class="breadcrumb">
+            <a href="#"><i class="fas fa-home"></i> Home</a>
+            <span class="breadcrumb-separator">/</span>
+            <a href="#">Transactions</a>
+            <span class="breadcrumb-separator">/</span>
+            <span>Journal Entry</span>
+        </div>
+
+        <div class="page-header">
+            <h1 class="page-title">
+                <i class="fas fa-file-invoice"></i>
+                Journal Entry
+            </h1>
+            <p class="page-description">Create and manage journal entries for your general ledger</p>
+        </div>
+
+        <div class="content-card">
+            <h3><i class="fas fa-info-circle"></i> Batch Information</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--gray-700);">Batch Name</label>
+                    <input type="text" placeholder="Enter batch name" style="width: 100%; padding: 0.75rem; border: 2px solid var(--gray-200); border-radius: 8px;">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--gray-700);">Ledger</label>
+                    <select style="width: 100%; padding: 0.75rem; border: 2px solid var(--gray-200); border-radius: 8px;">
+                        <option>Main Ledger</option>
+                        <option>Secondary Ledger</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--gray-700);">Period</label>
+                    <select style="width: 100%; padding: 0.75rem; border: 2px solid var(--gray-200); border-radius: 8px;">
+                        <option>Jan-2025</option>
+                        <option>Feb-2025</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-card">
+            <h3><i class="fas fa-file-alt"></i> Journal Header</h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--gray-700);">Journal Name</label>
+                    <input type="text" placeholder="Enter journal name" style="width: 100%; padding: 0.75rem; border: 2px solid var(--gray-200); border-radius: 8px;">
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--gray-700);">Source</label>
+                    <select style="width: 100%; padding: 0.75rem; border: 2px solid var(--gray-200); border-radius: 8px;">
+                        <option>Manual</option>
+                        <option>Payables</option>
+                        <option>Receivables</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: var(--gray-700);">Category</label>
+                    <select style="width: 100%; padding: 0.75rem; border: 2px solid var(--gray-200); border-radius: 8px;">
+                        <option>Adjustment</option>
+                        <option>Accrual</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0;"><i class="fas fa-list"></i> Journal Lines</h3>
+                <button class="btn btn-secondary" onclick="alert('Add new line functionality')">
+                    <i class="fas fa-plus"></i> Add Line
+                </button>
+            </div>
+
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: var(--gray-100);">
+                            <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--gray-300);">Line</th>
+                            <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--gray-300);">Account</th>
+                            <th style="padding: 0.75rem; text-align: left; border-bottom: 2px solid var(--gray-300);">Description</th>
+                            <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid var(--gray-300);">Debit</th>
+                            <th style="padding: 0.75rem; text-align: right; border-bottom: 2px solid var(--gray-300);">Credit</th>
+                            <th style="padding: 0.75rem; text-align: center; border-bottom: 2px solid var(--gray-300);">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="6" style="padding: 2rem; text-align: center; color: var(--gray-500);">
+                                <i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem; display: block;"></i>
+                                No journal lines added yet. Click "Add Line" to get started.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+            <button class="btn btn-secondary">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+            <button class="btn btn-primary">
+                <i class="fas fa-save"></i> Save Draft
+            </button>
+            <button class="btn btn-success">
+                <i class="fas fa-check"></i> Post Journal
+            </button>
+        </div>
+    </script>
+
+    <script src="copilot.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
