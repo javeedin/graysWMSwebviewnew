@@ -96,6 +96,7 @@ body {
     justify-content: space-between;
     gap: 1rem;
     background: rgba(0,0,0,0.2);
+    min-height: 70px;
 }
 
 .sidebar-header h2 {
@@ -106,10 +107,31 @@ body {
     gap: 0.75rem;
     white-space: nowrap;
     transition: var(--transition);
+    overflow: hidden;
 }
 
-.sidebar.collapsed .sidebar-header h2 span {
+.sidebar-header h2 i {
+    flex-shrink: 0;
+    transition: var(--transition);
+}
+
+.sidebar-header h2 span {
+    transition: opacity 0.2s ease, transform 0.3s ease;
+    opacity: 1;
+    transform: translateX(0);
+}
+
+.sidebar.collapsed .sidebar-header {
+    justify-content: center;
+    padding: 1rem;
+}
+
+.sidebar.collapsed .sidebar-header h2 {
     display: none;
+}
+
+.sidebar.collapsed .hamburger {
+    margin: 0 auto;
 }
 
 .hamburger {
@@ -121,10 +143,15 @@ body {
     padding: 0.5rem;
     border-radius: 6px;
     transition: var(--transition);
+    flex-shrink: 0;
 }
 
 .hamburger:hover {
     background: rgba(255,255,255,0.1);
+}
+
+.hamburger:active {
+    transform: scale(0.95);
 }
 
 /* ============================================================================
@@ -153,8 +180,11 @@ body {
     transition: var(--transition);
 }
 
-.sidebar.collapsed .nav-section-title span {
-    display: none;
+.sidebar.collapsed .nav-section-title {
+    opacity: 0;
+    height: 0;
+    padding: 0;
+    overflow: hidden;
 }
 
 .menu-item {
@@ -178,11 +208,20 @@ body {
 }
 
 .menu-item span {
-    transition: var(--transition);
+    transition: opacity 0.2s ease, width 0.3s ease;
     white-space: nowrap;
+    opacity: 1;
+}
+
+.sidebar.collapsed .menu-item {
+    justify-content: center;
+    padding: 0.875rem 0;
 }
 
 .sidebar.collapsed .menu-item span {
+    opacity: 0;
+    width: 0;
+    overflow: hidden;
     display: none;
 }
 
