@@ -12,8 +12,19 @@ class SyncApp {
     }
 
     init() {
+        console.log('SyncApp: Initializing...');
+
         // Initialize hamburger menu
-        document.getElementById('hamburger').addEventListener('click', () => this.toggleSidebar());
+        const hamburger = document.getElementById('hamburger');
+        if (hamburger) {
+            hamburger.addEventListener('click', () => {
+                console.log('Hamburger clicked');
+                this.toggleSidebar();
+            });
+            console.log('SyncApp: Hamburger menu initialized');
+        } else {
+            console.error('SyncApp: Hamburger button not found!');
+        }
 
         // Initialize menu items
         this.initializeMenu();
@@ -24,12 +35,19 @@ class SyncApp {
         // Responsive sidebar
         this.handleResponsive();
         window.addEventListener('resize', () => this.handleResponsive());
+
+        console.log('SyncApp: Initialization complete');
     }
 
     toggleSidebar() {
         const sidebar = document.getElementById('sidebar');
+        if (!sidebar) {
+            console.error('SyncApp: Sidebar element not found!');
+            return;
+        }
         this.sidebarCollapsed = !this.sidebarCollapsed;
         sidebar.classList.toggle('collapsed', this.sidebarCollapsed);
+        console.log('SyncApp: Sidebar toggled, collapsed:', this.sidebarCollapsed);
     }
 
     handleResponsive() {
@@ -42,9 +60,14 @@ class SyncApp {
 
     initializeMenu() {
         const menuItems = document.querySelectorAll('.menu-item');
-        menuItems.forEach(item => {
+        console.log('SyncApp: Found', menuItems.length, 'menu items');
+
+        menuItems.forEach((item, index) => {
+            const page = item.getAttribute('data-page');
+            console.log(`SyncApp: Menu item ${index}: ${page}`);
+
             item.addEventListener('click', () => {
-                const page = item.getAttribute('data-page');
+                console.log('SyncApp: Menu clicked:', page);
                 if (page) {
                     this.navigateToPage(page);
                 }
@@ -53,6 +76,7 @@ class SyncApp {
     }
 
     navigateToPage(pageName) {
+        console.log('SyncApp: Navigating to page:', pageName);
         this.currentPage = pageName;
         this.loadPage(pageName);
 
@@ -61,6 +85,9 @@ class SyncApp {
         const activeItem = document.querySelector(`[data-page="${pageName}"]`);
         if (activeItem) {
             activeItem.classList.add('active');
+            console.log('SyncApp: Active menu item set');
+        } else {
+            console.warn('SyncApp: Could not find menu item for page:', pageName);
         }
 
         // Close sidebar on mobile after navigation
