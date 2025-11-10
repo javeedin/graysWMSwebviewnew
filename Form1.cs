@@ -1103,6 +1103,10 @@ namespace WMSApp
                                     await HandleLaunchWMSModule(wv, messageJson, requestId);
                                     break;
 
+                                case "loadLocalFile":
+                                    await HandleLoadLocalFile(wv, messageJson, requestId);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -1745,6 +1749,56 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Open PDF file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // Load local HTML file content (for Sync module external pages)
+        private async Task HandleLoadLocalFile(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Loading local file...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    // Resolve path relative to sync folder
+                    string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                    string fullPath = Path.GetFullPath(Path.Combine(repoRoot, "sync", filePath));
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Full path: {fullPath}");
+
+                    if (!File.Exists(fullPath))
+                    {
+                        throw new FileNotFoundException($"File not found: {fullPath}");
+                    }
+
+                    // Read file content
+                    string content = await File.ReadAllTextAsync(fullPath);
+
+                    var response = new
+                    {
+                        action = "loadLocalFileResponse",
+                        requestId = requestId,
+                        success = true,
+                        content = content,
+                        filePath = filePath
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ File loaded successfully: {filePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Load local file failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }

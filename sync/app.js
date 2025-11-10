@@ -123,19 +123,15 @@ class SyncApp {
     async loadExternalPage(pageUrl) {
         const mainContent = document.getElementById('mainContent');
 
-        console.log('SyncApp: Loading external page:', pageUrl);
+        console.log('SyncApp: Loading external page via C#:', pageUrl);
 
         // Fade out
         mainContent.style.opacity = '0';
 
         try {
-            const response = await fetch(pageUrl);
-            if (!response.ok) {
-                throw new Error(`Failed to load page: ${response.statusText}`);
-            }
-
-            const html = await response.text();
-            console.log('SyncApp: Page HTML loaded successfully');
+            // Use C# bridge to load local file (avoid CORS issues)
+            const html = await this.loadFileViaCS(pageUrl);
+            console.log('SyncApp: Page HTML loaded successfully via C#');
 
             setTimeout(() => {
                 mainContent.innerHTML = html;
@@ -188,7 +184,7 @@ class SyncApp {
                         <h2>Failed to Load Page</h2>
                         <p>Error: ${error.message}</p>
                         <p style="color: #7f8c8d; font-size: 14px;">Check browser console (F12) for details</p>
-                        <button onclick="window.syncApp.loadExternalPage('pages/api-endpoints.html')" style="margin-top: 20px; padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                        <button onclick="window.app.loadExternalPage('pages/api-endpoints.html')" style="margin-top: 20px; padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer;">
                             <i class="fas fa-redo"></i> Retry
                         </button>
                     </div>
@@ -196,6 +192,44 @@ class SyncApp {
                 mainContent.style.opacity = '1';
             }, 150);
         }
+    }
+
+    loadFileViaCS(filePath) {
+        return new Promise((resolve, reject) => {
+            const requestId = 'load_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+            console.log('SyncApp: Requesting file from C#:', filePath);
+
+            // Set up response handler
+            const messageHandler = (event) => {
+                if (event.data && event.data.requestId === requestId) {
+                    window.chrome.webview.removeEventListener('message', messageHandler);
+
+                    if (event.data.success) {
+                        console.log('SyncApp: File loaded from C# successfully');
+                        resolve(event.data.content);
+                    } else {
+                        console.error('SyncApp: File load failed:', event.data.message);
+                        reject(new Error(event.data.message || 'Failed to load file'));
+                    }
+                }
+            };
+
+            window.chrome.webview.addEventListener('message', messageHandler);
+
+            // Send request to C#
+            window.chrome.webview.postMessage({
+                action: 'loadLocalFile',
+                requestId: requestId,
+                filePath: filePath
+            });
+
+            // Timeout after 10 seconds
+            setTimeout(() => {
+                window.chrome.webview.removeEventListener('message', messageHandler);
+                reject(new Error('File load timeout'));
+            }, 10000);
+        });
     }
 
     initPageLogic(pageName) {
