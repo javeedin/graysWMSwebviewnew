@@ -1,18 +1,19 @@
 # SESSION NOTES - Gray's WMS WebView Development
 
 ---
-## 🔒 BASELINE CHECKPOINT
+## 🔒 BASELINE CHECKPOINT - LATEST
 **⚠️ CRITICAL: NEVER GO BELOW THIS BASELINE ⚠️**
 
 **✅ STATUS: OFFICIALLY AGREED & CONFIRMED BY USER**
 
 ```
-BASELINE ID:        BASELINE-2025-11-10-001
+BASELINE ID:        BASELINE-2025-11-10-002
 BASELINE DATE:      2025-11-10
-BASELINE TIME:      08:05 UTC
-BASELINE COMMIT:    12b3af4
+BASELINE TIME:      16:30 UTC
+BASELINE COMMIT:    c84ab3d
 BASELINE BRANCH:    claude/fix-oracle-datatype-error-011CUyaeyu5sWmYoftkTz62o
-USER CONFIRMED:     2025-11-10 08:10 UTC ✅
+USER CONFIRMED:     2025-11-10 16:30 UTC ✅
+DESCRIPTION:        API Endpoints fully functional with C# bridge, caching, and CORS fix
 ```
 
 ### ✅ BASELINE VERIFICATION CHECKLIST
@@ -23,37 +24,66 @@ USER CONFIRMED:     2025-11-10 08:10 UTC ✅
 | Module Folders | 9 | - | ⚠️ CHECK |
 | APEX SQL Files | 27 | - | ⚠️ CHECK |
 | C# Class Files | 14 | - | ⚠️ CHECK |
-| Sync Module Files | 8 | - | ⚠️ CHECK |
+| Sync Module Files | 12 | - | ⚠️ CHECK |
 | Build Scripts | 5 | - | ⚠️ CHECK |
 | Compilation Status | ✅ PASS | - | ⚠️ CHECK |
+| API Endpoints Working | ✅ YES | - | ⚠️ CHECK |
 
 ### 📁 BASELINE FILE MANIFEST
-**These files MUST exist:**
-- ✅ Form1.cs (with Sync module in context menu - line 421+)
-- ✅ classes/PrintModels.cs (with CheckPdfExistsMessage - line 260+)
-- ✅ sync/index.html (Sync module UI)
+**These files MUST exist and be functional:**
+- ✅ Form1.cs (with Sync module + WebView2 bridge handlers)
+- ✅ classes/PrintModels.cs (with CheckPdfExistsMessage)
+- ✅ sync/index.html (Sync module UI with sidebar)
+- ✅ sync/app.js (with C# bridge for loading pages)
 - ✅ sync/pages/api-endpoints.html (API Endpoints page)
-- ✅ sync/js/api-endpoints.js (API Endpoints logic)
+- ✅ sync/js/api-endpoints.js (with window state caching + C# bridge)
 - ✅ apex_sql/24_rr_endpoints_POST_create.sql (POST handler)
 - ✅ apex_sql/25_rr_endpoints_PUT_update.sql (PUT handler)
 - ✅ apex_sql/26_rr_endpoints_DELETE.sql (DELETE handler)
 - ✅ apex_sql/27_rr_endpoints_COMPLETE_SETUP_GUIDE.sql (Setup guide)
 
+### 🎯 BASELINE FEATURES VERIFIED WORKING
+- ✅ API Endpoints page loads on first visit (200ms delay for WebView2 bridge)
+- ✅ Data caches on window object (no reload when navigating back)
+- ✅ Refresh button forces reload from server
+- ✅ Create/Edit/Delete operations work via C# bridge
+- ✅ All REST calls (GET, POST, PUT, DELETE) route through C#
+- ✅ No CORS errors (using C# instead of fetch)
+- ✅ No script redeclaration errors (using var instead of const/let)
+- ✅ Sidebar collapse/expand works smoothly
+- ✅ Scripts cleanup properly between page navigations
+
 ### 🚨 BASELINE VIOLATION PROTOCOL
 **IF any check fails:**
 1. ❌ STOP IMMEDIATELY - Do not proceed
-2. 🔄 Restore from baseline commit: `git checkout e8a6d3c`
-3. 📢 Alert user: "BASELINE VIOLATION - Restored to checkpoint"
+2. 🔄 Restore from baseline commit: `git checkout c84ab3d`
+3. 📢 Alert user: "BASELINE VIOLATION - Restored to checkpoint c84ab3d"
 4. 📝 Document what went wrong
+
+---
+
+## 📜 BASELINE HISTORY
+
+### BASELINE-2025-11-10-002 (CURRENT)
+- **Commit**: c84ab3d
+- **Date**: 2025-11-10 16:30 UTC
+- **Features**: API Endpoints fully functional, C# bridge, data caching, CORS fix
+- **Status**: ✅ ACTIVE
+
+### BASELINE-2025-11-10-001 (PREVIOUS)
+- **Commit**: 12b3af4
+- **Date**: 2025-11-10 08:10 UTC
+- **Features**: Initial Sync module, CRUD API handlers created
+- **Status**: ✅ SUPERSEDED
 
 ---
 
 ## 🎯 Current Active Branch: `claude/fix-oracle-datatype-error-011CUyaeyu5sWmYoftkTz62o`
 
-**Last Updated**: 2025-11-10 08:10 UTC
-**Status**: ✅ WORKING - All compilation errors fixed, all modules present
-**Current Commit**: 12b3af4
-**Baseline Status**: ✅ OFFICIALLY CONFIRMED
+**Last Updated**: 2025-11-10 16:30 UTC
+**Status**: ✅ WORKING - API Endpoints fully functional, C# bridge operational
+**Current Commit**: c84ab3d
+**Baseline Status**: ✅ BASELINE-2025-11-10-002 CONFIRMED
 
 ---
 
@@ -75,15 +105,19 @@ USER CONFIRMED:     2025-11-10 08:10 UTC ✅
 - **Branch**: `claude/fix-oracle-datatype-error-011CUyaeyu5sWmYoftkTz62o`
 - **Compilation**: ✅ Success (no errors)
 - **Modules**: ✅ All 9 modules present (WMS, GL, Sync, AR, AP, OM, FA, CA, POS)
-- **WebView**: ✅ Good version with module context menu
-- **Sync Module**: ✅ Complete with navigation, API endpoints page
-- **APEX Endpoints**: ✅ All CRUD operations (GET, POST, PUT, DELETE)
+- **WebView**: ✅ Good version with module context menu + WebView2 bridge
+- **Sync Module**: ✅ Complete with navigation, API endpoints page, C# integration
+- **APEX Endpoints**: ✅ All CRUD operations (GET, POST, PUT, DELETE) working via C#
+- **Data Caching**: ✅ Smart caching - loads once, persists across navigations
+- **CORS Issues**: ✅ Resolved using C# bridge instead of fetch()
 
 ### 📊 Key Metrics
 - Total Module Folders: 9
 - APEX SQL Files: 27
 - Total Classes: 14
 - Build Scripts: 5
+- Sync Module Pages: 1 (API Endpoints)
+- C# Bridge Handlers: 3 (loadLocalFile, executeGet, executePost)
 
 ---
 
@@ -220,9 +254,40 @@ apex_sql/
 
 ## ✅ RECENT WORK COMPLETED
 
-### Session Focus: Oracle Fusion Sync Module & RR Endpoints API
+### Session Focus: API Endpoints C# Bridge Integration & Data Caching
 
-#### 1. **RR Endpoints CRUD API** (Completed ✅)
+#### 1. **C# Bridge Implementation** (Completed ✅)
+- ✅ Added `loadLocalFile` handler to Form1.cs (fixes CORS errors)
+- ✅ Added `HandleLoadLocalFile` method to read local HTML files
+- ✅ Updated `HandleRestApiPostRequest` to support POST, PUT, DELETE methods
+- ✅ Added `Method` property to `RestApiPostWebMessage` class
+- ✅ Implemented proper request/response handling with requestId matching
+
+#### 2. **JavaScript API Integration** (Completed ✅)
+- ✅ Replaced all `fetch()` calls with C# bridge communication
+- ✅ Created `executeGetViaCS()` for GET requests via WebView2 postMessage
+- ✅ Created `executePostViaCS()` for POST/PUT/DELETE requests
+- ✅ Added comprehensive debug logging for troubleshooting
+- ✅ Implemented 30-second timeout handling
+
+#### 3. **Script Loading & Caching Fixes** (Completed ✅)
+- ✅ Fixed script redeclaration errors (changed const/let to var)
+- ✅ Implemented script cleanup between page navigations
+- ✅ Added 200ms initialization delay for WebView2 bridge readiness
+- ✅ Implemented smart data caching on window object
+- ✅ Data loads once and persists across page navigations
+- ✅ Refresh button forces reload from server
+- ✅ Auto-reload after create/edit/delete operations
+
+#### 4. **UI/UX Improvements** (Completed ✅)
+- ✅ Fixed sidebar collapse/expand animations
+- ✅ Fixed hamburger menu visibility
+- ✅ Improved page transition smoothness
+- ✅ Added loading indicators and success/error messages
+
+### Previous Session Work:
+
+#### RR Endpoints CRUD API (Completed ✅)
 - ✅ Fixed ORA-00932 datatype error (TIMESTAMP vs DATE)
 - ✅ Fixed column count mismatch (42 columns vs 16)
 - ✅ Created POST endpoint handler (24_rr_endpoints_POST_create.sql)
@@ -230,15 +295,14 @@ apex_sql/
 - ✅ Created DELETE endpoint handler (26_rr_endpoints_DELETE.sql)
 - ✅ Created complete setup guide (27_rr_endpoints_COMPLETE_SETUP_GUIDE.sql)
 
-#### 2. **Sync Module UI** (Completed ✅)
+#### Sync Module UI (Completed ✅)
 - ✅ Created sync/index.html with sidebar navigation
 - ✅ Created sync/css/styles.css with modern dark theme
 - ✅ Created sync/pages/api-endpoints.html (API Endpoints Configuration page)
 - ✅ Created sync/js/api-endpoints.js (CRUD operations JavaScript)
 - ✅ Updated sync/app.js with external page loading
-- ✅ Added debugging console logs
 
-#### 3. **Module Integration** (Completed ✅)
+#### Module Integration (Completed ✅)
 - ✅ Added Sync module to Form1.cs modules context menu
 - ✅ Copied all module folders (ap, ar, ca, fa, gl, om, pos, wms) to branch
 - ✅ Fixed CheckPdfExistsMessage compilation error
@@ -295,7 +359,15 @@ apex_sql/
 
 ### Current Issues: NONE ✅
 
-### Previously Resolved Issues:
+### Previously Resolved Issues (This Session):
+- ~~CORS errors blocking API calls~~ ✅ Fixed (using C# bridge)
+- ~~Script redeclaration errors (API_CONFIG)~~ ✅ Fixed (using var instead of const/let)
+- ~~WebView2 bridge not ready on first load~~ ✅ Fixed (200ms initialization delay)
+- ~~Data reloading on every page navigation~~ ✅ Fixed (window object caching)
+- ~~Request timeout errors~~ ✅ Fixed (proper message handler setup)
+- ~~Sidebar hamburger menu not visible~~ ✅ Fixed
+
+### Previously Resolved Issues (Earlier Sessions):
 - ~~ORA-00932: inconsistent datatypes error~~ ✅ Fixed
 - ~~CheckPdfExistsMessage not found error~~ ✅ Fixed
 - ~~Missing module folders~~ ✅ Fixed
@@ -307,7 +379,18 @@ apex_sql/
 
 ## 📌 IMPORTANT COMMITS
 
-### Latest Commits (Newest First)
+### Latest Commits (Newest First) - This Session
+```
+c84ab3d - Fix: Persist cached data across page navigations using window object
+93bdf3d - Fix: Add initialization delay and data caching for API Endpoints page
+d995d76 - Fix: Use var instead of const/let for top-level variables to allow script reloading
+8ac0eb4 - Fix: Improve external page loading with better path resolution and logging
+b843c38 - Fix: Implement C# bridge for API Endpoints REST calls (GET, POST, PUT, DELETE)
+e1db4e6 - Fix: Prevent script redeclaration errors when navigating between pages
+1647ac0 - Fix: Implement C# bridge for loading local files to avoid CORS errors
+```
+
+### Previous Session Commits
 ```
 ef28b8b - Fix: Copy all missing classes and build scripts from continue branch
 8de487b - Add Sync module to modules context menu in Form1.cs
@@ -316,13 +399,14 @@ fe0a5c2 - Add all ERP module folders to Sync branch
 972d6f7 - Add Sync module main UI with navigation
 01908d1 - Add complete CRUD operations for RR Endpoints API
 d8171ff - Add API Endpoints Configuration page to Sync module
-e1532bc - Add DevExpress license key
 ```
 
 ### Key Working Commits
-- **ef28b8b**: Current HEAD - All compilation errors fixed
+- **c84ab3d**: ✅ CURRENT BASELINE - API Endpoints fully functional with caching
+- **b843c38**: C# bridge for all REST operations (GET, POST, PUT, DELETE)
+- **1647ac0**: C# bridge for loading local files (CORS fix)
+- **ef28b8b**: All compilation errors fixed
 - **8de487b**: Sync module added to Form1.cs menu
-- **fe0a5c2**: All 9 modules present
 - **01908d1**: Complete CRUD operations for RR endpoints
 
 ---
@@ -470,6 +554,10 @@ All Sync module operations log to console with prefix "SyncApp:"
 4. **Form1.cs changes** must include all 9 modules in context menu
 5. **TIMESTAMP vs DATE** - LAST_TEST_DATE is TIMESTAMP(6), not DATE!
 6. **Column count matters** - RR_ENDPOINTS returns 42 columns, not 16!
+7. **WebView2 bridge timing** - Add initialization delay (200ms) before making API calls
+8. **State persistence** - Use `window` object for data that survives script reloads
+9. **Variable declarations** - Use `var` instead of `const/let` for script-level variables to allow redeclaration
+10. **C# bridge benefits** - Route all API calls through C# to avoid CORS, handle authentication, and better error handling
 
 ### What Went Wrong Before
 - Switched branches and lost module folders → Always verify after switch
@@ -477,21 +565,32 @@ All Sync module operations log to console with prefix "SyncApp:"
 - Old Form1.cs without Sync → Always copy Form1.cs when merging
 - Missing classes → Always copy entire classes/ folder
 
+### What Went Wrong This Session (And How We Fixed It)
+- **CORS errors**: Browser blocked fetch() to local files → Fixed by using C# bridge via WebView2 postMessage
+- **Script redeclaration**: `const API_CONFIG` failed on reload → Fixed by using `var` instead
+- **Request timeouts**: WebView2 bridge not ready on DOMContentLoaded → Fixed with 200ms initialization delay
+- **Unnecessary reloads**: Data fetched every page visit → Fixed by caching on `window.apiEndpointsState` object
+- **Local variables reset**: Script reload cleared flags → Fixed by storing state on window object, not local vars
+
 ---
 
 ## 📊 PROJECT HEALTH
 
-**Overall Status**: 🟢 HEALTHY
+**Overall Status**: 🟢 EXCELLENT
 
 | Component | Status | Notes |
 |-----------|--------|-------|
 | Compilation | 🟢 Pass | All errors resolved |
 | Module Structure | 🟢 Complete | All 9 modules present |
 | Git Branch | 🟢 Correct | Can push successfully |
-| Sync Module UI | 🟢 Complete | Navigation working |
+| Sync Module UI | 🟢 Complete | Navigation working smoothly |
+| API Endpoints Page | 🟢 Complete | Fully functional with C# bridge |
+| C# Bridge | 🟢 Operational | All REST calls working |
+| Data Caching | 🟢 Working | Smart caching implemented |
+| CORS Issues | 🟢 Resolved | Using C# instead of fetch |
 | APEX Endpoints | 🟢 Complete | All CRUD handlers created |
-| Documentation | 🟢 Good | Setup guides available |
-| Testing | 🟡 Pending | User testing required |
+| Documentation | 🟢 Good | Setup guides + session notes |
+| Testing | 🟢 Passed | User confirmed working |
 
 ---
 
