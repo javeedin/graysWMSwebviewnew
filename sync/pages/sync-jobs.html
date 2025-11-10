@@ -1,0 +1,816 @@
+<!-- Sync Jobs Management Page - Content Fragment -->
+<style>
+    .page-container {
+        padding: 0;
+    }
+
+    .page-header {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .page-header h1 {
+        font-size: 24px;
+        color: #2c3e50;
+        margin-bottom: 8px;
+    }
+
+    .page-header p {
+        color: #7f8c8d;
+        font-size: 14px;
+    }
+
+    /* Statistics Cards */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .stat-card {
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+
+    .stat-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        color: white;
+    }
+
+    .stat-icon.primary { background: #3498db; }
+    .stat-icon.success { background: #27ae60; }
+    .stat-icon.danger { background: #e74c3c; }
+    .stat-icon.warning { background: #f39c12; }
+
+    .stat-info h3 {
+        margin: 0;
+        font-size: 28px;
+        font-weight: bold;
+        color: #2c3e50;
+    }
+
+    .stat-info p {
+        margin: 5px 0 0 0;
+        color: #7f8c8d;
+        font-size: 14px;
+    }
+
+    /* Tabs */
+    .tabs {
+        background: white;
+        border-radius: 8px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .tab-header {
+        display: flex;
+        border-bottom: 2px solid #f8f9fa;
+        padding: 0 20px;
+    }
+
+    .tab-btn {
+        padding: 15px 25px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        color: #7f8c8d;
+        border-bottom: 3px solid transparent;
+        transition: all 0.2s;
+    }
+
+    .tab-btn.active {
+        color: #3498db;
+        border-bottom-color: #3498db;
+    }
+
+    .tab-btn:hover {
+        color: #3498db;
+    }
+
+    .tab-content {
+        padding: 20px;
+    }
+
+    .tab-pane {
+        display: none;
+    }
+
+    .tab-pane.active {
+        display: block;
+    }
+
+    /* Toolbar */
+    .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .toolbar-left {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .btn {
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        transition: all 0.2s;
+    }
+
+    .btn-primary {
+        background: #3498db;
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: #2980b9;
+    }
+
+    .btn-success {
+        background: #27ae60;
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: #229954;
+    }
+
+    .btn-warning {
+        background: #f39c12;
+        color: white;
+    }
+
+    .btn-warning:hover {
+        background: #e67e22;
+    }
+
+    .btn-secondary {
+        background: #95a5a6;
+        color: white;
+    }
+
+    .btn-secondary:hover {
+        background: #7f8c8d;
+    }
+
+    .btn-danger {
+        background: #e74c3c;
+        color: white;
+    }
+
+    .btn-danger:hover {
+        background: #c0392b;
+    }
+
+    .btn-sm {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .search-box {
+        display: flex;
+        align-items: center;
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 6px;
+        padding: 8px 12px;
+        min-width: 250px;
+    }
+
+    .search-box input {
+        border: none;
+        background: transparent;
+        outline: none;
+        padding: 4px;
+        font-size: 14px;
+        width: 100%;
+    }
+
+    /* Tables */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    thead {
+        background: #f8f9fa;
+    }
+
+    th {
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        color: #495057;
+        border-bottom: 2px solid #dee2e6;
+        font-size: 14px;
+    }
+
+    td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        font-size: 14px;
+        color: #495057;
+    }
+
+    tr:hover {
+        background: #f8f9fa;
+    }
+
+    .badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        font-weight: 500;
+        display: inline-block;
+    }
+
+    .badge-success {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .badge-danger {
+        background: #f8d7da;
+        color: #721c24;
+    }
+
+    .badge-warning {
+        background: #fff3cd;
+        color: #856404;
+    }
+
+    .badge-info {
+        background: #d1ecf1;
+        color: #0c5460;
+    }
+
+    .badge-secondary {
+        background: #e2e3e5;
+        color: #383d41;
+    }
+
+    /* Modal */
+    .modal {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0,0,0,0.5);
+        z-index: 1000;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .modal.active {
+        display: flex;
+    }
+
+    .modal-content {
+        background: white;
+        border-radius: 8px;
+        width: 90%;
+        max-width: 800px;
+        max-height: 90vh;
+        overflow-y: auto;
+    }
+
+    .modal-header {
+        padding: 20px;
+        border-bottom: 1px solid #dee2e6;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .modal-header h2 {
+        font-size: 20px;
+        color: #2c3e50;
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: #7f8c8d;
+    }
+
+    .modal-body {
+        padding: 20px;
+    }
+
+    .form-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    .form-group label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 500;
+        color: #495057;
+        font-size: 14px;
+    }
+
+    .form-group input,
+    .form-group select,
+    .form-group textarea {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 14px;
+        box-sizing: border-box;
+    }
+
+    .form-group textarea {
+        resize: vertical;
+        min-height: 80px;
+    }
+
+    .modal-footer {
+        padding: 20px;
+        border-top: 1px solid #dee2e6;
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+    }
+
+    .loading {
+        text-align: center;
+        padding: 40px;
+        color: #7f8c8d;
+    }
+
+    .spinner {
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid #3498db;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 0 auto 10px;
+    }
+
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+
+    .error-message {
+        background: #f8d7da;
+        color: #721c24;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 15px;
+        display: none;
+    }
+
+    .success-message {
+        background: #d4edda;
+        color: #155724;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 15px;
+        display: none;
+    }
+
+    .filter-bar {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+    }
+
+    .filter-bar select {
+        padding: 8px 12px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 14px;
+    }
+
+    @media (max-width: 768px) {
+        .form-row {
+            grid-template-columns: 1fr;
+        }
+
+        .toolbar {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .toolbar-left {
+            width: 100%;
+        }
+
+        .search-box {
+            width: 100%;
+        }
+    }
+</style>
+
+<div class="page-container">
+    <!-- Page Header -->
+    <div class="page-header">
+        <h1><i class="fas fa-tasks"></i> Sync Jobs Management</h1>
+        <p>Configure, schedule, and monitor Oracle Fusion data synchronization jobs</p>
+    </div>
+
+    <!-- Statistics Dashboard -->
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon primary">
+                <i class="fas fa-briefcase"></i>
+            </div>
+            <div class="stat-info">
+                <h3 id="statTotalJobs">0</h3>
+                <p>Total Jobs</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon success">
+                <i class="fas fa-check-circle"></i>
+            </div>
+            <div class="stat-info">
+                <h3 id="statSuccessRate">0%</h3>
+                <p>Success Rate</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon warning">
+                <i class="fas fa-clock"></i>
+            </div>
+            <div class="stat-info">
+                <h3 id="statActiveJobs">0</h3>
+                <p>Active Jobs</p>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon danger">
+                <i class="fas fa-exclamation-triangle"></i>
+            </div>
+            <div class="stat-info">
+                <h3 id="statFailedToday">0</h3>
+                <p>Failed Today</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error/Success Messages -->
+    <div id="errorMessage" class="error-message"></div>
+    <div id="successMessage" class="success-message"></div>
+
+    <!-- Tabs -->
+    <div class="tabs">
+        <div class="tab-header">
+            <button class="tab-btn active" data-tab="configured-jobs">
+                <i class="fas fa-list"></i> Configured Jobs
+            </button>
+            <button class="tab-btn" data-tab="job-catalog">
+                <i class="fas fa-th-large"></i> Job Catalog
+            </button>
+            <button class="tab-btn" data-tab="execution-history">
+                <i class="fas fa-history"></i> Execution History
+            </button>
+        </div>
+
+        <div class="tab-content">
+            <!-- Tab 1: Configured Jobs -->
+            <div class="tab-pane active" id="configured-jobs">
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <button class="btn btn-primary" onclick="openCreateJobModal()">
+                            <i class="fas fa-plus"></i> Create Job
+                        </button>
+                        <button class="btn btn-secondary" onclick="loadConfiguredJobs(true)">
+                            <i class="fas fa-sync"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchConfiguredJobs" placeholder="Search jobs..." onkeyup="filterConfiguredJobs()">
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <select id="filterModule" onchange="filterConfiguredJobs()">
+                        <option value="">All Modules</option>
+                        <option value="GL">GL</option>
+                        <option value="AP">AP</option>
+                        <option value="AR">AR</option>
+                        <option value="INV">INV</option>
+                    </select>
+                    <select id="filterStatus" onchange="filterConfiguredJobs()">
+                        <option value="">All Status</option>
+                        <option value="ACTIVE">Active</option>
+                        <option value="INACTIVE">Inactive</option>
+                        <option value="PAUSED">Paused</option>
+                    </select>
+                    <select id="filterFrequency" onchange="filterConfiguredJobs()">
+                        <option value="">All Frequencies</option>
+                        <option value="HOURLY">Hourly</option>
+                        <option value="DAILY">Daily</option>
+                        <option value="WEEKLY">Weekly</option>
+                        <option value="MONTHLY">Monthly</option>
+                        <option value="MANUAL">Manual</option>
+                    </select>
+                </div>
+
+                <div id="loadingConfiguredJobs" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading configured jobs...</p>
+                </div>
+
+                <table id="configuredJobsTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Job Name</th>
+                            <th>Module</th>
+                            <th>Type</th>
+                            <th>Schedule</th>
+                            <th>Status</th>
+                            <th>Last Run</th>
+                            <th>Success Rate</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="configuredJobsBody">
+                        <!-- Rows will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Tab 2: Job Catalog -->
+            <div class="tab-pane" id="job-catalog">
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <button class="btn btn-secondary" onclick="loadJobCatalog(true)">
+                            <i class="fas fa-sync"></i> Refresh
+                        </button>
+                    </div>
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchCatalog" placeholder="Search catalog..." onkeyup="filterCatalog()">
+                    </div>
+                </div>
+
+                <div id="loadingCatalog" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading job catalog...</p>
+                </div>
+
+                <table id="catalogTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Job Name</th>
+                            <th>Job Code</th>
+                            <th>API Type</th>
+                            <th>Source Endpoint</th>
+                            <th>Description</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="catalogBody">
+                        <!-- Rows will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Tab 3: Execution History -->
+            <div class="tab-pane" id="execution-history">
+                <div class="toolbar">
+                    <div class="toolbar-left">
+                        <button class="btn btn-secondary" onclick="loadExecutionHistory(true)">
+                            <i class="fas fa-sync"></i> Refresh
+                        </button>
+                        <button class="btn btn-warning" onclick="autoRefreshHistory()">
+                            <i class="fas fa-play"></i> Auto-Refresh
+                        </button>
+                    </div>
+                    <div class="search-box">
+                        <i class="fas fa-search"></i>
+                        <input type="text" id="searchHistory" placeholder="Search history..." onkeyup="filterHistory()">
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <select id="filterHistoryModule" onchange="filterHistory()">
+                        <option value="">All Modules</option>
+                        <option value="GL">GL</option>
+                        <option value="AP">AP</option>
+                        <option value="AR">AR</option>
+                        <option value="INV">INV</option>
+                    </select>
+                    <select id="filterHistoryStatus" onchange="filterHistory()">
+                        <option value="">All Status</option>
+                        <option value="SUCCESS">Success</option>
+                        <option value="FAILED">Failed</option>
+                        <option value="RUNNING">Running</option>
+                        <option value="PARTIAL">Partial</option>
+                    </select>
+                    <input type="date" id="filterStartDate" onchange="filterHistory()" placeholder="Start Date">
+                    <input type="date" id="filterEndDate" onchange="filterHistory()" placeholder="End Date">
+                </div>
+
+                <div id="loadingHistory" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading execution history...</p>
+                </div>
+
+                <table id="historyTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>Job Name</th>
+                            <th>Module</th>
+                            <th>Start Time</th>
+                            <th>Duration</th>
+                            <th>Fetched</th>
+                            <th>Synced</th>
+                            <th>Errors</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="historyBody">
+                        <!-- Rows will be inserted here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create Job Modal -->
+<div id="jobModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="jobModalTitle">Create Sync Job</h2>
+            <button class="modal-close" onclick="closeJobModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="jobForm">
+                <input type="hidden" id="syncJobId" name="syncJobId">
+
+                <div class="form-group">
+                    <label>Select Job Type *</label>
+                    <select id="jobMasterId" name="jobMasterId" required onchange="loadMasterJobDetails()">
+                        <option value="">Select from catalog...</option>
+                    </select>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Job Name *</label>
+                        <input type="text" id="jobName" name="jobName" required placeholder="e.g., Daily GL Sync May-23">
+                    </div>
+                    <div class="form-group">
+                        <label>Schedule Status</label>
+                        <select id="scheduleStatus" name="scheduleStatus">
+                            <option value="INACTIVE">Inactive</option>
+                            <option value="ACTIVE">Active</option>
+                            <option value="PAUSED">Paused</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="jobDescription" name="jobDescription" placeholder="Brief description of this job"></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Schedule Frequency</label>
+                        <select id="scheduleFrequency" name="scheduleFrequency">
+                            <option value="MANUAL">Manual</option>
+                            <option value="HOURLY">Hourly</option>
+                            <option value="DAILY">Daily</option>
+                            <option value="WEEKLY">Weekly</option>
+                            <option value="MONTHLY">Monthly</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Schedule Time (HH:MM)</label>
+                        <input type="time" id="scheduleTime" name="scheduleTime">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Start Date</label>
+                        <input type="date" id="scheduleStartDate" name="scheduleStartDate">
+                    </div>
+                    <div class="form-group">
+                        <label>End Date</label>
+                        <input type="date" id="scheduleEndDate" name="scheduleEndDate">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Oracle Base URL</label>
+                    <input type="text" id="oracleBaseUrl" name="oracleBaseUrl" placeholder="https://efmh.fa.em3.oraclecloud.com">
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Oracle Username</label>
+                        <input type="text" id="oracleUsername" name="oracleUsername">
+                    </div>
+                    <div class="form-group">
+                        <label>Oracle Password</label>
+                        <input type="password" id="oraclePassword" name="oraclePassword">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Parameters (JSON)</label>
+                    <textarea id="parameters" name="parameters" placeholder='{"period_name": "May-23", "limit": 500}'></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Notification Email</label>
+                        <input type="email" id="notificationEmail" name="notificationEmail" placeholder="admin@company.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Max Retries</label>
+                        <input type="number" id="maxRetries" name="maxRetries" value="3" min="0" max="10">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="retryOnFailure" name="retryOnFailure"> Retry on Failure
+                        </label>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="isActive" name="isActive" checked> Active
+                        </label>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeJobModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveJob()">Save Job</button>
+        </div>
+    </div>
+</div>
+
+<!-- Execution Details Modal -->
+<div id="executionModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2>Execution Details</h2>
+            <button class="modal-close" onclick="closeExecutionModal()">&times;</button>
+        </div>
+        <div class="modal-body" id="executionDetails">
+            <!-- Details will be loaded here -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeExecutionModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<script src="../js/sync-jobs.js"></script>

@@ -105,6 +105,11 @@ class SyncApp {
             return;
         }
 
+        if (pageName === 'sync-jobs') {
+            this.loadExternalPage('pages/sync-jobs.html');
+            return;
+        }
+
         const pageContent = this.pages[pageName] || this.pages['default'];
 
         // Fade out
