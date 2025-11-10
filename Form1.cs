@@ -1176,7 +1176,10 @@ namespace WMSApp
                     };
 
                     string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending response back to JS. RequestId: {requestId}, DataLength: {responseContent.Length}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response JSON (first 200 chars): {resultJson.Substring(0, Math.Min(200, resultJson.Length))}");
                     wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ Response sent successfully to WebView2");
                 }
             }
             catch (Exception ex)
@@ -1254,7 +1257,10 @@ namespace WMSApp
                     };
 
                     string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending response back to JS. RequestId: {requestId}, DataLength: {responseContent.Length}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response JSON (first 200 chars): {resultJson.Substring(0, Math.Min(200, resultJson.Length))}");
                     wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ Response sent successfully to WebView2");
                 }
             }
             catch (Exception ex)

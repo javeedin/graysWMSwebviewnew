@@ -134,13 +134,14 @@ class SyncApp {
             console.log('SyncApp: Page HTML loaded successfully via C#');
 
             setTimeout(() => {
-                mainContent.innerHTML = html;
-
-                // IMPORTANT: Remove all previously loaded page scripts to prevent redeclaration errors
+                // IMPORTANT: Remove all previously loaded page scripts FIRST to prevent redeclaration errors
                 console.log('SyncApp: Cleaning up previous page scripts');
                 const oldPageScripts = document.querySelectorAll('script[data-page-script="true"]');
                 oldPageScripts.forEach(script => script.remove());
                 console.log('SyncApp: Removed', oldPageScripts.length, 'old page scripts');
+
+                // Now set the new content
+                mainContent.innerHTML = html;
 
                 // Load external scripts with corrected paths
                 const scripts = mainContent.querySelectorAll('script[src]');

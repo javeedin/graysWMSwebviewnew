@@ -23,6 +23,15 @@ let currentEditingId = null;
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('API Endpoints page loaded');
+
+    // DEBUG: Log ALL messages from C# to diagnose timeout issue
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.addEventListener('message', function(event) {
+            console.log('[DEBUG] Message received from C#:', event.data);
+        });
+        console.log('[DEBUG] Global message listener installed');
+    }
+
     loadEndpoints();
 
     // Try to get base URL from C# if available
@@ -123,11 +132,19 @@ function executeGetViaCS(fullUrl) {
 
         const requestId = 'get_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
+        console.log('[JS] Generated requestId:', requestId);
         console.log('[JS] Sending GET request to C#:', fullUrl);
 
         // Set up response handler
         const messageHandler = (event) => {
+            console.log('[JS] Message handler received event, checking requestId...', {
+                incoming: event.data?.requestId,
+                expected: requestId,
+                action: event.data?.action
+            });
+
             if (event.data && event.data.requestId === requestId) {
+                console.log('[JS] ✓ RequestId matches! Processing response...');
                 window.chrome.webview.removeEventListener('message', messageHandler);
 
                 if (event.data.action === 'restResponse') {
@@ -137,10 +154,13 @@ function executeGetViaCS(fullUrl) {
                     console.error('[JS] Received error from C#:', event.data.data);
                     reject(new Error(event.data.data.message || 'Request failed'));
                 }
+            } else {
+                console.log('[JS] RequestId does not match, ignoring message');
             }
         };
 
         window.chrome.webview.addEventListener('message', messageHandler);
+        console.log('[JS] Message handler installed');
 
         // Send request to C#
         window.chrome.webview.postMessage({
@@ -148,6 +168,7 @@ function executeGetViaCS(fullUrl) {
             requestId: requestId,
             FullUrl: fullUrl
         });
+        console.log('[JS] Request sent to C#');
 
         // Timeout after 30 seconds
         setTimeout(() => {
