@@ -8,20 +8,40 @@ let catalogData = [];
 let historyData = [];
 let autoRefreshInterval = null;
 
-// Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize immediately or on DOM ready (for dynamic page loading)
+function initializeSyncJobsPage() {
     initializeTabs();
     loadStatistics();
     loadConfiguredJobs();
     loadJobCatalog();
     loadExecutionHistory();
-});
+}
+
+// Check if DOM is already loaded (for dynamic loading) or wait for it
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initializeSyncJobsPage);
+} else {
+    // DOM already loaded, initialize immediately
+    initializeSyncJobsPage();
+}
 
 // Tab Navigation
 function initializeTabs() {
     const tabButtons = document.querySelectorAll('.tab-btn');
+
+    if (tabButtons.length === 0) {
+        console.warn('Sync Jobs: No tab buttons found, retrying...');
+        // Retry after a short delay (for dynamic loading)
+        setTimeout(initializeTabs, 100);
+        return;
+    }
+
+    console.log('Sync Jobs: Initializing tabs, found', tabButtons.length, 'buttons');
+
     tabButtons.forEach(btn => {
         btn.addEventListener('click', () => {
+            console.log('Sync Jobs: Tab clicked:', btn.getAttribute('data-tab'));
+
             // Remove active class from all tabs
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
@@ -29,7 +49,13 @@ function initializeTabs() {
             // Add active class to clicked tab
             btn.classList.add('active');
             const tabId = btn.getAttribute('data-tab');
-            document.getElementById(tabId).classList.add('active');
+            const tabPane = document.getElementById(tabId);
+
+            if (tabPane) {
+                tabPane.classList.add('active');
+            } else {
+                console.error('Sync Jobs: Tab pane not found:', tabId);
+            }
 
             // Load data for the active tab
             if (tabId === 'configured-jobs') {
