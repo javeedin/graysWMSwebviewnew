@@ -13,10 +13,18 @@ var API_CONFIG = {
     }
 };
 
-// Global state (using var to allow redeclaration when script reloads)
-var allEndpoints = [];
-var currentEditingId = null;
-var endpointsLoaded = false; // Track if data has been loaded
+// Global state - persist on window object to survive script reloads
+if (typeof window.apiEndpointsState === 'undefined') {
+    window.apiEndpointsState = {
+        allEndpoints: [],
+        currentEditingId: null,
+        isLoaded: false
+    };
+}
+
+// Create local aliases for convenience (using var to allow redeclaration)
+var allEndpoints = window.apiEndpointsState.allEndpoints;
+var currentEditingId = window.apiEndpointsState.currentEditingId;
 
 // ============================================================================
 // INITIALIZATION
@@ -38,12 +46,13 @@ function initApiEndpoints() {
     setTimeout(() => {
         console.log('Loading endpoints...');
         // Only load if we haven't loaded data yet (cache data across navigations)
-        if (!endpointsLoaded) {
+        if (!window.apiEndpointsState.isLoaded) {
+            console.log('First time loading - fetching from server');
             loadEndpoints();
         } else {
-            console.log('Using cached endpoint data');
-            displayEndpoints(allEndpoints);
-            showSuccess(`Showing ${allEndpoints.length} cached endpoints`);
+            console.log('Using cached endpoint data (' + window.apiEndpointsState.allEndpoints.length + ' endpoints)');
+            displayEndpoints(window.apiEndpointsState.allEndpoints);
+            showSuccess(`Showing ${window.apiEndpointsState.allEndpoints.length} cached endpoints`);
         }
 
         // Try to get base URL from C# if available
@@ -115,7 +124,7 @@ async function loadEndpoints(forceReload = false) {
     // If forceReload is true, clear the cache flag
     if (forceReload) {
         console.log('Force reload requested, clearing cache...');
-        endpointsLoaded = false;
+        window.apiEndpointsState.isLoaded = false;
     }
 
     try {
@@ -131,10 +140,12 @@ async function loadEndpoints(forceReload = false) {
         console.log('API Response:', data);
 
         if (data.status === 'SUCCESS' && data.data && data.data.endpoints) {
-            allEndpoints = data.data.endpoints;
-            endpointsLoaded = true; // Mark data as loaded for caching
-            displayEndpoints(allEndpoints);
-            showSuccess(`Loaded ${allEndpoints.length} endpoints successfully`);
+            // Store in window state for persistence across page navigations
+            window.apiEndpointsState.allEndpoints = data.data.endpoints;
+            window.apiEndpointsState.isLoaded = true;
+
+            displayEndpoints(window.apiEndpointsState.allEndpoints);
+            showSuccess(`Loaded ${window.apiEndpointsState.allEndpoints.length} endpoints successfully`);
         } else {
             throw new Error(data.message || 'Failed to load endpoints');
         }
@@ -142,7 +153,7 @@ async function loadEndpoints(forceReload = false) {
     } catch (error) {
         console.error('Error loading endpoints:', error);
         showError('Failed to load endpoints: ' + error.message);
-        allEndpoints = [];
+        window.apiEndpointsState.allEndpoints = [];
         displayEndpoints([]);
     } finally {
         showLoading(false);
@@ -277,6 +288,7 @@ function createTableRow(endpoint) {
  * Open modal for creating new endpoint
  */
 function openCreateModal() {
+    window.apiEndpointsState.currentEditingId = null;
     currentEditingId = null;
     document.getElementById('modalTitle').textContent = 'Create New Endpoint';
     document.getElementById('endpointForm').reset();
@@ -289,12 +301,13 @@ function openCreateModal() {
  * Open modal for editing endpoint
  */
 function editEndpoint(id) {
-    const endpoint = allEndpoints.find(e => e.endpoint_id === id);
+    const endpoint = window.apiEndpointsState.allEndpoints.find(e => e.endpoint_id === id);
     if (!endpoint) {
         showError('Endpoint not found');
         return;
     }
 
+    window.apiEndpointsState.currentEditingId = id;
     currentEditingId = id;
     document.getElementById('modalTitle').textContent = 'Edit Endpoint';
 
@@ -320,6 +333,7 @@ function editEndpoint(id) {
  */
 function closeModal() {
     document.getElementById('endpointModal').classList.remove('active');
+    window.apiEndpointsState.currentEditingId = null;
     currentEditingId = null;
 }
 
@@ -355,12 +369,13 @@ async function saveEndpoint() {
 
     try {
         let url, method;
+        const editingId = window.apiEndpointsState.currentEditingId;
 
-        if (currentEditingId) {
+        if (editingId) {
             // Update existing
-            url = getApiUrl('update', { id: currentEditingId });
+            url = getApiUrl('update', { id: editingId });
             method = 'PUT';
-            formData.endpoint_id = currentEditingId;
+            formData.endpoint_id = editingId;
         } else {
             // Create new
             url = getApiUrl('create');
@@ -377,7 +392,7 @@ async function saveEndpoint() {
         console.log('Save response:', result);
 
         if (result.status === 'SUCCESS' || result.success === true) {
-            showSuccess(currentEditingId ? 'Endpoint updated successfully' : 'Endpoint created successfully');
+            showSuccess(editingId ? 'Endpoint updated successfully' : 'Endpoint created successfully');
             closeModal();
             loadEndpoints(true); // Force reload to show latest data
         } else {
@@ -485,11 +500,11 @@ function filterTable() {
     const searchText = document.getElementById('searchInput').value.toLowerCase();
 
     if (!searchText) {
-        displayEndpoints(allEndpoints);
+        displayEndpoints(window.apiEndpointsState.allEndpoints);
         return;
     }
 
-    const filtered = allEndpoints.filter(endpoint => {
+    const filtered = window.apiEndpointsState.allEndpoints.filter(endpoint => {
         return (
             endpoint.module_code?.toLowerCase().includes(searchText) ||
             endpoint.feature_name?.toLowerCase().includes(searchText) ||
