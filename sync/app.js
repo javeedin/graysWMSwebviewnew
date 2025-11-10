@@ -136,6 +136,12 @@ class SyncApp {
             setTimeout(() => {
                 mainContent.innerHTML = html;
 
+                // IMPORTANT: Remove all previously loaded page scripts to prevent redeclaration errors
+                console.log('SyncApp: Cleaning up previous page scripts');
+                const oldPageScripts = document.querySelectorAll('script[data-page-script="true"]');
+                oldPageScripts.forEach(script => script.remove());
+                console.log('SyncApp: Removed', oldPageScripts.length, 'old page scripts');
+
                 // Load external scripts with corrected paths
                 const scripts = mainContent.querySelectorAll('script[src]');
                 console.log('SyncApp: Found', scripts.length, 'external scripts');
@@ -150,6 +156,9 @@ class SyncApp {
                     } else {
                         newScript.src = scriptSrc;
                     }
+
+                    // Mark as page script for cleanup on next navigation
+                    newScript.setAttribute('data-page-script', 'true');
 
                     console.log('SyncApp: Loading script:', newScript.src);
 
@@ -167,6 +176,8 @@ class SyncApp {
                 inlineScripts.forEach(oldScript => {
                     const newScript = document.createElement('script');
                     newScript.textContent = oldScript.textContent;
+                    // Mark as page script for cleanup on next navigation
+                    newScript.setAttribute('data-page-script', 'true');
                     document.body.appendChild(newScript);
                 });
 
