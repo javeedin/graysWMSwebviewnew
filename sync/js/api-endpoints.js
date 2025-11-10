@@ -16,13 +16,15 @@ var API_CONFIG = {
 // Global state (using var to allow redeclaration when script reloads)
 var allEndpoints = [];
 var currentEditingId = null;
+var endpointsLoaded = false; // Track if data has been loaded
 
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
 
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('API Endpoints page loaded');
+// Initialize when DOM is ready OR immediately if already loaded
+function initApiEndpoints() {
+    console.log('API Endpoints page initializing...');
 
     // DEBUG: Log ALL messages from C# to diagnose timeout issue
     if (window.chrome && window.chrome.webview) {
@@ -32,11 +34,30 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[DEBUG] Global message listener installed');
     }
 
-    loadEndpoints();
+    // Small delay to ensure WebView2 bridge is fully ready
+    setTimeout(() => {
+        console.log('Loading endpoints...');
+        // Only load if we haven't loaded data yet (cache data across navigations)
+        if (!endpointsLoaded) {
+            loadEndpoints();
+        } else {
+            console.log('Using cached endpoint data');
+            displayEndpoints(allEndpoints);
+            showSuccess(`Showing ${allEndpoints.length} cached endpoints`);
+        }
 
-    // Try to get base URL from C# if available
-    getBaseUrlFromCSharp();
-});
+        // Try to get base URL from C# if available
+        getBaseUrlFromCSharp();
+    }, 200);
+}
+
+// Check if document is already loaded, otherwise wait for DOMContentLoaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApiEndpoints);
+} else {
+    // DOM is already loaded
+    initApiEndpoints();
+}
 
 // ============================================================================
 // API BASE URL MANAGEMENT
@@ -85,10 +106,17 @@ function getApiUrl(endpoint, params = {}) {
 
 /**
  * Load all endpoints from API (via C# bridge)
+ * @param {boolean} forceReload - If true, bypass cache and reload from server
  */
-async function loadEndpoints() {
+async function loadEndpoints(forceReload = false) {
     showLoading(true);
     hideMessages();
+
+    // If forceReload is true, clear the cache flag
+    if (forceReload) {
+        console.log('Force reload requested, clearing cache...');
+        endpointsLoaded = false;
+    }
 
     try {
         const url = getApiUrl('getAll') + '?limit=100&offset=0';
@@ -104,6 +132,7 @@ async function loadEndpoints() {
 
         if (data.status === 'SUCCESS' && data.data && data.data.endpoints) {
             allEndpoints = data.data.endpoints;
+            endpointsLoaded = true; // Mark data as loaded for caching
             displayEndpoints(allEndpoints);
             showSuccess(`Loaded ${allEndpoints.length} endpoints successfully`);
         } else {
@@ -350,7 +379,7 @@ async function saveEndpoint() {
         if (result.status === 'SUCCESS' || result.success === true) {
             showSuccess(currentEditingId ? 'Endpoint updated successfully' : 'Endpoint created successfully');
             closeModal();
-            loadEndpoints(); // Reload the list
+            loadEndpoints(true); // Force reload to show latest data
         } else {
             throw new Error(result.message || 'Failed to save endpoint');
         }
@@ -434,7 +463,7 @@ async function deleteEndpoint(id) {
 
         if (result.status === 'SUCCESS' || result.success === true) {
             showSuccess('Endpoint deleted successfully');
-            loadEndpoints(); // Reload the list
+            loadEndpoints(true); // Force reload to show latest data
         } else {
             throw new Error(result.message || 'Failed to delete endpoint');
         }
