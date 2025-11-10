@@ -1,8 +1,8 @@
 // API Endpoints Configuration JavaScript
 // ============================================================================
 
-// Configuration
-const API_CONFIG = {
+// Configuration (using var to allow redeclaration when script reloads)
+var API_CONFIG = {
     baseUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/REERP/API/rr',
     endpoints: {
         getAll: '/endpoints',
@@ -13,9 +13,9 @@ const API_CONFIG = {
     }
 };
 
-// Global state
-let allEndpoints = [];
-let currentEditingId = null;
+// Global state (using var to allow redeclaration when script reloads)
+var allEndpoints = [];
+var currentEditingId = null;
 
 // ============================================================================
 // INITIALIZATION
