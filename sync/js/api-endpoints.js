@@ -75,7 +75,7 @@ function getApiUrl(endpoint, params = {}) {
 // ============================================================================
 
 /**
- * Load all endpoints from API
+ * Load all endpoints from API (via C# bridge)
  */
 async function loadEndpoints() {
     showLoading(true);
@@ -83,21 +83,14 @@ async function loadEndpoints() {
 
     try {
         const url = getApiUrl('getAll') + '?limit=100&offset=0';
-        console.log('Fetching endpoints from:', url);
+        console.log('Requesting endpoints from C#:', url);
 
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-        });
+        // Use C# bridge to make REST API call
+        const responseText = await executeGetViaCS(url);
+        console.log('C# Response received:', responseText);
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const data = await response.json();
+        // Parse JSON response
+        const data = JSON.parse(responseText);
         console.log('API Response:', data);
 
         if (data.status === 'SUCCESS' && data.data && data.data.endpoints) {
@@ -116,6 +109,52 @@ async function loadEndpoints() {
     } finally {
         showLoading(false);
     }
+}
+
+/**
+ * Execute GET request via C# bridge
+ */
+function executeGetViaCS(fullUrl) {
+    return new Promise((resolve, reject) => {
+        if (!window.chrome || !window.chrome.webview) {
+            reject(new Error('WebView2 bridge not available'));
+            return;
+        }
+
+        const requestId = 'get_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+        console.log('[JS] Sending GET request to C#:', fullUrl);
+
+        // Set up response handler
+        const messageHandler = (event) => {
+            if (event.data && event.data.requestId === requestId) {
+                window.chrome.webview.removeEventListener('message', messageHandler);
+
+                if (event.data.action === 'restResponse') {
+                    console.log('[JS] Received REST response from C#');
+                    resolve(event.data.data);
+                } else if (event.data.action === 'error') {
+                    console.error('[JS] Received error from C#:', event.data.data);
+                    reject(new Error(event.data.data.message || 'Request failed'));
+                }
+            }
+        };
+
+        window.chrome.webview.addEventListener('message', messageHandler);
+
+        // Send request to C#
+        window.chrome.webview.postMessage({
+            action: 'executeGet',
+            requestId: requestId,
+            FullUrl: fullUrl
+        });
+
+        // Timeout after 30 seconds
+        setTimeout(() => {
+            window.chrome.webview.removeEventListener('message', messageHandler);
+            reject(new Error('Request timeout'));
+        }, 30000);
+    });
 }
 
 /**
@@ -239,7 +278,7 @@ function closeModal() {
 // ============================================================================
 
 /**
- * Save endpoint (create or update)
+ * Save endpoint (create or update) via C# bridge
  */
 async function saveEndpoint() {
     const form = document.getElementById('endpointForm');
@@ -280,20 +319,11 @@ async function saveEndpoint() {
 
         console.log(`${method} to ${url}`, formData);
 
-        const response = await fetch(url, {
-            method: method,
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(formData)
-        });
+        // Use C# bridge to make REST API call
+        const responseText = await executePostViaCS(url, JSON.stringify(formData), method);
+        console.log('C# Save response:', responseText);
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const result = await response.json();
+        const result = JSON.parse(responseText);
         console.log('Save response:', result);
 
         if (result.status === 'SUCCESS' || result.success === true) {
@@ -310,12 +340,60 @@ async function saveEndpoint() {
     }
 }
 
+/**
+ * Execute POST/PUT request via C# bridge
+ */
+function executePostViaCS(fullUrl, body, method = 'POST') {
+    return new Promise((resolve, reject) => {
+        if (!window.chrome || !window.chrome.webview) {
+            reject(new Error('WebView2 bridge not available'));
+            return;
+        }
+
+        const requestId = 'post_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+        console.log(`[JS] Sending ${method} request to C#:`, fullUrl);
+
+        // Set up response handler
+        const messageHandler = (event) => {
+            if (event.data && event.data.requestId === requestId) {
+                window.chrome.webview.removeEventListener('message', messageHandler);
+
+                if (event.data.action === 'restResponse') {
+                    console.log('[JS] Received REST response from C#');
+                    resolve(event.data.data);
+                } else if (event.data.action === 'error') {
+                    console.error('[JS] Received error from C#:', event.data.data);
+                    reject(new Error(event.data.data.message || 'Request failed'));
+                }
+            }
+        };
+
+        window.chrome.webview.addEventListener('message', messageHandler);
+
+        // Send request to C#
+        window.chrome.webview.postMessage({
+            action: 'executePost',
+            requestId: requestId,
+            FullUrl: fullUrl,
+            Body: body,
+            Method: method
+        });
+
+        // Timeout after 30 seconds
+        setTimeout(() => {
+            window.chrome.webview.removeEventListener('message', messageHandler);
+            reject(new Error('Request timeout'));
+        }, 30000);
+    });
+}
+
 // ============================================================================
 // DELETE ENDPOINT
 // ============================================================================
 
 /**
- * Delete endpoint
+ * Delete endpoint via C# bridge
  */
 async function deleteEndpoint(id) {
     if (!confirm('Are you sure you want to delete this endpoint?')) {
@@ -326,19 +404,11 @@ async function deleteEndpoint(id) {
         const url = getApiUrl('delete', { id: id });
         console.log('DELETE to', url);
 
-        const response = await fetch(url, {
-            method: 'DELETE',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json'
-            }
-        });
+        // Use C# bridge with executePost for DELETE (with empty body)
+        const responseText = await executePostViaCS(url, '', 'DELETE');
+        console.log('C# Delete response:', responseText);
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        const result = await response.json();
+        const result = JSON.parse(responseText);
         console.log('Delete response:', result);
 
         if (result.status === 'SUCCESS' || result.success === true) {

@@ -1204,23 +1204,46 @@ namespace WMSApp
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
                 );
 
-                System.Diagnostics.Debug.WriteLine($"[C#] Processing executePost request: {message.FullUrl}");
-                System.Diagnostics.Debug.WriteLine($"[C#] POST Body: {message.Body}");
+                string method = message.Method?.ToUpper() ?? "POST";
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing {method} request: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[C#] Body: {message.Body}");
 
                 using (var httpClient = new HttpClient())
                 {
                     httpClient.Timeout = TimeSpan.FromSeconds(30);
 
-                    var content = new StringContent(
-                        message.Body ?? "{}",
-                        Encoding.UTF8,
-                        "application/json"
-                    );
+                    HttpResponseMessage response;
 
-                    var response = await httpClient.PostAsync(message.FullUrl, content);
+                    if (method == "POST")
+                    {
+                        var content = new StringContent(
+                            message.Body ?? "{}",
+                            Encoding.UTF8,
+                            "application/json"
+                        );
+                        response = await httpClient.PostAsync(message.FullUrl, content);
+                    }
+                    else if (method == "PUT")
+                    {
+                        var content = new StringContent(
+                            message.Body ?? "{}",
+                            Encoding.UTF8,
+                            "application/json"
+                        );
+                        response = await httpClient.PutAsync(message.FullUrl, content);
+                    }
+                    else if (method == "DELETE")
+                    {
+                        response = await httpClient.DeleteAsync(message.FullUrl);
+                    }
+                    else
+                    {
+                        throw new Exception($"Unsupported HTTP method: {method}");
+                    }
+
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] REST POST completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST {method} completed. Status: {response.StatusCode}");
                     System.Diagnostics.Debug.WriteLine($"[C#] Response: {responseContent}");
 
                     var resultMessage = new
@@ -1236,7 +1259,7 @@ namespace WMSApp
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST POST call failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST call failed: {ex.Message}");
 
                 var errorMessage = new
                 {
@@ -2831,6 +2854,9 @@ namespace WMSApp
 
         [JsonPropertyName("body")]
         public string Body { get; set; }
+
+        [JsonPropertyName("method")]
+        public string Method { get; set; }
     }
 
 }
