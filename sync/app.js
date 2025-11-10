@@ -123,6 +123,8 @@ class SyncApp {
     async loadExternalPage(pageUrl) {
         const mainContent = document.getElementById('mainContent');
 
+        console.log('SyncApp: Loading external page:', pageUrl);
+
         // Fade out
         mainContent.style.opacity = '0';
 
@@ -133,39 +135,61 @@ class SyncApp {
             }
 
             const html = await response.text();
+            console.log('SyncApp: Page HTML loaded successfully');
 
             setTimeout(() => {
                 mainContent.innerHTML = html;
-                // Fade in
-                mainContent.style.opacity = '1';
 
-                // Load external scripts if any
+                // Load external scripts with corrected paths
                 const scripts = mainContent.querySelectorAll('script[src]');
+                console.log('SyncApp: Found', scripts.length, 'external scripts');
+
                 scripts.forEach(oldScript => {
+                    const scriptSrc = oldScript.getAttribute('src');
                     const newScript = document.createElement('script');
-                    newScript.src = oldScript.getAttribute('src');
+
+                    // Fix relative paths - resolve relative to sync folder
+                    if (scriptSrc.startsWith('../')) {
+                        newScript.src = scriptSrc.replace('../', '');
+                    } else {
+                        newScript.src = scriptSrc;
+                    }
+
+                    console.log('SyncApp: Loading script:', newScript.src);
+
+                    newScript.onload = () => console.log('SyncApp: Script loaded:', newScript.src);
+                    newScript.onerror = (e) => console.error('SyncApp: Script failed to load:', newScript.src, e);
+
                     document.body.appendChild(newScript);
+                    oldScript.remove(); // Remove the old script tag
                 });
 
                 // Execute inline scripts
                 const inlineScripts = mainContent.querySelectorAll('script:not([src])');
+                console.log('SyncApp: Found', inlineScripts.length, 'inline scripts');
+
                 inlineScripts.forEach(oldScript => {
                     const newScript = document.createElement('script');
                     newScript.textContent = oldScript.textContent;
                     document.body.appendChild(newScript);
                 });
+
+                // Fade in
+                mainContent.style.opacity = '1';
+                console.log('SyncApp: Page loaded and visible');
             }, 150);
 
         } catch (error) {
-            console.error('Error loading external page:', error);
+            console.error('SyncApp: Error loading external page:', error);
             setTimeout(() => {
                 mainContent.innerHTML = `
                     <div style="text-align: center; padding: 40px;">
                         <i class="fas fa-exclamation-triangle" style="font-size: 48px; color: #e74c3c; margin-bottom: 20px;"></i>
                         <h2>Failed to Load Page</h2>
                         <p>Error: ${error.message}</p>
-                        <button onclick="location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer;">
-                            <i class="fas fa-redo"></i> Reload Page
+                        <p style="color: #7f8c8d; font-size: 14px;">Check browser console (F12) for details</p>
+                        <button onclick="window.syncApp.loadExternalPage('pages/api-endpoints.html')" style="margin-top: 20px; padding: 10px 20px; background: #3498db; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-redo"></i> Retry
                         </button>
                     </div>
                 `;
