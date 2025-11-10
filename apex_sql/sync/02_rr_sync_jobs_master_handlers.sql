@@ -8,6 +8,27 @@
 -- =====================================================
 
 -- =====================================================
+-- 0. ENSURE ORDS MODULE EXISTS
+-- =====================================================
+
+BEGIN
+    -- Try to create module (will error if exists, which we catch)
+    ORDS.DEFINE_MODULE(
+        p_module_name    => 'rr',
+        p_base_path      => 'rr/',
+        p_items_per_page => 25,
+        p_status         => 'PUBLISHED',
+        p_comments       => 'RR WMS Sync Module'
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- Module already exists, continue
+        NULL;
+END;
+/
+
+-- =====================================================
 -- 1. CREATE OR UPDATE SYNC JOB MASTER
 -- =====================================================
 
@@ -121,10 +142,24 @@ END RR_SYNC_JOBS_MASTER_UPSERT;
 /
 
 -- =====================================================
--- 2. DEFINE POST HANDLER
+-- 2. DEFINE TEMPLATE AND POST HANDLER
 -- =====================================================
 
 BEGIN
+    -- Define template first
+    ORDS.DEFINE_TEMPLATE(
+        p_module_name    => 'rr',
+        p_pattern        => 'sync/jobs/master'
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
+
+BEGIN
+    -- Define POST handler
     ORDS.DEFINE_HANDLER(
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/master',
@@ -215,7 +250,14 @@ BEGIN
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/master/:id'
     );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
+BEGIN
     ORDS.DEFINE_HANDLER(
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/master/:id',
@@ -252,6 +294,18 @@ END;
 -- =====================================================
 -- 5. GET ACTIVE JOBS BY MODULE
 -- =====================================================
+
+BEGIN
+    ORDS.DEFINE_TEMPLATE(
+        p_module_name    => 'rr',
+        p_pattern        => 'sync/jobs/master/active'
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
 BEGIN
     ORDS.DEFINE_HANDLER(

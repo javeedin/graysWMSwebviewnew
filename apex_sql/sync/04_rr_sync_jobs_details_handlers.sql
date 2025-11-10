@@ -119,8 +119,20 @@ END RR_SYNC_JOBS_DETAILS_UPDATE;
 /
 
 -- =====================================================
--- 3. DEFINE POST HANDLER (Create Execution)
+-- 3. DEFINE TEMPLATE AND POST HANDLER (Create Execution)
 -- =====================================================
+
+BEGIN
+    ORDS.DEFINE_TEMPLATE(
+        p_module_name    => 'rr',
+        p_pattern        => 'sync/jobs/details'
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
 BEGIN
     ORDS.DEFINE_HANDLER(
@@ -162,7 +174,14 @@ BEGIN
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/details/:id'
     );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
+BEGIN
     ORDS.DEFINE_HANDLER(
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/details/:id',
@@ -297,6 +316,18 @@ END;
 -- =====================================================
 -- 7. GET EXECUTION STATISTICS BY JOB
 -- =====================================================
+
+BEGIN
+    ORDS.DEFINE_TEMPLATE(
+        p_module_name    => 'rr',
+        p_pattern        => 'sync/jobs/details/stats'
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
 BEGIN
     ORDS.DEFINE_HANDLER(

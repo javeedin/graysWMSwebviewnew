@@ -148,10 +148,24 @@ END RR_SYNC_JOBS_HEADER_UPSERT;
 /
 
 -- =====================================================
--- 2. DEFINE POST HANDLER
+-- 2. DEFINE TEMPLATE AND POST HANDLER
 -- =====================================================
 
 BEGIN
+    -- Define template first
+    ORDS.DEFINE_TEMPLATE(
+        p_module_name    => 'rr',
+        p_pattern        => 'sync/jobs/header'
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
+
+BEGIN
+    -- Define POST handler
     ORDS.DEFINE_HANDLER(
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/header',
@@ -259,7 +273,14 @@ BEGIN
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/header/:id'
     );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
+BEGIN
     ORDS.DEFINE_HANDLER(
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/header/:id',
@@ -310,6 +331,18 @@ END;
 -- =====================================================
 -- 5. GET JOBS DUE FOR EXECUTION
 -- =====================================================
+
+BEGIN
+    ORDS.DEFINE_TEMPLATE(
+        p_module_name    => 'rr',
+        p_pattern        => 'sync/jobs/header/due'
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
 BEGIN
     ORDS.DEFINE_HANDLER(

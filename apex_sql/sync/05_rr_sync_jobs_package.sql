@@ -509,7 +509,14 @@ BEGIN
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/execute/:id'
     );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
+BEGIN
     ORDS.DEFINE_HANDLER(
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/execute/:id',
@@ -539,7 +546,14 @@ BEGIN
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/summary/:id'
     );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
 
+BEGIN
     ORDS.DEFINE_HANDLER(
         p_module_name    => 'rr',
         p_pattern        => 'sync/jobs/summary/:id',
@@ -558,6 +572,18 @@ END;
 /
 
 -- Create endpoint for overall statistics
+BEGIN
+    ORDS.DEFINE_TEMPLATE(
+        p_module_name    => 'rr',
+        p_pattern        => 'sync/jobs/statistics'
+    );
+    COMMIT;
+EXCEPTION
+    WHEN OTHERS THEN
+        NULL; -- Template might already exist
+END;
+/
+
 BEGIN
     ORDS.DEFINE_HANDLER(
         p_module_name    => 'rr',
