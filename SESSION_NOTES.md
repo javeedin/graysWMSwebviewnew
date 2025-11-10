@@ -1,8 +1,55 @@
 # SESSION NOTES - Gray's WMS WebView Development
+
+---
+## 🔒 BASELINE CHECKPOINT
+**⚠️ CRITICAL: NEVER GO BELOW THIS BASELINE ⚠️**
+
+```
+BASELINE ID:        BASELINE-2025-11-10-001
+BASELINE DATE:      2025-11-10
+BASELINE TIME:      08:05 UTC
+BASELINE COMMIT:    e8a6d3c
+BASELINE BRANCH:    claude/fix-oracle-datatype-error-011CUyaeyu5sWmYoftkTz62o
+```
+
+### ✅ BASELINE VERIFICATION CHECKLIST
+**Before ANY merge or branch switch, verify these counts match or exceed:**
+
+| Item | Baseline Count | Current | Status |
+|------|----------------|---------|--------|
+| Module Folders | 9 | - | ⚠️ CHECK |
+| APEX SQL Files | 27 | - | ⚠️ CHECK |
+| C# Class Files | 14 | - | ⚠️ CHECK |
+| Sync Module Files | 8 | - | ⚠️ CHECK |
+| Build Scripts | 5 | - | ⚠️ CHECK |
+| Compilation Status | ✅ PASS | - | ⚠️ CHECK |
+
+### 📁 BASELINE FILE MANIFEST
+**These files MUST exist:**
+- ✅ Form1.cs (with Sync module in context menu - line 421+)
+- ✅ classes/PrintModels.cs (with CheckPdfExistsMessage - line 260+)
+- ✅ sync/index.html (Sync module UI)
+- ✅ sync/pages/api-endpoints.html (API Endpoints page)
+- ✅ sync/js/api-endpoints.js (API Endpoints logic)
+- ✅ apex_sql/24_rr_endpoints_POST_create.sql (POST handler)
+- ✅ apex_sql/25_rr_endpoints_PUT_update.sql (PUT handler)
+- ✅ apex_sql/26_rr_endpoints_DELETE.sql (DELETE handler)
+- ✅ apex_sql/27_rr_endpoints_COMPLETE_SETUP_GUIDE.sql (Setup guide)
+
+### 🚨 BASELINE VIOLATION PROTOCOL
+**IF any check fails:**
+1. ❌ STOP IMMEDIATELY - Do not proceed
+2. 🔄 Restore from baseline commit: `git checkout e8a6d3c`
+3. 📢 Alert user: "BASELINE VIOLATION - Restored to checkpoint"
+4. 📝 Document what went wrong
+
+---
+
 ## 🎯 Current Active Branch: `claude/fix-oracle-datatype-error-011CUyaeyu5sWmYoftkTz62o`
 
-**Last Updated**: 2025-11-10
+**Last Updated**: 2025-11-10 08:05 UTC
 **Status**: ✅ WORKING - All compilation errors fixed, all modules present
+**Current Commit**: e8a6d3c
 
 ---
 
