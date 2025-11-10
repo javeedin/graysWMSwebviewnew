@@ -1,0 +1,115 @@
+-- ============================================================================
+-- RR_GL_JOURNAL_BATCHES TABLE
+-- Description: Stores journal batches synced from Oracle Fusion Cloud GL
+-- Prefix: RR_ (Reengineering Resources)
+-- Created: 2025-11-10
+-- ============================================================================
+
+-- Drop existing objects (for clean reinstall)
+DROP TABLE RR_GL_JOURNAL_BATCHES CASCADE CONSTRAINTS;
+DROP SEQUENCE RR_GL_JOURNAL_BATCHES_SEQ;
+
+-- Create sequence for primary key
+CREATE SEQUENCE RR_GL_JOURNAL_BATCHES_SEQ
+    START WITH 1
+    INCREMENT BY 1
+    NOCACHE
+    NOCYCLE;
+
+-- Create main table
+CREATE TABLE RR_GL_JOURNAL_BATCHES (
+    -- Primary Key
+    BATCH_SYNC_ID           NUMBER          NOT NULL,
+
+    -- Oracle Fusion Fields (from journalBatches API)
+    JE_BATCH_ID             NUMBER          NOT NULL,
+    ACCOUNTED_PERIOD_TYPE   VARCHAR2(100),
+    DEFAULT_PERIOD_NAME     VARCHAR2(50),
+    BATCH_NAME              VARCHAR2(500),
+    STATUS                  VARCHAR2(10),
+    CONTROL_TOTAL           NUMBER(20,2),
+    BATCH_DESCRIPTION       VARCHAR2(500),
+    ERROR_MESSAGE           VARCHAR2(4000),
+    POSTED_DATE             DATE,
+    POSTING_RUN_ID          NUMBER,
+    REQUEST_ID              NUMBER,
+
+    -- Running Totals
+    RUNNING_TOTAL_ACCT_CR   NUMBER(20,2),
+    RUNNING_TOTAL_ACCT_DR   NUMBER(20,2),
+    RUNNING_TOTAL_CR        NUMBER(20,2),
+    RUNNING_TOTAL_DR        NUMBER(20,2),
+
+    -- Audit Fields from Oracle
+    ORACLE_CREATED_BY       VARCHAR2(100),
+    ORACLE_CREATION_DATE    TIMESTAMP(6),
+    ORACLE_LAST_UPDATE_DATE TIMESTAMP(6),
+    ORACLE_LAST_UPDATED_BY  VARCHAR2(100),
+
+    -- Meaning Fields (descriptive values)
+    ACTUAL_FLAG_MEANING     VARCHAR2(100),
+    APPROVAL_STATUS_MEANING VARCHAR2(100),
+    APPROVER_EMPLOYEE_NAME  VARCHAR2(200),
+    FUNDS_STATUS_MEANING    VARCHAR2(100),
+    PARENT_JE_BATCH_NAME    VARCHAR2(500),
+    CHART_OF_ACCOUNTS_NAME  VARCHAR2(100),
+    STATUS_MEANING          VARCHAR2(100),
+    COMPLETION_STATUS_MEANING VARCHAR2(100),
+    USER_PERIOD_SET_NAME    VARCHAR2(100),
+    USER_JE_SOURCE_NAME     VARCHAR2(100),
+
+    -- Reversal Information
+    REVERSAL_DATE           DATE,
+    REVERSAL_PERIOD         VARCHAR2(50),
+    REVERSAL_FLAG           VARCHAR2(1),
+    REVERSAL_METHOD_MEANING VARCHAR2(100),
+
+    -- Sync Metadata
+    SYNC_STATUS             VARCHAR2(20)    DEFAULT 'SYNCED',  -- SYNCED, PENDING, ERROR
+    SYNC_DATE               TIMESTAMP(6)    DEFAULT SYSTIMESTAMP,
+    SYNC_ERROR_MESSAGE      VARCHAR2(4000),
+    LAST_SYNC_DATE          TIMESTAMP(6),
+    SYNC_COUNT              NUMBER          DEFAULT 1,
+
+    -- Local Audit Fields
+    CREATED_BY              VARCHAR2(100)   DEFAULT 'SYSTEM',
+    CREATION_DATE           TIMESTAMP(6)    DEFAULT SYSTIMESTAMP,
+    LAST_UPDATED_BY         VARCHAR2(100)   DEFAULT 'SYSTEM',
+    LAST_UPDATE_DATE        TIMESTAMP(6)    DEFAULT SYSTIMESTAMP,
+
+    -- Constraints
+    CONSTRAINT RR_GL_JOURNAL_BATCHES_PK PRIMARY KEY (BATCH_SYNC_ID),
+    CONSTRAINT RR_GL_JOURNAL_BATCHES_UK1 UNIQUE (JE_BATCH_ID)
+);
+
+-- Create indexes for performance
+CREATE INDEX RR_GL_JB_STATUS_IDX ON RR_GL_JOURNAL_BATCHES(STATUS);
+CREATE INDEX RR_GL_JB_POSTED_DATE_IDX ON RR_GL_JOURNAL_BATCHES(POSTED_DATE);
+CREATE INDEX RR_GL_JB_PERIOD_NAME_IDX ON RR_GL_JOURNAL_BATCHES(DEFAULT_PERIOD_NAME);
+CREATE INDEX RR_GL_JB_SYNC_STATUS_IDX ON RR_GL_JOURNAL_BATCHES(SYNC_STATUS);
+CREATE INDEX RR_GL_JB_SYNC_DATE_IDX ON RR_GL_JOURNAL_BATCHES(SYNC_DATE);
+CREATE INDEX RR_GL_JB_BATCH_NAME_IDX ON RR_GL_JOURNAL_BATCHES(BATCH_NAME);
+
+-- Add comments
+COMMENT ON TABLE RR_GL_JOURNAL_BATCHES IS 'Stores journal batches synced from Oracle Fusion Cloud GL';
+COMMENT ON COLUMN RR_GL_JOURNAL_BATCHES.BATCH_SYNC_ID IS 'Primary key - local sync ID';
+COMMENT ON COLUMN RR_GL_JOURNAL_BATCHES.JE_BATCH_ID IS 'Oracle Fusion journal batch ID';
+COMMENT ON COLUMN RR_GL_JOURNAL_BATCHES.SYNC_STATUS IS 'Sync status: SYNCED, PENDING, ERROR';
+COMMENT ON COLUMN RR_GL_JOURNAL_BATCHES.SYNC_DATE IS 'When this record was last synced';
+
+-- Display table structure
+SELECT
+    column_name,
+    data_type,
+    data_length,
+    nullable,
+    data_default
+FROM user_tab_columns
+WHERE table_name = 'RR_GL_JOURNAL_BATCHES'
+ORDER BY column_id;
+
+COMMIT;
+
+PROMPT ✅ RR_GL_JOURNAL_BATCHES table created successfully!
+PROMPT ✅ RR_GL_JOURNAL_BATCHES_SEQ sequence created successfully!
+PROMPT ✅ All indexes created successfully!
