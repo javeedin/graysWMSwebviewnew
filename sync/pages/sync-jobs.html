@@ -581,6 +581,9 @@
             <div class="tab-pane" id="job-catalog">
                 <div class="toolbar">
                     <div class="toolbar-left">
+                        <button class="btn btn-primary" onclick="openCreateCatalogModal()">
+                            <i class="fas fa-plus"></i> Add New Catalog
+                        </button>
                         <button class="btn btn-secondary" onclick="loadJobCatalog(true)">
                             <i class="fas fa-sync"></i> Refresh
                         </button>
@@ -809,6 +812,127 @@
         </div>
         <div class="modal-footer">
             <button class="btn btn-secondary" onclick="closeExecutionModal()">Close</button>
+        </div>
+    </div>
+</div>
+
+<!-- Catalog Modal -->
+<div id="catalogModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 id="catalogModalTitle">Add New Catalog Item</h2>
+            <button class="modal-close" onclick="closeCatalogModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="catalogForm">
+                <input type="hidden" id="catalogJobMasterId" name="jobMasterId">
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Module *</label>
+                        <select id="catalogModule" name="module" required>
+                            <option value="">Select Module</option>
+                            <option value="GL">GL - General Ledger</option>
+                            <option value="AP">AP - Accounts Payable</option>
+                            <option value="AR">AR - Accounts Receivable</option>
+                            <option value="FA">FA - Fixed Assets</option>
+                            <option value="INV">INV - Inventory</option>
+                            <option value="PO">PO - Purchase Orders</option>
+                            <option value="OM">OM - Order Management</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Job Name *</label>
+                        <input type="text" id="catalogJobName" name="jobName" required placeholder="e.g., Journal Batches">
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Job Code *</label>
+                        <input type="text" id="catalogJobCode" name="jobCode" required placeholder="e.g., GL_JOURNAL_BATCHES">
+                    </div>
+                    <div class="form-group">
+                        <label>API Type</label>
+                        <select id="catalogApiType" name="apiType">
+                            <option value="REST">REST</option>
+                            <option value="SOAP">SOAP</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>HTTP Method</label>
+                        <select id="catalogHttpMethod" name="httpMethod">
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="PUT">PUT</option>
+                            <option value="PATCH">PATCH</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Authentication Type</label>
+                        <select id="catalogAuthType" name="authenticationType">
+                            <option value="BASIC">Basic Auth</option>
+                            <option value="OAUTH">OAuth</option>
+                            <option value="TOKEN">Token</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Source Endpoint *</label>
+                    <input type="text" id="catalogSourceEndpoint" name="sourceEndpoint" required
+                           placeholder="/fscmRestApi/resources/11.13.18.05/journalBatches">
+                </div>
+
+                <div class="form-group">
+                    <label>Destination Endpoint</label>
+                    <input type="text" id="catalogDestEndpoint" name="destinationEndpoint"
+                           placeholder="/ords/r/wksp_graysapp/rr/gl/journalbatches">
+                </div>
+
+                <div class="form-group">
+                    <label>Destination Procedure</label>
+                    <input type="text" id="catalogDestProcedure" name="destinationProcedure"
+                           placeholder="RR_GL_SYNC_JOURNAL_BATCH">
+                </div>
+
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="catalogDescription" name="description" rows="3"
+                              placeholder="Brief description of what this job does"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Default Parameters (JSON)</label>
+                    <textarea id="catalogDefaultParams" name="defaultParameters" rows="3"
+                              placeholder='{"limit": 500, "offset": 0}'></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Field Mapping (JSON)</label>
+                    <textarea id="catalogFieldMapping" name="fieldMapping" rows="3"
+                              placeholder='{"sourceField": "targetField"}'></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Sort Order</label>
+                        <input type="number" id="catalogSortOrder" name="sortOrder" value="100" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="catalogIsActive" name="isActive" checked> Active
+                        </label>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeCatalogModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveCatalog()">Save Catalog</button>
         </div>
     </div>
 </div>

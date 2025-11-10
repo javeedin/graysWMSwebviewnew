@@ -206,8 +206,14 @@ function renderCatalog(catalog) {
                 <td><small>${job.sourceEndpoint}</small></td>
                 <td>${job.description || 'N/A'}</td>
                 <td>
-                    <button class="btn btn-primary btn-sm" onclick="createFromCatalog(${job.jobMasterId})">
-                        <i class="fas fa-plus"></i> Create Job
+                    <button class="btn btn-success btn-sm" onclick="createFromCatalog(${job.jobMasterId})" title="Create Job">
+                        <i class="fas fa-plus"></i>
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="editCatalog(${job.jobMasterId})" title="Edit">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteCatalog(${job.jobMasterId})" title="Delete">
+                        <i class="fas fa-trash"></i>
                     </button>
                 </td>
             </tr>
@@ -617,6 +623,134 @@ function closeJobModal() {
 
 function closeExecutionModal() {
     document.getElementById('executionModal').classList.remove('active');
+}
+
+// ============================================================================
+// CATALOG MANAGEMENT FUNCTIONS
+// ============================================================================
+
+function openCreateCatalogModal() {
+    document.getElementById('catalogModalTitle').textContent = 'Add New Catalog Item';
+    document.getElementById('catalogForm').reset();
+    document.getElementById('catalogJobMasterId').value = '';
+    document.getElementById('catalogModal').classList.add('active');
+}
+
+async function editCatalog(jobMasterId) {
+    try {
+        const response = await fetch(`${API_BASE_URL}/sync/jobs/master/${jobMasterId}`);
+        const catalog = await response.json();
+
+        document.getElementById('catalogModalTitle').textContent = 'Edit Catalog Item';
+        document.getElementById('catalogJobMasterId').value = catalog.jobMasterId;
+        document.getElementById('catalogModule').value = catalog.module;
+        document.getElementById('catalogJobName').value = catalog.jobName;
+        document.getElementById('catalogJobCode').value = catalog.jobCode;
+        document.getElementById('catalogApiType').value = catalog.apiType || 'REST';
+        document.getElementById('catalogHttpMethod').value = catalog.httpMethod || 'GET';
+        document.getElementById('catalogAuthType').value = catalog.authenticationType || 'BASIC';
+        document.getElementById('catalogSourceEndpoint').value = catalog.sourceEndpoint;
+        document.getElementById('catalogDestEndpoint').value = catalog.destinationEndpoint || '';
+        document.getElementById('catalogDestProcedure').value = catalog.destinationProcedure || '';
+        document.getElementById('catalogDescription').value = catalog.description || '';
+        document.getElementById('catalogDefaultParams').value = catalog.defaultParameters || '';
+        document.getElementById('catalogFieldMapping').value = catalog.fieldMapping || '';
+        document.getElementById('catalogSortOrder').value = catalog.sortOrder || 100;
+        document.getElementById('catalogIsActive').checked = catalog.isActive === 'Y';
+
+        document.getElementById('catalogModal').classList.add('active');
+    } catch (error) {
+        console.error('Error loading catalog for edit:', error);
+        showError('Error loading catalog: ' + error.message);
+    }
+}
+
+async function saveCatalog() {
+    const form = document.getElementById('catalogForm');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
+    const formData = {
+        jobMasterId: document.getElementById('catalogJobMasterId').value || null,
+        module: document.getElementById('catalogModule').value,
+        jobName: document.getElementById('catalogJobName').value,
+        jobCode: document.getElementById('catalogJobCode').value,
+        apiType: document.getElementById('catalogApiType').value,
+        httpMethod: document.getElementById('catalogHttpMethod').value,
+        authenticationType: document.getElementById('catalogAuthType').value,
+        sourceEndpoint: document.getElementById('catalogSourceEndpoint').value,
+        destinationEndpoint: document.getElementById('catalogDestEndpoint').value,
+        destinationProcedure: document.getElementById('catalogDestProcedure').value,
+        description: document.getElementById('catalogDescription').value,
+        defaultParameters: document.getElementById('catalogDefaultParams').value,
+        fieldMapping: document.getElementById('catalogFieldMapping').value,
+        sortOrder: parseInt(document.getElementById('catalogSortOrder').value),
+        isActive: document.getElementById('catalogIsActive').checked ? 'Y' : 'N'
+    };
+
+    try {
+        const response = await fetch(`${API_BASE_URL}/sync/jobs/master`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(formData)
+        });
+
+        const result = await response.json();
+
+        if (result.status === 'SUCCESS' || response.ok) {
+            showSuccess('Catalog item saved successfully!');
+            closeCatalogModal();
+            loadJobCatalog(true);
+        } else {
+            showError('Error saving catalog: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Error saving catalog:', error);
+        showError('Error saving catalog: ' + error.message);
+    }
+}
+
+async function deleteCatalog(jobMasterId) {
+    if (!confirm('Are you sure you want to delete this catalog item? This will affect all jobs using this template.')) {
+        return;
+    }
+
+    try {
+        // Note: You might need to implement a DELETE endpoint
+        // For now, we can mark it as inactive via PUT
+        const response = await fetch(`${API_BASE_URL}/sync/jobs/master/${jobMasterId}`);
+        const catalog = await response.json();
+
+        catalog.isActive = 'N';
+
+        const updateResponse = await fetch(`${API_BASE_URL}/sync/jobs/master`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(catalog)
+        });
+
+        const result = await updateResponse.json();
+
+        if (result.status === 'SUCCESS' || updateResponse.ok) {
+            showSuccess('Catalog item marked as inactive!');
+            loadJobCatalog(true);
+        } else {
+            showError('Error deleting catalog: ' + result.message);
+        }
+    } catch (error) {
+        console.error('Error deleting catalog:', error);
+        showError('Error deleting catalog: ' + error.message);
+    }
+}
+
+function closeCatalogModal() {
+    document.getElementById('catalogModal').classList.remove('active');
 }
 
 // ============================================================================
