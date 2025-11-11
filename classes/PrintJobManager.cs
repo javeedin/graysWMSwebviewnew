@@ -14,6 +14,7 @@ namespace WMSApp.PrintManagement
         private readonly PrinterService _printerService;
         private readonly LocalStorageManager _storageManager;
         private readonly Queue<PrintJob> _printQueue;
+        private readonly RestApiClient _restApiClient;
         private bool _isProcessingQueue = false;
 
         public PrintJobManager()
@@ -22,6 +23,7 @@ namespace WMSApp.PrintManagement
             _printerService = new PrinterService();
             _storageManager = new LocalStorageManager();
             _printQueue = new Queue<PrintJob>();
+            _restApiClient = new RestApiClient();
         }
 
         /// <summary>
@@ -474,6 +476,60 @@ namespace WMSApp.PrintManagement
         /// <summary>
         /// Manually downloads a single order PDF
         /// </summary>
+        /// <summary>
+        /// Gets the active printer configuration from APEX REST API
+        /// </summary>
+        private async Task<PrinterConfig> GetActivePrinterConfigFromApexAsync()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Getting printer config from APEX REST...");
+
+                string url = EndpointRegistry.GetEndpointUrl("WMS", "GETPRINTERCONFIG");
+                if (string.IsNullOrEmpty(url))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Printer config endpoint not found in registry");
+                    return null;
+                }
+
+                string jsonResponse = await _restApiClient.ExecuteGetAsync(url);
+
+                // Parse JSON response to get active printer
+                var jsonDoc = System.Text.Json.JsonDocument.Parse(jsonResponse);
+                var items = jsonDoc.RootElement.GetProperty("items");
+
+                foreach (var item in items.EnumerateArray())
+                {
+                    string isActive = item.GetProperty("isActive").GetString();
+                    if (isActive == "Y")
+                    {
+                        var config = new PrinterConfig
+                        {
+                            PrinterName = item.GetProperty("printerName").GetString(),
+                            PaperSize = item.GetProperty("paperSize").GetString(),
+                            Orientation = item.GetProperty("orientation").GetString(),
+                            FusionInstance = item.GetProperty("fusionInstance").GetString(),
+                            FusionUsername = item.GetProperty("fusionUsername").GetString(),
+                            FusionPassword = item.GetProperty("fusionPassword").GetString(),
+                            AutoDownload = item.GetProperty("autoDownload").GetString() == "Y",
+                            AutoPrint = item.GetProperty("autoPrint").GetString() == "Y"
+                        };
+
+                        System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ✅ Got active printer from APEX: {config.PrinterName}");
+                        return config;
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ No active printer found in APEX");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Failed to get printer config from APEX: {ex.Message}");
+                return null;
+            }
+        }
+
         public async Task<DownloadResult> DownloadSingleOrderAsync(
             string orderNumber,
             string tripId,
@@ -481,39 +537,60 @@ namespace WMSApp.PrintManagement
         {
             try
             {
-                var printerConfig = _storageManager.LoadPrinterConfig();
-                var tripConfig = LocalStorageManager.LoadTripPrintConfig(tripDate, tripId);
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Downloading order {orderNumber} from trip {tripId}");
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ========================================");
 
-                if (tripConfig == null)
+                // ✅ FIX: Get printer config from APEX REST instead of local JSON
+                var printerConfig = await GetActivePrinterConfigFromApexAsync();
+
+                if (printerConfig == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Failed to get printer config from APEX, falling back to local config");
+                    // Fallback to local config if APEX fails
+                    printerConfig = _storageManager.LoadPrinterConfig();
+                }
+
+                if (printerConfig == null)
                 {
                     return new DownloadResult
                     {
                         Success = false,
-                        Message = "Trip configuration not found"
+                        Message = "Printer configuration not found in APEX or local storage"
                     };
                 }
 
-                var job = tripConfig.Orders.FirstOrDefault(o => o.OrderNumber == orderNumber);
-                if (job == null)
+                // ✅ FIX: Download directly without checking trip config
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Downloading PDF from Fusion directly...");
+
+                var result = await _pdfDownloader.DownloadAndSavePdfAsync(
+                    orderNumber,
+                    tripId,
+                    tripDate,
+                    printerConfig.FusionInstance,
+                    printerConfig.FusionUsername,
+                    printerConfig.FusionPassword
+                );
+
+                if (result.Success)
                 {
-                    return new DownloadResult
-                    {
-                        Success = false,
-                        Message = "Order not found in trip"
-                    };
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ✅ Download completed: {result.FilePath}");
                 }
-
-                bool success = await DownloadOrderPdfAsync(job, printerConfig);
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Download failed: {result.ErrorMessage}");
+                }
 
                 return new DownloadResult
                 {
-                    Success = success,
-                    Message = success ? "Download completed" : job.ErrorMessage,
-                    FilePath = job.PdfPath
+                    Success = result.Success,
+                    Message = result.Success ? "Download completed" : result.ErrorMessage,
+                    FilePath = result.FilePath
                 };
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Exception: {ex.Message}");
                 return new DownloadResult
                 {
                     Success = false,
