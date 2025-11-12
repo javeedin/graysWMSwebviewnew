@@ -16,6 +16,60 @@ namespace WMSApp.PrintManagement
         private const string BASE_PATH = @"C:\fusion";
         private const string CONFIG_FILE = "printer_config.json";
         private const string ORDERS_FILE = "orders.json";
+        private const string INSTANCE_SETTINGS_FILE = "instance_settings.json";
+
+        /// <summary>
+        /// Saves global instance setting (PROD/TEST)
+        /// </summary>
+        public bool SaveInstanceSetting(string instance)
+        {
+            try
+            {
+                Directory.CreateDirectory(BASE_PATH);
+                string settingsPath = Path.Combine(BASE_PATH, INSTANCE_SETTINGS_FILE);
+
+                var settings = new { fusionInstance = instance };
+                string json = JsonConvert.SerializeObject(settings, Formatting.Indented);
+                File.WriteAllText(settingsPath, json);
+
+                System.Diagnostics.Debug.WriteLine($"[LocalStorageManager] Instance setting saved: {instance}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LocalStorageManager ERROR] Failed to save instance setting: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Loads global instance setting (returns PROD by default)
+        /// </summary>
+        public string LoadInstanceSetting()
+        {
+            try
+            {
+                string settingsPath = Path.Combine(BASE_PATH, INSTANCE_SETTINGS_FILE);
+
+                if (!File.Exists(settingsPath))
+                {
+                    System.Diagnostics.Debug.WriteLine("[LocalStorageManager] Instance settings file not found, returning default (PROD)");
+                    return "PROD";
+                }
+
+                string json = File.ReadAllText(settingsPath);
+                dynamic settings = JsonConvert.DeserializeObject(json);
+
+                string instance = settings?.fusionInstance ?? "PROD";
+                System.Diagnostics.Debug.WriteLine($"[LocalStorageManager] Instance setting loaded: {instance}");
+                return instance;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LocalStorageManager ERROR] Failed to load instance setting: {ex.Message}");
+                return "PROD";
+            }
+        }
 
         /// <summary>
         /// Saves printer configuration
@@ -52,9 +106,9 @@ namespace WMSApp.PrintManagement
                 if (!File.Exists(configPath))
                 {
                     System.Diagnostics.Debug.WriteLine("[LocalStorageManager] Config file not found, returning defaults");
+                    // Note: FusionInstance is now managed globally via instance_settings.json
                     return new PrinterConfig
                     {
-                        FusionInstance = "TEST",
                         FusionUsername = "shaik",
                         FusionPassword = "fusion1234",
                         AutoDownload = true,

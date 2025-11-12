@@ -12,6 +12,92 @@ window.currentFullData = currentFullData;
 window.pendingRequests = {};
 
 // ========================================
+// INSTANCE MANAGEMENT
+// ========================================
+
+// Initialize instance from localStorage (default to PROD)
+function initializeInstance() {
+    const savedInstance = localStorage.getItem('fusionInstance') || 'PROD';
+    document.getElementById('current-instance-display').textContent = savedInstance;
+
+    // Update checkmarks
+    document.getElementById('check-PROD').style.visibility = savedInstance === 'PROD' ? 'visible' : 'hidden';
+    document.getElementById('check-TEST').style.visibility = savedInstance === 'TEST' ? 'visible' : 'hidden';
+
+    console.log('[Instance] Initialized to:', savedInstance);
+    return savedInstance;
+}
+
+// Toggle instance dropdown menu
+window.toggleInstanceMenu = function() {
+    const menu = document.getElementById('instance-dropdown-menu');
+    menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+};
+
+// Select instance
+window.selectInstance = function(instance) {
+    localStorage.setItem('fusionInstance', instance);
+    document.getElementById('current-instance-display').textContent = instance;
+
+    // Update checkmarks
+    document.getElementById('check-PROD').style.visibility = instance === 'PROD' ? 'visible' : 'hidden';
+    document.getElementById('check-TEST').style.visibility = instance === 'TEST' ? 'visible' : 'hidden';
+
+    // Close menu
+    document.getElementById('instance-dropdown-menu').style.display = 'none';
+
+    console.log('[Instance] Changed to:', instance);
+
+    // Sync to C# backend
+    syncInstanceToBackend(instance);
+
+    // Show notification
+    const notification = document.createElement('div');
+    notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #667eea; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10001; font-weight: 600; animation: slideIn 0.3s ease-out;';
+    notification.innerHTML = `<i class="fas fa-check-circle"></i> Instance changed to <strong>${instance}</strong>`;
+    document.body.appendChild(notification);
+
+    setTimeout(() => {
+        notification.style.opacity = '0';
+        notification.style.transition = 'opacity 0.3s';
+        setTimeout(() => notification.remove(), 300);
+    }, 2000);
+};
+
+// Sync instance setting to C# backend
+function syncInstanceToBackend(instance) {
+    if (typeof sendMessageToCSharp === 'function') {
+        sendMessageToCSharp({
+            action: 'setInstanceSetting',
+            instance: instance
+        }, function(error, response) {
+            if (error) {
+                console.error('[Instance] Failed to sync to backend:', error);
+            } else {
+                console.log('[Instance] Successfully synced to backend:', instance);
+            }
+        });
+    } else {
+        console.warn('[Instance] C# bridge not available, instance saved to localStorage only');
+    }
+}
+
+// Get current instance
+window.getCurrentInstance = function() {
+    return localStorage.getItem('fusionInstance') || 'PROD';
+};
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(e) {
+    const selector = document.getElementById('instance-selector');
+    const menu = document.getElementById('instance-dropdown-menu');
+
+    if (selector && menu && !selector.contains(e.target) && !menu.contains(e.target)) {
+        menu.style.display = 'none';
+    }
+});
+
+// ========================================
 // HELPER FUNCTIONS
 // ========================================
 
@@ -1302,7 +1388,10 @@ if (window.chrome?.webview) {
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('[JS] 📄 DOM Content Loaded');
-    
+
+    // Initialize instance selector
+    initializeInstance();
+
     // Collapse/Expand Parameters
     document.getElementById('parameters-toggle').addEventListener('click', function() {
         const content = document.getElementById('parameters-content');

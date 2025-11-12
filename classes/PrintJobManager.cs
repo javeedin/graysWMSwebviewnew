@@ -288,11 +288,13 @@ namespace WMSApp.PrintManagement
                 );
 
                 // Download from Fusion
+                // Use global instance setting instead of per-printer instance
+                string globalInstance = _storageManager.LoadInstanceSetting();
                 var result = await _pdfDownloader.DownloadAndSavePdfAsync(
                     job.OrderNumber,
                     job.TripId,
                     job.TripDate,
-                    printerConfig.FusionInstance,
+                    globalInstance,
                     printerConfig.FusionUsername,
                     printerConfig.FusionPassword
                 );
@@ -563,11 +565,13 @@ namespace WMSApp.PrintManagement
                 // ✅ FIX: Download directly without checking trip config
                 System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Downloading PDF from Fusion directly...");
 
+                // Use global instance setting instead of per-printer instance
+                string globalInstance = _storageManager.LoadInstanceSetting();
                 var result = await _pdfDownloader.DownloadAndSavePdfAsync(
                     orderNumber,
                     tripId,
                     tripDate,
-                    printerConfig.FusionInstance,
+                    globalInstance,
                     printerConfig.FusionUsername,
                     printerConfig.FusionPassword
                 );

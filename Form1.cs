@@ -1073,6 +1073,11 @@ namespace WMSApp
                                 case "testPrinter":
                                     await HandleTestPrinter(wv, messageJson, requestId);
                                     break;
+
+                                case "setInstanceSetting":
+                                    await HandleSetInstanceSetting(wv, messageJson, requestId);
+                                    break;
+
                                 case "getAllPrintJobs":
                                     await HandleGetAllPrintJobs(wv, messageJson, requestId);
                                     break;
@@ -2317,6 +2322,42 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Configure printer failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
+        }
+
+        private async Task HandleSetInstanceSetting(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Setting instance setting");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string instance = root.GetProperty("instance").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Instance setting: {instance}");
+
+                    bool success = _storageManager.SaveInstanceSetting(instance);
+
+                    var response = new
+                    {
+                        action = "setInstanceSettingResponse",
+                        requestId = requestId,
+                        success = success,
+                        message = success ? $"Instance setting saved: {instance}" : "Failed to save instance setting"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Set instance setting failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
         }
 
         private async Task HandleGetPrinterConfig(WebView2 wv, string messageJson, string requestId)
