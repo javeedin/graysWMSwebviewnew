@@ -34,10 +34,16 @@ async function callApexAPINew(endpoint, method = 'GET', body = null) {
                     console.error('[API NEW] Error:', error);
                     reject(new Error(error));
                 } else {
-                    // Parse if string
-                    const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
-                    console.log('[API NEW] Response:', parsedData);
-                    resolve(parsedData);
+                    try {
+                        // Parse if string
+                        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[API NEW] Response:', parsedData);
+                        resolve(parsedData);
+                    } catch (parseError) {
+                        console.error('[API NEW] JSON Parse Error:', parseError);
+                        console.error('[API NEW] Raw data:', data);
+                        reject(new Error(`JSON Parse Error: ${parseError.message}. Check console for raw data.`));
+                    }
                 }
             };
 

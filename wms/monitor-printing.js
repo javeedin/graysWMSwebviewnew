@@ -41,18 +41,24 @@ window.showPrinterSelectionModal = async function(tripId, tripDate, orderCount, 
     document.getElementById('modal-trip-date').textContent = tripDate;
     document.getElementById('modal-order-count').textContent = `${orderCount} orders`;
 
-    // Load printers
-    await loadPrintersForSelection();
-
-    // Show modal
+    // Show modal FIRST (before loading printers)
     const modal = document.getElementById('printer-selection-modal');
     console.log('[Monitor] Setting modal display to flex');
     modal.style.display = 'flex';
 
     // Force reflow to ensure display change is applied
     modal.offsetHeight;
-
     console.log('[Monitor] Modal should now be visible');
+
+    // Load printers (async, with error handling)
+    try {
+        await loadPrintersForSelection();
+    } catch (error) {
+        console.error('[Monitor] Error loading printers:', error);
+        // Modal is already shown, just update the select with error message
+        const select = document.getElementById('modal-printer-select');
+        select.innerHTML = '<option value="">-- Error loading printers, please refresh --</option>';
+    }
 };
 
 window.closePrinterSelectionModal = function() {
