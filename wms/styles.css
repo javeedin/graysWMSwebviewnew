@@ -1336,13 +1336,8 @@ input:checked + .toggle-slider:before {
 }
 
 /* ============================================ */
-/* CUSTOM FILTER DROPDOWNS WITH SEARCH */
+/* CUSTOM FILTER MODALS WITH SEARCH */
 /* ============================================ */
-
-.custom-filter-dropdown {
-    position: relative;
-    width: 100%;
-}
 
 .custom-filter-btn {
     display: flex;
@@ -1362,6 +1357,7 @@ input:checked + .toggle-slider:before {
 .custom-filter-btn:hover {
     border-color: #6366f1;
     box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    background: #f9fafb;
 }
 
 .custom-filter-btn:focus {
@@ -1380,28 +1376,139 @@ input:checked + .toggle-slider:before {
 
 .custom-filter-btn i {
     margin-left: 0.5rem;
-    font-size: 0.75rem;
-    color: #9ca3af;
-    transition: transform 0.2s ease;
+    font-size: 0.875rem;
+    color: #6366f1;
 }
 
-.custom-filter-btn.active i {
-    transform: rotate(180deg);
-}
-
-.custom-filter-panel {
-    position: absolute;
-    top: calc(100% + 4px);
+/* Filter Modal */
+.filter-modal {
+    position: fixed;
+    top: 0;
     left: 0;
-    right: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeInModal 0.2s ease;
+}
+
+@keyframes fadeInModal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.filter-modal-backdrop {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(4px);
+}
+
+.filter-modal-content {
+    position: relative;
+    width: 90%;
+    max-width: 500px;
+    max-height: 80vh;
     background: white;
-    border: 1px solid #e5e7eb;
-    border-radius: 8px;
-    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-    z-index: 1000;
-    max-height: 350px;
+    border-radius: 16px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
     display: flex;
     flex-direction: column;
+    animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 0;
+        transform: translateY(50px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.filter-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid #e5e7eb;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 16px 16px 0 0;
+}
+
+.filter-modal-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: white;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.filter-modal-header h3 i {
+    font-size: 1.5rem;
+}
+
+.filter-modal-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: white;
+}
+
+.filter-modal-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: rotate(90deg);
+}
+
+.filter-modal-close i {
+    font-size: 1.125rem;
+}
+
+.filter-modal-footer {
+    display: flex;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-top: 1px solid #e5e7eb;
+    background: #f9fafb;
+    border-radius: 0 0 16px 16px;
+}
+
+.filter-modal-footer .filter-action-btn {
+    flex: 1;
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+}
+
+.filter-modal-footer .filter-action-btn.apply-filter {
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+}
+
+.filter-modal-footer .filter-action-btn.apply-filter:hover {
+    background: #4f46e5;
+    border-color: #4f46e5;
 }
 
 .filter-search-box {

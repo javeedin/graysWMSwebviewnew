@@ -2724,35 +2724,43 @@ document.addEventListener('DOMContentLoaded', function() {
 
         filters.forEach(filterType => {
             const btn = document.getElementById(`${filterType}-filter-btn`);
-            const panel = document.getElementById(`${filterType}-filter-panel`);
+            const modal = document.getElementById(`${filterType}-filter-modal`);
             const searchInput = document.getElementById(`${filterType}-search`);
+            const closeBtn = modal.querySelector('.filter-modal-close');
+            const applyBtn = modal.querySelector('.apply-filter');
+            const backdrop = modal.querySelector('.filter-modal-backdrop');
 
-            // Toggle dropdown
+            // Open modal
             btn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                const isOpen = panel.style.display === 'block';
+                modal.style.display = 'flex';
+                setTimeout(() => searchInput.focus(), 100);
+            });
 
-                // Close all other dropdowns
-                filters.forEach(f => {
-                    document.getElementById(`${f}-filter-panel`).style.display = 'none';
-                    document.getElementById(`${f}-filter-btn`).classList.remove('active');
-                });
+            // Close modal - X button
+            closeBtn.addEventListener('click', function() {
+                modal.style.display = 'none';
+            });
 
-                // Toggle current dropdown
-                if (!isOpen) {
-                    panel.style.display = 'block';
-                    btn.classList.add('active');
-                    searchInput.focus();
-                } else {
-                    panel.style.display = 'none';
-                    btn.classList.remove('active');
-                }
+            // Close modal - Apply button
+            applyBtn.addEventListener('click', function() {
+                modal.style.display = 'none';
+            });
+
+            // Close modal - Backdrop click
+            backdrop.addEventListener('click', function() {
+                modal.style.display = 'none';
+            });
+
+            // Prevent modal close when clicking inside content
+            modal.querySelector('.filter-modal-content').addEventListener('click', function(e) {
+                e.stopPropagation();
             });
 
             // Search functionality
             searchInput.addEventListener('input', function() {
                 const searchTerm = this.value.toLowerCase();
-                const options = panel.querySelectorAll('.filter-option');
+                const options = modal.querySelectorAll('.filter-option');
 
                 options.forEach(option => {
                     const label = option.querySelector('label').textContent.toLowerCase();
@@ -2765,32 +2773,31 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             // Select All button
-            const selectAllBtn = panel.querySelector('.select-all');
+            const selectAllBtn = modal.querySelector('.select-all');
             selectAllBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                const checkboxes = panel.querySelectorAll('.filter-option:not(.hidden) input[type="checkbox"]');
+                const checkboxes = modal.querySelectorAll('.filter-option:not(.hidden) input[type="checkbox"]');
                 checkboxes.forEach(cb => cb.checked = true);
                 updateFilterButtonText(filterType);
                 updateFilterChips();
             });
 
             // Clear All button
-            const clearAllBtn = panel.querySelector('.clear-all');
+            const clearAllBtn = modal.querySelector('.clear-all');
             clearAllBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                const checkboxes = panel.querySelectorAll('input[type="checkbox"]');
+                const checkboxes = modal.querySelectorAll('input[type="checkbox"]');
                 checkboxes.forEach(cb => cb.checked = false);
                 updateFilterButtonText(filterType);
                 updateFilterChips();
             });
         });
 
-        // Close dropdowns when clicking outside
-        document.addEventListener('click', function(e) {
-            if (!e.target.closest('.custom-filter-dropdown')) {
+        // Close modals on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
                 filters.forEach(f => {
-                    document.getElementById(`${f}-filter-panel`).style.display = 'none';
-                    document.getElementById(`${f}-filter-btn`).classList.remove('active');
+                    document.getElementById(`${f}-filter-modal`).style.display = 'none';
                 });
             }
         });

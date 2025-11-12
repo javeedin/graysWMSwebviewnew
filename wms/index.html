@@ -263,76 +263,31 @@
                                 <input type="date" id="analytics-date-to" class="form-control">
                             </div>
 
-                            <!-- Custom Filter Dropdown: Customers -->
-                            <div class="form-group" style="margin-bottom: 0; min-width: 250px; position: relative;">
+                            <!-- Custom Filter Button: Customers -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
                                 <label>Customers</label>
-                                <div class="custom-filter-dropdown">
-                                    <button type="button" class="custom-filter-btn" id="customers-filter-btn">
-                                        <span class="filter-text">All Customers</span>
-                                        <i class="fas fa-chevron-down"></i>
-                                    </button>
-                                    <div class="custom-filter-panel" id="customers-filter-panel" style="display: none;">
-                                        <div class="filter-search-box">
-                                            <i class="fas fa-search"></i>
-                                            <input type="text" placeholder="Search customers..." id="customers-search" autocomplete="off">
-                                        </div>
-                                        <div class="filter-options" id="customers-options">
-                                            <!-- Options populated dynamically -->
-                                        </div>
-                                        <div class="filter-actions">
-                                            <button type="button" class="filter-action-btn select-all" data-filter="customers">Select All</button>
-                                            <button type="button" class="filter-action-btn clear-all" data-filter="customers">Clear All</button>
-                                        </div>
-                                    </div>
-                                </div>
+                                <button type="button" class="custom-filter-btn" id="customers-filter-btn">
+                                    <span class="filter-text">All Customers</span>
+                                    <i class="fas fa-filter"></i>
+                                </button>
                             </div>
 
-                            <!-- Custom Filter Dropdown: Lorries -->
-                            <div class="form-group" style="margin-bottom: 0; min-width: 250px; position: relative;">
+                            <!-- Custom Filter Button: Lorries -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
                                 <label>Lorries</label>
-                                <div class="custom-filter-dropdown">
-                                    <button type="button" class="custom-filter-btn" id="lorries-filter-btn">
-                                        <span class="filter-text">All Lorries</span>
-                                        <i class="fas fa-chevron-down"></i>
-                                    </button>
-                                    <div class="custom-filter-panel" id="lorries-filter-panel" style="display: none;">
-                                        <div class="filter-search-box">
-                                            <i class="fas fa-search"></i>
-                                            <input type="text" placeholder="Search lorries..." id="lorries-search" autocomplete="off">
-                                        </div>
-                                        <div class="filter-options" id="lorries-options">
-                                            <!-- Options populated dynamically -->
-                                        </div>
-                                        <div class="filter-actions">
-                                            <button type="button" class="filter-action-btn select-all" data-filter="lorries">Select All</button>
-                                            <button type="button" class="filter-action-btn clear-all" data-filter="lorries">Clear All</button>
-                                        </div>
-                                    </div>
-                                </div>
+                                <button type="button" class="custom-filter-btn" id="lorries-filter-btn">
+                                    <span class="filter-text">All Lorries</span>
+                                    <i class="fas fa-filter"></i>
+                                </button>
                             </div>
 
-                            <!-- Custom Filter Dropdown: Pickers -->
-                            <div class="form-group" style="margin-bottom: 0; min-width: 250px; position: relative;">
+                            <!-- Custom Filter Button: Pickers -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
                                 <label>Pickers</label>
-                                <div class="custom-filter-dropdown">
-                                    <button type="button" class="custom-filter-btn" id="pickers-filter-btn">
-                                        <span class="filter-text">All Pickers</span>
-                                        <i class="fas fa-chevron-down"></i>
-                                    </button>
-                                    <div class="custom-filter-panel" id="pickers-filter-panel" style="display: none;">
-                                        <div class="filter-search-box">
-                                            <i class="fas fa-search"></i>
-                                            <input type="text" placeholder="Search pickers..." id="pickers-search" autocomplete="off">
-                                        </div>
-                                        <div class="filter-options" id="pickers-options">
-                                            <!-- Options populated dynamically -->
-                                        </div>
-                                        <div class="filter-actions">
-                                            <button type="button" class="filter-action-btn select-all" data-filter="pickers">Select All</button>
-                                            <button type="button" class="filter-action-btn clear-all" data-filter="pickers">Clear All</button>
-                                        </div>
-                                    </div>
-                                </div>
+                                <button type="button" class="custom-filter-btn" id="pickers-filter-btn">
+                                    <span class="filter-text">All Pickers</span>
+                                    <i class="fas fa-filter"></i>
+                                </button>
                             </div>
 
                             <button id="analytics-refresh-btn" class="btn" style="height: 34px; margin-top: 22px;">
@@ -443,8 +398,101 @@
                         <i class="fas fa-arrow-left"></i> Go to Trip Management
                     </button>
                 </div>
+
+                <!-- Filter Modal: Customers -->
+                <div class="filter-modal" id="customers-filter-modal" style="display: none;">
+                    <div class="filter-modal-backdrop"></div>
+                    <div class="filter-modal-content">
+                        <div class="filter-modal-header">
+                            <h3><i class="fas fa-users"></i> Select Customers</h3>
+                            <button type="button" class="filter-modal-close" data-modal="customers">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="filter-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search customers..." id="customers-search" autocomplete="off">
+                        </div>
+                        <div class="filter-options" id="customers-options">
+                            <!-- Options populated dynamically -->
+                        </div>
+                        <div class="filter-modal-footer">
+                            <button type="button" class="filter-action-btn select-all" data-filter="customers">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" class="filter-action-btn clear-all" data-filter="customers">
+                                <i class="fas fa-times-circle"></i> Clear All
+                            </button>
+                            <button type="button" class="filter-action-btn apply-filter" data-modal="customers">
+                                <i class="fas fa-check"></i> Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter Modal: Lorries -->
+                <div class="filter-modal" id="lorries-filter-modal" style="display: none;">
+                    <div class="filter-modal-backdrop"></div>
+                    <div class="filter-modal-content">
+                        <div class="filter-modal-header">
+                            <h3><i class="fas fa-truck"></i> Select Lorries</h3>
+                            <button type="button" class="filter-modal-close" data-modal="lorries">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="filter-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search lorries..." id="lorries-search" autocomplete="off">
+                        </div>
+                        <div class="filter-options" id="lorries-options">
+                            <!-- Options populated dynamically -->
+                        </div>
+                        <div class="filter-modal-footer">
+                            <button type="button" class="filter-action-btn select-all" data-filter="lorries">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" class="filter-action-btn clear-all" data-filter="lorries">
+                                <i class="fas fa-times-circle"></i> Clear All
+                            </button>
+                            <button type="button" class="filter-action-btn apply-filter" data-modal="lorries">
+                                <i class="fas fa-check"></i> Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter Modal: Pickers -->
+                <div class="filter-modal" id="pickers-filter-modal" style="display: none;">
+                    <div class="filter-modal-backdrop"></div>
+                    <div class="filter-modal-content">
+                        <div class="filter-modal-header">
+                            <h3><i class="fas fa-user-check"></i> Select Pickers</h3>
+                            <button type="button" class="filter-modal-close" data-modal="pickers">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="filter-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search pickers..." id="pickers-search" autocomplete="off">
+                        </div>
+                        <div class="filter-options" id="pickers-options">
+                            <!-- Options populated dynamically -->
+                        </div>
+                        <div class="filter-modal-footer">
+                            <button type="button" class="filter-action-btn select-all" data-filter="pickers">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" class="filter-action-btn clear-all" data-filter="pickers">
+                                <i class="fas fa-times-circle"></i> Clear All
+                            </button>
+                            <button type="button" class="filter-action-btn apply-filter" data-modal="pickers">
+                                <i class="fas fa-check"></i> Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
-            
+
             <div id="picker-management" class="page-content" style="display: none;">
                 <div class="grid-container">
                     <div class="empty-state">
