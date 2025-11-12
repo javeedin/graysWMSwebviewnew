@@ -1,6 +1,6 @@
 @echo off
 REM Batch script to create distribution folder for Gray's WMS WebView Application
-REM This script builds the project and copies all necessary files to a dist folder
+REM This script publishes the project as SELF-CONTAINED (includes .NET runtime)
 
 echo ========================================
 echo Gray's WMS Distribution Builder
@@ -9,9 +9,11 @@ echo.
 
 set CONFIGURATION=Release
 set OUTPUT_FOLDER=dist
-set BUILD_PATH=bin\%CONFIGURATION%\net8.0-windows
+set RUNTIME=win-x64
+set PUBLISH_PATH=bin\%CONFIGURATION%\net8.0-windows\%RUNTIME%\publish
 
 echo Configuration: %CONFIGURATION%
+echo Runtime: %RUNTIME% (Self-Contained)
 echo Output Folder: %OUTPUT_FOLDER%
 echo.
 
@@ -25,35 +27,36 @@ REM Create distribution folder
 echo Creating distribution folder...
 mkdir %OUTPUT_FOLDER%
 
-REM Step 2: Build the project
+REM Step 2: Publish the project as SELF-CONTAINED
 echo.
-echo Building project...
-echo Running: dotnet build -c %CONFIGURATION%
+echo Publishing project (self-contained with .NET runtime included)...
+echo Running: dotnet publish -c %CONFIGURATION% -r %RUNTIME% --self-contained true
+echo This will bundle .NET 8 runtime - no installation required!
 echo.
 
-dotnet build -c %CONFIGURATION%
+dotnet publish -c %CONFIGURATION% -r %RUNTIME% --self-contained true /p:PublishSingleFile=false /p:IncludeNativeLibrariesForSelfExtract=true
 if errorlevel 1 (
     echo.
-    echo Build failed! Check the error messages above.
+    echo Publish failed! Check the error messages above.
     pause
     exit /b 1
 )
 
 echo.
-echo Build completed successfully!
+echo Publish completed successfully!
 
-REM Step 3: Check if build output exists
-if not exist %BUILD_PATH% (
+REM Step 3: Check if publish output exists
+if not exist %PUBLISH_PATH% (
     echo.
-    echo ERROR: Build output path not found: %BUILD_PATH%
+    echo ERROR: Publish output path not found: %PUBLISH_PATH%
     pause
     exit /b 1
 )
 
-REM Step 4: Copy build output
+REM Step 4: Copy publish output
 echo.
 echo Copying application files...
-xcopy /s /y /q "%BUILD_PATH%\*" "%OUTPUT_FOLDER%\"
+xcopy /s /y /q "%PUBLISH_PATH%\*" "%OUTPUT_FOLDER%\"
 
 REM Step 5: Copy additional files
 echo Copying additional files...
@@ -80,18 +83,22 @@ echo Creating startup instructions...
 (
 echo # Gray's WMS WebView Application - Distribution Package
 echo.
-echo ## Quick Start
+echo ## Quick Start - NO .NET INSTALLATION REQUIRED!
 echo.
-echo 1. Ensure you have .NET 8.0 Runtime installed:
-echo    - Download from: https://dotnet.microsoft.com/download/dotnet/8.0
-echo    - You need the ".NET Desktop Runtime" for Windows
+echo This is a SELF-CONTAINED deployment - .NET runtime is included!
 echo.
-echo 2. Ensure WebView2 Runtime is installed:
-echo    - Usually pre-installed on Windows 11
-echo    - Download from: https://developer.microsoft.com/microsoft-edge/webview2/
+echo 1. Ensure WebView2 Runtime is installed:
+echo    - Usually pre-installed on Windows 10/11
+echo    - If needed, download from: https://developer.microsoft.com/microsoft-edge/webview2/
 echo.
-echo 3. Run the application:
+echo 2. Run the application:
 echo    - Double-click WMSApp.exe
+echo.
+echo ## System Requirements
+echo.
+echo - Windows 10 version 1809 or later / Windows 11
+echo - WebView2 Runtime (usually pre-installed)
+echo - 64-bit Windows
 echo.
 echo ## Setup
 echo.
@@ -108,6 +115,7 @@ echo 4. 04_apex_endpoints_get.sql
 echo 5. 05_apex_endpoints_post.sql
 echo 6. 06_additional_printer_procedures.sql
 echo 7. 07_printer_management_endpoints.sql
+echo 8. 08_monitor_printing_endpoints.sql
 echo.
 echo ### Configure Printers
 echo 1. Launch the application
@@ -118,10 +126,17 @@ echo.
 echo ## Files Included
 echo.
 echo - WMSApp.exe - Main application
-echo - *.dll - Required libraries
+echo - *.dll - Required libraries and .NET runtime
 echo - *.js, *.html, *.css - Web UI files
 echo - apex_sql/ - Database setup scripts
 echo - docs/ - Additional documentation
+echo.
+echo ## Distribution Notes
+echo.
+echo This package includes the .NET 8 runtime, so users do NOT need to install
+echo .NET separately. The application is ready to run on any compatible Windows PC.
+echo.
+echo Package size is larger due to included runtime, but provides better user experience.
 echo.
 echo ## Support
 echo.
@@ -129,6 +144,7 @@ echo For issues or questions, refer to README.md or contact the development team
 echo.
 echo Built on: %date% %time%
 echo Configuration: %CONFIGURATION%
+echo Runtime: %RUNTIME% ^(Self-Contained^)
 ) > %OUTPUT_FOLDER%\START_HERE.txt
 echo   - START_HERE.txt
 
@@ -138,7 +154,8 @@ echo Creating version info...
 echo Gray's WMS WebView Application
 echo Build Date: %date% %time%
 echo Configuration: %CONFIGURATION%
-echo .NET Version: 8.0
+echo Deployment: Self-Contained ^(.NET 8 Runtime Included^)
+echo Runtime: %RUNTIME%
 ) > %OUTPUT_FOLDER%\VERSION.txt
 echo   - VERSION.txt
 
@@ -150,7 +167,11 @@ echo ========================================
 echo.
 echo Location: %CD%\%OUTPUT_FOLDER%
 echo.
-
+echo IMPORTANT: This is a SELF-CONTAINED build
+echo - .NET 8 runtime is INCLUDED
+echo - Users do NOT need to install .NET
+echo - Package size is larger but more convenient
+echo.
 echo To run the application:
 echo   cd %OUTPUT_FOLDER%
 echo   WMSApp.exe
