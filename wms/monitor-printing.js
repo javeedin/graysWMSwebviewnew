@@ -80,30 +80,55 @@ window.closePrinterSelectionModal = function() {
 };
 
 async function loadPrintersForSelection() {
+    const select = document.getElementById('modal-printer-select');
+
     try {
         console.log('[Monitor] Loading printers for selection...');
+        select.innerHTML = '<option value="">-- Loading printers... --</option>';
 
         const data = await callApexAPINew('/printers/all', 'GET');
         allPrintersForSelection = data.items || [];
 
-        const select = document.getElementById('modal-printer-select');
+        console.log('[Monitor] API returned data:', data);
+        console.log('[Monitor] Printers count:', allPrintersForSelection.length);
+
+        if (allPrintersForSelection.length === 0) {
+            select.innerHTML = '<option value="">-- No printers found --</option>';
+            console.warn('[Monitor] No printers found in response');
+            return;
+        }
+
         select.innerHTML = '<option value="">-- Select a printer --</option>';
 
         allPrintersForSelection.forEach(printer => {
-            const option = document.createElement('option');
-            option.value = printer.configId;
-            option.textContent = `${printer.printerName}${printer.isActive === 'Y' ? ' (Active)' : ''}`;
-            if (printer.isActive === 'Y') {
-                option.selected = true;
+            try {
+                const option = document.createElement('option');
+                option.value = printer.configId;
+                option.textContent = `${printer.printerName}${printer.isActive === 'Y' ? ' (Active)' : ''}`;
+                if (printer.isActive === 'Y') {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            } catch (printerError) {
+                console.error('[Monitor] Error processing printer:', printer, printerError);
             }
-            select.appendChild(option);
         });
 
-        console.log('[Monitor] Loaded', allPrintersForSelection.length, 'printers');
+        console.log('[Monitor] Loaded', allPrintersForSelection.length, 'printers successfully');
     } catch (error) {
         console.error('[Monitor] Failed to load printers:', error);
-        const select = document.getElementById('modal-printer-select');
-        select.innerHTML = '<option value="">-- Error loading printers --</option>';
+        console.error('[Monitor] Error details:', {
+            message: error.message,
+            stack: error.stack
+        });
+        select.innerHTML = '<option value="">-- Error loading printers (check console) --</option>';
+
+        // Show error in modal
+        const errorDiv = document.getElementById('printer-selection-error');
+        if (errorDiv) {
+            errorDiv.textContent = `Failed to load printers: ${error.message}. Check browser console (F12) for details.`;
+            errorDiv.style.display = 'block';
+        }
     }
 }
 
