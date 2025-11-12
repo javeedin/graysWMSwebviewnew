@@ -179,6 +179,32 @@ function initializePrintersGridNew() {
                 }
             },
             {
+                dataField: 'printerShortName',
+                caption: 'Short Name',
+                width: 120,
+                cellTemplate: function(container, options) {
+                    if (options.value) {
+                        container.append(
+                            $('<span>').css({
+                                'color': '#333',
+                                'font-weight': '600',
+                                'background': '#e3f2fd',
+                                'padding': '4px 8px',
+                                'border-radius': '4px',
+                                'display': 'inline-block'
+                            }).text(options.value)
+                        );
+                    } else {
+                        container.append(
+                            $('<span>').css({
+                                'color': '#999',
+                                'font-style': 'italic'
+                            }).text('N/A')
+                        );
+                    }
+                }
+            },
+            {
                 dataField: 'printerIp',
                 caption: 'IP Address',
                 width: 150,
@@ -323,6 +349,7 @@ window.showAddPrinterModalNew = function() {
     // Reset form
     document.getElementById('modal-printer-select-new').value = '';
     document.getElementById('modal-printer-ip-new').value = '';
+    document.getElementById('modal-printer-short-name-new').value = '';
     document.getElementById('modal-paper-size-new').value = 'A4';
     document.getElementById('modal-orientation-new').value = 'Portrait';
     document.getElementById('modal-auto-download-new').checked = true;
@@ -364,6 +391,7 @@ function loadInstalledPrintersIntoModalNew() {
 window.savePrinterFromModalNew = async function() {
     const printerName = document.getElementById('modal-printer-select-new').value;
     const printerIp = document.getElementById('modal-printer-ip-new').value;
+    const printerShortName = document.getElementById('modal-printer-short-name-new').value;
     const paperSize = document.getElementById('modal-paper-size-new').value;
     const orientation = document.getElementById('modal-orientation-new').value;
     const autoDownload = document.getElementById('modal-auto-download-new').checked ? 'Y' : 'N';
@@ -375,11 +403,17 @@ window.savePrinterFromModalNew = async function() {
         return;
     }
 
+    if (!printerShortName || printerShortName.trim() === '') {
+        alert('Please enter a Short Name for the printer');
+        return;
+    }
+
     try {
         console.log('[Printers NEW] Saving printer configuration...');
 
         const requestBody = {
             printerName: printerName,
+            printerShortName: printerShortName.trim(),
             paperSize: paperSize,
             orientation: orientation,
             autoDownload: autoDownload,
