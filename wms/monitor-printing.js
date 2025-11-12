@@ -151,10 +151,13 @@ window.confirmPrinterSelection = async function() {
     }
 
     const selectedPrinter = allPrintersForSelection.find(p => p.configId == printerConfigId);
+    const shouldPrintAfterEnable = currentTripForPrinterSelection.shouldPrintAfterEnable;  // ← NEW: Check if we should print after enabling
+    const tripIdForPrinting = currentTripForPrinterSelection.tripId;  // ← NEW: Save trip ID for later
 
     try {
         console.log('[Monitor] Enabling auto-print with printer:', selectedPrinter?.printerName);
         console.log('[Monitor] Orders to save:', currentTripForPrinterSelection.orders);
+        console.log('[Monitor] Should print after enable:', shouldPrintAfterEnable);
 
         // Call APEX API to save the trip with selected printer AND order details
         const response = await callApexAPINew('/monitor-printing/enable', 'POST', {
@@ -183,8 +186,33 @@ window.confirmPrinterSelection = async function() {
         document.getElementById('printer-selection-modal').style.display = 'none';
         currentTripForPrinterSelection = null;
 
-        // Show success message
-        alert(`✅ Auto-print enabled successfully!\n\nTrip will be monitored with printer: ${selectedPrinter?.printerName}`);
+        // 🔧 NEW: If triggered from "Print All", reload trip details and then print
+        if (shouldPrintAfterEnable) {
+            console.log('[Monitor] Auto-print enabled from Print All - will reload trip and print');
+
+            // Show message that we're proceeding with printing
+            alert(`✅ Auto-print enabled successfully!\n\nPrinter: ${selectedPrinter?.printerName}\n\nNow adding orders to print queue...`);
+
+            // Reload trip details to get updated printer information
+            const tripDetails = tripDetailsMap.get(tripIdForPrinting);
+            if (tripDetails && tripDetails.tripData) {
+                console.log('[Monitor] Reloading trip details for:', tripIdForPrinting);
+                await viewTripDetails(tripDetails.tripData);
+
+                // Small delay to ensure grid is updated
+                await new Promise(resolve => setTimeout(resolve, 500));
+
+                // Now call Print All again (printer should be configured now)
+                console.log('[Monitor] Calling printAllOrdersPDF for:', tripIdForPrinting);
+                await printAllOrdersPDF(tripIdForPrinting);
+            } else {
+                console.error('[Monitor] Could not find trip details for:', tripIdForPrinting);
+                alert('Auto-print enabled, but could not proceed with printing.\n\nPlease click "Print All" again.');
+            }
+        } else {
+            // Show normal success message
+            alert(`✅ Auto-print enabled successfully!\n\nTrip will be monitored with printer: ${selectedPrinter?.printerName}`);
+        }
 
     } catch (error) {
         console.error('[Monitor] Failed to enable auto-print:', error);
@@ -1634,6 +1662,7 @@ async function printAllOrdersPDF(tripId) {
                 tripId: tripDetails.tripData.tripId,
                 tripDate: tripDetails.tripData.tripDate,
                 orderCount: downloadedOrders.length,
+                shouldPrintAfterEnable: true,  // ← NEW: Flag to indicate we should print after enabling auto-print
                 orders: downloadedOrders.map(o => ({
                     orderNumber: o.orderNumber,
                     customerName: o.customerName,
