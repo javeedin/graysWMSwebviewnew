@@ -2641,6 +2641,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     let analyticsData = null;
+    let currentFilteredData = null; // Track currently displayed filtered data
 
     // Initialize Analytics when trip data is loaded
     function updateAnalytics(trips) {
@@ -2865,6 +2866,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function refreshAnalyticsDashboard(trips) {
+        currentFilteredData = trips; // Track the current filtered dataset
         updateAnalyticsKPIs(trips);
         updateAnalyticsCharts(trips);
     }
@@ -3400,6 +3402,150 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         return filteredData;
+    }
+
+    // Analytics Show Details Button
+    document.getElementById('analytics-show-details-btn').addEventListener('click', function() {
+        if (!currentFilteredData || currentFilteredData.length === 0) {
+            alert('No data available. Please fetch trips and apply filters first.');
+            return;
+        }
+
+        showAnalyticsDetails(currentFilteredData);
+    });
+
+    // Details Modal Close Handlers
+    document.getElementById('details-modal-close').addEventListener('click', function() {
+        document.getElementById('analytics-details-modal').style.display = 'none';
+    });
+
+    document.getElementById('details-modal-ok').addEventListener('click', function() {
+        document.getElementById('analytics-details-modal').style.display = 'none';
+    });
+
+    document.querySelector('#analytics-details-modal .filter-modal-backdrop').addEventListener('click', function() {
+        document.getElementById('analytics-details-modal').style.display = 'none';
+    });
+
+    function showAnalyticsDetails(trips) {
+        const modal = document.getElementById('analytics-details-modal');
+        const content = document.getElementById('analytics-details-content');
+
+        // Calculate statistics
+        const totalOrders = trips.length;
+        const totalTrips = new Set(trips.map(t => t.trip_id).filter(x => x)).size;
+        const totalCustomers = new Set(trips.map(t => t.account_name).filter(x => x)).size;
+        const totalLorries = new Set(trips.map(t => t.trip_lorry).filter(x => x)).size;
+        const totalPickers = new Set(trips.map(t => t.PICKER).filter(x => x)).size;
+        const avgOrdersPerTrip = totalTrips > 0 ? (totalOrders / totalTrips).toFixed(1) : 0;
+
+        // Get active filters
+        const fromDate = document.getElementById('analytics-date-from').value;
+        const toDate = document.getElementById('analytics-date-to').value;
+        const selectedCustomers = Array.from(document.querySelectorAll('input[data-filter="customers"]:checked')).map(cb => cb.value);
+        const selectedLorries = Array.from(document.querySelectorAll('input[data-filter="lorries"]:checked')).map(cb => cb.value);
+        const selectedPickers = Array.from(document.querySelectorAll('input[data-filter="pickers"]:checked')).map(cb => cb.value);
+
+        // Get status breakdown
+        const statusCount = {};
+        trips.forEach(trip => {
+            const status = trip.LINE_STATUS || 'Unknown';
+            statusCount[status] = (statusCount[status] || 0) + 1;
+        });
+
+        // Build details HTML
+        let html = `
+            <div style="margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 1rem 0; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-filter" style="color: #6366f1;"></i> Active Filters
+                </h4>
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+        `;
+
+        if (!fromDate && !toDate && selectedCustomers.length === 0 && selectedLorries.length === 0 && selectedPickers.length === 0) {
+            html += '<p style="margin: 0; color: #64748b; font-style: italic;">No filters applied - showing all data</p>';
+        } else {
+            html += '<ul style="margin: 0; padding-left: 1.5rem;">';
+            if (fromDate || toDate) {
+                html += `<li><strong>Date Range:</strong> ${fromDate || 'Any'} to ${toDate || 'Any'}</li>`;
+            }
+            if (selectedCustomers.length > 0) {
+                html += `<li><strong>Customers:</strong> ${selectedCustomers.length} selected (${selectedCustomers.slice(0, 3).join(', ')}${selectedCustomers.length > 3 ? '...' : ''})</li>`;
+            }
+            if (selectedLorries.length > 0) {
+                html += `<li><strong>Lorries:</strong> ${selectedLorries.length} selected (${selectedLorries.slice(0, 3).join(', ')}${selectedLorries.length > 3 ? '...' : ''})</li>`;
+            }
+            if (selectedPickers.length > 0) {
+                html += `<li><strong>Pickers:</strong> ${selectedPickers.length} selected (${selectedPickers.slice(0, 3).join(', ')}${selectedPickers.length > 3 ? '...' : ''})</li>`;
+            }
+            html += '</ul>';
+        }
+
+        html += `
+                </div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 1rem 0; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-chart-pie" style="color: #10b981;"></i> Summary Statistics
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.75rem; font-weight: 700;">${totalOrders.toLocaleString()}</div>
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Orders</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.75rem; font-weight: 700;">${totalTrips.toLocaleString()}</div>
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Trips</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.75rem; font-weight: 700;">${totalCustomers.toLocaleString()}</div>
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Customers</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.75rem; font-weight: 700;">${totalLorries.toLocaleString()}</div>
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Lorries</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.75rem; font-weight: 700;">${totalPickers.toLocaleString()}</div>
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Pickers</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); color: white; padding: 1rem; border-radius: 8px; text-align: center;">
+                        <div style="font-size: 1.75rem; font-weight: 700;">${avgOrdersPerTrip}</div>
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-top: 0.25rem;">Avg/Trip</div>
+                    </div>
+                </div>
+            </div>
+
+            <div>
+                <h4 style="margin: 0 0 1rem 0; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-list-check" style="color: #f59e0b;"></i> Status Breakdown
+                </h4>
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+        `;
+
+        Object.entries(statusCount).forEach(([status, count]) => {
+            const percentage = ((count / totalOrders) * 100).toFixed(1);
+            html += `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem 0; border-bottom: 1px solid #e2e8f0;">
+                    <span style="font-weight: 500; color: #475569;">${status}</span>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div style="width: 200px; height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                            <div style="width: ${percentage}%; height: 100%; background: #6366f1; transition: width 0.3s ease;"></div>
+                        </div>
+                        <span style="font-weight: 700; color: #1e293b; min-width: 80px; text-align: right;">${count.toLocaleString()} (${percentage}%)</span>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += `
+                </div>
+            </div>
+        `;
+
+        content.innerHTML = html;
+        modal.style.display = 'flex';
     }
 
     // Analytics Export to Excel
