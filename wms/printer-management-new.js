@@ -40,8 +40,14 @@ async function callApexAPINew(endpoint, method = 'GET', body = null) {
                         console.log('[API NEW] Response:', parsedData);
                         resolve(parsedData);
                     } catch (parseError) {
-                        console.error('[API NEW] JSON Parse Error:', parseError);
-                        console.error('[API NEW] Raw data:', data);
+                        console.error('[API NEW] ❌ JSON Parse Error:', parseError);
+                        console.warn('========================================');
+                        console.warn('[API NEW] 📄 RAW DATA (BROKEN JSON):');
+                        console.warn('========================================');
+                        console.warn(data);
+                        console.warn('========================================');
+                        console.warn('Character at position 56:', data ? data.substring(50, 65) : 'N/A');
+                        console.warn('========================================');
                         reject(new Error(`JSON Parse Error: ${parseError.message}. Check console for raw data.`));
                     }
                 }
