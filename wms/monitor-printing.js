@@ -23,6 +23,12 @@ let isPrintQueueProcessing = false;
 window.showPrinterSelectionModal = async function(tripId, tripDate, orderCount, orders) {
     console.log('[Monitor] Showing printer selection modal for trip:', tripId);
 
+    // Close instance dropdown if open
+    const instanceMenu = document.getElementById('instance-dropdown-menu');
+    if (instanceMenu) {
+        instanceMenu.style.display = 'none';
+    }
+
     currentTripForPrinterSelection = {
         tripId: tripId,
         tripDate: tripDate,
@@ -39,7 +45,14 @@ window.showPrinterSelectionModal = async function(tripId, tripDate, orderCount, 
     await loadPrintersForSelection();
 
     // Show modal
-    document.getElementById('printer-selection-modal').style.display = 'flex';
+    const modal = document.getElementById('printer-selection-modal');
+    console.log('[Monitor] Setting modal display to flex');
+    modal.style.display = 'flex';
+
+    // Force reflow to ensure display change is applied
+    modal.offsetHeight;
+
+    console.log('[Monitor] Modal should now be visible');
 };
 
 window.closePrinterSelectionModal = function() {
