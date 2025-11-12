@@ -656,6 +656,37 @@ function getOrderGridColumns(tripId) {
             width: 200
         },
         {
+            dataField: 'printerName',
+            caption: 'Printer',
+            width: 180,
+            cellTemplate: function(container, options) {
+                const printerName = options.value;
+                if (printerName) {
+                    container.append(
+                        $('<span>')
+                            .css({
+                                color: '#059669',
+                                fontWeight: '600',
+                                fontSize: '12px',
+                                background: '#d1fae5',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                display: 'inline-block'
+                            })
+                            .html('<i class="fas fa-print"></i> ' + printerName)
+                            .attr('title', 'Auto-print enabled with: ' + printerName)
+                    );
+                } else {
+                    container.append(
+                        $('<span>')
+                            .css({ color: '#999', fontStyle: 'italic', fontSize: '12px' })
+                            .text('No printer set')
+                            .attr('title', 'Auto-print not enabled for this trip')
+                    );
+                }
+            }
+        },
+        {
             dataField: 'accountNumber',
             caption: 'Account Number',
             width: 140
@@ -1586,7 +1617,40 @@ async function printAllOrdersPDF(tripId) {
         return;
     }
 
-    const confirmed = confirm(`Add ${downloadedOrders.length} orders to print queue and start printing?\n\nYou can monitor progress in the Print Queue tab.`);
+    // 🔧 NEW: Check if printer is configured for this trip
+    const hasPrinter = downloadedOrders.some(o => o.printerName && o.printerName.trim() !== '');
+
+    if (!hasPrinter) {
+        // No printer configured - show printer selection modal
+        const shouldEnableAutoPrint = confirm(
+            `No printer is configured for this trip.\n\n` +
+            `To print these ${downloadedOrders.length} orders, you need to enable auto-print first.\n\n` +
+            `Click OK to select a printer and enable auto-print.`
+        );
+
+        if (shouldEnableAutoPrint) {
+            // Show printer selection modal (reuse the existing modal from Monitor Printing)
+            currentTripForPrinterSelection = {
+                tripId: tripDetails.tripData.tripId,
+                tripDate: tripDetails.tripData.tripDate,
+                orderCount: downloadedOrders.length,
+                orders: downloadedOrders.map(o => ({
+                    orderNumber: o.orderNumber,
+                    customerName: o.customerName,
+                    pdfPath: o.pdfPath
+                }))
+            };
+            await showPrinterSelectionModal(
+                tripDetails.tripData.tripId,
+                tripDetails.tripData.tripDate,
+                downloadedOrders.length,
+                downloadedOrders
+            );
+        }
+        return;
+    }
+
+    const confirmed = confirm(`Add ${downloadedOrders.length} orders to print queue and start printing?\n\nPrinter: ${downloadedOrders[0].printerName}\n\nYou can monitor progress in the Print Queue tab.`);
 
     if (!confirmed) {
         return;
