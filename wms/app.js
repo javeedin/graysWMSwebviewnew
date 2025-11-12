@@ -2671,47 +2671,190 @@ document.addEventListener('DOMContentLoaded', function() {
         refreshAnalyticsDashboard(trips);
     }
 
-    // Populate multi-select filter dropdowns
+    // Populate custom filter dropdowns
     function populateAnalyticsFilters(trips) {
         // Get unique values
         const customers = [...new Set(trips.map(t => t.account_name).filter(x => x))].sort();
         const lorries = [...new Set(trips.map(t => t.trip_lorry).filter(x => x))].sort();
         const pickers = [...new Set(trips.map(t => t.PICKER).filter(x => x))].sort();
 
-        // Populate Customers dropdown
-        const customersSelect = document.getElementById('analytics-customers-filter');
-        customersSelect.innerHTML = '<option value="__all__">All Customers</option>';
-        customers.forEach(customer => {
-            const option = document.createElement('option');
-            option.value = customer;
-            option.textContent = customer;
-            customersSelect.appendChild(option);
+        // Populate custom filter dropdowns
+        populateCustomFilterDropdown('customers', customers);
+        populateCustomFilterDropdown('lorries', lorries);
+        populateCustomFilterDropdown('pickers', pickers);
+
+        // Initialize dropdown toggle handlers
+        initializeCustomFilterDropdowns();
+    }
+
+    function populateCustomFilterDropdown(filterType, items) {
+        const optionsContainer = document.getElementById(`${filterType}-options`);
+        optionsContainer.innerHTML = '';
+
+        items.forEach((item, index) => {
+            const optionDiv = document.createElement('div');
+            optionDiv.className = 'filter-option';
+            optionDiv.innerHTML = `
+                <input type="checkbox" id="${filterType}-${index}" value="${item}" data-filter="${filterType}">
+                <label for="${filterType}-${index}">${item}</label>
+            `;
+            optionsContainer.appendChild(optionDiv);
+
+            // Add click handler for the whole div
+            optionDiv.addEventListener('click', function(e) {
+                if (e.target.tagName !== 'INPUT') {
+                    const checkbox = this.querySelector('input[type="checkbox"]');
+                    checkbox.checked = !checkbox.checked;
+                    updateFilterButtonText(filterType);
+                    updateFilterChips();
+                }
+            });
+
+            // Add change handler for checkbox
+            const checkbox = optionDiv.querySelector('input[type="checkbox"]');
+            checkbox.addEventListener('change', function() {
+                updateFilterButtonText(filterType);
+                updateFilterChips();
+            });
+        });
+    }
+
+    function initializeCustomFilterDropdowns() {
+        const filters = ['customers', 'lorries', 'pickers'];
+
+        filters.forEach(filterType => {
+            const btn = document.getElementById(`${filterType}-filter-btn`);
+            const panel = document.getElementById(`${filterType}-filter-panel`);
+            const searchInput = document.getElementById(`${filterType}-search`);
+
+            // Toggle dropdown
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const isOpen = panel.style.display === 'block';
+
+                // Close all other dropdowns
+                filters.forEach(f => {
+                    document.getElementById(`${f}-filter-panel`).style.display = 'none';
+                    document.getElementById(`${f}-filter-btn`).classList.remove('active');
+                });
+
+                // Toggle current dropdown
+                if (!isOpen) {
+                    panel.style.display = 'block';
+                    btn.classList.add('active');
+                    searchInput.focus();
+                } else {
+                    panel.style.display = 'none';
+                    btn.classList.remove('active');
+                }
+            });
+
+            // Search functionality
+            searchInput.addEventListener('input', function() {
+                const searchTerm = this.value.toLowerCase();
+                const options = panel.querySelectorAll('.filter-option');
+
+                options.forEach(option => {
+                    const label = option.querySelector('label').textContent.toLowerCase();
+                    if (label.includes(searchTerm)) {
+                        option.classList.remove('hidden');
+                    } else {
+                        option.classList.add('hidden');
+                    }
+                });
+            });
+
+            // Select All button
+            const selectAllBtn = panel.querySelector('.select-all');
+            selectAllBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const checkboxes = panel.querySelectorAll('.filter-option:not(.hidden) input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = true);
+                updateFilterButtonText(filterType);
+                updateFilterChips();
+            });
+
+            // Clear All button
+            const clearAllBtn = panel.querySelector('.clear-all');
+            clearAllBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                const checkboxes = panel.querySelectorAll('input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = false);
+                updateFilterButtonText(filterType);
+                updateFilterChips();
+            });
         });
 
-        // Populate Lorries dropdown
-        const lorriesSelect = document.getElementById('analytics-lorries-filter');
-        lorriesSelect.innerHTML = '<option value="__all__">All Lorries</option>';
-        lorries.forEach(lorry => {
-            const option = document.createElement('option');
-            option.value = lorry;
-            option.textContent = lorry;
-            lorriesSelect.appendChild(option);
+        // Close dropdowns when clicking outside
+        document.addEventListener('click', function(e) {
+            if (!e.target.closest('.custom-filter-dropdown')) {
+                filters.forEach(f => {
+                    document.getElementById(`${f}-filter-panel`).style.display = 'none';
+                    document.getElementById(`${f}-filter-btn`).classList.remove('active');
+                });
+            }
+        });
+    }
+
+    function updateFilterButtonText(filterType) {
+        const btn = document.getElementById(`${filterType}-filter-btn`);
+        const textSpan = btn.querySelector('.filter-text');
+        const checkboxes = document.querySelectorAll(`input[data-filter="${filterType}"]:checked`);
+        const count = checkboxes.length;
+
+        const labelMap = {
+            'customers': 'Customer',
+            'lorries': 'Lorry',
+            'pickers': 'Picker'
+        };
+
+        if (count === 0) {
+            textSpan.textContent = `All ${labelMap[filterType]}${filterType === 'lorries' ? 'ies' : 's'}`;
+        } else if (count === 1) {
+            textSpan.textContent = checkboxes[0].value;
+        } else {
+            textSpan.textContent = `${count} ${labelMap[filterType]}${count > 1 ? (filterType === 'lorries' ? 'ies' : 's') : ''} selected`;
+        }
+    }
+
+    function updateFilterChips() {
+        const chipsContainer = document.getElementById('analytics-filter-chips');
+        const selectedFiltersDiv = document.getElementById('analytics-selected-filters');
+        chipsContainer.innerHTML = '';
+
+        const filters = ['customers', 'lorries', 'pickers'];
+        let hasFilters = false;
+
+        const labelMap = {
+            'customers': 'Customer',
+            'lorries': 'Lorry',
+            'pickers': 'Picker'
+        };
+
+        filters.forEach(filterType => {
+            const checkboxes = document.querySelectorAll(`input[data-filter="${filterType}"]:checked`);
+            checkboxes.forEach(cb => {
+                hasFilters = true;
+                const chip = document.createElement('div');
+                chip.className = 'filter-chip';
+                chip.innerHTML = `
+                    <span>${labelMap[filterType]}: ${cb.value}</span>
+                    <span class="chip-remove" data-filter="${filterType}" data-value="${cb.value}">
+                        <i class="fas fa-times"></i>
+                    </span>
+                `;
+                chipsContainer.appendChild(chip);
+
+                // Add click handler to remove chip
+                chip.querySelector('.chip-remove').addEventListener('click', function() {
+                    cb.checked = false;
+                    updateFilterButtonText(filterType);
+                    updateFilterChips();
+                });
+            });
         });
 
-        // Populate Pickers dropdown
-        const pickersSelect = document.getElementById('analytics-pickers-filter');
-        pickersSelect.innerHTML = '<option value="__all__">All Pickers</option>';
-        pickers.forEach(picker => {
-            const option = document.createElement('option');
-            option.value = picker;
-            option.textContent = picker;
-            pickersSelect.appendChild(option);
-        });
-
-        // Select "All" by default
-        customersSelect.options[0].selected = true;
-        lorriesSelect.options[0].selected = true;
-        pickersSelect.options[0].selected = true;
+        selectedFiltersDiv.style.display = hasFilters ? 'block' : 'none';
     }
 
     function refreshAnalyticsDashboard(trips) {
@@ -3193,21 +3336,17 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('analytics-date-from').value = '';
         document.getElementById('analytics-date-to').value = '';
 
-        // Reset multi-select filters to "All"
-        const customersSelect = document.getElementById('analytics-customers-filter');
-        const lorriesSelect = document.getElementById('analytics-lorries-filter');
-        const pickersSelect = document.getElementById('analytics-pickers-filter');
+        // Clear all checkbox filters
+        const allCheckboxes = document.querySelectorAll('.filter-option input[type="checkbox"]');
+        allCheckboxes.forEach(cb => cb.checked = false);
 
-        // Clear all selections
-        for (let i = 0; i < customersSelect.options.length; i++) {
-            customersSelect.options[i].selected = (i === 0); // Select only "All"
-        }
-        for (let i = 0; i < lorriesSelect.options.length; i++) {
-            lorriesSelect.options[i].selected = (i === 0);
-        }
-        for (let i = 0; i < pickersSelect.options.length; i++) {
-            pickersSelect.options[i].selected = (i === 0);
-        }
+        // Update button texts
+        updateFilterButtonText('customers');
+        updateFilterButtonText('lorries');
+        updateFilterButtonText('pickers');
+
+        // Update chips
+        updateFilterChips();
 
         // Refresh with all data
         if (analyticsData) {
@@ -3222,19 +3361,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const fromDate = document.getElementById('analytics-date-from').value;
         const toDate = document.getElementById('analytics-date-to').value;
 
-        // Get selected filter values
-        const customersSelect = document.getElementById('analytics-customers-filter');
-        const lorriesSelect = document.getElementById('analytics-lorries-filter');
-        const pickersSelect = document.getElementById('analytics-pickers-filter');
-
-        const selectedCustomers = Array.from(customersSelect.selectedOptions).map(o => o.value);
-        const selectedLorries = Array.from(lorriesSelect.selectedOptions).map(o => o.value);
-        const selectedPickers = Array.from(pickersSelect.selectedOptions).map(o => o.value);
-
-        // Check if "All" is selected
-        const allCustomers = selectedCustomers.includes('__all__');
-        const allLorries = selectedLorries.includes('__all__');
-        const allPickers = selectedPickers.includes('__all__');
+        // Get selected filter values from checkboxes
+        const selectedCustomers = Array.from(document.querySelectorAll('input[data-filter="customers"]:checked')).map(cb => cb.value);
+        const selectedLorries = Array.from(document.querySelectorAll('input[data-filter="lorries"]:checked')).map(cb => cb.value);
+        const selectedPickers = Array.from(document.querySelectorAll('input[data-filter="pickers"]:checked')).map(cb => cb.value);
 
         let filteredData = analyticsData.filter(trip => {
             // Date filter
@@ -3245,17 +3375,17 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // Customer filter
-            if (!allCustomers && selectedCustomers.length > 0) {
+            if (selectedCustomers.length > 0) {
                 if (!selectedCustomers.includes(trip.account_name)) return false;
             }
 
             // Lorry filter
-            if (!allLorries && selectedLorries.length > 0) {
+            if (selectedLorries.length > 0) {
                 if (!selectedLorries.includes(trip.trip_lorry)) return false;
             }
 
             // Picker filter
-            if (!allPickers && selectedPickers.length > 0) {
+            if (selectedPickers.length > 0) {
                 if (!selectedPickers.includes(trip.PICKER)) return false;
             }
 

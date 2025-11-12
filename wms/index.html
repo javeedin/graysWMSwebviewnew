@@ -263,28 +263,76 @@
                                 <input type="date" id="analytics-date-to" class="form-control">
                             </div>
 
-                            <!-- Multi-select: Customers -->
-                            <div class="form-group" style="margin-bottom: 0; min-width: 220px;">
+                            <!-- Custom Filter Dropdown: Customers -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px; position: relative;">
                                 <label>Customers</label>
-                                <select id="analytics-customers-filter" multiple class="form-control" style="height: auto; min-height: 34px; max-height: 120px; overflow-y: auto;">
-                                    <option value="__all__" selected>All Customers</option>
-                                </select>
+                                <div class="custom-filter-dropdown">
+                                    <button type="button" class="custom-filter-btn" id="customers-filter-btn">
+                                        <span class="filter-text">All Customers</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </button>
+                                    <div class="custom-filter-panel" id="customers-filter-panel" style="display: none;">
+                                        <div class="filter-search-box">
+                                            <i class="fas fa-search"></i>
+                                            <input type="text" placeholder="Search customers..." id="customers-search" autocomplete="off">
+                                        </div>
+                                        <div class="filter-options" id="customers-options">
+                                            <!-- Options populated dynamically -->
+                                        </div>
+                                        <div class="filter-actions">
+                                            <button type="button" class="filter-action-btn select-all" data-filter="customers">Select All</button>
+                                            <button type="button" class="filter-action-btn clear-all" data-filter="customers">Clear All</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <!-- Multi-select: Lorries -->
-                            <div class="form-group" style="margin-bottom: 0; min-width: 220px;">
+                            <!-- Custom Filter Dropdown: Lorries -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px; position: relative;">
                                 <label>Lorries</label>
-                                <select id="analytics-lorries-filter" multiple class="form-control" style="height: auto; min-height: 34px; max-height: 120px; overflow-y: auto;">
-                                    <option value="__all__" selected>All Lorries</option>
-                                </select>
+                                <div class="custom-filter-dropdown">
+                                    <button type="button" class="custom-filter-btn" id="lorries-filter-btn">
+                                        <span class="filter-text">All Lorries</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </button>
+                                    <div class="custom-filter-panel" id="lorries-filter-panel" style="display: none;">
+                                        <div class="filter-search-box">
+                                            <i class="fas fa-search"></i>
+                                            <input type="text" placeholder="Search lorries..." id="lorries-search" autocomplete="off">
+                                        </div>
+                                        <div class="filter-options" id="lorries-options">
+                                            <!-- Options populated dynamically -->
+                                        </div>
+                                        <div class="filter-actions">
+                                            <button type="button" class="filter-action-btn select-all" data-filter="lorries">Select All</button>
+                                            <button type="button" class="filter-action-btn clear-all" data-filter="lorries">Clear All</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <!-- Multi-select: Pickers -->
-                            <div class="form-group" style="margin-bottom: 0; min-width: 220px;">
+                            <!-- Custom Filter Dropdown: Pickers -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px; position: relative;">
                                 <label>Pickers</label>
-                                <select id="analytics-pickers-filter" multiple class="form-control" style="height: auto; min-height: 34px; max-height: 120px; overflow-y: auto;">
-                                    <option value="__all__" selected>All Pickers</option>
-                                </select>
+                                <div class="custom-filter-dropdown">
+                                    <button type="button" class="custom-filter-btn" id="pickers-filter-btn">
+                                        <span class="filter-text">All Pickers</span>
+                                        <i class="fas fa-chevron-down"></i>
+                                    </button>
+                                    <div class="custom-filter-panel" id="pickers-filter-panel" style="display: none;">
+                                        <div class="filter-search-box">
+                                            <i class="fas fa-search"></i>
+                                            <input type="text" placeholder="Search pickers..." id="pickers-search" autocomplete="off">
+                                        </div>
+                                        <div class="filter-options" id="pickers-options">
+                                            <!-- Options populated dynamically -->
+                                        </div>
+                                        <div class="filter-actions">
+                                            <button type="button" class="filter-action-btn select-all" data-filter="pickers">Select All</button>
+                                            <button type="button" class="filter-action-btn clear-all" data-filter="pickers">Clear All</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <button id="analytics-refresh-btn" class="btn" style="height: 34px; margin-top: 22px;">
@@ -296,6 +344,16 @@
                             <button id="analytics-export-btn" class="btn" style="height: 34px; margin-top: 22px; background: #10b981;">
                                 <i class="fas fa-file-excel"></i> Export to Excel
                             </button>
+                        </div>
+
+                        <!-- Selected Filters Display -->
+                        <div id="analytics-selected-filters" style="display: none; margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <span style="font-weight: 600; color: #475569; font-size: 0.875rem;">Active Filters:</span>
+                                <div id="analytics-filter-chips" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <!-- Filter chips added dynamically -->
+                                </div>
+                            </div>
                         </div>
                     </div>
 
