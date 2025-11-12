@@ -2625,5 +2625,526 @@ document.addEventListener('DOMContentLoaded', function() {
         debugContainer.innerHTML = tableHTML;
     }
 
+    // ============================================
+    // ANALYTICS DASHBOARD
+    // ============================================
+
+    let analyticsCharts = {
+        ordersTrend: null,
+        statusDist: null,
+        ordersLorry: null,
+        ordersPicker: null,
+        topCustomers: null,
+        weightLorry: null
+    };
+
+    let analyticsData = null;
+
+    // Initialize Analytics when trip data is loaded
+    function updateAnalytics(trips) {
+        if (!trips || trips.length === 0) {
+            document.getElementById('analytics-dashboard').style.display = 'none';
+            document.getElementById('analytics-empty-state').style.display = 'block';
+            return;
+        }
+
+        analyticsData = trips;
+        document.getElementById('analytics-empty-state').style.display = 'none';
+        document.getElementById('analytics-dashboard').style.display = 'block';
+
+        // Set date filters to match current data
+        const dates = trips.map(t => t.trip_date || t.ORDER_DATE).filter(d => d);
+        if (dates.length > 0) {
+            const sortedDates = dates.sort();
+            const minDate = sortedDates[0];
+            const maxDate = sortedDates[sortedDates.length - 1];
+
+            document.getElementById('analytics-date-from').value = minDate;
+            document.getElementById('analytics-date-to').value = maxDate;
+        }
+
+        refreshAnalyticsDashboard(trips);
+    }
+
+    function refreshAnalyticsDashboard(trips) {
+        updateAnalyticsKPIs(trips);
+        updateAnalyticsCharts(trips);
+    }
+
+    function updateAnalyticsKPIs(trips) {
+        // Total Orders
+        document.getElementById('kpi-total-orders').textContent = trips.length.toLocaleString();
+
+        // Total Trips
+        const totalTrips = new Set(trips.map(t => t.trip_id).filter(x => x)).size;
+        document.getElementById('kpi-total-trips').textContent = totalTrips.toLocaleString();
+
+        // Total Customers
+        const totalCustomers = new Set(trips.map(t => t.account_name).filter(x => x)).size;
+        document.getElementById('kpi-total-customers').textContent = totalCustomers.toLocaleString();
+
+        // Total Lorries
+        const totalLorries = new Set(trips.map(t => t.trip_lorry).filter(x => x)).size;
+        document.getElementById('kpi-total-lorries').textContent = totalLorries.toLocaleString();
+
+        // Total Pickers
+        const totalPickers = new Set(trips.map(t => t.PICKER).filter(x => x)).size;
+        document.getElementById('kpi-total-pickers').textContent = totalPickers.toLocaleString();
+
+        // Average Orders per Trip
+        const avgOrders = totalTrips > 0 ? (trips.length / totalTrips).toFixed(1) : 0;
+        document.getElementById('kpi-avg-orders').textContent = avgOrders;
+    }
+
+    function updateAnalyticsCharts(trips) {
+        createOrdersTrendChart(trips);
+        createStatusDistChart(trips);
+        createOrdersByLorryChart(trips);
+        createOrdersByPickerChart(trips);
+        createTopCustomersChart(trips);
+        createWeightByLorryChart(trips);
+    }
+
+    function createOrdersTrendChart(trips) {
+        const ctx = document.getElementById('chart-orders-trend');
+        if (!ctx) return;
+
+        // Group by date
+        const dateCount = {};
+        trips.forEach(trip => {
+            const date = trip.trip_date || trip.ORDER_DATE || 'Unknown';
+            dateCount[date] = (dateCount[date] || 0) + 1;
+        });
+
+        const sortedDates = Object.keys(dateCount).sort();
+        const counts = sortedDates.map(date => dateCount[date]);
+
+        if (analyticsCharts.ordersTrend) {
+            analyticsCharts.ordersTrend.destroy();
+        }
+
+        analyticsCharts.ordersTrend = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: sortedDates,
+                datasets: [{
+                    label: 'Orders',
+                    data: counts,
+                    borderColor: 'rgb(99, 102, 241)',
+                    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    function createStatusDistChart(trips) {
+        const ctx = document.getElementById('chart-status-dist');
+        if (!ctx) return;
+
+        // Group by status
+        const statusCount = {};
+        trips.forEach(trip => {
+            const status = trip.LINE_STATUS || 'Unknown';
+            statusCount[status] = (statusCount[status] || 0) + 1;
+        });
+
+        const labels = Object.keys(statusCount);
+        const counts = Object.values(statusCount);
+
+        const colors = [
+            'rgba(99, 102, 241, 0.8)',
+            'rgba(59, 130, 246, 0.8)',
+            'rgba(16, 185, 129, 0.8)',
+            'rgba(245, 158, 11, 0.8)',
+            'rgba(239, 68, 68, 0.8)',
+            'rgba(139, 92, 246, 0.8)'
+        ];
+
+        if (analyticsCharts.statusDist) {
+            analyticsCharts.statusDist.destroy();
+        }
+
+        analyticsCharts.statusDist = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: counts,
+                    backgroundColor: colors.slice(0, labels.length)
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    }
+
+    function createOrdersByLorryChart(trips) {
+        const ctx = document.getElementById('chart-orders-lorry');
+        if (!ctx) return;
+
+        // Group by lorry
+        const lorryCount = {};
+        trips.forEach(trip => {
+            const lorry = trip.trip_lorry || 'Unknown';
+            lorryCount[lorry] = (lorryCount[lorry] || 0) + 1;
+        });
+
+        // Sort by count descending and take top 10
+        const sorted = Object.entries(lorryCount)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+
+        const labels = sorted.map(x => x[0]);
+        const counts = sorted.map(x => x[1]);
+
+        if (analyticsCharts.ordersLorry) {
+            analyticsCharts.ordersLorry.destroy();
+        }
+
+        analyticsCharts.ordersLorry = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Orders',
+                    data: counts,
+                    backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    function createOrdersByPickerChart(trips) {
+        const ctx = document.getElementById('chart-orders-picker');
+        if (!ctx) return;
+
+        // Group by picker
+        const pickerCount = {};
+        trips.forEach(trip => {
+            const picker = trip.PICKER || 'Unknown';
+            pickerCount[picker] = (pickerCount[picker] || 0) + 1;
+        });
+
+        // Sort by count descending and take top 10
+        const sorted = Object.entries(pickerCount)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+
+        const labels = sorted.map(x => x[0]);
+        const counts = sorted.map(x => x[1]);
+
+        if (analyticsCharts.ordersPicker) {
+            analyticsCharts.ordersPicker.destroy();
+        }
+
+        analyticsCharts.ordersPicker = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Orders',
+                    data: counts,
+                    backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    function createTopCustomersChart(trips) {
+        const ctx = document.getElementById('chart-top-customers');
+        if (!ctx) return;
+
+        // Group by customer
+        const customerCount = {};
+        trips.forEach(trip => {
+            const customer = trip.account_name || 'Unknown';
+            customerCount[customer] = (customerCount[customer] || 0) + 1;
+        });
+
+        // Sort by count descending and take top 10
+        const sorted = Object.entries(customerCount)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+
+        const labels = sorted.map(x => x[0]);
+        const counts = sorted.map(x => x[1]);
+
+        if (analyticsCharts.topCustomers) {
+            analyticsCharts.topCustomers.destroy();
+        }
+
+        analyticsCharts.topCustomers = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Orders',
+                    data: counts,
+                    backgroundColor: 'rgba(245, 158, 11, 0.8)',
+                    borderColor: 'rgba(245, 158, 11, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    function createWeightByLorryChart(trips) {
+        const ctx = document.getElementById('chart-weight-lorry');
+        if (!ctx) return;
+
+        // Find weight fields
+        const weightFields = Object.keys(trips[0] || {}).filter(key =>
+            key.toLowerCase().includes('weight')
+        );
+
+        if (weightFields.length === 0) {
+            // No weight data available
+            if (analyticsCharts.weightLorry) {
+                analyticsCharts.weightLorry.destroy();
+            }
+            ctx.getContext('2d').clearRect(0, 0, ctx.width, ctx.height);
+            const parent = ctx.parentElement;
+            const msg = document.createElement('p');
+            msg.textContent = 'No weight data available';
+            msg.style.textAlign = 'center';
+            msg.style.color = '#94a3b8';
+            parent.appendChild(msg);
+            return;
+        }
+
+        // Use first weight field
+        const weightField = weightFields[0];
+
+        // Group by lorry and sum weight
+        const lorryWeight = {};
+        trips.forEach(trip => {
+            const lorry = trip.trip_lorry || 'Unknown';
+            const weight = parseFloat(trip[weightField]) || 0;
+            lorryWeight[lorry] = (lorryWeight[lorry] || 0) + weight;
+        });
+
+        // Sort by weight descending and take top 10
+        const sorted = Object.entries(lorryWeight)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 10);
+
+        const labels = sorted.map(x => x[0]);
+        const weights = sorted.map(x => x[1].toFixed(2));
+
+        if (analyticsCharts.weightLorry) {
+            analyticsCharts.weightLorry.destroy();
+        }
+
+        analyticsCharts.weightLorry = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Total Weight',
+                    data: weights,
+                    backgroundColor: 'rgba(139, 92, 246, 0.8)',
+                    borderColor: 'rgba(139, 92, 246, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    x: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    // Analytics Refresh Button
+    document.getElementById('analytics-refresh-btn').addEventListener('click', function() {
+        if (!analyticsData) {
+            alert('No data available. Please fetch trips first.');
+            return;
+        }
+
+        const fromDate = document.getElementById('analytics-date-from').value;
+        const toDate = document.getElementById('analytics-date-to').value;
+
+        let filteredData = analyticsData;
+
+        // Filter by date if specified
+        if (fromDate || toDate) {
+            filteredData = analyticsData.filter(trip => {
+                const tripDate = trip.trip_date || trip.ORDER_DATE;
+                if (!tripDate) return false;
+
+                if (fromDate && tripDate < fromDate) return false;
+                if (toDate && tripDate > toDate) return false;
+
+                return true;
+            });
+        }
+
+        refreshAnalyticsDashboard(filteredData);
+    });
+
+    // Analytics Export to Excel
+    document.getElementById('analytics-export-btn').addEventListener('click', function() {
+        if (!analyticsData) {
+            alert('No data available to export.');
+            return;
+        }
+
+        const fromDate = document.getElementById('analytics-date-from').value;
+        const toDate = document.getElementById('analytics-date-to').value;
+
+        let exportData = analyticsData;
+
+        // Filter by date if specified
+        if (fromDate || toDate) {
+            exportData = analyticsData.filter(trip => {
+                const tripDate = trip.trip_date || trip.ORDER_DATE;
+                if (!tripDate) return false;
+
+                if (fromDate && tripDate < fromDate) return false;
+                if (toDate && tripDate > toDate) return false;
+
+                return true;
+            });
+        }
+
+        exportAnalyticsToExcel(exportData);
+    });
+
+    function exportAnalyticsToExcel(trips) {
+        const workbook = new ExcelJS.Workbook();
+
+        // Summary Sheet
+        const summarySheet = workbook.addWorksheet('Summary');
+        summarySheet.columns = [
+            { header: 'Metric', key: 'metric', width: 30 },
+            { header: 'Value', key: 'value', width: 20 }
+        ];
+
+        const totalTrips = new Set(trips.map(t => t.trip_id).filter(x => x)).size;
+        const totalCustomers = new Set(trips.map(t => t.account_name).filter(x => x)).size;
+        const totalLorries = new Set(trips.map(t => t.trip_lorry).filter(x => x)).size;
+        const totalPickers = new Set(trips.map(t => t.PICKER).filter(x => x)).size;
+        const avgOrders = totalTrips > 0 ? (trips.length / totalTrips).toFixed(1) : 0;
+
+        summarySheet.addRows([
+            { metric: 'Total Orders', value: trips.length },
+            { metric: 'Total Trips', value: totalTrips },
+            { metric: 'Total Customers', value: totalCustomers },
+            { metric: 'Total Lorries', value: totalLorries },
+            { metric: 'Total Pickers', value: totalPickers },
+            { metric: 'Average Orders per Trip', value: avgOrders }
+        ]);
+
+        // Style summary sheet
+        summarySheet.getRow(1).font = { bold: true };
+        summarySheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF6366F1' }
+        };
+
+        // Raw Data Sheet
+        const dataSheet = workbook.addWorksheet('Trip Data');
+        if (trips.length > 0) {
+            const headers = Object.keys(trips[0]);
+            dataSheet.columns = headers.map(h => ({
+                header: h,
+                key: h,
+                width: 15
+            }));
+
+            trips.forEach(trip => {
+                dataSheet.addRow(trip);
+            });
+
+            // Style data sheet
+            dataSheet.getRow(1).font = { bold: true };
+            dataSheet.getRow(1).fill = {
+                type: 'pattern',
+                pattern: 'solid',
+                fgColor: { argb: 'FF6366F1' }
+            };
+        }
+
+        // Save file
+        workbook.xlsx.writeBuffer().then(buffer => {
+            const blob = new Blob([buffer], {
+                type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            });
+            const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+            saveAs(blob, `WMS_Analytics_${timestamp}.xlsx`);
+        });
+    }
+
+    // Auto-update analytics when trip data is fetched
+    const originalDisplayTripData = displayTripData;
+    displayTripData = function(trips) {
+        originalDisplayTripData(trips);
+        updateAnalytics(trips);
+    };
+
     console.log('[JS] ✅ Application initialized');
 });

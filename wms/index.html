@@ -246,10 +246,104 @@
             </div>
             
             <div id="vehicle-management" class="page-content" style="display: none;">
-                <div class="empty-state">
+                <!-- Analytics Dashboard -->
+                <div id="analytics-dashboard" style="display: none;">
+                    <!-- Filters Section -->
+                    <div class="parameters-section" style="margin-bottom: 1.5rem;">
+                        <div class="parameters-header">
+                            <h3><i class="fas fa-filter"></i> Analytics Filters</h3>
+                        </div>
+                        <div class="parameters-content" style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                                <label for="analytics-date-from">From Date</label>
+                                <input type="date" id="analytics-date-from" class="form-control">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                                <label for="analytics-date-to">To Date</label>
+                                <input type="date" id="analytics-date-to" class="form-control">
+                            </div>
+                            <button id="analytics-refresh-btn" class="btn" style="height: 34px; margin-top: 22px;">
+                                <i class="fas fa-sync-alt"></i> Refresh Analytics
+                            </button>
+                            <button id="analytics-export-btn" class="btn" style="height: 34px; margin-top: 22px; background: #10b981;">
+                                <i class="fas fa-file-excel"></i> Export to Excel
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- KPI Cards -->
+                    <div class="analytics-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Orders</div>
+                            <div id="kpi-total-orders" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Trips</div>
+                            <div id="kpi-total-trips" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Customers</div>
+                            <div id="kpi-total-customers" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Lorries</div>
+                            <div id="kpi-total-lorries" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Pickers</div>
+                            <div id="kpi-total-pickers" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Avg Orders/Trip</div>
+                            <div id="kpi-avg-orders" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row 1 -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Orders Trend</h3>
+                            <canvas id="chart-orders-trend" style="max-height: 300px;"></canvas>
+                        </div>
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Status Distribution</h3>
+                            <canvas id="chart-status-dist" style="max-height: 300px;"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row 2 -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Orders by Lorry</h3>
+                            <canvas id="chart-orders-lorry" style="max-height: 300px;"></canvas>
+                        </div>
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Orders by Picker</h3>
+                            <canvas id="chart-orders-picker" style="max-height: 300px;"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row 3 -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Top 10 Customers</h3>
+                            <canvas id="chart-top-customers" style="max-height: 300px;"></canvas>
+                        </div>
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Total Weight by Lorry</h3>
+                            <canvas id="chart-weight-lorry" style="max-height: 300px;"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div id="analytics-empty-state" class="empty-state">
                     <i class="fas fa-chart-line"></i>
-                    <h3>Analytics</h3>
-                    <p>Click "Fetch Trips" to load analytics</p>
+                    <h3>Analytics Dashboard</h3>
+                    <p>Click "Fetch Trips" in Trip Management to load analytics data</p>
+                    <button onclick="document.querySelector('[data-page=trip-management]').click()" class="btn" style="margin-top: 1rem;">
+                        <i class="fas fa-arrow-left"></i> Go to Trip Management
+                    </button>
                 </div>
             </div>
             
