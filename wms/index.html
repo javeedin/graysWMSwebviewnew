@@ -687,7 +687,7 @@
     </div>
 </div>
 
-<!-- Printer Selection Modal for Auto-Print -->
+<!-- Printer Selection Modal for Auto-Print (FROM TRIP CARDS) -->
 <div id="printer-selection-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
     <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
         <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0;">
@@ -737,12 +737,57 @@
             <button class="btn btn-secondary" onclick="closePrinterSelectionModal()">
                 <i class="fas fa-times"></i> Cancel
             </button>
-            <!-- Button for enabling auto-print (from trip cards) -->
-            <button id="btn-enable-auto-print" class="btn btn-primary" onclick="confirmPrinterSelection()" style="display: none;">
+            <button class="btn btn-primary" onclick="confirmPrinterSelection()">
                 <i class="fas fa-check"></i> Enable Auto-Print
             </button>
-            <!-- Button for printing (from Print All) -->
-            <button id="btn-print-selected" class="btn btn-success" onclick="confirmPrintWithSelectedPrinter()" style="display: none;">
+        </div>
+    </div>
+</div>
+
+<!-- NEW: Printer Selection Modal for Print All (FROM MONITOR PRINTING) -->
+<div id="print-all-printer-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+    <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0;">
+            <h3 style="margin: 0; font-size: 18px; color: #333;">
+                <i class="fas fa-print" style="color: #28a745;"></i> Select Printer for Printing
+            </h3>
+            <p style="margin: 8px 0 0 0; font-size: 14px; color: #666;">
+                Choose a printer to print the selected documents
+            </p>
+        </div>
+
+        <div style="padding: 1.5rem;">
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-truck" style="color: #28a745;"></i> Trip ID
+                </label>
+                <div id="print-modal-trip-id" style="padding: 0.75rem; background: #f7fafc; border-radius: 6px; font-family: 'Courier New', monospace; font-weight: 600; color: #2d3748;"></div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-box" style="color: #28a745;"></i> Orders to Print
+                </label>
+                <div id="print-modal-order-count" style="padding: 0.75rem; background: #f7fafc; border-radius: 6px; color: #2d3748;"></div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <label for="print-modal-printer-select" style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-print" style="color: #28a745;"></i> Select Printer <span style="color: #dc3545;">*</span>
+                </label>
+                <select id="print-modal-printer-select" class="form-control" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <option value="">-- Loading printers... --</option>
+                </select>
+            </div>
+
+            <div id="print-modal-error" style="display: none; padding: 0.75rem; background: #fee2e2; border-left: 4px solid #dc3545; border-radius: 4px; margin-bottom: 1rem; color: #991b1b; font-size: 14px;"></div>
+        </div>
+
+        <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button class="btn btn-secondary" onclick="closePrintAllPrinterModal()">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+            <button class="btn btn-success" onclick="confirmPrintAllWithPrinter()">
                 <i class="fas fa-print"></i> Print
             </button>
         </div>
@@ -1102,7 +1147,7 @@
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
             <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-check-circle"></i> Latest Code: v2025.01.12-3
+                <i class="fas fa-check-circle"></i> Latest Code: v2025.01.12-4
             </span>
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
             <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
@@ -1120,6 +1165,7 @@
         document.write('<script src="app.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="printer-management-new.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="monitor-printing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="monitor-printing-print-all-modal.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="update-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="distribution-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>

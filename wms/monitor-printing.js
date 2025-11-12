@@ -41,22 +41,6 @@ window.showPrinterSelectionModal = async function(tripId, tripDate, orderCount, 
     document.getElementById('modal-trip-date').textContent = tripDate;
     document.getElementById('modal-order-count').textContent = `${orderCount} orders`;
 
-    // 🔧 NEW: Show correct button based on context
-    // If shouldPrintAfterEnable is set, we're coming from "Print All" - show Print button
-    // Otherwise, we're coming from trip card toggle - show Enable Auto-Print button
-    const btnEnableAutoPrint = document.getElementById('btn-enable-auto-print');
-    const btnPrintSelected = document.getElementById('btn-print-selected');
-
-    if (currentTripForPrinterSelection.shouldPrintAfterEnable) {
-        console.log('[Monitor] Context: Print All - showing Print button');
-        btnEnableAutoPrint.style.display = 'none';
-        btnPrintSelected.style.display = 'inline-block';
-    } else {
-        console.log('[Monitor] Context: Enable Auto-Print - showing Enable Auto-Print button');
-        btnEnableAutoPrint.style.display = 'inline-block';
-        btnPrintSelected.style.display = 'none';
-    }
-
     // Show modal FIRST (before loading printers)
     const modal = document.getElementById('printer-selection-modal');
     console.log('[Monitor] Setting modal display to flex');
@@ -208,66 +192,6 @@ window.confirmPrinterSelection = async function() {
         errorDiv.textContent = 'Failed to enable auto-print: ' + error.message;
         errorDiv.style.display = 'block';
     }
-};
-
-// 🔧 NEW: For Print All - just add orders to print queue without saving to database
-window.confirmPrintWithSelectedPrinter = async function() {
-    const errorDiv = document.getElementById('printer-selection-error');
-    errorDiv.style.display = 'none';
-
-    const printerConfigId = document.getElementById('modal-printer-select').value;
-
-    if (!printerConfigId) {
-        errorDiv.textContent = 'Please select a printer';
-        errorDiv.style.display = 'block';
-        return;
-    }
-
-    if (!currentTripForPrinterSelection) {
-        errorDiv.textContent = 'Invalid trip data';
-        errorDiv.style.display = 'block';
-        return;
-    }
-
-    const selectedPrinter = allPrintersForSelection.find(p => p.configId == printerConfigId);
-    const tripId = currentTripForPrinterSelection.tripId;
-    const orders = currentTripForPrinterSelection.orders;
-
-    console.log('[Monitor] Print button clicked - adding orders to print queue');
-    console.log('[Monitor] Printer:', selectedPrinter?.printerName);
-    console.log('[Monitor] Orders:', orders);
-
-    // Close modal
-    document.getElementById('printer-selection-modal').style.display = 'none';
-    currentTripForPrinterSelection = null;
-
-    // Show confirmation
-    const confirmed = confirm(
-        `Add ${orders.length} orders to print queue?\n\n` +
-        `Printer: ${selectedPrinter?.printerName}\n\n` +
-        `You can monitor progress in the Print Queue tab.`
-    );
-
-    if (!confirmed) {
-        return;
-    }
-
-    console.log(`[Monitor] Adding ${orders.length} orders to print queue...`);
-
-    // Add all orders to print queue
-    for (const order of orders) {
-        // Add printer name to order data so print queue knows which printer to use
-        order.printerName = selectedPrinter?.printerName;
-        addToPrintQueue(tripId, order);
-    }
-
-    console.log(`[Monitor] ✅ ${orders.length} jobs added to print queue`);
-
-    // Show message
-    alert(`${orders.length} jobs added to Print Queue!\n\nClick OK to start printing.`);
-
-    // Start processing the queue
-    await processPrintQueue();
 };
 
 // ============================================================================
@@ -1694,60 +1618,8 @@ async function printAllOrdersPDF(tripId) {
         return;
     }
 
-    // 🔧 NEW: Check if printer is configured for this trip
-    const hasPrinter = downloadedOrders.some(o => o.printerName && o.printerName.trim() !== '');
-
-    if (!hasPrinter) {
-        // No printer configured - show printer selection modal
-        const shouldEnableAutoPrint = confirm(
-            `No printer is configured for this trip.\n\n` +
-            `To print these ${downloadedOrders.length} orders, you need to enable auto-print first.\n\n` +
-            `Click OK to select a printer and enable auto-print.`
-        );
-
-        if (shouldEnableAutoPrint) {
-            // Show printer selection modal (reuse the existing modal from Monitor Printing)
-            currentTripForPrinterSelection = {
-                tripId: tripDetails.tripData.tripId,
-                tripDate: tripDetails.tripData.tripDate,
-                orderCount: downloadedOrders.length,
-                shouldPrintAfterEnable: true,  // ← NEW: Flag to indicate we should print after enabling auto-print
-                orders: downloadedOrders.map(o => ({
-                    orderNumber: o.orderNumber,
-                    customerName: o.customerName,
-                    pdfPath: o.pdfPath
-                }))
-            };
-            await showPrinterSelectionModal(
-                tripDetails.tripData.tripId,
-                tripDetails.tripData.tripDate,
-                downloadedOrders.length,
-                downloadedOrders
-            );
-        }
-        return;
-    }
-
-    const confirmed = confirm(`Add ${downloadedOrders.length} orders to print queue and start printing?\n\nPrinter: ${downloadedOrders[0].printerName}\n\nYou can monitor progress in the Print Queue tab.`);
-
-    if (!confirmed) {
-        return;
-    }
-
-    console.log(`[Monitor] Adding ${downloadedOrders.length} orders to print queue...`);
-
-    // Add all orders to queue
-    for (const order of downloadedOrders) {
-        addToPrintQueue(tripId, order);
-    }
-
-    console.log(`[Monitor] ✅ ${downloadedOrders.length} jobs added to print queue`);
-
-    // Show message
-    alert(`${downloadedOrders.length} jobs added to Print Queue!\n\nClick OK to start printing.`);
-
-    // Start processing the queue
-    await processPrintQueue();
+    // Show Print All printer selection modal (separate from auto-print modal)
+    await showPrintAllPrinterModal(tripId, downloadedOrders.length, downloadedOrders);
 }
 
 async function refreshOrdersStatus(tripId) {
