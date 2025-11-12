@@ -2631,6 +2631,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let analyticsCharts = {
         ordersTrend: null,
+        weeklyTrend: null,
+        monthlyTrend: null,
         statusDist: null,
         ordersLorry: null,
         ordersPicker: null,
@@ -2663,7 +2665,53 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('analytics-date-to').value = maxDate;
         }
 
+        // Populate filter dropdowns
+        populateAnalyticsFilters(trips);
+
         refreshAnalyticsDashboard(trips);
+    }
+
+    // Populate multi-select filter dropdowns
+    function populateAnalyticsFilters(trips) {
+        // Get unique values
+        const customers = [...new Set(trips.map(t => t.account_name).filter(x => x))].sort();
+        const lorries = [...new Set(trips.map(t => t.trip_lorry).filter(x => x))].sort();
+        const pickers = [...new Set(trips.map(t => t.PICKER).filter(x => x))].sort();
+
+        // Populate Customers dropdown
+        const customersSelect = document.getElementById('analytics-customers-filter');
+        customersSelect.innerHTML = '<option value="__all__">All Customers</option>';
+        customers.forEach(customer => {
+            const option = document.createElement('option');
+            option.value = customer;
+            option.textContent = customer;
+            customersSelect.appendChild(option);
+        });
+
+        // Populate Lorries dropdown
+        const lorriesSelect = document.getElementById('analytics-lorries-filter');
+        lorriesSelect.innerHTML = '<option value="__all__">All Lorries</option>';
+        lorries.forEach(lorry => {
+            const option = document.createElement('option');
+            option.value = lorry;
+            option.textContent = lorry;
+            lorriesSelect.appendChild(option);
+        });
+
+        // Populate Pickers dropdown
+        const pickersSelect = document.getElementById('analytics-pickers-filter');
+        pickersSelect.innerHTML = '<option value="__all__">All Pickers</option>';
+        pickers.forEach(picker => {
+            const option = document.createElement('option');
+            option.value = picker;
+            option.textContent = picker;
+            pickersSelect.appendChild(option);
+        });
+
+        // Select "All" by default
+        customersSelect.options[0].selected = true;
+        lorriesSelect.options[0].selected = true;
+        pickersSelect.options[0].selected = true;
     }
 
     function refreshAnalyticsDashboard(trips) {
@@ -2698,6 +2746,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function updateAnalyticsCharts(trips) {
         createOrdersTrendChart(trips);
+        createWeeklyTrendChart(trips);
+        createMonthlyTrendChart(trips);
         createStatusDistChart(trips);
         createOrdersByLorryChart(trips);
         createOrdersByPickerChart(trips);
@@ -2747,6 +2797,115 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
+    }
+
+    function createWeeklyTrendChart(trips) {
+        const ctx = document.getElementById('chart-weekly-trend');
+        if (!ctx) return;
+
+        // Group by week (ISO week: YYYY-WW format)
+        const weekCount = {};
+        trips.forEach(trip => {
+            const date = trip.trip_date || trip.ORDER_DATE || 'Unknown';
+            if (date === 'Unknown') return;
+
+            const d = new Date(date);
+            const year = d.getFullYear();
+            const week = getWeekNumber(d);
+            const weekKey = `${year}-W${String(week).padStart(2, '0')}`;
+
+            weekCount[weekKey] = (weekCount[weekKey] || 0) + 1;
+        });
+
+        const sortedWeeks = Object.keys(weekCount).sort();
+        const counts = sortedWeeks.map(week => weekCount[week]);
+
+        if (analyticsCharts.weeklyTrend) {
+            analyticsCharts.weeklyTrend.destroy();
+        }
+
+        analyticsCharts.weeklyTrend = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: sortedWeeks,
+                datasets: [{
+                    label: 'Orders',
+                    data: counts,
+                    backgroundColor: 'rgba(245, 158, 11, 0.8)',
+                    borderColor: 'rgba(245, 158, 11, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    function createMonthlyTrendChart(trips) {
+        const ctx = document.getElementById('chart-monthly-trend');
+        if (!ctx) return;
+
+        // Group by month (YYYY-MM format)
+        const monthCount = {};
+        trips.forEach(trip => {
+            const date = trip.trip_date || trip.ORDER_DATE || 'Unknown';
+            if (date === 'Unknown') return;
+
+            const d = new Date(date);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const monthKey = `${year}-${month}`;
+
+            monthCount[monthKey] = (monthCount[monthKey] || 0) + 1;
+        });
+
+        const sortedMonths = Object.keys(monthCount).sort();
+        const counts = sortedMonths.map(month => monthCount[month]);
+
+        if (analyticsCharts.monthlyTrend) {
+            analyticsCharts.monthlyTrend.destroy();
+        }
+
+        analyticsCharts.monthlyTrend = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: sortedMonths,
+                datasets: [{
+                    label: 'Orders',
+                    data: counts,
+                    backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                    borderColor: 'rgba(16, 185, 129, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }
+                },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    // Helper function to get ISO week number
+    function getWeekNumber(d) {
+        d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+        d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        return weekNo;
     }
 
     function createStatusDistChart(trips) {
@@ -3024,26 +3183,87 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        let filteredData = applyAnalyticsFilters();
+        refreshAnalyticsDashboard(filteredData);
+    });
+
+    // Analytics Clear Filters Button
+    document.getElementById('analytics-clear-filters-btn').addEventListener('click', function() {
+        // Reset date filters
+        document.getElementById('analytics-date-from').value = '';
+        document.getElementById('analytics-date-to').value = '';
+
+        // Reset multi-select filters to "All"
+        const customersSelect = document.getElementById('analytics-customers-filter');
+        const lorriesSelect = document.getElementById('analytics-lorries-filter');
+        const pickersSelect = document.getElementById('analytics-pickers-filter');
+
+        // Clear all selections
+        for (let i = 0; i < customersSelect.options.length; i++) {
+            customersSelect.options[i].selected = (i === 0); // Select only "All"
+        }
+        for (let i = 0; i < lorriesSelect.options.length; i++) {
+            lorriesSelect.options[i].selected = (i === 0);
+        }
+        for (let i = 0; i < pickersSelect.options.length; i++) {
+            pickersSelect.options[i].selected = (i === 0);
+        }
+
+        // Refresh with all data
+        if (analyticsData) {
+            refreshAnalyticsDashboard(analyticsData);
+        }
+    });
+
+    // Apply all analytics filters
+    function applyAnalyticsFilters() {
+        if (!analyticsData) return [];
+
         const fromDate = document.getElementById('analytics-date-from').value;
         const toDate = document.getElementById('analytics-date-to').value;
 
-        let filteredData = analyticsData;
+        // Get selected filter values
+        const customersSelect = document.getElementById('analytics-customers-filter');
+        const lorriesSelect = document.getElementById('analytics-lorries-filter');
+        const pickersSelect = document.getElementById('analytics-pickers-filter');
 
-        // Filter by date if specified
-        if (fromDate || toDate) {
-            filteredData = analyticsData.filter(trip => {
-                const tripDate = trip.trip_date || trip.ORDER_DATE;
-                if (!tripDate) return false;
+        const selectedCustomers = Array.from(customersSelect.selectedOptions).map(o => o.value);
+        const selectedLorries = Array.from(lorriesSelect.selectedOptions).map(o => o.value);
+        const selectedPickers = Array.from(pickersSelect.selectedOptions).map(o => o.value);
 
+        // Check if "All" is selected
+        const allCustomers = selectedCustomers.includes('__all__');
+        const allLorries = selectedLorries.includes('__all__');
+        const allPickers = selectedPickers.includes('__all__');
+
+        let filteredData = analyticsData.filter(trip => {
+            // Date filter
+            const tripDate = trip.trip_date || trip.ORDER_DATE;
+            if (tripDate) {
                 if (fromDate && tripDate < fromDate) return false;
                 if (toDate && tripDate > toDate) return false;
+            }
 
-                return true;
-            });
-        }
+            // Customer filter
+            if (!allCustomers && selectedCustomers.length > 0) {
+                if (!selectedCustomers.includes(trip.account_name)) return false;
+            }
 
-        refreshAnalyticsDashboard(filteredData);
-    });
+            // Lorry filter
+            if (!allLorries && selectedLorries.length > 0) {
+                if (!selectedLorries.includes(trip.trip_lorry)) return false;
+            }
+
+            // Picker filter
+            if (!allPickers && selectedPickers.length > 0) {
+                if (!selectedPickers.includes(trip.PICKER)) return false;
+            }
+
+            return true;
+        });
+
+        return filteredData;
+    }
 
     // Analytics Export to Excel
     document.getElementById('analytics-export-btn').addEventListener('click', function() {
@@ -3052,24 +3272,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const fromDate = document.getElementById('analytics-date-from').value;
-        const toDate = document.getElementById('analytics-date-to').value;
-
-        let exportData = analyticsData;
-
-        // Filter by date if specified
-        if (fromDate || toDate) {
-            exportData = analyticsData.filter(trip => {
-                const tripDate = trip.trip_date || trip.ORDER_DATE;
-                if (!tripDate) return false;
-
-                if (fromDate && tripDate < fromDate) return false;
-                if (toDate && tripDate > toDate) return false;
-
-                return true;
-            });
-        }
-
+        let exportData = applyAnalyticsFilters();
         exportAnalyticsToExcel(exportData);
     });
 
