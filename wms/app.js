@@ -2655,15 +2655,30 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('analytics-empty-state').style.display = 'none';
         document.getElementById('analytics-dashboard').style.display = 'block';
 
-        // Set date filters to match current data
-        const dates = trips.map(t => t.trip_date || t.ORDER_DATE).filter(d => d);
-        if (dates.length > 0) {
-            const sortedDates = dates.sort();
-            const minDate = sortedDates[0];
-            const maxDate = sortedDates[sortedDates.length - 1];
+        // Copy date filters from Trip Management to Analytics
+        const tripDateFrom = document.getElementById('trip-date-from');
+        const tripDateTo = document.getElementById('trip-date-to');
+        const analyticsDateFrom = document.getElementById('analytics-date-from');
+        const analyticsDateTo = document.getElementById('analytics-date-to');
 
-            document.getElementById('analytics-date-from').value = minDate;
-            document.getElementById('analytics-date-to').value = maxDate;
+        if (tripDateFrom && tripDateFrom.value) {
+            analyticsDateFrom.value = tripDateFrom.value;
+        }
+        if (tripDateTo && tripDateTo.value) {
+            analyticsDateTo.value = tripDateTo.value;
+        }
+
+        // If no trip dates set, use data range
+        if (!analyticsDateFrom.value && !analyticsDateTo.value) {
+            const dates = trips.map(t => t.trip_date || t.ORDER_DATE).filter(d => d);
+            if (dates.length > 0) {
+                const sortedDates = dates.sort();
+                const minDate = sortedDates[0];
+                const maxDate = sortedDates[sortedDates.length - 1];
+
+                analyticsDateFrom.value = minDate;
+                analyticsDateTo.value = maxDate;
+            }
         }
 
         // Populate filter dropdowns
@@ -3542,10 +3557,86 @@ document.addEventListener('DOMContentLoaded', function() {
         html += `
                 </div>
             </div>
+
+            <div style="margin-top: 1.5rem;">
+                <h4 style="margin: 0 0 1rem 0; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-receipt" style="color: #8b5cf6;"></i> Transaction Details
+                    <span style="font-size: 0.75rem; color: #64748b; font-weight: 400; margin-left: auto;">Showing ${Math.min(trips.length, 50)} of ${trips.length.toLocaleString()} records</span>
+                </h4>
+                <div style="background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden;">
+                    <div style="max-height: 400px; overflow-y: auto;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.875rem;">
+                            <thead style="position: sticky; top: 0; background: #f8fafc; z-index: 10;">
+                                <tr>
+                                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0; white-space: nowrap;">Order #</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0; white-space: nowrap;">Trip ID</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Customer</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Lorry</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Picker</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Status</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0; white-space: nowrap;">Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+        `;
+
+        // Show first 50 records
+        const displayTrips = trips.slice(0, 50);
+        displayTrips.forEach((trip, index) => {
+            const rowBg = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+            const statusColor = getStatusColor(trip.LINE_STATUS);
+
+            html += `
+                <tr style="background: ${rowBg}; transition: background 0.15s ease;">
+                    <td style="padding: 0.75rem; border-bottom: 1px solid #e2e8f0; white-space: nowrap;">${trip.order_number || '-'}</td>
+                    <td style="padding: 0.75rem; border-bottom: 1px solid #e2e8f0; white-space: nowrap;">${trip.trip_id || '-'}</td>
+                    <td style="padding: 0.75rem; border-bottom: 1px solid #e2e8f0;">${trip.account_name || '-'}</td>
+                    <td style="padding: 0.75rem; border-bottom: 1px solid #e2e8f0;">${trip.trip_lorry || '-'}</td>
+                    <td style="padding: 0.75rem; border-bottom: 1px solid #e2e8f0;">${trip.PICKER || '-'}</td>
+                    <td style="padding: 0.75rem; border-bottom: 1px solid #e2e8f0;">
+                        <span style="background: ${statusColor}; color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 500; white-space: nowrap;">
+                            ${trip.LINE_STATUS || 'Unknown'}
+                        </span>
+                    </td>
+                    <td style="padding: 0.75rem; border-bottom: 1px solid #e2e8f0; white-space: nowrap;">${trip.trip_date || trip.ORDER_DATE || '-'}</td>
+                </tr>
+            `;
+        });
+
+        html += `
+                            </tbody>
+                        </table>
+                    </div>
+        `;
+
+        if (trips.length > 50) {
+            html += `
+                    <div style="padding: 1rem; background: #f8fafc; text-align: center; border-top: 1px solid #e2e8f0;">
+                        <p style="margin: 0; color: #64748b; font-size: 0.875rem;">
+                            <i class="fas fa-info-circle"></i>
+                            Showing first 50 records. Click "Export to Excel" to download all ${trips.length.toLocaleString()} records.
+                        </p>
+                    </div>
+            `;
+        }
+
+        html += `
+                </div>
+            </div>
         `;
 
         content.innerHTML = html;
         modal.style.display = 'flex';
+    }
+
+    function getStatusColor(status) {
+        if (!status) return '#64748b';
+        const s = status.toLowerCase();
+        if (s.includes('complete') || s.includes('delivered')) return '#10b981';
+        if (s.includes('pending') || s.includes('processing')) return '#f59e0b';
+        if (s.includes('cancel') || s.includes('failed')) return '#ef4444';
+        if (s.includes('shipped') || s.includes('transit')) return '#3b82f6';
+        return '#8b5cf6';
     }
 
     // Analytics Export to Excel
