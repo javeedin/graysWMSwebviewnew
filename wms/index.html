@@ -120,13 +120,9 @@
                 <i class="fas fa-print"></i>
                 <span>Monitor Printing</span>
             </div>
-            <div class="menu-item" data-page="printer-setup">
-                <i class="fas fa-cog"></i>
-                <span>Printer Setup</span>
-            </div>
             <div class="menu-item" data-page="printer-setup-new">
                 <i class="fas fa-print"></i>
-                <span>Printer Setup New</span>
+                <span>Printer Setups</span>
             </div>
             <div class="menu-item" data-page="settings">
                 <i class="fas fa-cog"></i>
@@ -904,6 +900,12 @@
                             </select>
                         </div>
 
+                        <div class="form-group">
+                            <label for="modal-printer-ip-new">IP Address</label>
+                            <input type="text" id="modal-printer-ip-new" class="form-control" placeholder="Enter printer IP address (e.g., 192.168.1.100)">
+                            <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">Optional: Network printer IP address for direct connection</small>
+                        </div>
+
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                             <div class="form-group">
                                 <label for="modal-paper-size-new">Paper Size</label>
@@ -923,23 +925,22 @@
                             </div>
                         </div>
 
-                        <div class="form-group">
-                            <label for="modal-fusion-instance-new">Fusion Instance *</label>
-                            <select id="modal-fusion-instance-new" class="form-control">
-                                <option value="TEST">TEST</option>
-                                <option value="PROD">PROD</option>
-                                <option value="DEV">DEV</option>
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="modal-fusion-username-new">Fusion Username *</label>
-                            <input type="text" id="modal-fusion-username-new" class="form-control" placeholder="Enter username">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="modal-fusion-password-new">Fusion Password *</label>
-                            <input type="password" id="modal-fusion-password-new" class="form-control" placeholder="Enter password">
+                        <!-- Printer Discovery Section -->
+                        <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #667eea;">
+                            <label style="font-weight: 600; color: #333; margin-bottom: 0.5rem; display: block;">
+                                <i class="fas fa-search"></i> Discover Printers
+                            </label>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <button class="btn btn-secondary" onclick="discoverBluetoothPrinters()" style="flex: 1; min-width: 140px;">
+                                    <i class="fab fa-bluetooth"></i> Bluetooth Printers
+                                </button>
+                                <button class="btn btn-secondary" onclick="discoverWifiPrinters()" style="flex: 1; min-width: 140px;">
+                                    <i class="fas fa-wifi"></i> WiFi Printers
+                                </button>
+                            </div>
+                            <small style="color: #666; font-size: 11px; margin-top: 6px; display: block;">
+                                Click to search for available Bluetooth or WiFi printers on your network
+                            </small>
                         </div>
 
                         <div class="form-group">
@@ -958,13 +959,20 @@
                     </div>
 
                     <!-- Modal Footer -->
-                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
-                        <button class="btn btn-secondary" onclick="closePrinterModalNew()">
-                            <i class="fas fa-times"></i> Cancel
-                        </button>
-                        <button class="btn btn-primary" onclick="savePrinterFromModalNew()">
-                            <i class="fas fa-save"></i> Save Printer
-                        </button>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: space-between; gap: 0.5rem;">
+                        <div>
+                            <button class="btn btn-secondary" onclick="testCurrentPrinterSelection()" style="background: #17a2b8; border-color: #17a2b8;">
+                                <i class="fas fa-print"></i> Test Printer
+                            </button>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary" onclick="closePrinterModalNew()">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button class="btn btn-primary" onclick="savePrinterFromModalNew()">
+                                <i class="fas fa-save"></i> Save Printer
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

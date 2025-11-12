@@ -179,33 +179,26 @@ function initializePrintersGridNew() {
                 }
             },
             {
-                dataField: 'fusionInstance',
-                caption: 'Instance',
-                width: 100,
+                dataField: 'printerIp',
+                caption: 'IP Address',
+                width: 150,
                 cellTemplate: function(container, options) {
-                    const colors = {
-                        'PROD': '#dc3545',
-                        'TEST': '#ffc107',
-                        'DEV': '#17a2b8'
-                    };
-                    const color = colors[options.value] || '#6c757d';
-                    container.append(
-                        $('<span>').css({
-                            'background': color,
-                            'color': 'white',
-                            'padding': '4px 8px',
-                            'border-radius': '4px',
-                            'font-size': '12px',
-                            'font-weight': 'bold',
-                            'display': 'inline-block'
-                        }).text(options.value)
-                    );
+                    if (options.value) {
+                        container.append(
+                            $('<span>').css({
+                                'color': '#666',
+                                'font-family': 'monospace'
+                            }).text(options.value)
+                        );
+                    } else {
+                        container.append(
+                            $('<span>').css({
+                                'color': '#999',
+                                'font-style': 'italic'
+                            }).text('N/A')
+                        );
+                    }
                 }
-            },
-            {
-                dataField: 'fusionUsername',
-                caption: 'Username',
-                width: 150
             },
             {
                 dataField: 'paperSize',
@@ -329,11 +322,9 @@ window.showAddPrinterModalNew = function() {
 
     // Reset form
     document.getElementById('modal-printer-select-new').value = '';
+    document.getElementById('modal-printer-ip-new').value = '';
     document.getElementById('modal-paper-size-new').value = 'A4';
     document.getElementById('modal-orientation-new').value = 'Portrait';
-    document.getElementById('modal-fusion-instance-new').value = 'TEST';
-    document.getElementById('modal-fusion-username-new').value = '';
-    document.getElementById('modal-fusion-password-new').value = '';
     document.getElementById('modal-auto-download-new').checked = true;
     document.getElementById('modal-auto-print-new').checked = true;
 
@@ -372,11 +363,9 @@ function loadInstalledPrintersIntoModalNew() {
 
 window.savePrinterFromModalNew = async function() {
     const printerName = document.getElementById('modal-printer-select-new').value;
+    const printerIp = document.getElementById('modal-printer-ip-new').value;
     const paperSize = document.getElementById('modal-paper-size-new').value;
     const orientation = document.getElementById('modal-orientation-new').value;
-    const fusionInstance = document.getElementById('modal-fusion-instance-new').value;
-    const fusionUsername = document.getElementById('modal-fusion-username-new').value;
-    const fusionPassword = document.getElementById('modal-fusion-password-new').value;
     const autoDownload = document.getElementById('modal-auto-download-new').checked ? 'Y' : 'N';
     const autoPrint = document.getElementById('modal-auto-print-new').checked ? 'Y' : 'N';
 
@@ -385,24 +374,24 @@ window.savePrinterFromModalNew = async function() {
         alert('Please select a printer');
         return;
     }
-    if (!fusionUsername || !fusionPassword) {
-        alert('Please enter Fusion username and password');
-        return;
-    }
 
     try {
         console.log('[Printers NEW] Saving printer configuration...');
 
-        const result = await callApexAPINew('/config/printer', 'POST', {
+        const requestBody = {
             printerName: printerName,
             paperSize: paperSize,
             orientation: orientation,
-            fusionInstance: fusionInstance,
-            fusionUsername: fusionUsername,
-            fusionPassword: fusionPassword,
             autoDownload: autoDownload,
             autoPrint: autoPrint
-        });
+        };
+
+        // Add IP address if provided
+        if (printerIp && printerIp.trim() !== '') {
+            requestBody.printerIp = printerIp.trim();
+        }
+
+        const result = await callApexAPINew('/config/printer', 'POST', requestBody);
 
         if (result.status === 'success') {
             alert('✓ Printer configuration saved successfully!');
@@ -494,6 +483,103 @@ function testPrinterNew(printerName) {
         alert(response.success ? '✓ Printer test successful!' : '✗ Printer test failed:\n\n' + response.message);
     });
 }
+
+// ============================================================================
+// PRINTER DISCOVERY FUNCTIONS
+// ============================================================================
+
+window.discoverBluetoothPrinters = function() {
+    console.log('[Printers NEW] Discovering Bluetooth printers...');
+
+    sendMessageToCSharp({
+        action: 'discoverBluetoothPrinters'
+    }, function(error, response) {
+        if (error) {
+            alert('Bluetooth printer discovery failed:\n\n' + error);
+            return;
+        }
+
+        if (response && response.printers && response.printers.length > 0) {
+            // Add discovered printers to the dropdown
+            const select = document.getElementById('modal-printer-select-new');
+            response.printers.forEach(function(printer) {
+                // Check if printer already exists in dropdown
+                const exists = Array.from(select.options).some(opt => opt.value === printer);
+                if (!exists) {
+                    const option = document.createElement('option');
+                    option.value = printer;
+                    option.textContent = printer + ' (Bluetooth)';
+                    select.appendChild(option);
+                }
+            });
+            alert(`✓ Found ${response.printers.length} Bluetooth printer(s)!\n\nThey have been added to the printer list.`);
+        } else {
+            alert('No Bluetooth printers found.\n\nPlease ensure:\n• Bluetooth is enabled\n• Printers are paired\n• Printers are powered on');
+        }
+    });
+};
+
+window.discoverWifiPrinters = function() {
+    console.log('[Printers NEW] Discovering WiFi/Network printers...');
+
+    sendMessageToCSharp({
+        action: 'discoverWifiPrinters'
+    }, function(error, response) {
+        if (error) {
+            alert('WiFi printer discovery failed:\n\n' + error);
+            return;
+        }
+
+        if (response && response.printers && response.printers.length > 0) {
+            // Add discovered printers to the dropdown
+            const select = document.getElementById('modal-printer-select-new');
+            response.printers.forEach(function(printer) {
+                // Check if printer already exists in dropdown
+                const exists = Array.from(select.options).some(opt => opt.value === printer);
+                if (!exists) {
+                    const option = document.createElement('option');
+                    option.value = printer;
+                    option.textContent = printer + ' (Network)';
+                    select.appendChild(option);
+                }
+            });
+            alert(`✓ Found ${response.printers.length} WiFi/Network printer(s)!\n\nThey have been added to the printer list.`);
+        } else {
+            alert('No WiFi/Network printers found.\n\nPlease ensure:\n• Printers are connected to the network\n• Printers are powered on\n• Network discovery is enabled');
+        }
+    });
+};
+
+// ============================================================================
+// TEST CURRENT PRINTER SELECTION
+// ============================================================================
+
+window.testCurrentPrinterSelection = function() {
+    const printerName = document.getElementById('modal-printer-select-new').value;
+
+    if (!printerName) {
+        alert('Please select a printer first');
+        return;
+    }
+
+    console.log('[Printers NEW] Testing selected printer:', printerName);
+
+    sendMessageToCSharp({
+        action: 'testPrinter',
+        printerName: printerName
+    }, function(error, response) {
+        if (error) {
+            alert('❌ Printer test failed:\n\n' + error);
+            return;
+        }
+
+        if (response.success) {
+            alert('✓ Printer test successful!\n\nA test page has been sent to:\n' + printerName);
+        } else {
+            alert('❌ Printer test failed:\n\n' + (response.message || 'Unknown error'));
+        }
+    });
+};
 
 // ============================================================================
 // INITIALIZE ON PAGE LOAD

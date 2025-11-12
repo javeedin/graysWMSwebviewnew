@@ -1074,6 +1074,14 @@ namespace WMSApp
                                     await HandleTestPrinter(wv, messageJson, requestId);
                                     break;
 
+                                case "discoverBluetoothPrinters":
+                                    await HandleDiscoverBluetoothPrinters(wv, messageJson, requestId);
+                                    break;
+
+                                case "discoverWifiPrinters":
+                                    await HandleDiscoverWifiPrinters(wv, messageJson, requestId);
+                                    break;
+
                                 case "setInstanceSetting":
                                     await HandleSetInstanceSetting(wv, messageJson, requestId);
                                     break;
@@ -2450,6 +2458,95 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Test printer failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
+        }
+
+        private async Task HandleDiscoverBluetoothPrinters(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Discovering Bluetooth printers...");
+
+                // Get Bluetooth printers using PrinterSettings
+                var bluetoothPrinters = new List<string>();
+
+                // Note: Windows doesn't provide a direct API to filter only Bluetooth printers
+                // We'll get all printers and try to identify Bluetooth ones by name patterns
+                foreach (string printerName in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
+                {
+                    // Common Bluetooth printer patterns in names
+                    if (printerName.Contains("Bluetooth", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("BT", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("Wireless", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bluetoothPrinters.Add(printerName);
+                    }
+                }
+
+                var response = new
+                {
+                    action = "discoverBluetoothPrintersResponse",
+                    requestId = requestId,
+                    success = true,
+                    printers = bluetoothPrinters,
+                    count = bluetoothPrinters.Count
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Found {bluetoothPrinters.Count} Bluetooth printer(s)");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Bluetooth printer discovery failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
+        }
+
+        private async Task HandleDiscoverWifiPrinters(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Discovering WiFi/Network printers...");
+
+                // Get network printers
+                var networkPrinters = new List<string>();
+
+                foreach (string printerName in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
+                {
+                    // Network printers typically have UNC paths (\\server\printer) or contain "Network"
+                    if (printerName.StartsWith("\\\\") ||
+                        printerName.Contains("Network", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("IP", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("WiFi", StringComparison.OrdinalIgnoreCase))
+                    {
+                        networkPrinters.Add(printerName);
+                    }
+                }
+
+                var response = new
+                {
+                    action = "discoverWifiPrintersResponse",
+                    requestId = requestId,
+                    success = true,
+                    printers = networkPrinters,
+                    count = networkPrinters.Count
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Found {networkPrinters.Count} WiFi/Network printer(s)");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] WiFi printer discovery failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
         }
 
         private void SendErrorResponse(WebView2 wv, string requestId, string errorMessage)
