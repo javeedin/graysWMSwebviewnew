@@ -92,6 +92,16 @@ window.loadAllPrintersNew = async function() {
         console.log('[Printers NEW] Loading all printers...');
 
         const data = await callApexAPINew('/printers/all');
+
+        // DEBUG: Log the entire response structure
+        console.log('[Printers NEW] ========================================');
+        console.log('[Printers NEW] Full API Response:', data);
+        console.log('[Printers NEW] Response type:', typeof data);
+        console.log('[Printers NEW] Response keys:', data ? Object.keys(data) : 'null');
+        console.log('[Printers NEW] data.items:', data.items);
+        console.log('[Printers NEW] data.items type:', typeof data.items);
+        console.log('[Printers NEW] ========================================');
+
         allPrintersDataNew = data.items || [];
 
         console.log(`[Printers NEW] Loaded ${allPrintersDataNew.length} printers`);
