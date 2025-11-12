@@ -737,8 +737,13 @@
             <button class="btn btn-secondary" onclick="closePrinterSelectionModal()">
                 <i class="fas fa-times"></i> Cancel
             </button>
-            <button class="btn btn-primary" onclick="confirmPrinterSelection()">
+            <!-- Button for enabling auto-print (from trip cards) -->
+            <button id="btn-enable-auto-print" class="btn btn-primary" onclick="confirmPrinterSelection()" style="display: none;">
                 <i class="fas fa-check"></i> Enable Auto-Print
+            </button>
+            <!-- Button for printing (from Print All) -->
+            <button id="btn-print-selected" class="btn btn-success" onclick="confirmPrintWithSelectedPrinter()" style="display: none;">
+                <i class="fas fa-print"></i> Print
             </button>
         </div>
     </div>
@@ -1097,7 +1102,7 @@
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
             <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-check-circle"></i> Latest Code: v2025.01.12-2
+                <i class="fas fa-check-circle"></i> Latest Code: v2025.01.12-3
             </span>
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
             <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
