@@ -606,7 +606,7 @@ namespace WMSApp.PrintManagement
         /// <summary>
         /// Manually prints a single order
         /// </summary>
-        public async Task<PrintResult> PrintSingleOrderAsync(
+        public async Task<PrintResult> PrintSingleOrderAsyncold1(
             string orderNumber,
             string tripId,
             string tripDate)
@@ -666,6 +666,90 @@ namespace WMSApp.PrintManagement
         /// <summary>
         /// Retries failed downloads/prints for a trip
         /// </summary>
+        /// 
+        /// <summary>
+        /// Manually prints a single order
+        /// ✅ FIX: Works without trip configuration file - gets config from APEX REST
+        /// </summary>
+        public async Task<PrintResult> PrintSingleOrderAsync(
+            string orderNumber,
+            string tripId,
+            string tripDate)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Printing order {orderNumber} from trip {tripId}");
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ========================================");
+
+                // ✅ FIX: Get printer config from APEX REST instead of local JSON
+                var printerConfig = await GetActivePrinterConfigFromApexAsync();
+
+                if (printerConfig == null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Failed to get printer config from APEX, falling back to local config");
+                    // Fallback to local config if APEX fails
+                    printerConfig = _storageManager.LoadPrinterConfig();
+                }
+
+                if (printerConfig == null || string.IsNullOrEmpty(printerConfig.PrinterName))
+                {
+                    return new PrintResult
+                    {
+                        Success = false,
+                        ErrorMessage = "Printer configuration not found in APEX or local storage"
+                    };
+                }
+
+                // ✅ FIX: Construct PDF path directly without needing trip config
+                string basePath = @"C:\fusion";
+                string pdfPath = System.IO.Path.Combine(basePath, tripDate, tripId, $"{orderNumber}.pdf");
+
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Looking for PDF at: {pdfPath}");
+
+                // Check if PDF exists
+                if (!System.IO.File.Exists(pdfPath))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ PDF not found at path: {pdfPath}");
+                    return new PrintResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"PDF not downloaded yet. File not found: {pdfPath}"
+                    };
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ✅ PDF found, sending to printer: {printerConfig.PrinterName}");
+
+                // Print the PDF directly
+                var printResult = await _printerService.PrintPdfAsync(pdfPath, printerConfig.PrinterName);
+
+                if (printResult.Success)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ✅ Print completed for {orderNumber}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Print failed: {printResult.ErrorMessage}");
+                }
+
+                return new PrintResult
+                {
+                    Success = printResult.Success,
+                    ErrorMessage = printResult.ErrorMessage
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PrintJobManager] ❌ Exception: {ex.Message}");
+                return new PrintResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        ///
         public async Task<RetryResult> RetryFailedJobsAsync(string tripId, string tripDate)
         {
             try
