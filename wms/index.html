@@ -1127,22 +1127,99 @@
     <div id="copilot-overlay" class="copilot-overlay" onclick="toggleCopilot()"></div>
 
     <div id="copilot-panel" class="copilot-panel">
+        <!-- Header -->
         <div class="copilot-header">
             <h3><i class="fas fa-robot"></i> WMS Co-Pilot</h3>
             <button onclick="toggleCopilot()" class="copilot-close"><i class="fas fa-times"></i></button>
         </div>
-        <div class="copilot-body">
-            <div class="copilot-action" onclick="copilotAction('createTrip')">
-                <i class="fas fa-plus-circle"></i>
-                <span>Create New Trip</span>
+
+        <!-- Tabs -->
+        <div class="copilot-tabs">
+            <div class="copilot-tab active" data-tab="actions" onclick="switchCopilotTab('actions')">
+                <i class="fas fa-bolt"></i> Quick Actions
             </div>
-            <div class="copilot-action" onclick="copilotAction('printOrder')">
-                <i class="fas fa-print"></i>
-                <span>Print Order</span>
+            <div class="copilot-tab" data-tab="chat" onclick="switchCopilotTab('chat')">
+                <i class="fas fa-comments"></i> Chat
             </div>
-            <div class="copilot-action" onclick="copilotAction('printTrip')">
-                <i class="fas fa-file-pdf"></i>
-                <span>Print Trip</span>
+        </div>
+
+        <!-- Tab Content: Quick Actions -->
+        <div id="copilot-actions-content" class="copilot-tab-content active">
+            <div class="copilot-section">
+                <div class="copilot-section-title">
+                    <i class="fas fa-zap"></i> Quick Actions
+                </div>
+                <div class="copilot-action" onclick="copilotAction('createTrip', 'Create New Trip')">
+                    <i class="fas fa-plus-circle"></i>
+                    <span>Create New Trip</span>
+                </div>
+                <div class="copilot-action" onclick="copilotAction('addToTrip', 'Add to Trip')">
+                    <i class="fas fa-box"></i>
+                    <span>Add to Trip</span>
+                </div>
+                <div class="copilot-action" onclick="copilotAction('printOrder', 'Print Order')">
+                    <i class="fas fa-print"></i>
+                    <span>Print Order</span>
+                </div>
+                <div class="copilot-action" onclick="copilotAction('printTrip', 'Print Trip')">
+                    <i class="fas fa-file-pdf"></i>
+                    <span>Print Trip</span>
+                </div>
+                <div class="copilot-action" onclick="copilotAction('autoSchedule', 'Auto Schedule')">
+                    <i class="fas fa-magic"></i>
+                    <span>Auto Schedule</span>
+                </div>
+                <div class="copilot-action" onclick="copilotAction('optimizeRoute', 'Optimize Route')">
+                    <i class="fas fa-route"></i>
+                    <span>Optimize Route</span>
+                </div>
+            </div>
+
+            <div class="copilot-section">
+                <div class="copilot-section-title">
+                    <i class="fas fa-lightbulb"></i> Need Help?
+                </div>
+                <div class="copilot-help-text">
+                    Use the <strong>Chat</strong> tab to ask me anything about trip management, printing, or scheduling!
+                </div>
+            </div>
+        </div>
+
+        <!-- Tab Content: Chat -->
+        <div id="copilot-chat-content" class="copilot-tab-content">
+            <!-- Prompt Suggestions -->
+            <div class="copilot-prompts">
+                <div class="copilot-prompt" onclick="usePrompt('How do I create a new trip?')">
+                    How do I create a new trip?
+                </div>
+                <div class="copilot-prompt" onclick="usePrompt('Print all orders for today')">
+                    Print all orders for today
+                </div>
+                <div class="copilot-prompt" onclick="usePrompt('Optimize route for Trip 123')">
+                    Optimize route for Trip 123
+                </div>
+                <div class="copilot-prompt" onclick="usePrompt('Help me with auto-scheduling')">
+                    Help me with auto-scheduling
+                </div>
+            </div>
+
+            <!-- Chat Messages -->
+            <div id="copilot-chat-messages" class="copilot-chat-messages">
+                <!-- Messages will be added dynamically -->
+            </div>
+
+            <!-- Chat Input -->
+            <div class="copilot-chat-input-container">
+                <input
+                    type="text"
+                    id="copilot-chat-input"
+                    class="copilot-chat-input"
+                    placeholder="Ask me anything..."
+                    autocomplete="off"
+                />
+                <button onclick="sendCopilotMessage()" class="copilot-send-btn">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -1175,7 +1252,7 @@
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
             <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.18-4 (Co-Pilot v2)
+                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.18-5 (Co-Pilot Enhanced)
             </span>
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
             <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
