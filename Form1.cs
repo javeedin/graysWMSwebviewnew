@@ -5,6 +5,9 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
+using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
@@ -33,13 +36,10 @@ namespace WMSApp
         private Button homeButton;
         private Button openFileButton;
         private Button clearCacheButton;
-        private Button glButton;
-        private Button arButton;
-        private Button apButton;
-        private Button omButton;
-        private Button faButton;
-        private Button caButton;
-        private Button posButton;
+        private Button wmsDevButton;
+        private Button wmsProdButton;
+        private Button modulesButton;
+        private ContextMenuStrip modulesContextMenu;
         private Label securityIcon;
         private FlowLayoutPanel tabBar;
         private ToolTip moduleToolTip;
@@ -106,7 +106,7 @@ namespace WMSApp
             Panel titleBarPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 35,
+                Height = 32,
                 BackColor = Color.FromArgb(32, 32, 32)
             };
 
@@ -125,7 +125,7 @@ namespace WMSApp
             {
                 Text = "+",
                 Width = 35,
-                Height = 28,
+                Height = 26,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(50, 50, 50),
                 ForeColor = Color.White,
@@ -247,167 +247,261 @@ namespace WMSApp
             moduleToolTip.SetToolTip(clearCacheButton, "Clear Browser Cache");
             leftPosition += 45;
 
-            // GL Button - General Ledger
-            glButton = new Button
+            // WMS (Dev) Button - Launches local development version
+            wmsDevButton = new Button
             {
-                Text = "",
-                Width = 60,
+                Text = "WMS (Dev)",
+                Width = 85,
                 Height = 30,
                 Left = leftPosition,
                 Top = 10,
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(220, 240, 255),
-                Tag = "GL"
+                BackColor = Color.FromArgb(255, 245, 200),
+                ForeColor = Color.FromArgb(80, 80, 80),
+                Font = new Font("Segoe UI", 8, FontStyle.Bold),
+                Tag = "WMS_DEV"
             };
-            glButton.FlatAppearance.BorderColor = Color.FromArgb(100, 180, 255);
-            glButton.FlatAppearance.BorderSize = 2;
-            glButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 230, 255);
-            glButton.Paint += ModuleButton_Paint;
-
-            glButton.Click += async (s, e) =>
+            wmsDevButton.FlatAppearance.BorderColor = Color.FromArgb(220, 180, 80);
+            wmsDevButton.FlatAppearance.BorderSize = 1;
+            wmsDevButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 240, 180);
+            wmsDevButton.Click += (s, e) =>
             {
-                string apexUrl = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/files/static/v123456789/general_ledger.html";
-                await LoadModule("GL", apexUrl);
+                // Load local development version from repository root
+                // Navigate from bin/debug/net8.0 up to repository root
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+
+                if (File.Exists(indexPath))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+                else
+                {
+                    MessageBox.Show(
+                        "Local WMS development files not found at:\n" + indexPath,
+                        "WMS Dev Not Found",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                }
             };
+            moduleToolTip.SetToolTip(wmsDevButton, "WMS Development - Local Version");
+            leftPosition += 90;
 
-            moduleToolTip.SetToolTip(glButton, "General Ledger");
-            leftPosition += 65;
-
-            // AR Button - Accounts Receivable
-            arButton = new Button
+            // WMS (Prod) Button - Launches production version from GitHub distribution
+            wmsProdButton = new Button
             {
-                Text = "",
-                Width = 60,
+                Text = "WMS (Prod)",
+                Width = 90,
                 Height = 30,
                 Left = leftPosition,
                 Top = 10,
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(220, 255, 220),
-                Tag = "AR"
+                BackColor = Color.FromArgb(100, 180, 255),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8, FontStyle.Bold),
+                Tag = "WMS_PROD"
             };
-            arButton.FlatAppearance.BorderColor = Color.FromArgb(80, 200, 80);
-            arButton.FlatAppearance.BorderSize = 2;
-            arButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 245, 200);
-            arButton.Paint += ModuleButton_Paint;
-            arButton.Click += (s, e) => LoadModule("AR", "https://www.google.com/search?q=Accounts+Receivable");
-            moduleToolTip.SetToolTip(arButton, "Accounts Receivable");
-            leftPosition += 65;
-
-            // AP Button - Accounts Payable
-            apButton = new Button
+            wmsProdButton.FlatAppearance.BorderColor = Color.FromArgb(50, 150, 255);
+            wmsProdButton.FlatAppearance.BorderSize = 1;
+            wmsProdButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
+            wmsProdButton.Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
+                // Check if distribution folder exists
+                string distributionFolder = "C:\\fusion\\fusionclientweb\\wms";
+                string indexPath = Path.Combine(distributionFolder, "index.html");
+
+                if (Directory.Exists(distributionFolder) && File.Exists(indexPath))
+                {
+                    // Distribution exists - navigate to it
+                    System.Diagnostics.Debug.WriteLine($"[WMS Prod] Launching from distribution: {indexPath}");
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+                else
+                {
+                    // Distribution doesn't exist - prompt to download
+                    System.Diagnostics.Debug.WriteLine($"[WMS Prod] Distribution not found: {distributionFolder}");
+                    var result = MessageBox.Show(
+                        "WMS module not installed yet.\n\n" +
+                        "Would you like to download it now?\n" +
+                        "This will download from GitHub and install to:\n" +
+                        distributionFolder,
+                        "WMS Not Installed",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        // Navigate to local WMS page which has the distribution manager
+                        string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                        string launcherPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+                        if (File.Exists(launcherPath))
+                        {
+                            string launcherUrl = "file:///" + launcherPath.Replace("\\", "/");
+                            Navigate(launcherUrl);
+
+                            // Wait for page to load, then trigger download
+                            var downloadTimer = new System.Windows.Forms.Timer();
+                            downloadTimer.Interval = 1500;
+                            downloadTimer.Tick += (sender2, e2) =>
+                            {
+                                downloadTimer.Stop();
+                                downloadTimer.Dispose();
+
+                                var wv = GetCurrentWebView();
+                                if (wv?.CoreWebView2 != null)
+                                {
+                                    System.Diagnostics.Debug.WriteLine("[WMS Prod] Triggering download...");
+                                    wv.CoreWebView2.ExecuteScriptAsync("if (typeof downloadNewVersion === 'function') { downloadNewVersion(); }");
+                                }
+                            };
+                            downloadTimer.Start();
+                        }
+                        else
+                        {
+                            MessageBox.Show(
+                                "Cannot trigger download. Local WMS files not found.",
+                                "Error",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
+                        }
+                    }
+                }
+            };
+            moduleToolTip.SetToolTip(wmsProdButton, "WMS Production - GitHub Distribution");
+            leftPosition += 95;
+
+            // Modules Dropdown Button
+            modulesButton = new Button
+            {
+                Text = "Modules ▼",
+                Width = 90,
                 Height = 30,
                 Left = leftPosition,
                 Top = 10,
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(255, 230, 220),
-                Tag = "AP"
+                BackColor = Color.FromArgb(240, 240, 240),
+                ForeColor = Color.FromArgb(60, 60, 60),
+                Font = new Font("Segoe UI", 8, FontStyle.Bold),
+                Tag = "MODULES"
             };
-            apButton.FlatAppearance.BorderColor = Color.FromArgb(255, 140, 100);
-            apButton.FlatAppearance.BorderSize = 2;
-            apButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 215, 200);
-            apButton.Paint += ModuleButton_Paint;
-            apButton.Click += (s, e) => LoadModule("AP", "https://www.google.com/search?q=Accounts+Payable");
-            moduleToolTip.SetToolTip(apButton, "Accounts Payable");
-            leftPosition += 65;
+            modulesButton.FlatAppearance.BorderColor = Color.FromArgb(180, 180, 180);
+            modulesButton.FlatAppearance.BorderSize = 1;
+            modulesButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 230, 230);
 
-            // OM Button - Order Management
-            omButton = new Button
+            // Create context menu for modules dropdown
+            modulesContextMenu = new ContextMenuStrip();
+            modulesContextMenu.Items.Add("WMS - Warehouse Management").Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
-                Height = 30,
-                Left = leftPosition,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(240, 220, 255),
-                Tag = "OM"
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
-            omButton.FlatAppearance.BorderColor = Color.FromArgb(160, 100, 255);
-            omButton.FlatAppearance.BorderSize = 2;
-            omButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 210, 255);
-            omButton.Paint += ModuleButton_Paint;
-            omButton.Click += (s, e) => LoadModule("OM", "https://www.google.com/search?q=Order+Management");
-            moduleToolTip.SetToolTip(omButton, "Order Management");
-            leftPosition += 65;
 
-            // FA Button - Fixed Assets
-            faButton = new Button
+            modulesContextMenu.Items.Add("GL - General Ledger").Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
-                Height = 30,
-                Left = leftPosition,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(245, 235, 220),
-                Tag = "FA"
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "gl", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
-            faButton.FlatAppearance.BorderColor = Color.FromArgb(180, 140, 100);
-            faButton.FlatAppearance.BorderSize = 2;
-            faButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(235, 225, 210);
-            faButton.Paint += ModuleButton_Paint;
-            faButton.Click += (s, e) => LoadModule("FA", "https://www.google.com/search?q=Fixed+Assets");
-            moduleToolTip.SetToolTip(faButton, "Fixed Assets");
-            leftPosition += 65;
 
-            // CA Button - Cash Management
-            caButton = new Button
+            modulesContextMenu.Items.Add("SYNC - Oracle Fusion Sync").Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
-                Height = 30,
-                Left = leftPosition,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(220, 255, 245),
-                Tag = "CA"
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "sync", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
-            caButton.FlatAppearance.BorderColor = Color.FromArgb(80, 200, 180);
-            caButton.FlatAppearance.BorderSize = 2;
-            caButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(210, 245, 235);
-            caButton.Paint += ModuleButton_Paint;
-            caButton.Click += (s, e) => LoadModule("CA", "https://www.google.com/search?q=Cash+Management");
-            moduleToolTip.SetToolTip(caButton, "Cash Management");
-            leftPosition += 65;
 
-            // POS Button - Point of Sale
-            posButton = new Button
+            modulesContextMenu.Items.Add("AR - Accounts Receivable").Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
-                Height = 30,
-                Left = leftPosition,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(255, 240, 220),
-                Tag = "WMS"
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ar", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
-            posButton.FlatAppearance.BorderColor = Color.FromArgb(255, 160, 80);
-            posButton.FlatAppearance.BorderSize = 2;
-            posButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 230, 210);
-            posButton.Paint += ModuleButton_Paint;
 
-            // WMS Button - Warehouse Management
-            posButton.Click += (s, e) =>
+            modulesContextMenu.Items.Add("AP - Accounts Payable").Click += (s, e) =>
             {
-                // Load local index.html file
-                string indexPath = Path.Combine(Application.StartupPath, "index.html");
-                string fileUrl = "file:///" + indexPath.Replace("\\", "/");
-                Navigate(fileUrl);
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ap", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
 
-            moduleToolTip.SetToolTip(posButton, "WMS");
-            leftPosition += 70;
+            modulesContextMenu.Items.Add("OM - Order Management").Click += (s, e) =>
+            {
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "om", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
+            modulesContextMenu.Items.Add("FA - Fixed Assets").Click += (s, e) =>
+            {
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "fa", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
+            modulesContextMenu.Items.Add("CA - Cash Management").Click += (s, e) =>
+            {
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ca", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
+            modulesContextMenu.Items.Add("POS - Point of Sale").Click += (s, e) =>
+            {
+                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "pos", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
+            modulesButton.Click += (s, e) =>
+            {
+                modulesContextMenu.Show(modulesButton, new Point(0, modulesButton.Height));
+            };
+
+            moduleToolTip.SetToolTip(modulesButton, "Select a module to launch");
+            leftPosition += 95;
 
             // Compact Oval URL panel container
             urlPanel = new Panel
@@ -560,13 +654,9 @@ namespace WMSApp
             navPanel.Controls.Add(homeButton);
             navPanel.Controls.Add(openFileButton);
             navPanel.Controls.Add(clearCacheButton);
-            navPanel.Controls.Add(glButton);
-            navPanel.Controls.Add(arButton);
-            navPanel.Controls.Add(apButton);
-            navPanel.Controls.Add(omButton);
-            navPanel.Controls.Add(faButton);
-            navPanel.Controls.Add(caButton);
-            navPanel.Controls.Add(posButton);
+            navPanel.Controls.Add(wmsDevButton);
+            navPanel.Controls.Add(wmsProdButton);
+            navPanel.Controls.Add(modulesButton);
             navPanel.Controls.Add(urlPanel);
             navPanel.Controls.Add(profileButton);
             navPanel.Controls.Add(settingsButton);
@@ -796,7 +886,7 @@ namespace WMSApp
             {
                 TabText = "New Tab",
                 Width = 200,
-                Height = 28,
+                Height = 26,
                 BackColor = Color.FromArgb(50, 50, 50),
                 ForeColor = Color.White
             };
@@ -887,6 +977,20 @@ namespace WMSApp
             {
                 await wv.EnsureCoreWebView2Async(null);
 
+                // CACHE FIX: Clear browser cache to ensure tabs load properly
+                try
+                {
+                    await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                        CoreWebView2BrowsingDataKinds.AllDomStorage |
+                        CoreWebView2BrowsingDataKinds.CacheStorage |
+                        CoreWebView2BrowsingDataKinds.DiskCache);
+                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully");
+                }
+                catch (Exception cacheEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[CACHE] Warning: Could not clear cache: {cacheEx.Message}");
+                }
+
                 wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
@@ -937,6 +1041,11 @@ namespace WMSApp
                                     await HandleDownloadOrderPdf(wv, messageJson, requestId);
                                     break;
 
+                                // 🔧 NEW: Check if PDF exists locally
+                                case "checkPdfExists":
+                                    await HandleCheckPdfExists(wv, messageJson, requestId);
+                                    break;
+
                                 case "printOrder":
                                     await HandlePrintOrder(wv, messageJson, requestId);
                                     break;
@@ -964,6 +1073,19 @@ namespace WMSApp
                                 case "testPrinter":
                                     await HandleTestPrinter(wv, messageJson, requestId);
                                     break;
+
+                                case "discoverBluetoothPrinters":
+                                    await HandleDiscoverBluetoothPrinters(wv, messageJson, requestId);
+                                    break;
+
+                                case "discoverWifiPrinters":
+                                    await HandleDiscoverWifiPrinters(wv, messageJson, requestId);
+                                    break;
+
+                                case "setInstanceSetting":
+                                    await HandleSetInstanceSetting(wv, messageJson, requestId);
+                                    break;
+
                                 case "getAllPrintJobs":
                                     await HandleGetAllPrintJobs(wv, messageJson, requestId);
                                     break;
@@ -974,6 +1096,28 @@ namespace WMSApp
 
                                 case "openFileInExplorer":
                                     await HandleOpenFileInExplorer(wv, messageJson, requestId);
+                                    break;
+
+                                // 🔧 NEW: Open PDF file with default viewer
+                                case "openPdfFile":
+                                    await HandleOpenPdfFile(wv, messageJson, requestId);
+                                    break;
+
+                                // Distribution System Cases
+                                case "check-distribution-folder":
+                                    await HandleCheckDistributionFolder(wv, messageJson, requestId);
+                                    break;
+
+                                case "download-distribution":
+                                    await HandleDownloadDistribution(wv, messageJson, requestId);
+                                    break;
+
+                                case "launch-wms-module":
+                                    await HandleLaunchWMSModule(wv, messageJson, requestId);
+                                    break;
+
+                                case "loadLocalFile":
+                                    await HandleLoadLocalFile(wv, messageJson, requestId);
                                     break;
 
                                 default:
@@ -1016,11 +1160,26 @@ namespace WMSApp
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    httpClient.Timeout = TimeSpan.FromSeconds(1060);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Making GET request to: {message.FullUrl}");
+
                     var response = await httpClient.GetAsync(message.FullUrl);
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                    // Log error responses for debugging
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] HTTP {response.StatusCode}: {response.ReasonPhrase}");
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] Response body: {responseContent.Substring(0, Math.Min(500, responseContent.Length))}");
+                    }
+
+                    // Log first 200 chars of successful responses for debugging
+                    if (response.IsSuccessStatusCode && responseContent.Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Response preview: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
+                    }
 
                     var resultMessage = new
                     {
@@ -1030,7 +1189,10 @@ namespace WMSApp
                     };
 
                     string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending response back to JS. RequestId: {requestId}, DataLength: {responseContent.Length}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response JSON (first 200 chars): {resultJson.Substring(0, Math.Min(200, resultJson.Length))}");
                     wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ Response sent successfully to WebView2");
                 }
             }
             catch (Exception ex)
@@ -1058,23 +1220,46 @@ namespace WMSApp
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
                 );
 
-                System.Diagnostics.Debug.WriteLine($"[C#] Processing executePost request: {message.FullUrl}");
-                System.Diagnostics.Debug.WriteLine($"[C#] POST Body: {message.Body}");
+                string method = message.Method?.ToUpper() ?? "POST";
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing {method} request: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[C#] Body: {message.Body}");
 
                 using (var httpClient = new HttpClient())
                 {
                     httpClient.Timeout = TimeSpan.FromSeconds(30);
 
-                    var content = new StringContent(
-                        message.Body ?? "{}",
-                        Encoding.UTF8,
-                        "application/json"
-                    );
+                    HttpResponseMessage response;
 
-                    var response = await httpClient.PostAsync(message.FullUrl, content);
+                    if (method == "POST")
+                    {
+                        var content = new StringContent(
+                            message.Body ?? "{}",
+                            Encoding.UTF8,
+                            "application/json"
+                        );
+                        response = await httpClient.PostAsync(message.FullUrl, content);
+                    }
+                    else if (method == "PUT")
+                    {
+                        var content = new StringContent(
+                            message.Body ?? "{}",
+                            Encoding.UTF8,
+                            "application/json"
+                        );
+                        response = await httpClient.PutAsync(message.FullUrl, content);
+                    }
+                    else if (method == "DELETE")
+                    {
+                        response = await httpClient.DeleteAsync(message.FullUrl);
+                    }
+                    else
+                    {
+                        throw new Exception($"Unsupported HTTP method: {method}");
+                    }
+
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] REST POST completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST {method} completed. Status: {response.StatusCode}");
                     System.Diagnostics.Debug.WriteLine($"[C#] Response: {responseContent}");
 
                     var resultMessage = new
@@ -1085,12 +1270,15 @@ namespace WMSApp
                     };
 
                     string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending response back to JS. RequestId: {requestId}, DataLength: {responseContent.Length}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response JSON (first 200 chars): {resultJson.Substring(0, Math.Min(200, resultJson.Length))}");
                     wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ Response sent successfully to WebView2");
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST POST call failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST call failed: {ex.Message}");
 
                 var errorMessage = new
                 {
@@ -1557,6 +1745,341 @@ namespace WMSApp
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
+
+        // 🔧 NEW: Open PDF file with default PDF viewer
+        private async Task HandleOpenPdfFile(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Opening PDF file with default viewer...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    if (!File.Exists(filePath))
+                    {
+                        throw new FileNotFoundException($"PDF file not found: {filePath}");
+                    }
+
+                    // Open PDF with default application (e.g., Adobe Reader, Edge, etc.)
+                    var processStartInfo = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = filePath,
+                        UseShellExecute = true  // This uses the Windows file association
+                    };
+
+                    System.Diagnostics.Process.Start(processStartInfo);
+
+                    var response = new
+                    {
+                        action = "openPdfFileResponse",
+                        requestId = requestId,
+                        success = true,
+                        message = "PDF opened with default viewer"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ PDF opened successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Open PDF file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // Load local HTML file content (for Sync module external pages)
+        private async Task HandleLoadLocalFile(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Loading local file...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    // Resolve path relative to sync folder
+                    string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                    string fullPath = Path.GetFullPath(Path.Combine(repoRoot, "sync", filePath));
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Full path: {fullPath}");
+
+                    if (!File.Exists(fullPath))
+                    {
+                        throw new FileNotFoundException($"File not found: {fullPath}");
+                    }
+
+                    // Read file content
+                    string content = await File.ReadAllTextAsync(fullPath);
+
+                    var response = new
+                    {
+                        action = "loadLocalFileResponse",
+                        requestId = requestId,
+                        success = true,
+                        content = content,
+                        filePath = filePath
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ File loaded successfully: {filePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Load local file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // ========== DISTRIBUTION SYSTEM HANDLERS ==========
+
+        private async Task HandleCheckDistributionFolder(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Checking distribution folder...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string folder = root.GetProperty("folder").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Distribution folder: {folder}");
+
+                    // Check if folder exists and contains index.html
+                    bool exists = Directory.Exists(folder) &&
+                                  File.Exists(Path.Combine(folder, "index.html"));
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Folder exists with index.html: {exists}");
+
+                    var response = new
+                    {
+                        type = "distribution-folder-exists",
+                        exists = exists,
+                        folder = folder,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ Distribution folder check complete");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Check distribution folder failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleDownloadDistribution(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Starting distribution download...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string version = root.GetProperty("version").GetString();
+                    string packageUrl = root.GetProperty("packageUrl").GetString();
+                    string extractTo = root.GetProperty("extractTo").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Version: {version}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Package URL: {packageUrl}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extract to: {extractTo}");
+
+                    // Create temp path for download
+                    string tempZipPath = Path.Combine(Path.GetTempPath(), $"wms-distribution-{version}.zip");
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Temp ZIP path: {tempZipPath}");
+
+                    // Download file with progress reporting
+                    using (WebClient client = new WebClient())
+                    {
+                        client.DownloadProgressChanged += (s, e) =>
+                        {
+                            // Send progress updates to JavaScript
+                            var progressResponse = new
+                            {
+                                type = "distribution-download-progress",
+                                percent = e.ProgressPercentage,
+                                bytesReceived = e.BytesReceived,
+                                totalBytes = e.TotalBytesToReceive,
+                                requestId = requestId
+                            };
+
+                            string progressJson = JsonSerializer.Serialize(progressResponse);
+                            wv.CoreWebView2.PostWebMessageAsJson(progressJson);
+                        };
+
+                        System.Diagnostics.Debug.WriteLine($"[C#] Downloading from GitHub...");
+                        await client.DownloadFileTaskAsync(packageUrl, tempZipPath);
+                        System.Diagnostics.Debug.WriteLine($"[C#] Download complete!");
+                    }
+
+                    // Create extraction folder if it doesn't exist
+                    if (!Directory.Exists(extractTo))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Creating distribution folder: {extractTo}");
+                        Directory.CreateDirectory(extractTo);
+                    }
+
+                    // Backup existing files if folder already has content
+                    string backupFolder = extractTo + ".backup";
+                    if (Directory.Exists(extractTo) && Directory.GetFiles(extractTo).Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Backing up existing files to: {backupFolder}");
+
+                        if (Directory.Exists(backupFolder))
+                        {
+                            Directory.Delete(backupFolder, true);
+                        }
+
+                        // Copy current files to backup
+                        CopyDirectory(extractTo, backupFolder);
+                    }
+
+                    // Extract ZIP file
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extracting ZIP file...");
+                    ZipFile.ExtractToDirectory(tempZipPath, extractTo, overwriteFiles: true);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extraction complete!");
+
+                    // Clean up temp file
+                    File.Delete(tempZipPath);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Temp file deleted");
+
+                    // Send success message
+                    var response = new
+                    {
+                        type = "distribution-download-complete",
+                        version = version,
+                        folder = extractTo,
+                        success = true,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ Distribution download complete!");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Distribution download failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+
+                // Send error message
+                var errorResponse = new
+                {
+                    type = "distribution-download-failed",
+                    error = ex.Message,
+                    requestId = requestId
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorResponse);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        private async Task HandleLaunchWMSModule(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Launching WMS module...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string indexPath = root.GetProperty("indexPath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Index path: {indexPath}");
+
+                    // Verify file exists
+                    if (!File.Exists(indexPath))
+                    {
+                        throw new FileNotFoundException($"WMS module not found at: {indexPath}");
+                    }
+
+                    // Convert Windows path to file:/// URL format
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Navigating to: {fileUrl}");
+
+                    // Navigate the WebView2 control to the local HTML file
+                    wv.CoreWebView2.Navigate(fileUrl);
+
+                    // Send success message
+                    var response = new
+                    {
+                        type = "launch-wms-module",
+                        success = true,
+                        indexPath = indexPath,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ WMS module launched successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Launch WMS module failed: {ex.Message}");
+
+                // Send error message
+                var errorResponse = new
+                {
+                    type = "launch-wms-module",
+                    success = false,
+                    error = ex.Message,
+                    requestId = requestId
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorResponse);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        // Helper method: Copy directory recursively
+        private void CopyDirectory(string sourceDir, string destDir)
+        {
+            // Create destination directory
+            Directory.CreateDirectory(destDir);
+
+            // Copy files
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string fileName = Path.GetFileName(file);
+                string destFile = Path.Combine(destDir, fileName);
+                File.Copy(file, destFile, true);
+            }
+
+            // Copy subdirectories
+            foreach (string subDir in Directory.GetDirectories(sourceDir))
+            {
+                string dirName = Path.GetFileName(subDir);
+                string destSubDir = Path.Combine(destDir, dirName);
+                CopyDirectory(subDir, destSubDir);
+            }
+        }
+
         private async Task HandleDownloadOrderPdf(WebView2 wv, string messageJson, string requestId)
         {
             try
@@ -1589,6 +2112,44 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Download PDF failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // 🔧 NEW: Check if PDF exists locally
+        private async Task HandleCheckPdfExists(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<CheckPdfExistsMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Checking PDF existence for order {message.OrderNumber}");
+
+                // Construct PDF path: C:\fusion\{tripDate}\{tripId}\{orderNumber}.pdf
+                string pdfPath = Path.Combine(@"C:\fusion", message.TripDate, message.TripId.ToString(), $"{message.OrderNumber}.pdf");
+                bool exists = File.Exists(pdfPath);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] PDF Path: {pdfPath}");
+                System.Diagnostics.Debug.WriteLine($"[C#] PDF Exists: {exists}");
+
+                var response = new
+                {
+                    action = "checkPdfExistsResponse",
+                    requestId = requestId,
+                    exists = exists,
+                    filePath = exists ? pdfPath : null,
+                    orderNumber = message.OrderNumber
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Check PDF exists failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
@@ -1771,6 +2332,42 @@ namespace WMSApp
             }
         }
 
+        private async Task HandleSetInstanceSetting(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Setting instance setting");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string instance = root.GetProperty("instance").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Instance setting: {instance}");
+
+                    bool success = _storageManager.SaveInstanceSetting(instance);
+
+                    var response = new
+                    {
+                        action = "setInstanceSettingResponse",
+                        requestId = requestId,
+                        success = success,
+                        message = success ? $"Instance setting saved: {instance}" : "Failed to save instance setting"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Set instance setting failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
+        }
+
         private async Task HandleGetPrinterConfig(WebView2 wv, string messageJson, string requestId)
         {
             try
@@ -1861,6 +2458,95 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Test printer failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
+        }
+
+        private async Task HandleDiscoverBluetoothPrinters(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Discovering Bluetooth printers...");
+
+                // Get Bluetooth printers using PrinterSettings
+                var bluetoothPrinters = new List<string>();
+
+                // Note: Windows doesn't provide a direct API to filter only Bluetooth printers
+                // We'll get all printers and try to identify Bluetooth ones by name patterns
+                foreach (string printerName in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
+                {
+                    // Common Bluetooth printer patterns in names
+                    if (printerName.Contains("Bluetooth", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("BT", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("Wireless", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bluetoothPrinters.Add(printerName);
+                    }
+                }
+
+                var response = new
+                {
+                    action = "discoverBluetoothPrintersResponse",
+                    requestId = requestId,
+                    success = true,
+                    printers = bluetoothPrinters,
+                    count = bluetoothPrinters.Count
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Found {bluetoothPrinters.Count} Bluetooth printer(s)");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Bluetooth printer discovery failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
+        }
+
+        private async Task HandleDiscoverWifiPrinters(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Discovering WiFi/Network printers...");
+
+                // Get network printers
+                var networkPrinters = new List<string>();
+
+                foreach (string printerName in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
+                {
+                    // Network printers typically have UNC paths (\\server\printer) or contain "Network"
+                    if (printerName.StartsWith("\\\\") ||
+                        printerName.Contains("Network", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("IP", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("WiFi", StringComparison.OrdinalIgnoreCase))
+                    {
+                        networkPrinters.Add(printerName);
+                    }
+                }
+
+                var response = new
+                {
+                    action = "discoverWifiPrintersResponse",
+                    requestId = requestId,
+                    success = true,
+                    printers = networkPrinters,
+                    count = networkPrinters.Count
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Found {networkPrinters.Count} WiFi/Network printer(s)");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] WiFi printer discovery failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
         }
 
         private void SendErrorResponse(WebView2 wv, string requestId, string errorMessage)
@@ -2042,7 +2728,7 @@ namespace WMSApp
             }
         }
 
-        private void Navigate(string url)
+        private async void Navigate(string url)
         {
             var wv = GetCurrentWebView();
             if (wv?.CoreWebView2 != null)
@@ -2051,6 +2737,14 @@ namespace WMSApp
                 {
                     try
                     {
+                        // AGGRESSIVE CACHE CLEARING - Clear ALL cache before loading local files
+                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing ALL cache before loading local file...");
+                        await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                            CoreWebView2BrowsingDataKinds.AllDomStorage |
+                            CoreWebView2BrowsingDataKinds.CacheStorage |
+                            CoreWebView2BrowsingDataKinds.DiskCache);
+                        System.Diagnostics.Debug.WriteLine("[CACHE] ✅ Cache cleared successfully!");
+
                         wv.Source = new Uri(url);
                     }
                     catch (Exception ex)
@@ -2237,7 +2931,7 @@ namespace WMSApp
                     LineAlignment = StringAlignment.Center,
                     Trimming = StringTrimming.EllipsisCharacter
                 };
-                e.Graphics.DrawString(tabText, new Font("Segoe UI", 9), textBrush, textRect, sf);
+                e.Graphics.DrawString(tabText, new Font("Segoe UI", 8), textBrush, textRect, sf);
             }
 
             closeRect = new Rectangle(Width - 22, 6, 16, 16);
@@ -2304,6 +2998,9 @@ namespace WMSApp
 
         [JsonPropertyName("body")]
         public string Body { get; set; }
+
+        [JsonPropertyName("method")]
+        public string Method { get; set; }
     }
 
 }

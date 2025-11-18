@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sync Module - Gray's WMS</title>
+
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Main Container -->
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside id="sidebar" class="sidebar">
+            <div class="sidebar-header">
+                <h2>
+                    <i class="fas fa-sync-alt"></i>
+                    <span>Sync Module</span>
+                </h2>
+                <button id="hamburger" class="hamburger">
+                    <i class="fas fa-bars"></i>
+                </button>
+            </div>
+
+            <nav class="sidebar-nav">
+                <!-- Admin Section -->
+                <div class="nav-section">
+                    <h4 class="nav-section-title">
+                        <i class="fas fa-cog"></i> Administration
+                    </h4>
+                    <div class="menu-item active" data-page="admin-credentials">
+                        <i class="fas fa-key"></i>
+                        <span>Credentials</span>
+                    </div>
+                    <div class="menu-item" data-page="admin-endpoints">
+                        <i class="fas fa-plug"></i>
+                        <span>API Endpoints</span>
+                    </div>
+                    <div class="menu-item" data-page="admin-apex">
+                        <i class="fas fa-database"></i>
+                        <span>APEX Config</span>
+                    </div>
+                    <div class="menu-item" data-page="connection-test">
+                        <i class="fas fa-heartbeat"></i>
+                        <span>Connection Test</span>
+                    </div>
+                </div>
+
+                <!-- Sync Operations Section -->
+                <div class="nav-section">
+                    <h4 class="nav-section-title">
+                        <i class="fas fa-exchange-alt"></i> Sync Operations
+                    </h4>
+                    <div class="menu-item" data-page="sync-gl">
+                        <i class="fas fa-book"></i>
+                        <span>GL Sync</span>
+                    </div>
+                    <div class="menu-item" data-page="sync-ap">
+                        <i class="fas fa-file-invoice-dollar"></i>
+                        <span>AP Sync</span>
+                    </div>
+                    <div class="menu-item" data-page="sync-ar">
+                        <i class="fas fa-hand-holding-usd"></i>
+                        <span>AR Sync</span>
+                    </div>
+                    <div class="menu-item" data-page="sync-fa">
+                        <i class="fas fa-building"></i>
+                        <span>FA Sync</span>
+                    </div>
+                    <div class="menu-item" data-page="sync-po">
+                        <i class="fas fa-shopping-cart"></i>
+                        <span>PO Sync</span>
+                    </div>
+                </div>
+
+                <!-- Monitoring Section -->
+                <div class="nav-section">
+                    <h4 class="nav-section-title">
+                        <i class="fas fa-chart-line"></i> Monitoring
+                    </h4>
+                    <div class="menu-item" data-page="sync-history">
+                        <i class="fas fa-history"></i>
+                        <span>Sync History</span>
+                    </div>
+                    <div class="menu-item" data-page="sync-logs">
+                        <i class="fas fa-file-alt"></i>
+                        <span>Sync Logs</span>
+                    </div>
+                    <div class="menu-item" data-page="error-reports">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Error Reports</span>
+                    </div>
+                    <div class="menu-item" data-page="statistics">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>Statistics</span>
+                    </div>
+                </div>
+
+                <!-- Configuration Section -->
+                <div class="nav-section">
+                    <h4 class="nav-section-title">
+                        <i class="fas fa-sliders-h"></i> Configuration
+                    </h4>
+                    <div class="menu-item" data-page="sync-jobs">
+                        <i class="fas fa-tasks"></i>
+                        <span>Sync Jobs</span>
+                    </div>
+                    <div class="menu-item" data-page="data-mapping">
+                        <i class="fas fa-project-diagram"></i>
+                        <span>Data Mapping</span>
+                    </div>
+                    <div class="menu-item" data-page="transform-rules">
+                        <i class="fas fa-exchange-alt"></i>
+                        <span>Transform Rules</span>
+                    </div>
+                    <div class="menu-item" data-page="scheduler">
+                        <i class="fas fa-clock"></i>
+                        <span>Scheduler</span>
+                    </div>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <div id="mainContent" class="content-wrapper">
+                <!-- Content will be loaded dynamically -->
+            </div>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+    <script>
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            window.syncApp = new SyncApp();
+        });
+    </script>
+</body>
+</html>

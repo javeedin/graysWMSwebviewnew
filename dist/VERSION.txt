@@ -1,0 +1,5 @@
+Gray's WMS WebView Application
+Build Date: 12-11-2025 15:11:13.35
+Configuration: Release
+Deployment: Self-Contained (.NET 8 Runtime Included)
+Runtime: win-x64

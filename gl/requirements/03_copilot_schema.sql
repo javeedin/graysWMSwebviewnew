@@ -1,0 +1,294 @@
+-- ============================================================================
+-- CO-PILOT SCHEMA
+-- AI Assistant Configuration and Management
+-- Version: 1.0
+-- Date: November 8, 2025
+-- ============================================================================
+
+-- ============================================================================
+-- 1. CO-PILOT CONFIGURATION TABLE
+-- ============================================================================
+CREATE TABLE COPILOT_CONFIG (
+    CONFIG_ID               NUMBER PRIMARY KEY,
+    PROVIDER_TYPE           VARCHAR2(30) CHECK (PROVIDER_TYPE IN ('LOCAL', 'OPENAI', 'CLAUDE', 'GEMINI', 'AZURE', 'CUSTOM')),
+    API_KEY_ENCRYPTED       VARCHAR2(500),
+    API_ENDPOINT            VARCHAR2(500),
+    MODEL_NAME              VARCHAR2(100),
+    TEMPERATURE             NUMBER(3,2) DEFAULT 0.7,
+    MAX_TOKENS              NUMBER DEFAULT 2000,
+    ENABLED_FLAG            VARCHAR2(1) DEFAULT 'Y' CHECK (ENABLED_FLAG IN ('Y', 'N')),
+    TIMEOUT_SECONDS         NUMBER DEFAULT 30,
+    RETRY_ATTEMPTS          NUMBER DEFAULT 3,
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL
+);
+
+CREATE SEQUENCE COPILOT_CONFIG_SEQ START WITH 1 INCREMENT BY 1;
+
+COMMENT ON TABLE COPILOT_CONFIG IS 'Stores AI provider configuration for co-pilot';
+COMMENT ON COLUMN COPILOT_CONFIG.PROVIDER_TYPE IS 'AI provider: LOCAL, OPENAI, CLAUDE, GEMINI, AZURE, CUSTOM';
+COMMENT ON COLUMN COPILOT_CONFIG.API_KEY_ENCRYPTED IS 'Encrypted API key for external AI providers';
+
+-- Insert default local configuration
+INSERT INTO COPILOT_CONFIG (
+    CONFIG_ID, PROVIDER_TYPE, ENABLED_FLAG, CREATION_DATE,
+    CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_CONFIG_SEQ.NEXTVAL, 'LOCAL', 'Y', SYSDATE, 0, SYSDATE, 0
+);
+
+-- ============================================================================
+-- 2. CO-PILOT PROMPTS TABLE
+-- ============================================================================
+CREATE TABLE COPILOT_PROMPTS (
+    PROMPT_ID               NUMBER PRIMARY KEY,
+    PROMPT_NAME             VARCHAR2(100) NOT NULL UNIQUE,
+    PROMPT_TYPE             VARCHAR2(30) CHECK (PROMPT_TYPE IN ('SYSTEM', 'ACTION', 'HELP', 'QUERY')),
+    TRIGGER_KEYWORDS        VARCHAR2(500),
+    SYSTEM_PROMPT           CLOB,
+    USER_ROLE_FILTER        VARCHAR2(100),
+    MODULE_FILTER           VARCHAR2(30),
+    PRIORITY                NUMBER DEFAULT 50,
+    ENABLED_FLAG            VARCHAR2(1) DEFAULT 'Y' CHECK (ENABLED_FLAG IN ('Y', 'N')),
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL
+);
+
+CREATE SEQUENCE COPILOT_PROMPTS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX COPILOT_PROMPTS_N1 ON COPILOT_PROMPTS(PROMPT_TYPE);
+CREATE INDEX COPILOT_PROMPTS_N2 ON COPILOT_PROMPTS(MODULE_FILTER);
+
+COMMENT ON TABLE COPILOT_PROMPTS IS 'Stores prompt templates for co-pilot responses';
+
+-- Sample prompts
+INSERT INTO COPILOT_PROMPTS (
+    PROMPT_ID, PROMPT_NAME, PROMPT_TYPE, TRIGGER_KEYWORDS, SYSTEM_PROMPT,
+    MODULE_FILTER, PRIORITY, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_PROMPTS_SEQ.NEXTVAL,
+    'GL System Prompt',
+    'SYSTEM',
+    NULL,
+    'You are a helpful GL (General Ledger) assistant helping users with journal entries, account inquiries, reports, and period management. Be concise and helpful.',
+    'GL',
+    100,
+    SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO COPILOT_PROMPTS (
+    PROMPT_ID, PROMPT_NAME, PROMPT_TYPE, TRIGGER_KEYWORDS, SYSTEM_PROMPT,
+    MODULE_FILTER, PRIORITY, CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_PROMPTS_SEQ.NEXTVAL,
+    'Create Journal Entry',
+    'ACTION',
+    'create journal,new journal,journal entry',
+    'Guide the user through creating a journal entry. Ask for: Batch Name, Ledger, Period, Source, Category.',
+    'GL',
+    80,
+    SYSDATE, 0, SYSDATE, 0
+);
+
+-- ============================================================================
+-- 3. CO-PILOT ACTIONS TABLE
+-- ============================================================================
+CREATE TABLE COPILOT_ACTIONS (
+    ACTION_ID               NUMBER PRIMARY KEY,
+    ACTION_NAME             VARCHAR2(100) NOT NULL UNIQUE,
+    ACTION_TYPE             VARCHAR2(30) CHECK (ACTION_TYPE IN ('NAVIGATE', 'DATA_QUERY', 'DATA_INSERT', 'DATA_UPDATE', 'REPORT', 'WORKFLOW')),
+    ACTION_HANDLER          VARCHAR2(200),
+    PARAMETERS_SCHEMA       CLOB,
+    MODULE_FILTER           VARCHAR2(30),
+    REQUIRED_ROLE           VARCHAR2(100),
+    ENABLED_FLAG            VARCHAR2(1) DEFAULT 'Y' CHECK (ENABLED_FLAG IN ('Y', 'N')),
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL
+);
+
+CREATE SEQUENCE COPILOT_ACTIONS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX COPILOT_ACTIONS_N1 ON COPILOT_ACTIONS(ACTION_TYPE);
+
+COMMENT ON TABLE COPILOT_ACTIONS IS 'Defines executable actions that co-pilot can perform';
+
+-- Sample actions
+INSERT INTO COPILOT_ACTIONS (
+    ACTION_ID, ACTION_NAME, ACTION_TYPE, ACTION_HANDLER, MODULE_FILTER,
+    CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_ACTIONS_SEQ.NEXTVAL,
+    'Navigate to Journal Entry',
+    'NAVIGATE',
+    'navigateToPage',
+    'GL',
+    SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO COPILOT_ACTIONS (
+    ACTION_ID, ACTION_NAME, ACTION_TYPE, ACTION_HANDLER, MODULE_FILTER,
+    CREATION_DATE, CREATED_BY, LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_ACTIONS_SEQ.NEXTVAL,
+    'Query Account Balance',
+    'DATA_QUERY',
+    'queryAccountBalance',
+    'GL',
+    SYSDATE, 0, SYSDATE, 0
+);
+
+-- ============================================================================
+-- 4. CO-PILOT CONVERSATIONS TABLE
+-- ============================================================================
+CREATE TABLE COPILOT_CONVERSATIONS (
+    CONVERSATION_ID         NUMBER PRIMARY KEY,
+    SESSION_ID              NUMBER,
+    USER_ID                 NUMBER NOT NULL,
+    MODULE                  VARCHAR2(30),
+    PAGE_CONTEXT            VARCHAR2(100),
+    MESSAGE_TEXT            CLOB NOT NULL,
+    MESSAGE_TYPE            VARCHAR2(10) CHECK (MESSAGE_TYPE IN ('USER', 'COPILOT')),
+    RESPONSE_TEXT           CLOB,
+    RESPONSE_TIME_MS        NUMBER,
+    ACTION_EXECUTED         VARCHAR2(100),
+    ACTION_RESULT           VARCHAR2(100),
+    PROVIDER_USED           VARCHAR2(30),
+    TOKENS_USED             NUMBER,
+    SENTIMENT               VARCHAR2(20),
+    CREATED_DATE            TIMESTAMP NOT NULL,
+    FOREIGN KEY (USER_ID) REFERENCES FND_USERS(USER_ID)
+);
+
+CREATE SEQUENCE COPILOT_CONVERSATIONS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX COPILOT_CONVERSATIONS_N1 ON COPILOT_CONVERSATIONS(USER_ID);
+CREATE INDEX COPILOT_CONVERSATIONS_N2 ON COPILOT_CONVERSATIONS(SESSION_ID);
+CREATE INDEX COPILOT_CONVERSATIONS_N3 ON COPILOT_CONVERSATIONS(CREATED_DATE);
+CREATE INDEX COPILOT_CONVERSATIONS_N4 ON COPILOT_CONVERSATIONS(MODULE);
+
+COMMENT ON TABLE COPILOT_CONVERSATIONS IS 'Stores all co-pilot conversation history';
+
+-- ============================================================================
+-- 5. CO-PILOT ANALYTICS TABLE
+-- ============================================================================
+CREATE TABLE COPILOT_ANALYTICS (
+    ANALYTICS_ID            NUMBER PRIMARY KEY,
+    USER_ID                 NUMBER,
+    SESSION_ID              NUMBER,
+    MODULE                  VARCHAR2(30),
+    PAGE_CONTEXT            VARCHAR2(100),
+    ACTION_TYPE             VARCHAR2(30),
+    ACTION_NAME             VARCHAR2(100),
+    SUCCESS_FLAG            VARCHAR2(1) CHECK (SUCCESS_FLAG IN ('Y', 'N')),
+    RESPONSE_TIME_MS        NUMBER,
+    ERROR_MESSAGE           VARCHAR2(500),
+    USER_SATISFACTION       NUMBER(2,1),
+    ANALYTICS_DATE          DATE NOT NULL,
+    ANALYTICS_TIMESTAMP     TIMESTAMP NOT NULL,
+    FOREIGN KEY (USER_ID) REFERENCES FND_USERS(USER_ID)
+);
+
+CREATE SEQUENCE COPILOT_ANALYTICS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX COPILOT_ANALYTICS_N1 ON COPILOT_ANALYTICS(USER_ID);
+CREATE INDEX COPILOT_ANALYTICS_N2 ON COPILOT_ANALYTICS(MODULE);
+CREATE INDEX COPILOT_ANALYTICS_N3 ON COPILOT_ANALYTICS(ANALYTICS_DATE);
+CREATE INDEX COPILOT_ANALYTICS_N4 ON COPILOT_ANALYTICS(ACTION_TYPE);
+
+COMMENT ON TABLE COPILOT_ANALYTICS IS 'Tracks co-pilot usage and performance metrics';
+
+-- ============================================================================
+-- 6. CO-PILOT QUICK ACTIONS TABLE
+-- ============================================================================
+CREATE TABLE COPILOT_QUICK_ACTIONS (
+    QUICK_ACTION_ID         NUMBER PRIMARY KEY,
+    MODULE                  VARCHAR2(30) NOT NULL,
+    PAGE_CONTEXT            VARCHAR2(100),
+    ACTION_ICON             VARCHAR2(50),
+    ACTION_TEXT             VARCHAR2(100) NOT NULL,
+    ACTION_HANDLER          VARCHAR2(200) NOT NULL,
+    DISPLAY_ORDER           NUMBER DEFAULT 0,
+    REQUIRED_ROLE           VARCHAR2(100),
+    ENABLED_FLAG            VARCHAR2(1) DEFAULT 'Y' CHECK (ENABLED_FLAG IN ('Y', 'N')),
+    CREATION_DATE           DATE NOT NULL,
+    CREATED_BY              NUMBER NOT NULL,
+    LAST_UPDATE_DATE        DATE NOT NULL,
+    LAST_UPDATED_BY         NUMBER NOT NULL
+);
+
+CREATE SEQUENCE COPILOT_QUICK_ACTIONS_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX COPILOT_QUICK_ACTIONS_N1 ON COPILOT_QUICK_ACTIONS(MODULE, PAGE_CONTEXT);
+
+COMMENT ON TABLE COPILOT_QUICK_ACTIONS IS 'Defines context-aware quick actions for co-pilot';
+
+-- Sample quick actions
+INSERT INTO COPILOT_QUICK_ACTIONS (
+    QUICK_ACTION_ID, MODULE, PAGE_CONTEXT, ACTION_ICON, ACTION_TEXT,
+    ACTION_HANDLER, DISPLAY_ORDER, CREATION_DATE, CREATED_BY,
+    LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_QUICK_ACTIONS_SEQ.NEXTVAL, 'GL', 'journal-entry', 'plus-circle',
+    'Create Journal Entry', 'create-journal', 1, SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO COPILOT_QUICK_ACTIONS (
+    QUICK_ACTION_ID, MODULE, PAGE_CONTEXT, ACTION_ICON, ACTION_TEXT,
+    ACTION_HANDLER, DISPLAY_ORDER, CREATION_DATE, CREATED_BY,
+    LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_QUICK_ACTIONS_SEQ.NEXTVAL, 'GL', 'journal-entry', 'calculator',
+    'Check Account Balance', 'account-balance', 2, SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO COPILOT_QUICK_ACTIONS (
+    QUICK_ACTION_ID, MODULE, PAGE_CONTEXT, ACTION_ICON, ACTION_TEXT,
+    ACTION_HANDLER, DISPLAY_ORDER, CREATION_DATE, CREATED_BY,
+    LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_QUICK_ACTIONS_SEQ.NEXTVAL, 'GL', 'journal-entry', 'list',
+    'Run Trial Balance', 'trial-balance', 3, SYSDATE, 0, SYSDATE, 0
+);
+
+INSERT INTO COPILOT_QUICK_ACTIONS (
+    QUICK_ACTION_ID, MODULE, PAGE_CONTEXT, ACTION_ICON, ACTION_TEXT,
+    ACTION_HANDLER, DISPLAY_ORDER, CREATION_DATE, CREATED_BY,
+    LAST_UPDATE_DATE, LAST_UPDATED_BY
+) VALUES (
+    COPILOT_QUICK_ACTIONS_SEQ.NEXTVAL, 'GL', 'journal-entry', 'calendar-check',
+    'Check Period Status', 'period-status', 4, SYSDATE, 0, SYSDATE, 0
+);
+
+-- ============================================================================
+-- 7. CO-PILOT FEEDBACK TABLE
+-- ============================================================================
+CREATE TABLE COPILOT_FEEDBACK (
+    FEEDBACK_ID             NUMBER PRIMARY KEY,
+    CONVERSATION_ID         NUMBER,
+    USER_ID                 NUMBER NOT NULL,
+    RATING                  NUMBER(1) CHECK (RATING BETWEEN 1 AND 5),
+    FEEDBACK_TYPE           VARCHAR2(20) CHECK (FEEDBACK_TYPE IN ('HELPFUL', 'UNHELPFUL', 'INCORRECT', 'BUG')),
+    FEEDBACK_TEXT           VARCHAR2(1000),
+    CREATED_DATE            TIMESTAMP NOT NULL,
+    FOREIGN KEY (CONVERSATION_ID) REFERENCES COPILOT_CONVERSATIONS(CONVERSATION_ID),
+    FOREIGN KEY (USER_ID) REFERENCES FND_USERS(USER_ID)
+);
+
+CREATE SEQUENCE COPILOT_FEEDBACK_SEQ START WITH 1 INCREMENT BY 1;
+
+CREATE INDEX COPILOT_FEEDBACK_N1 ON COPILOT_FEEDBACK(USER_ID);
+CREATE INDEX COPILOT_FEEDBACK_N2 ON COPILOT_FEEDBACK(RATING);
+
+COMMENT ON TABLE COPILOT_FEEDBACK IS 'Stores user feedback on co-pilot responses';
+
+COMMIT;
+
+-- ============================================================================
+-- END OF CO-PILOT SCHEMA
+-- ============================================================================
