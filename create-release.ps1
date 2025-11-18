@@ -124,45 +124,73 @@ Write-Host "  Created: $distFolderName" -ForegroundColor Gray
 
 Write-Host "[4/8] Copying WMS files..." -ForegroundColor Green
 
- 
-
-$filesToCopy = @(
-
-    "wms/index.html",
-
-    "wms/app.js",
-
-    "wms/monitor-printing.js",
-
-    "wms/printer-management-new.js",
-
-    "wms/distribution-manager.js",
-
-    "wms/update-manager.js",
-
-    "wms/styles.css",
-
-    "wms/config.js",
-
-    "version.json",
-
-    "latest-release.json"
-
-)
-
 
 
 $copiedCount = 0
 
-foreach ($file in $filesToCopy) {
 
-    if (Test-Path $file) {
 
-        # Get just the filename for destination (remove wms/ prefix if present)
+# Copy all files from wms/ directory
 
-        $fileName = Split-Path $file -Leaf
+$wmsPath = Join-Path $PSScriptRoot "wms"
 
-        Copy-Item -Path $file -Destination (Join-Path $distPath $fileName) -Force
+if (Test-Path $wmsPath) {
+
+    $wmsFiles = Get-ChildItem -Path $wmsPath -File -Recurse
+
+
+
+    foreach ($file in $wmsFiles) {
+
+        # Get relative path from wms folder
+
+        $relativePath = $file.FullName.Substring($wmsPath.Length + 1)
+
+        $destPath = Join-Path $distPath $relativePath
+
+
+
+        # Create subdirectories if needed
+
+        $destDir = Split-Path $destPath -Parent
+
+        if (-not (Test-Path $destDir)) {
+
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+
+        }
+
+
+
+        Copy-Item -Path $file.FullName -Destination $destPath -Force
+
+        Write-Host "  OK wms/$relativePath" -ForegroundColor Gray
+
+        $copiedCount++
+
+    }
+
+} else {
+
+    Write-Host "  ERROR: wms/ directory not found!" -ForegroundColor Red
+
+    exit 1
+
+}
+
+
+
+# Copy root-level files
+
+$rootFiles = @("version.json", "latest-release.json")
+
+foreach ($file in $rootFiles) {
+
+    $filePath = Join-Path $PSScriptRoot $file
+
+    if (Test-Path $filePath) {
+
+        Copy-Item -Path $filePath -Destination (Join-Path $distPath $file) -Force
 
         Write-Host "  OK $file" -ForegroundColor Gray
 
@@ -176,9 +204,9 @@ foreach ($file in $filesToCopy) {
 
 }
 
- 
 
-Write-Host "  Copied $copiedCount files" -ForegroundColor Gray
+
+Write-Host "  Copied $copiedCount files from wms/ and root" -ForegroundColor Gray
 
  
 
