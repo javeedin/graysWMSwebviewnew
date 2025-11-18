@@ -1119,6 +1119,34 @@
         </main>
     </div>
 
+    <!-- WMS Co-Pilot -->
+    <div id="copilot-fab" class="copilot-fab" onclick="toggleCopilot()" title="WMS Co-Pilot (Alt+C)">
+        <i class="fas fa-robot"></i>
+    </div>
+
+    <div id="copilot-overlay" class="copilot-overlay" onclick="toggleCopilot()"></div>
+
+    <div id="copilot-panel" class="copilot-panel">
+        <div class="copilot-header">
+            <h3><i class="fas fa-robot"></i> WMS Co-Pilot</h3>
+            <button onclick="toggleCopilot()" class="copilot-close"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="copilot-body">
+            <div class="copilot-action" onclick="copilotAction('createTrip')">
+                <i class="fas fa-plus-circle"></i>
+                <span>Create New Trip</span>
+            </div>
+            <div class="copilot-action" onclick="copilotAction('printOrder')">
+                <i class="fas fa-print"></i>
+                <span>Print Order</span>
+            </div>
+            <div class="copilot-action" onclick="copilotAction('printTrip')">
+                <i class="fas fa-file-pdf"></i>
+                <span>Print Trip</span>
+            </div>
+        </div>
+    </div>
+
     <!-- Diagnostic Toolbar (Bottom) -->
     <div id="diagnostic-toolbar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 9999; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); font-size: 12px;">
         <div style="display: flex; gap: 8px; align-items: center;">
@@ -1147,7 +1175,7 @@
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
             <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.18-3 (Clean)
+                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.18-4 (Co-Pilot v2)
             </span>
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
             <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
@@ -1168,6 +1196,7 @@
         document.write('<script src="monitor-printing-print-all-modal.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="update-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="distribution-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="copilot.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </body>
 </html>
