@@ -1119,167 +1119,6 @@
         </main>
     </div>
 
-    <!-- ============================================================ -->
-    <!-- WMS CO-PILOT ASSISTANT -->
-    <!-- ============================================================ -->
-
-    <!-- Co-Pilot Floating Button -->
-    <div id="copilot-fab" class="copilot-fab" onclick="toggleCopilot()">
-        <i class="fas fa-robot"></i>
-        <span class="copilot-pulse"></span>
-    </div>
-
-    <!-- Co-Pilot Side Panel -->
-    <div id="copilot-panel" class="copilot-panel">
-        <div class="copilot-header">
-            <div>
-                <h3 style="margin: 0; font-size: 18px; display: flex; align-items: center; gap: 0.5rem;">
-                    <i class="fas fa-robot" style="color: #667eea;"></i>
-                    WMS Co-Pilot
-                </h3>
-                <p style="margin: 5px 0 0 0; font-size: 13px; color: #666;">Your intelligent warehouse assistant</p>
-            </div>
-            <button onclick="toggleCopilot()" class="copilot-close-btn">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-
-        <div class="copilot-content">
-            <!-- Quick Actions Section -->
-            <div class="copilot-section">
-                <h4 class="copilot-section-title">
-                    <i class="fas fa-bolt"></i> Quick Actions
-                </h4>
-                <div class="copilot-actions-grid">
-                    <div class="copilot-action-card" onclick="copilotAction('createTrip')">
-                        <div class="copilot-action-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
-                            <i class="fas fa-plus-circle"></i>
-                        </div>
-                        <div class="copilot-action-content">
-                            <div class="copilot-action-title">Create New Trip</div>
-                            <div class="copilot-action-desc">Start a new delivery trip</div>
-                        </div>
-                    </div>
-
-                    <div class="copilot-action-card" onclick="copilotAction('addToTrip')">
-                        <div class="copilot-action-icon" style="background: linear-gradient(135deg, #f093fb, #f5576c);">
-                            <i class="fas fa-box"></i>
-                        </div>
-                        <div class="copilot-action-content">
-                            <div class="copilot-action-title">Add to Trip</div>
-                            <div class="copilot-action-desc">Add orders to existing trip</div>
-                        </div>
-                    </div>
-
-                    <div class="copilot-action-card" onclick="copilotAction('printOrder')">
-                        <div class="copilot-action-icon" style="background: linear-gradient(135deg, #4facfe, #00f2fe);">
-                            <i class="fas fa-print"></i>
-                        </div>
-                        <div class="copilot-action-content">
-                            <div class="copilot-action-title">Print Order</div>
-                            <div class="copilot-action-desc">Print single order document</div>
-                        </div>
-                    </div>
-
-                    <div class="copilot-action-card" onclick="copilotAction('printTrip')">
-                        <div class="copilot-action-icon" style="background: linear-gradient(135deg, #43e97b, #38f9d7);">
-                            <i class="fas fa-file-pdf"></i>
-                        </div>
-                        <div class="copilot-action-content">
-                            <div class="copilot-action-title">Print Trip</div>
-                            <div class="copilot-action-desc">Print entire trip documents</div>
-                        </div>
-                    </div>
-
-                    <div class="copilot-action-card" onclick="copilotAction('autoSchedule')">
-                        <div class="copilot-action-icon" style="background: linear-gradient(135deg, #fa709a, #fee140);">
-                            <i class="fas fa-calendar-alt"></i>
-                        </div>
-                        <div class="copilot-action-content">
-                            <div class="copilot-action-title">Auto Schedule</div>
-                            <div class="copilot-action-desc">AI-powered trip scheduling</div>
-                        </div>
-                    </div>
-
-                    <div class="copilot-action-card" onclick="copilotAction('optimizeRoute')">
-                        <div class="copilot-action-icon" style="background: linear-gradient(135deg, #30cfd0, #330867);">
-                            <i class="fas fa-route"></i>
-                        </div>
-                        <div class="copilot-action-content">
-                            <div class="copilot-action-title">Optimize Route</div>
-                            <div class="copilot-action-desc">Find best delivery route</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Smart Suggestions Section -->
-            <div class="copilot-section">
-                <h4 class="copilot-section-title">
-                    <i class="fas fa-lightbulb"></i> Smart Suggestions
-                </h4>
-                <div class="copilot-suggestion-card">
-                    <i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i>
-                    <div>
-                        <div style="font-weight: 600; font-size: 13px; color: #374151;">Pending Orders Alert</div>
-                        <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">You have 15 orders waiting to be assigned to trips</div>
-                    </div>
-                    <button class="copilot-suggestion-btn" onclick="copilotAction('viewPending')">View</button>
-                </div>
-
-                <div class="copilot-suggestion-card">
-                    <i class="fas fa-clock" style="color: #3b82f6;"></i>
-                    <div>
-                        <div style="font-weight: 600; font-size: 13px; color: #374151;">Trip Deadline Soon</div>
-                        <div style="font-size: 12px; color: #6b7280; margin-top: 2px;">Trip #TRP-001 needs to depart in 2 hours</div>
-                    </div>
-                    <button class="copilot-suggestion-btn" onclick="copilotAction('viewTrip')">Details</button>
-                </div>
-            </div>
-
-            <!-- Recent Activity Section -->
-            <div class="copilot-section">
-                <h4 class="copilot-section-title">
-                    <i class="fas fa-history"></i> Recent Activity
-                </h4>
-                <div class="copilot-activity-list">
-                    <div class="copilot-activity-item">
-                        <div class="copilot-activity-icon" style="background: #dbeafe;">
-                            <i class="fas fa-truck" style="color: #3b82f6;"></i>
-                        </div>
-                        <div class="copilot-activity-content">
-                            <div style="font-size: 12px; font-weight: 600; color: #374151;">Trip Created</div>
-                            <div style="font-size: 11px; color: #6b7280;">TRP-125 • 5 minutes ago</div>
-                        </div>
-                    </div>
-
-                    <div class="copilot-activity-item">
-                        <div class="copilot-activity-icon" style="background: #d1fae5;">
-                            <i class="fas fa-print" style="color: #10b981;"></i>
-                        </div>
-                        <div class="copilot-activity-content">
-                            <div style="font-size: 12px; font-weight: 600; color: #374151;">Orders Printed</div>
-                            <div style="font-size: 11px; color: #6b7280;">12 orders • 15 minutes ago</div>
-                        </div>
-                    </div>
-
-                    <div class="copilot-activity-item">
-                        <div class="copilot-activity-icon" style="background: #fef3c7;">
-                            <i class="fas fa-box" style="color: #f59e0b;"></i>
-                        </div>
-                        <div class="copilot-activity-content">
-                            <div style="font-size: 12px; font-weight: 600; color: #374151;">Order Added</div>
-                            <div style="font-size: 11px; color: #6b7280;">ORD-4521 to TRP-124 • 1 hour ago</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Co-Pilot Overlay (backdrop) -->
-    <div id="copilot-overlay" class="copilot-overlay" onclick="toggleCopilot()"></div>
-
     <!-- Diagnostic Toolbar (Bottom) -->
     <div id="diagnostic-toolbar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 9999; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); font-size: 12px;">
         <div style="display: flex; gap: 8px; align-items: center;">
@@ -1308,7 +1147,7 @@
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
             <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.18-2 (Co-Pilot Fixed)
+                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.18-3 (Clean)
             </span>
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
             <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
@@ -1329,7 +1168,6 @@
         document.write('<script src="monitor-printing-print-all-modal.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="update-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="distribution-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
-        document.write('<script src="copilot.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </body>
 </html>
