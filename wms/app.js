@@ -3115,9 +3115,17 @@ document.addEventListener('DOMContentLoaded', function() {
                         keys.forEach(key => {
                             const value = item[key];
                             const lowerKey = key.toLowerCase();
+                            const upperKey = key.toUpperCase();
 
-                            // Check if this is a status column
-                            if (lowerKey.includes('status') || lowerKey === 'picked_status' || lowerKey === 'canceled_status' || lowerKey === 'ship_confirm_st') {
+                            // Check if this is a status column - updated to match new field names
+                            if (lowerKey.includes('status') ||
+                                lowerKey.includes('_st') ||
+                                upperKey === 'PICKED_ST' ||
+                                upperKey === 'CANCELED_ST' ||
+                                upperKey === 'SHIPED_ST' ||
+                                lowerKey === 'picked_status' ||
+                                lowerKey === 'canceled_status' ||
+                                lowerKey === 'ship_confirm_st') {
                                 html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap; text-align: center;">${renderStatusIcon(value)}</td>`;
                             } else {
                                 html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap;">${value !== null && value !== undefined ? value : ''}</td>`;
@@ -3359,18 +3367,26 @@ document.addEventListener('DOMContentLoaded', function() {
         if (isSingleSelection) {
             // Single selection mode - Form with input + datalist
             const item = selectedItems[0];
-            const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || '';
+            const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || item.itemnumber || item.ITEMNUMBER || '';
 
             console.log('[Set Data] Single selection - Item:', itemNumber);
+            console.log('[Set Data] Single selection - Full item data:', item);
 
             // Get available lots for this item from QOH data
             const availableLots = window.qohData ? window.qohData.filter(qoh => {
-                const qohItem = qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
+                // QOH uses ITEMNUMBER (no underscore)
+                const qohItem = qoh.ITEMNUMBER || qoh.itemnumber || qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
                 const match = qohItem === itemNumber || qohItem.trim() === itemNumber.trim();
+                if (match) {
+                    console.log('[Set Data] Matched QOH item:', qohItem, 'with allocated item:', itemNumber);
+                }
                 return match;
             }) : [];
 
             console.log('[Set Data] Single selection - Found', availableLots.length, 'lots:', availableLots);
+            if (window.qohData && window.qohData.length > 0) {
+                console.log('[Set Data] Sample QOH record:', window.qohData[0]);
+            }
 
             // Build datalist options
             let lotDatalistOptions = '';
@@ -3484,19 +3500,27 @@ document.addEventListener('DOMContentLoaded', function() {
             // Multiple selection mode - Grid view
             let gridRows = '';
             selectedItems.forEach((item, index) => {
-                const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || '';
+                const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || item.itemnumber || item.ITEMNUMBER || '';
                 const lineNumber = item.LINE_NUMBER || item.line_number || item.LINE || item.line || index + 1;
 
                 console.log(`[Set Data] Row ${index} - Item: ${itemNumber}`);
+                console.log(`[Set Data] Row ${index} - Full item data:`, item);
 
                 // Get available lots for this item
                 const availableLots = window.qohData ? window.qohData.filter(qoh => {
-                    const qohItem = qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
+                    // QOH uses ITEMNUMBER (no underscore)
+                    const qohItem = qoh.ITEMNUMBER || qoh.itemnumber || qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
                     const match = qohItem === itemNumber || qohItem.trim() === itemNumber.trim();
+                    if (match) {
+                        console.log(`[Set Data] Row ${index} - Matched QOH item: ${qohItem} with allocated item: ${itemNumber}`);
+                    }
                     return match;
                 }) : [];
 
                 console.log(`[Set Data] Row ${index} - Found ${availableLots.length} lots:`, availableLots);
+                if (index === 0 && window.qohData && window.qohData.length > 0) {
+                    console.log('[Set Data] Sample QOH record:', window.qohData[0]);
+                }
 
                 // Build datalist options for autocomplete
                 let lotDatalistId = `lot-datalist-${index}`;
