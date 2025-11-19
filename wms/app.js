@@ -3397,7 +3397,7 @@ document.addEventListener('DOMContentLoaded', function() {
             availableLots.forEach(lot => {
                 const lotNum = lot.LOT_NUMBER || lot.lot_number || lot.LOT || lot.lot || '';
                 const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || lot.EXPIRE_DATE || lot.expire_date || '';
-                const lotQty = lot.QTY || lot.qty || lot.QUANTITY || lot.quantity || lot.QOH || lot.qoh || '';
+                const lotQty = lot.primaryquantity || lot.PRIMARYQUANTITY || lot.QTY || lot.qty || lot.QUANTITY || lot.quantity || lot.QOH || lot.qoh || '';
                 if (lotNum) {
                     // Show lot number with quantity in dropdown
                     lotDatalistOptions += `<option value="${lotNum}" label="Lot: ${lotNum} | Qty: ${lotQty}">`;
@@ -3538,7 +3538,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 availableLots.forEach(lot => {
                     const lotNum = lot.LOT_NUMBER || lot.lot_number || lot.LOT || lot.lot || '';
                     const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || lot.EXPIRE_DATE || lot.expire_date || '';
-                    const lotQty = lot.QTY || lot.qty || lot.QUANTITY || lot.quantity || lot.QOH || lot.qoh || '';
+                    const lotQty = lot.primaryquantity || lot.PRIMARYQUANTITY || lot.QTY || lot.qty || lot.QUANTITY || lot.quantity || lot.QOH || lot.qoh || '';
                     if (lotNum) {
                         // Show lot number with quantity in dropdown
                         lotDatalistOptions += `<option value="${lotNum}" label="Lot: ${lotNum} | Qty: ${lotQty}">`;
