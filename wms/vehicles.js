@@ -154,23 +154,46 @@ function initializeVehiclesGrid() {
     }
 }
 
-// Load vehicles from API
+// Load vehicles from API using WebView2 REST call
 window.loadVehicles = async function() {
     console.log('[Vehicles] Loading vehicles from API...');
 
     try {
-        const response = await fetch(VEHICLES_API, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
+        // Use WebView2's REST API call feature to bypass CORS
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use postMessage to C# backend
+            window.chrome.webview.postMessage({
+                type: 'REST_API_CALL',
+                url: VEHICLES_API,
+                method: 'GET',
+                callback: 'handleVehiclesData'
+            });
+        } else {
+            // Fallback to direct fetch for testing in browser
+            const response = await fetch(VEHICLES_API, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            handleVehiclesData(data);
         }
 
-        const data = await response.json();
+    } catch (error) {
+        console.error('[Vehicles] Error loading vehicles:', error);
+        alert('Error loading vehicles: ' + error.message);
+    }
+};
+
+// Callback function to handle vehicles data from C# or direct fetch
+window.handleVehiclesData = function(data) {
+    try {
         vehiclesData = data.items || [];
 
         console.log('[Vehicles] Loaded', vehiclesData.length, 'vehicles');
@@ -185,10 +208,9 @@ window.loadVehicles = async function() {
         if (countDisplay) {
             countDisplay.textContent = `${vehiclesData.length} vehicle${vehiclesData.length !== 1 ? 's' : ''}`;
         }
-
     } catch (error) {
-        console.error('[Vehicles] Error loading vehicles:', error);
-        alert('Error loading vehicles: ' + error.message);
+        console.error('[Vehicles] Error processing vehicles data:', error);
+        alert('Error processing vehicles data: ' + error.message);
     }
 };
 

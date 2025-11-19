@@ -183,23 +183,46 @@ function initializePickersGrid() {
     }
 }
 
-// Load pickers from API
+// Load pickers from API using WebView2 REST call
 window.loadPickers = async function() {
     console.log('[Pickers] Loading pickers from API...');
 
     try {
-        const response = await fetch(PICKERS_API, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
+        // Use WebView2's REST API call feature to bypass CORS
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use postMessage to C# backend
+            window.chrome.webview.postMessage({
+                type: 'REST_API_CALL',
+                url: PICKERS_API,
+                method: 'GET',
+                callback: 'handlePickersData'
+            });
+        } else {
+            // Fallback to direct fetch for testing in browser
+            const response = await fetch(PICKERS_API, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            handlePickersData(data);
         }
 
-        const data = await response.json();
+    } catch (error) {
+        console.error('[Pickers] Error loading pickers:', error);
+        alert('Error loading pickers: ' + error.message);
+    }
+};
+
+// Callback function to handle pickers data from C# or direct fetch
+window.handlePickersData = function(data) {
+    try {
         pickersData = data.items || [];
 
         console.log('[Pickers] Loaded', pickersData.length, 'pickers');
@@ -214,10 +237,9 @@ window.loadPickers = async function() {
         if (countDisplay) {
             countDisplay.textContent = `${pickersData.length} picker${pickersData.length !== 1 ? 's' : ''}`;
         }
-
     } catch (error) {
-        console.error('[Pickers] Error loading pickers:', error);
-        alert('Error loading pickers: ' + error.message);
+        console.error('[Pickers] Error processing pickers data:', error);
+        alert('Error processing pickers data: ' + error.message);
     }
 };
 
