@@ -453,32 +453,122 @@ window.addSelectedOrdersToTrip = async function() {
         return;
     }
 
+    if (!tripDetailsData || !tripDetailsData.trip_id) {
+        alert('Trip ID not found');
+        return;
+    }
+
     console.log('[Trip Details] Selected orders:', selectedOrders);
 
     // Prepare data for POST
     const ordersToAdd = selectedOrders.map(order => ({
-        trip_id: tripDetailsData.trip_id,
         order_number: order.source_order_number,
         account_number: order.account_number,
         account_name: order.account_name,
         order_date: order.order_date,
-        salesrep_name: order.salesrep_name
+        order_type: order.order_type_code,
+        salesrep_name: order.salesrep_name,
+        instance: order.instance
     }));
 
-    console.log('[Trip Details] Orders to add:', ordersToAdd);
+    const postData = {
+        trip_id: parseInt(tripDetailsData.trip_id),
+        orders: ordersToAdd
+    };
 
-    // TODO: Call POST API to add orders to trip
-    // For now, just add to local grid
-    alert(`Ready to add ${selectedOrders.length} order(s) to trip!\n\n(POST API integration pending)\n\nSelected orders:\n` + selectedOrders.map(o => o.source_order_number).join(', '));
+    console.log('[Trip Details] POST data:', postData);
 
-    // Add to trip orders grid
-    tripOrdersData = [...tripOrdersData, ...selectedOrders];
-    if (tripOrdersGrid) {
-        tripOrdersGrid.option('dataSource', tripOrdersData);
+    // Disable add button
+    const addBtn = document.getElementById('add-orders-to-trip-btn');
+    const originalBtnText = addBtn.innerHTML;
+    addBtn.disabled = true;
+    addBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Adding...';
+
+    try {
+        const ADD_ORDERS_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/addorders';
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: ADD_ORDERS_API,
+                body: JSON.stringify(postData)
+            }, function(error, data) {
+                addBtn.disabled = false;
+                addBtn.innerHTML = originalBtnText;
+
+                if (error) {
+                    console.error('[Trip Details] Error adding orders:', error);
+                    alert('Error adding orders to trip:\n' + error);
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Trip Details] Orders added successfully:', response);
+
+                        if (response.success) {
+                            alert(`✅ Successfully added ${response.orders_added} order(s) to trip!`);
+
+                            // Add to trip orders grid
+                            tripOrdersData = [...tripOrdersData, ...selectedOrders];
+                            if (tripOrdersGrid) {
+                                tripOrdersGrid.option('dataSource', tripOrdersData);
+                            }
+
+                            updateOrdersCount();
+                            closeAddOrdersModal();
+
+                            // Reload pending orders to update "added_to_trip" status
+                            loadPendingOrders();
+                        } else {
+                            alert('Error adding orders:\n' + (response.error || 'Unknown error'));
+                        }
+                    } catch (parseError) {
+                        console.error('[Trip Details] Error parsing response:', parseError);
+                        alert('Error processing response: ' + parseError.message);
+                    }
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            const response = await fetch(ADD_ORDERS_API, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(postData)
+            });
+
+            const result = await response.json();
+
+            addBtn.disabled = false;
+            addBtn.innerHTML = originalBtnText;
+
+            if (response.ok && result.success) {
+                console.log('[Trip Details] Orders added successfully:', result);
+                alert(`✅ Successfully added ${result.orders_added} order(s) to trip!`);
+
+                // Add to trip orders grid
+                tripOrdersData = [...tripOrdersData, ...selectedOrders];
+                if (tripOrdersGrid) {
+                    tripOrdersGrid.option('dataSource', tripOrdersData);
+                }
+
+                updateOrdersCount();
+                closeAddOrdersModal();
+
+                // Reload pending orders
+                loadPendingOrders();
+            } else {
+                console.error('[Trip Details] Error response:', result);
+                alert('Error adding orders:\n' + (result.error || 'Unknown error'));
+            }
+        }
+    } catch (error) {
+        console.error('[Trip Details] Exception adding orders:', error);
+        addBtn.disabled = false;
+        addBtn.innerHTML = originalBtnText;
+        alert('Error adding orders to trip:\n' + error.message);
     }
-
-    updateOrdersCount();
-    closeAddOrdersModal();
 };
 
 // ============================================================================
