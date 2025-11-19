@@ -60,7 +60,20 @@ function populateTripHeader(tripData) {
     document.getElementById('trip-detail-vehicle').textContent = tripData.trip_lorry || tripData.vehicle || '-';
     document.getElementById('trip-detail-loading-bay').textContent = tripData.trip_loading_bay || tripData.loading_bay || '-';
     document.getElementById('trip-detail-priority').textContent = tripData.trip_priority || tripData.priority || '-';
-    document.getElementById('trip-detail-status').textContent = tripData.status || 'DRAFT';
+
+    // Update status badge
+    const status = tripData.status || 'DRAFT';
+    const statusBadge = document.getElementById('trip-detail-status-badge');
+    if (statusBadge) {
+        statusBadge.textContent = status;
+        // Update badge color based on status
+        statusBadge.className = 'status-badge';
+        if (status === 'DRAFT') statusBadge.classList.add('status-pending');
+        else if (status === 'READY') statusBadge.classList.add('status-processing');
+        else if (status === 'IN_PROGRESS') statusBadge.classList.add('status-processing');
+        else if (status === 'COMPLETED') statusBadge.classList.add('status-completed');
+        else if (status === 'CANCELLED') statusBadge.classList.add('status-cancelled');
+    }
 
     console.log('[Trip Details] Header populated');
 }
@@ -492,6 +505,144 @@ function removeOrderFromTrip(order) {
     // TODO: Call DELETE API
     alert('Order removed from trip!\n\n(DELETE API integration pending)');
 }
+
+// ============================================================================
+// EDIT TRIP DETAILS
+// ============================================================================
+
+window.editTripDetails = function() {
+    console.log('[Trip Details] Opening edit trip modal...');
+
+    const modal = document.getElementById('edit-trip-modal');
+    if (!modal || !tripDetailsData) {
+        alert('Unable to open edit modal');
+        return;
+    }
+
+    // Populate vehicle dropdown
+    const vehicleSelect = document.getElementById('edit-trip-vehicle');
+    vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
+    if (window.vehiclesData && window.vehiclesData.length > 0) {
+        window.vehiclesData.forEach(vehicle => {
+            const option = document.createElement('option');
+            option.value = vehicle.lorry_number;
+            option.textContent = `${vehicle.lorry_number}${vehicle.assigned_route ? ' - ' + vehicle.assigned_route : ''}`;
+            if (vehicle.lorry_number === tripDetailsData.trip_lorry || vehicle.lorry_number === tripDetailsData.vehicle) {
+                option.selected = true;
+            }
+            vehicleSelect.appendChild(option);
+        });
+    }
+
+    // Populate priority dropdown (1-20)
+    const prioritySelect = document.getElementById('edit-trip-priority');
+    prioritySelect.innerHTML = '<option value="">Select Priority</option>';
+    for (let i = 1; i <= 20; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = `Priority ${i}`;
+        if (i == (tripDetailsData.trip_priority || tripDetailsData.priority)) {
+            option.selected = true;
+        }
+        prioritySelect.appendChild(option);
+    }
+
+    // Populate loading bay dropdown (L1-L30)
+    const loadingBaySelect = document.getElementById('edit-trip-loading-bay');
+    loadingBaySelect.innerHTML = '<option value="">Select Loading Bay</option>';
+    for (let i = 1; i <= 30; i++) {
+        const bay = `L${i}`;
+        const option = document.createElement('option');
+        option.value = bay;
+        option.textContent = `Loading Bay ${bay}`;
+        if (bay === (tripDetailsData.trip_loading_bay || tripDetailsData.loading_bay)) {
+            option.selected = true;
+        }
+        loadingBaySelect.appendChild(option);
+    }
+
+    // Set current values
+    document.getElementById('edit-trip-date').value = tripDetailsData.trip_date || '';
+    document.getElementById('edit-trip-status').value = tripDetailsData.status || 'DRAFT';
+
+    // Show modal
+    modal.style.display = 'flex';
+};
+
+window.closeEditTripModal = function() {
+    const modal = document.getElementById('edit-trip-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+};
+
+window.updateTripDetails = async function() {
+    console.log('[Trip Details] Updating trip...');
+
+    if (!tripDetailsData || !tripDetailsData.trip_id) {
+        alert('Trip ID not found');
+        return;
+    }
+
+    // Get form values
+    const tripDate = document.getElementById('edit-trip-date').value;
+    const vehicle = document.getElementById('edit-trip-vehicle').value;
+    const priority = document.getElementById('edit-trip-priority').value;
+    const loadingBay = document.getElementById('edit-trip-loading-bay').value;
+    const status = document.getElementById('edit-trip-status').value;
+
+    // Validate
+    if (!tripDate || !vehicle || !priority || !loadingBay) {
+        alert('Please fill in all required fields');
+        return;
+    }
+
+    // Prepare update data
+    const updateData = {
+        trip_id: tripDetailsData.trip_id,
+        trip_date: tripDate,
+        vehicle: vehicle,
+        priority: parseInt(priority),
+        loading_bay: loadingBay,
+        status: status
+    };
+
+    console.log('[Trip Details] Update data:', updateData);
+
+    // Disable update button
+    const updateBtn = document.getElementById('update-trip-btn');
+    const originalBtnText = updateBtn.innerHTML;
+    updateBtn.disabled = true;
+    updateBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Saving...';
+
+    try {
+        // TODO: Call PUT API to update trip
+        // const UPDATE_TRIP_API = 'https://...your-api-endpoint.../trips/update';
+
+        // For now, just update local data
+        tripDetailsData.trip_date = tripDate;
+        tripDetailsData.trip_lorry = vehicle;
+        tripDetailsData.vehicle = vehicle;
+        tripDetailsData.trip_priority = priority;
+        tripDetailsData.trip_loading_bay = loadingBay;
+        tripDetailsData.status = status;
+
+        // Update header display
+        populateTripHeader(tripDetailsData);
+
+        updateBtn.disabled = false;
+        updateBtn.innerHTML = originalBtnText;
+
+        alert('Trip updated successfully!\n\n(PUT API integration pending)');
+        closeEditTripModal();
+
+    } catch (error) {
+        console.error('[Trip Details] Error updating trip:', error);
+        updateBtn.disabled = false;
+        updateBtn.innerHTML = originalBtnText;
+        alert('Error updating trip: ' + error.message);
+    }
+};
 
 // ============================================================================
 // GO BACK TO TRIP MANAGEMENT
