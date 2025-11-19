@@ -2676,8 +2676,51 @@ document.addEventListener('DOMContentLoaded', function() {
 
         console.log('[Assign Picker] Selected orders:', selectedRows);
 
-        // Open the assign picker dialog
-        openAssignPickerDialog(tripId, selectedRows);
+        // Check if pickers data is loaded, if not load it first
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Assign Picker] Pickers not loaded, loading now...');
+
+            // Show loading message
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10000; text-align: center;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #667eea; margin-bottom: 1rem;"></i><br><span style="color: #1f2937; font-weight: 600;">Loading pickers...</span>';
+            document.body.appendChild(loadingMsg);
+
+            // Load pickers
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                // Wait for pickers to load
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        // Remove loading message
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        // Open dialog
+                        openAssignPickerDialog(tripId, selectedRows);
+                    }
+                }, 500);
+
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again or visit the Pickers page first.');
+                    }
+                }, 10000);
+            } else {
+                const msg = document.getElementById('loading-pickers-msg');
+                if (msg) msg.remove();
+                alert('Pickers loading function not available. Please visit the Pickers page first to load picker data.');
+            }
+        } else {
+            // Pickers already loaded, open dialog directly
+            openAssignPickerDialog(tripId, selectedRows);
+        }
     };
 
     // Open Assign Picker Dialog
