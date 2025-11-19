@@ -2647,10 +2647,165 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Placeholder functions for trip actions (to be implemented)
+    // Assign Picker to selected orders in a trip
     window.assignPickerToTrip = function(tripId) {
         console.log('[Trip Management] Assign picker to trip:', tripId);
-        alert('Assign Picker functionality - To be implemented');
+
+        // Get the grid instance
+        const tabId = `trip-${tripId}`;
+        const gridContainer = $(`#grid-${tabId}`);
+
+        if (!gridContainer || gridContainer.length === 0) {
+            alert('Grid not found. Please try again.');
+            return;
+        }
+
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        if (!gridInstance) {
+            alert('Grid instance not found. Please try again.');
+            return;
+        }
+
+        // Get selected rows
+        const selectedRows = gridInstance.getSelectedRowsData();
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one order to assign a picker.');
+            return;
+        }
+
+        console.log('[Assign Picker] Selected orders:', selectedRows);
+
+        // Open the assign picker dialog
+        openAssignPickerDialog(tripId, selectedRows);
+    };
+
+    // Open Assign Picker Dialog
+    window.openAssignPickerDialog = function(tripId, selectedOrders) {
+        console.log('[Assign Picker] Opening dialog for', selectedOrders.length, 'orders');
+
+        // Build the list of selected order numbers
+        let orderListHtml = '';
+        selectedOrders.forEach((order, index) => {
+            const orderNumber = order.ORDER_NUMBER || order.order_number || order.ORDER || order.order || `Order ${index + 1}`;
+            const customerName = order.CUSTOMER_NAME || order.customer_name || order.CUSTOMER || order.customer || '';
+
+            orderListHtml += `
+                <div style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-weight: 600; color: #1f2937;">${orderNumber}</span>
+                        ${customerName ? `<span style="color: #64748b; font-size: 0.85rem; margin-left: 0.5rem;">- ${customerName}</span>` : ''}
+                    </div>
+                    <span style="color: #64748b; font-size: 0.75rem;">${index + 1} of ${selectedOrders.length}</span>
+                </div>
+            `;
+        });
+
+        // Build picker dropdown options
+        let pickerOptionsHtml = '<option value="">-- Select Picker --</option>';
+
+        if (window.pickersData && window.pickersData.length > 0) {
+            // Filter out deleted pickers
+            const activePickers = window.pickersData.filter(p => p.deleted !== 1);
+            activePickers.forEach(picker => {
+                const pickerId = picker.picker_id || picker.PICKER_ID || picker.id || picker.ID || '';
+                const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
+                const pickerType = picker.picker_type || picker.PICKER_TYPE || picker.type || picker.TYPE || '';
+
+                pickerOptionsHtml += `<option value="${pickerId}">${pickerName}${pickerType ? ' (' + pickerType + ')' : ''}</option>`;
+            });
+        } else {
+            pickerOptionsHtml += '<option value="" disabled>No pickers available</option>';
+        }
+
+        // Create modal HTML
+        const modalHtml = `
+            <div id="assign-picker-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                            <i class="fas fa-user-check"></i> Assign Picker
+                        </h3>
+                        <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
+                            Trip ID: ${tripId} • ${selectedOrders.length} order(s) selected
+                        </p>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
+                        <!-- Selected Orders Section -->
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-list"></i> Selected Orders
+                            </label>
+                            <div style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto; background: #f8f9fc;">
+                                ${orderListHtml}
+                            </div>
+                        </div>
+
+                        <!-- Picker Selection -->
+                        <div>
+                            <label for="assign-picker-select" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-user"></i> Select Picker <span style="color: #ef4444;">*</span>
+                            </label>
+                            <select id="assign-picker-select" style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; color: #1f2937;">
+                                ${pickerOptionsHtml}
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeAssignPickerDialog()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-primary" onclick="submitAssignPicker('${tripId}', ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})">
+                            <i class="fas fa-check"></i> Assign
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal to DOM
+        const existingModal = document.getElementById('assign-picker-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+
+    // Close Assign Picker Dialog
+    window.closeAssignPickerDialog = function() {
+        const modal = document.getElementById('assign-picker-modal');
+        if (modal) {
+            modal.remove();
+        }
+    };
+
+    // Submit Assign Picker (to be connected to webservice)
+    window.submitAssignPicker = function(tripId, selectedOrders) {
+        const pickerSelect = document.getElementById('assign-picker-select');
+        const pickerId = pickerSelect.value;
+
+        if (!pickerId) {
+            alert('Please select a picker.');
+            return;
+        }
+
+        const pickerName = pickerSelect.options[pickerSelect.selectedIndex].text;
+
+        console.log('[Assign Picker] Assigning picker:', pickerId, pickerName);
+        console.log('[Assign Picker] To orders:', selectedOrders);
+        console.log('[Assign Picker] Trip ID:', tripId);
+
+        // TODO: Call webservice to assign picker
+        alert(`Assign Picker webservice integration pending.\n\nPicker: ${pickerName}\nOrders: ${selectedOrders.length}`);
+
+        // Close dialog
+        closeAssignPickerDialog();
     };
 
     window.pickReleaseAll = function(tripId) {
