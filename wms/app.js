@@ -3368,6 +3368,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Single selection mode - Form with input + datalist
             const item = selectedItems[0];
             const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || item.itemnumber || item.ITEMNUMBER || '';
+            const itemDescription = item.ITEM_DESCRIPTION || item.item_description || item.DESCRIPTION || item.description || item.DESC || item.desc || '';
 
             console.log('[Set Data] Single selection - Item:', itemNumber);
             console.log('[Set Data] Single selection - Full item data:', item);
@@ -3415,8 +3416,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             <h3 style="margin: 0; color: white; font-size: 1.1rem;">
                                 <i class="fas fa-edit"></i> Set Data for Item
                             </h3>
-                            <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem;">
-                                Item: ${itemNumber} | ${availableLots.length} lot(s) available
+                            <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem; line-height: 1.5;">
+                                <strong>Item:</strong> ${itemNumber}<br>
+                                ${itemDescription ? `<span style="font-size: 0.75rem; opacity: 0.9;">${itemDescription}</span><br>` : ''}
+                                <span style="font-size: 0.75rem;">${availableLots.length} lot(s) available</span>
                             </p>
                         </div>
 
@@ -3506,6 +3509,7 @@ document.addEventListener('DOMContentLoaded', function() {
             let gridRows = '';
             selectedItems.forEach((item, index) => {
                 const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || item.itemnumber || item.ITEMNUMBER || '';
+                const itemDescription = item.ITEM_DESCRIPTION || item.item_description || item.DESCRIPTION || item.description || item.DESC || item.desc || '';
                 const lineNumber = item.LINE_NUMBER || item.line_number || item.LINE || item.line || index + 1;
 
                 console.log(`[Set Data] Row ${index} - Item: ${itemNumber}`);
@@ -3553,7 +3557,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 gridRows += `
                     <tr style="border-bottom: 1px solid #e2e8f0;">
                         <td style="padding: 0.5rem; font-size: 0.75rem; white-space: nowrap;">${lineNumber}</td>
-                        <td style="padding: 0.5rem; font-size: 0.75rem; white-space: nowrap;">${itemNumber}</td>
+                        <td style="padding: 0.5rem; font-size: 0.75rem;">
+                            <div style="font-weight: 500;">${itemNumber}</div>
+                            ${itemDescription ? `<div style="font-size: 0.65rem; color: #64748b; margin-top: 0.2rem; line-height: 1.2;">${itemDescription}</div>` : ''}
+                        </td>
                         <td style="padding: 0.5rem;">
                             <input type="text" list="${lotDatalistId}" class="grid-lot-number" data-row="${index}"
                                 onchange="onGridLotChangeInput(${index})" oninput="onGridLotChangeInput(${index})"
