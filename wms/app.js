@@ -2263,50 +2263,114 @@ document.addEventListener('DOMContentLoaded', function() {
         tabPane.id = `trip-${tabId}-tab`;
         tabPane.innerHTML = `
             <div style="padding: 1rem;">
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                    <div>
-                        <h2 style="font-size: 1rem; font-weight: 700; color: var(--gray-900); margin-bottom: 0.3rem;">
-                            <i class="fas fa-route" style="color: var(--primary); font-size: 0.9rem;"></i> Trip: ${tripId}
-                        </h2>
-                        <p style="color: var(--gray-600); font-size: 0.75rem;">Complete order information for this trip</p>
+                <!-- Trip Summary Section -->
+                <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden;">
+                    <div onclick="toggleTripSummary('${tabId}')" style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: white; font-size: 1.2rem;"></i>
+                            </div>
+                            <div>
+                                <h2 style="font-size: 1.1rem; font-weight: 700; color: white; margin: 0;">Trip: ${tripId}</h2>
+                                <p style="color: rgba(255,255,255,0.9); font-size: 0.75rem; margin: 0.2rem 0 0 0;">Trip Summary & Statistics</p>
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-down" id="summary-icon-${tabId}" style="color: white; font-size: 1rem; transition: transform 0.3s ease;"></i>
+                    </div>
+
+                    <div id="trip-summary-${tabId}" style="padding: 1.25rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem;">
+                            <!-- Trip Date Card -->
+                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1); border-left: 4px solid #6366f1; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(99, 102, 241, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(99, 102, 241, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #6366f1, #4f46e5); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-calendar-alt" style="color: white; font-size: 0.9rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Trip Date</div>
+                                </div>
+                                <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${tripDate}</div>
+                            </div>
+
+                            <!-- Lorry Number Card -->
+                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1); border-left: 4px solid #10b981; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(16, 185, 129, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(16, 185, 129, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-truck" style="color: white; font-size: 0.9rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Lorry</div>
+                                </div>
+                                <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${lorryNumber}</div>
+                            </div>
+
+                            <!-- Total Orders Card -->
+                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(245, 158, 11, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(245, 158, 11, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-box" style="color: white; font-size: 0.9rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Orders</div>
+                                </div>
+                                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${totalOrders}</div>
+                            </div>
+
+                            <!-- Customers Card -->
+                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(59, 130, 246, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(59, 130, 246, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-users" style="color: white; font-size: 0.9rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Customers</div>
+                                </div>
+                                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${uniqueCustomers}</div>
+                            </div>
+
+                            <!-- Total Quantity Card -->
+                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.1); border-left: 4px solid #8b5cf6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(139, 92, 246, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(139, 92, 246, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-cubes" style="color: white; font-size: 0.9rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Quantity</div>
+                                </div>
+                                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${totalQuantity.toLocaleString()}</div>
+                            </div>
+
+                            <!-- Total Weight Card -->
+                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(236, 72, 153, 0.1); border-left: 4px solid #ec4899; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(236, 72, 153, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(236, 72, 153, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #ec4899, #db2777); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-weight" style="color: white; font-size: 0.9rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Weight</div>
+                                </div>
+                                <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${totalWeight.toFixed(2)} kg</div>
+                            </div>
+
+                            <!-- Products Card -->
+                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(20, 184, 166, 0.1); border-left: 4px solid #14b8a6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(20, 184, 166, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(20, 184, 166, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #14b8a6, #0d9488); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-boxes" style="color: white; font-size: 0.9rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Products</div>
+                                </div>
+                                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${uniqueProducts}</div>
+                            </div>
+
+                            <!-- Priority Card -->
+                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1); border-left: 4px solid ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(239, 68, 68, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(239, 68, 68, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
+                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, ${priority.toLowerCase().includes('high') ? '#ef4444, #dc2626' : priority.toLowerCase().includes('low') ? '#22c55e, #16a34a' : '#f59e0b, #d97706'}); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-flag" style="color: white; font-size: 0.9rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Priority</div>
+                                </div>
+                                <div style="font-size: 1.1rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.75rem;">${priority}</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.65rem; margin-bottom: 1rem;">
-                    <div style="background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <div style="color: rgba(255,255,255,0.9); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Trip Date</div>
-                        <div style="font-size: 0.85rem; font-weight: 700;">${tripDate}</div>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <div style="color: rgba(255,255,255,0.9); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Lorry Number</div>
-                        <div style="font-size: 0.85rem; font-weight: 700;">${lorryNumber}</div>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <div style="color: rgba(255,255,255,0.9); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Total Orders</div>
-                        <div style="font-size: 1.1rem; font-weight: 800;">${totalOrders}</div>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <div style="color: rgba(255,255,255,0.9); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Customers</div>
-                        <div style="font-size: 1.1rem; font-weight: 800;">${uniqueCustomers}</div>
-                    </div>
-                    <div style="background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--gray-200);">
-                        <div style="color: var(--gray-500); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Total Quantity</div>
-                        <div style="font-size: 1.1rem; font-weight: 800; color: var(--gray-900);">${totalQuantity.toLocaleString()}</div>
-                    </div>
-                    <div style="background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--gray-200);">
-                        <div style="color: var(--gray-500); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Total Weight</div>
-                        <div style="font-size: 0.9rem; font-weight: 800; color: var(--gray-900);">${totalWeight.toFixed(2)} kg</div>
-                    </div>
-                    <div style="background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--gray-200);">
-                        <div style="color: var(--gray-500); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Products</div>
-                        <div style="font-size: 1.1rem; font-weight: 800; color: var(--gray-900);">${uniqueProducts}</div>
-                    </div>
-                    <div style="background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--gray-200);">
-                        <div style="color: var(--gray-500); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Priority</div>
-                        <div style="font-size: 1rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? 'var(--danger)' : priority.toLowerCase().includes('low') ? 'var(--success)' : 'var(--warning)'};">${priority}</div>
-                    </div>
-                </div>
-                
+
                 <div style="background: white; padding: 0.75rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                     <div style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="font-size: 0.85rem; font-weight: 600; margin: 0; color: var(--gray-800);">
@@ -2532,6 +2596,22 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof window.fetchTripsData === 'function') {
             console.log('[Trip Management] Refreshing trip cards...');
             window.fetchTripsData();
+        }
+    };
+
+    // Toggle trip summary section
+    window.toggleTripSummary = function(tabId) {
+        const summaryContent = document.getElementById(`trip-summary-${tabId}`);
+        const summaryIcon = document.getElementById(`summary-icon-${tabId}`);
+
+        if (summaryContent && summaryIcon) {
+            if (summaryContent.style.display === 'none') {
+                summaryContent.style.display = 'block';
+                summaryIcon.style.transform = 'rotate(0deg)';
+            } else {
+                summaryContent.style.display = 'none';
+                summaryIcon.style.transform = 'rotate(-90deg)';
+            }
         }
     };
 
