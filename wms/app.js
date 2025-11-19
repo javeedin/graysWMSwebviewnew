@@ -2412,6 +2412,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div style="color: var(--gray-600); font-size: 0.7rem;">
                                 <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
                             </div>
+                            <button class="btn btn-info" onclick="refreshTripDetails('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
                             <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-user-check"></i> Assign Picker
                             </button>
@@ -3013,6 +3016,140 @@ document.addEventListener('DOMContentLoaded', function() {
     window.pickRelease = function(tripId, orderNumber) {
         console.log('[Trip Management] Pick release for order:', orderNumber);
         alert('Pick Release functionality - To be implemented');
+    };
+
+    // Refresh Trip Details - calls GET endpoint to reload trip data
+    window.refreshTripDetails = function(tripId) {
+        console.log('[Refresh Trip] Refreshing trip:', tripId);
+
+        // Get instance - try from trip data first, then fall back to toolbar
+        let instance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Check if we have trip data with instance
+        const tabId = `trip-detail-${tripId}`;
+        const gridId = `grid-${tabId}`;
+        const gridContainer = $(`#${gridId}`);
+
+        if (gridContainer && gridContainer.length > 0) {
+            const gridInstance = gridContainer.dxDataGrid('instance');
+            if (gridInstance) {
+                const dataSource = gridInstance.option('dataSource');
+                if (dataSource && dataSource.length > 0 && dataSource[0].INSTANCE) {
+                    instance = dataSource[0].INSTANCE;
+                    console.log('[Refresh Trip] Using instance from trip data:', instance);
+                } else {
+                    console.log('[Refresh Trip] Using instance from toolbar:', instance);
+                }
+            }
+        }
+
+        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${instance}`;
+
+        console.log('[Refresh Trip] API URL:', GET_TRIP_DETAILS_API);
+
+        // Show loading indicator
+        const refreshBtn = event.target.closest('button');
+        const originalBtnHtml = refreshBtn.innerHTML;
+        refreshBtn.disabled = true;
+        refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: GET_TRIP_DETAILS_API
+            }, function(error, data) {
+                // Restore button
+                refreshBtn.disabled = false;
+                refreshBtn.innerHTML = originalBtnHtml;
+
+                if (error) {
+                    console.error('[Refresh Trip] Error:', error);
+                    alert('Error refreshing trip data:\n' + error);
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Refresh Trip] Data received:', result);
+
+                        if (result && result.items && result.items.length > 0) {
+                            // Update grid with new data
+                            const gridContainer = $(`#${gridId}`);
+                            if (gridContainer && gridContainer.length > 0) {
+                                const gridInstance = gridContainer.dxDataGrid('instance');
+                                if (gridInstance) {
+                                    gridInstance.option('dataSource', result.items);
+                                    gridInstance.refresh();
+
+                                    // Update order count
+                                    const orderCountDiv = gridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                    if (orderCountDiv.length > 0) {
+                                        orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                    }
+
+                                    // Show success notification
+                                    const notification = document.createElement('div');
+                                    notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                                    notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
+                                    document.body.appendChild(notification);
+                                    setTimeout(() => notification.remove(), 3000);
+                                }
+                            }
+                        } else {
+                            alert('No data returned from API');
+                        }
+                    } catch (parseError) {
+                        console.error('[Refresh Trip] Error parsing response:', parseError);
+                        alert('Error processing response: ' + parseError.message);
+                    }
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            fetch(GET_TRIP_DETAILS_API)
+                .then(response => response.json())
+                .then(result => {
+                    // Restore button
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = originalBtnHtml;
+
+                    console.log('[Refresh Trip] Data received:', result);
+
+                    if (result && result.items && result.items.length > 0) {
+                        // Update grid with new data
+                        const gridContainer = $(`#${gridId}`);
+                        if (gridContainer && gridContainer.length > 0) {
+                            const gridInstance = gridContainer.dxDataGrid('instance');
+                            if (gridInstance) {
+                                gridInstance.option('dataSource', result.items);
+                                gridInstance.refresh();
+
+                                // Update order count
+                                const orderCountDiv = gridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                if (orderCountDiv.length > 0) {
+                                    orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                }
+
+                                // Show success notification
+                                const notification = document.createElement('div');
+                                notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                                notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
+                                document.body.appendChild(notification);
+                                setTimeout(() => notification.remove(), 3000);
+                            }
+                        }
+                    } else {
+                        alert('No data returned from API');
+                    }
+                })
+                .catch(error => {
+                    // Restore button
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = originalBtnHtml;
+
+                    console.error('[Refresh Trip] Error:', error);
+                    alert('Error refreshing trip data:\n' + error.message);
+                });
+        }
     };
 
     window.editTripOrder = function(rowData) {
