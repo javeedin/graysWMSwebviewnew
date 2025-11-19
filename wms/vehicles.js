@@ -6,7 +6,7 @@ console.log('[Vehicles] Loading...');
 
 // Global variables
 let vehiclesGrid = null;
-let vehiclesData = [];
+window.vehiclesData = []; // Expose to window for cross-module access
 
 // API Endpoint
 const VEHICLES_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/vehicles/get';
@@ -205,19 +205,19 @@ window.loadVehicles = async function() {
 // Callback function to handle vehicles data from C# or direct fetch
 window.handleVehiclesData = function(data) {
     try {
-        vehiclesData = data.items || [];
+        window.vehiclesData = data.items || [];
 
-        console.log('[Vehicles] Loaded', vehiclesData.length, 'vehicles');
+        console.log('[Vehicles] Loaded', window.vehiclesData.length, 'vehicles');
 
         // Update grid
         if (vehiclesGrid) {
-            vehiclesGrid.option('dataSource', vehiclesData);
+            vehiclesGrid.option('dataSource', window.vehiclesData);
         }
 
         // Update count
         const countDisplay = document.getElementById('vehicles-count-display');
         if (countDisplay) {
-            countDisplay.textContent = `${vehiclesData.length} vehicle${vehiclesData.length !== 1 ? 's' : ''}`;
+            countDisplay.textContent = `${window.vehiclesData.length} vehicle${window.vehiclesData.length !== 1 ? 's' : ''}`;
         }
     } catch (error) {
         console.error('[Vehicles] Error processing vehicles data:', error);

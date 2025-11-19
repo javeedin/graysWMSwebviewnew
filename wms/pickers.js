@@ -6,7 +6,7 @@ console.log('[Pickers] Loading...');
 
 // Global variables
 let pickersGrid = null;
-let pickersData = [];
+window.pickersData = []; // Expose to window for cross-module access
 
 // API Endpoint
 const PICKERS_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/pickers/getpickers';
@@ -234,19 +234,19 @@ window.loadPickers = async function() {
 // Callback function to handle pickers data from C# or direct fetch
 window.handlePickersData = function(data) {
     try {
-        pickersData = data.items || [];
+        window.pickersData = data.items || [];
 
-        console.log('[Pickers] Loaded', pickersData.length, 'pickers');
+        console.log('[Pickers] Loaded', window.pickersData.length, 'pickers');
 
         // Update grid
         if (pickersGrid) {
-            pickersGrid.option('dataSource', pickersData);
+            pickersGrid.option('dataSource', window.pickersData);
         }
 
         // Update count
         const countDisplay = document.getElementById('pickers-count-display');
         if (countDisplay) {
-            countDisplay.textContent = `${pickersData.length} picker${pickersData.length !== 1 ? 's' : ''}`;
+            countDisplay.textContent = `${window.pickersData.length} picker${window.pickersData.length !== 1 ? 's' : ''}`;
         }
     } catch (error) {
         console.error('[Pickers] Error processing pickers data:', error);
