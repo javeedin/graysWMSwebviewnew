@@ -2846,27 +2846,51 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[Store Transactions] Parsed Response:', response);
 
                 if (response && response.items && response.items.length > 0) {
-                    // Display data in a table
-                    let html = '<div style="overflow-x: auto;"><table style="width: 100%; border-collapse: collapse;">';
-                    html += '<thead><tr style="background: #f8f9fc; border-bottom: 2px solid #e2e8f0;">';
-
                     // Get keys from first item
                     const keys = Object.keys(response.items[0]);
+
+                    // Create search box and table
+                    let html = `
+                        <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; background: white; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <div style="flex: 1; position: relative;">
+                                <i class="fas fa-search" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.9rem;"></i>
+                                <input type="text" id="trans-search-input" placeholder="Search in table..."
+                                    style="width: 100%; padding: 0.5rem 0.75rem 0.5rem 2.5rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; outline: none; transition: all 0.2s;"
+                                    onkeyup="filterTransactionTable()"
+                                    onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102, 126, 234, 0.1)'"
+                                    onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
+                            </div>
+                            <div style="font-size: 0.85rem; color: #64748b;">
+                                <span id="trans-row-count">${response.items.length}</span> rows
+                            </div>
+                        </div>
+
+                        <div style="background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
+                                <table id="trans-data-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead style="position: sticky; top: 0; z-index: 10;">
+                                        <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 2px solid #667eea;">
+                    `;
+
                     keys.forEach(key => {
-                        html += `<th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; font-size: 0.85rem; white-space: nowrap;">${key.replace(/_/g, ' ')}</th>`;
+                        html += `<th style="padding: 0.75rem; text-align: left; font-weight: 600; color: white; font-size: 0.85rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
                     });
+
                     html += '</tr></thead><tbody>';
 
-                    // Add rows
+                    // Add rows with hover effect
                     response.items.forEach((item, index) => {
-                        html += `<tr style="border-bottom: 1px solid #e2e8f0; ${index % 2 === 0 ? 'background: #f8f9fc;' : ''}">`;
+                        html += `<tr class="trans-table-row" style="border-bottom: 1px solid #e2e8f0; transition: background 0.2s;"
+                            onmouseover="this.style.background='#f0f9ff'"
+                            onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
+                            data-row-index="${index}">`;
                         keys.forEach(key => {
-                            html += `<td style="padding: 0.75rem; font-size: 0.85rem; color: #475569;">${item[key] || ''}</td>`;
+                            html += `<td style="padding: 0.75rem; font-size: 0.85rem; color: #475569; white-space: nowrap;">${item[key] !== null && item[key] !== undefined ? item[key] : ''}</td>`;
                         });
                         html += '</tr>';
                     });
 
-                    html += '</tbody></table></div>';
+                    html += '</tbody></table></div></div>';
                     contentDiv.innerHTML = html;
 
                     // Show Fetch Lot Details button
@@ -2879,6 +2903,46 @@ document.addEventListener('DOMContentLoaded', function() {
                 contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
             }
         });
+    };
+
+    window.filterTransactionTable = function() {
+        const input = document.getElementById('trans-search-input');
+        const filter = input.value.toUpperCase();
+        const table = document.getElementById('trans-data-table');
+        const rows = table.getElementsByTagName('tr');
+        let visibleCount = 0;
+
+        // Loop through all table rows (skip header)
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            const cells = row.getElementsByTagName('td');
+            let found = false;
+
+            // Search in all cells of the row
+            for (let j = 0; j < cells.length; j++) {
+                const cell = cells[j];
+                if (cell) {
+                    const textValue = cell.textContent || cell.innerText;
+                    if (textValue.toUpperCase().indexOf(filter) > -1) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if (found) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        }
+
+        // Update row count
+        const rowCountSpan = document.getElementById('trans-row-count');
+        if (rowCountSpan) {
+            rowCountSpan.textContent = visibleCount;
+        }
     };
 
     window.fetchLotDetails = function(orderNumber) {
