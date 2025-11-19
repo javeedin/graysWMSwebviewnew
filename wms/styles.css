@@ -547,6 +547,36 @@ body {
     color: white;
 }
 
+.btn-warning {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: white;
+}
+
+.btn-warning:hover {
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
+}
+
+.icon-btn {
+    background: transparent;
+    border: none;
+    padding: 0.35rem;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.icon-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    transform: scale(1.1);
+}
+
+.icon-btn i {
+    font-size: 1rem;
+}
+
 .filter-chip {
     display: inline-block;
     padding: 0.4rem 0.85rem;

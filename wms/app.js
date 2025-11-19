@@ -2312,10 +2312,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h3 style="font-size: 0.85rem; font-weight: 600; margin: 0; color: var(--gray-800);">
                             <i class="fas fa-table" style="font-size: 0.75rem;"></i> Order Details
                         </h3>
-                        <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
                             <div style="color: var(--gray-600); font-size: 0.7rem;">
                                 <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
                             </div>
+                            <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-user-check"></i> Assign Picker
+                            </button>
+                            <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-truck-loading"></i> Pick Release All
+                            </button>
                             <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-plus"></i> Add Orders
                             </button>
@@ -2370,7 +2376,35 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 return col;
             });
-            
+
+            // Add Actions column at the beginning
+            columns.unshift({
+                caption: 'Actions',
+                width: 150,
+                alignment: 'center',
+                allowFiltering: false,
+                allowSorting: false,
+                cellTemplate: function(container, options) {
+                    const rowData = options.data;
+                    $(container).html(`
+                        <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
+                                <i class="fas fa-user-times" style="color: #ef4444;"></i>
+                            </button>
+                            <button class="icon-btn" onclick="pickRelease('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Pick Release">
+                                <i class="fas fa-check-circle" style="color: #10b981;"></i>
+                            </button>
+                            <button class="icon-btn" onclick="editTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Edit">
+                                <i class="fas fa-edit" style="color: #3b82f6;"></i>
+                            </button>
+                            <button class="icon-btn" onclick="deleteTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Delete">
+                                <i class="fas fa-trash" style="color: #f59e0b;"></i>
+                            </button>
+                        </div>
+                    `);
+                }
+            });
+
             gridContainer.dxDataGrid({
                 dataSource: tripData,
                 columns: columns,
@@ -2493,6 +2527,43 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[Trip Management] Reloading grid data...');
             gridInstance.refresh();
         }
+
+        // Also refresh the trip cards to update totals
+        if (typeof window.fetchTripsData === 'function') {
+            console.log('[Trip Management] Refreshing trip cards...');
+            window.fetchTripsData();
+        }
+    };
+
+    // Placeholder functions for trip actions (to be implemented)
+    window.assignPickerToTrip = function(tripId) {
+        console.log('[Trip Management] Assign picker to trip:', tripId);
+        alert('Assign Picker functionality - To be implemented');
+    };
+
+    window.pickReleaseAll = function(tripId) {
+        console.log('[Trip Management] Pick release all for trip:', tripId);
+        alert('Pick Release All functionality - To be implemented');
+    };
+
+    window.unassignPicker = function(tripId, orderNumber) {
+        console.log('[Trip Management] Unassign picker for order:', orderNumber);
+        alert('Unassign Picker functionality - To be implemented');
+    };
+
+    window.pickRelease = function(tripId, orderNumber) {
+        console.log('[Trip Management] Pick release for order:', orderNumber);
+        alert('Pick Release functionality - To be implemented');
+    };
+
+    window.editTripOrder = function(tripId, orderNumber) {
+        console.log('[Trip Management] Edit order:', orderNumber);
+        alert('Edit Order functionality - To be implemented');
+    };
+
+    window.deleteTripOrder = function(tripId, orderNumber) {
+        console.log('[Trip Management] Delete order:', orderNumber);
+        alert('Delete Order functionality - To be implemented');
     };
 
     function activateTripTab(tabId) {

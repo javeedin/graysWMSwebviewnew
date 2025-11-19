@@ -378,12 +378,22 @@ function initializePendingOrdersGrid() {
 window.loadPendingOrders = async function() {
     console.log('[Trip Details] Loading pending orders from API...');
 
+    // Get current instance from global selector
+    const currentInstance = localStorage.getItem('fusionInstance') ||
+                           document.getElementById('current-instance-display')?.textContent ||
+                           'PROD';
+
+    console.log('[Trip Details] Loading orders for instance:', currentInstance);
+
+    // Add instance parameter to API URL
+    const apiUrl = `${PENDING_ORDERS_API}?instance=${currentInstance}`;
+
     try {
         if (window.chrome && window.chrome.webview) {
             // WebView2 environment
             sendMessageToCSharp({
                 action: 'executeGet',
-                fullUrl: PENDING_ORDERS_API
+                fullUrl: apiUrl
             }, function(error, data) {
                 if (error) {
                     console.error('[Trip Details] Error loading pending orders:', error);
@@ -400,7 +410,7 @@ window.loadPendingOrders = async function() {
             });
         } else {
             // Fallback for browser testing
-            const response = await fetch(PENDING_ORDERS_API, {
+            const response = await fetch(apiUrl, {
                 method: 'GET',
                 headers: {
                     'Content-Type': 'application/json'
