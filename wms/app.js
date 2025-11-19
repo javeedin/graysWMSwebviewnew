@@ -2649,14 +2649,37 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Assign Picker to selected orders in a trip
     window.assignPickerToTrip = function(tripId) {
-        console.log('[Trip Management] Assign picker to trip:', tripId);
+        console.log('[Assign Picker] Trip ID:', tripId);
 
-        // Get the grid instance
+        // Get the grid instance - try different approaches
         const tabId = `trip-${tripId}`;
-        const gridContainer = $(`#grid-${tabId}`);
+        console.log('[Assign Picker] Looking for grid with tab ID:', tabId);
+        console.log('[Assign Picker] Trying selector:', `#grid-${tabId}`);
+
+        let gridContainer = $(`#grid-${tabId}`);
+        console.log('[Assign Picker] Grid container found (method 1):', gridContainer.length);
+
+        // If not found, try finding the active trip tab's grid
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Assign Picker] Trying to find active tab grid...');
+            const activeTabPane = document.querySelector('.trip-tab-pane.active');
+            if (activeTabPane) {
+                console.log('[Assign Picker] Active tab pane ID:', activeTabPane.id);
+                const gridInPane = activeTabPane.querySelector('[id^="grid-"]');
+                if (gridInPane) {
+                    console.log('[Assign Picker] Found grid in active pane:', gridInPane.id);
+                    gridContainer = $('#' + gridInPane.id);
+                }
+            }
+        }
+
+        // List all grid elements for debugging
+        const allGrids = document.querySelectorAll('[id^="grid-"]');
+        console.log('[Assign Picker] All grids found on page:', Array.from(allGrids).map(g => g.id));
 
         if (!gridContainer || gridContainer.length === 0) {
-            alert('Grid not found. Please try again.');
+            console.error('[Assign Picker] ❌ Grid not found! Checked:', `#grid-${tabId}`);
+            alert('Grid not found. Please try again.\n\nDebug info: Looking for grid-' + tabId);
             return;
         }
 
