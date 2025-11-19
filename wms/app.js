@@ -2049,29 +2049,60 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         const uniqueDates = [...new Set(tripsArray.map(t => t.TRIP_DATE))].sort().reverse();
-        
+
         const container = document.getElementById(`grid-${tabId}`);
         container.style.height = 'auto';
         container.innerHTML = `
-            <div class="date-filter-section">
-                <span class="date-filter-label">Filter by Date:</span>
-                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; flex: 1;">
-                    <div id="date-filters-${tabId}" style="display: flex; flex-wrap: wrap; gap: 0.5rem; flex: 1;">
-                        ${uniqueDates.map(date => 
-                            `<span class="filter-chip active" data-date="${date}" data-tab="${tabId}">${date}</span>`
-                        ).join('')}
+            <!-- Collapsible Filter Section -->
+            <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden;">
+                <div onclick="toggleFiltersSection('${tabId}')" style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-filter" style="color: white; font-size: 1.1rem;"></i>
+                        </div>
+                        <div>
+                            <h3 style="font-size: 1rem; font-weight: 700; color: white; margin: 0;">Query Filters</h3>
+                            <p style="color: rgba(255,255,255,0.9); font-size: 0.75rem; margin: 0.2rem 0 0 0;">Filter trips by date</p>
+                        </div>
                     </div>
-                    <button class="btn btn-secondary" id="select-all-dates-${tabId}" style="white-space: nowrap;">
-                        <i class="fas fa-check-double"></i> Select All
-                    </button>
-                    <button class="btn btn-secondary" id="clear-all-dates-${tabId}" style="white-space: nowrap;">
-                        <i class="fas fa-times"></i> Clear All
-                    </button>
+                    <i class="fas fa-chevron-down" id="filters-icon-${tabId}" style="color: white; font-size: 1rem; transition: transform 0.3s ease;"></i>
+                </div>
+
+                <div id="filters-content-${tabId}" style="padding: 1.25rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
+                    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
+                        <div style="color: #64748b; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-calendar-alt" style="color: #667eea;"></i>
+                            Select Dates:
+                        </div>
+                        <div id="date-filters-${tabId}" style="display: flex; flex-wrap: wrap; gap: 0.5rem; flex: 1;">
+                            ${uniqueDates.map(date =>
+                                `<span class="filter-chip active" data-date="${date}" data-tab="${tabId}">${date}</span>`
+                            ).join('')}
+                        </div>
+                        <button class="btn btn-secondary" id="select-all-dates-${tabId}" style="white-space: nowrap; font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <i class="fas fa-check-double"></i> Select All
+                        </button>
+                        <button class="btn btn-secondary" id="clear-all-dates-${tabId}" style="white-space: nowrap; font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <i class="fas fa-times"></i> Clear All
+                        </button>
+                    </div>
                 </div>
             </div>
-            <div style="padding: 0.75rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
-                <div class="grid-title">Showing <span id="trips-count-${tabId}">${tripsArray.length}</span> of ${tripsArray.length} trips</div>
+
+            <!-- Results Header -->
+            <div style="padding: 1rem 1.5rem; background: white; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div style="width: 32px; height: 32px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                        <i class="fas fa-truck-loading" style="color: white; font-size: 0.9rem;"></i>
+                    </div>
+                    <div>
+                        <div style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip Results</div>
+                        <div style="font-size: 0.7rem; color: #64748b;">Showing <span id="trips-count-${tabId}" style="font-weight: 700; color: #667eea;">${tripsArray.length}</span> of ${tripsArray.length} trips</div>
+                    </div>
+                </div>
             </div>
+
+            <!-- Trip Cards Container -->
             <div id="trip-cards-${tabId}" class="trip-cards-container"></div>
         `;
         
@@ -2129,57 +2160,93 @@ document.addEventListener('DOMContentLoaded', function() {
         
         let html = '';
         filteredTrips.forEach(trip => {
-            const priorityClass = trip.PRIORITY.toLowerCase().includes('high') ? 'priority-high' : 
-                                 trip.PRIORITY.toLowerCase().includes('low') ? 'priority-low' : 'priority-medium';
-            
+            const priorityColor = trip.PRIORITY.toLowerCase().includes('high') ? '#ef4444' :
+                                 trip.PRIORITY.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
+            const priorityBg = trip.PRIORITY.toLowerCase().includes('high') ? 'linear-gradient(135deg, #ef4444, #dc2626)' :
+                              trip.PRIORITY.toLowerCase().includes('low') ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
+
             html += `
-                <div class="trip-card">
-                    <div class="trip-card-header">
-                        <div class="trip-card-id">${trip.TRIP_ID}</div>
-                        <div class="trip-card-priority ${priorityClass}">${trip.PRIORITY}</div>
-                    </div>
-                    <div class="trip-card-body">
-                        <div class="trip-card-field">
-                            <span class="trip-card-label">Trip Date</span>
-                            <span class="trip-card-value">${trip.TRIP_DATE}</span>
-                        </div>
-                        <div class="trip-card-field">
-                            <span class="trip-card-label">Lorry Number</span>
-                            <span class="trip-card-value">${trip.LORRY_NUMBER}</span>
-                        </div>
-                        <div class="trip-card-field">
-                            <span class="trip-card-label">Total Orders</span>
-                            <span class="trip-card-value">${trip.TOTAL_ORDERS}</span>
-                        </div>
-                    </div>
-                    
-                    <div style="padding: 0.5rem; border-top: 1px solid var(--gray-200); margin-top: 0.5rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: var(--gray-50); border-radius: 6px;">
-                            <div style="flex: 1;">
-                                <strong style="font-size: 0.75rem; color: var(--gray-700);">
-                                    <i class="fas fa-print" style="font-size: 0.7rem;"></i> Auto Print
-                                </strong>
-                                <div style="font-size: 0.65rem; color: var(--gray-500);">Auto download & print</div>
+                <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; transition: all 0.3s ease; border-left: 4px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.12)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)';">
+                    <!-- Card Header -->
+                    <div style="padding: 1rem; background: linear-gradient(to bottom, #f8f9fc, #ffffff); border-bottom: 2px solid #f1f5f9;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                    <i class="fas fa-route" style="color: white; font-size: 0.9rem;"></i>
+                                </div>
+                                <div>
+                                    <div style="font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Trip ID</div>
+                                    <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b;">${trip.TRIP_ID}</div>
+                                </div>
                             </div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" 
-                                       class="auto-print-toggle" 
-                                       id="autoPrint_${trip.TRIP_ID}_${trip.TRIP_DATE}"
-                                       data-trip-id="${trip.TRIP_ID}"
-                                       data-trip-date="${trip.TRIP_DATE}"
-                                       onchange="handleAutoPrintToggle('${trip.TRIP_ID}', '${trip.TRIP_DATE}', this.checked, ${trip.TOTAL_ORDERS})">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="auto-print-status" 
-                             id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}" 
-                             style="margin-top: 0.5rem; padding: 0.4rem; font-size: 0.65rem; border-radius: 4px; display: none;">
+                            <div style="background: ${priorityBg}; color: white; padding: 0.35rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                                ${trip.PRIORITY}
+                            </div>
                         </div>
                     </div>
-                    
-                    <div class="trip-card-footer">
-                        <button class="btn" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
-                            <i class="fas fa-eye"></i> View Details
+
+                    <!-- Card Body -->
+                    <div style="padding: 1rem;">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+                            <!-- Trip Date -->
+                            <div style="padding: 0.75rem; background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border-radius: 8px; border-left: 3px solid #3b82f6;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                                    <i class="fas fa-calendar-alt" style="color: #3b82f6; font-size: 0.8rem;"></i>
+                                    <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px;">Date</div>
+                                </div>
+                                <div style="font-size: 0.85rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
+                            </div>
+
+                            <!-- Lorry Number -->
+                            <div style="padding: 0.75rem; background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-radius: 8px; border-left: 3px solid #10b981;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                                    <i class="fas fa-truck" style="color: #10b981; font-size: 0.8rem;"></i>
+                                    <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
+                                </div>
+                                <div style="font-size: 0.85rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
+                            </div>
+
+                            <!-- Total Orders -->
+                            <div style="padding: 0.75rem; background: linear-gradient(135deg, #fff7ed, #ffedd5); border-radius: 8px; border-left: 3px solid #f59e0b;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                                    <i class="fas fa-box" style="color: #f59e0b; font-size: 0.8rem;"></i>
+                                    <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
+                                </div>
+                                <div style="font-size: 1.2rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            </div>
+                        </div>
+
+                        <!-- Auto Print Section -->
+                        <div style="padding: 0.75rem; background: linear-gradient(135deg, #f8f9fc, #f1f5f9); border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div style="flex: 1;">
+                                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                                        <i class="fas fa-print" style="color: #667eea; font-size: 0.8rem;"></i>
+                                        <strong style="font-size: 0.75rem; color: #1e293b; font-weight: 700;">Auto Print</strong>
+                                    </div>
+                                    <div style="font-size: 0.65rem; color: #64748b;">Auto download & print</div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox"
+                                           class="auto-print-toggle"
+                                           id="autoPrint_${trip.TRIP_ID}_${trip.TRIP_DATE}"
+                                           data-trip-id="${trip.TRIP_ID}"
+                                           data-trip-date="${trip.TRIP_DATE}"
+                                           onchange="handleAutoPrintToggle('${trip.TRIP_ID}', '${trip.TRIP_DATE}', this.checked, ${trip.TOTAL_ORDERS})">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="auto-print-status"
+                                 id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}"
+                                 style="margin-top: 0.5rem; padding: 0.4rem; font-size: 0.65rem; border-radius: 4px; display: none;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Card Footer -->
+                    <div style="padding: 1rem; background: #f8f9fc; border-top: 2px solid #f1f5f9;">
+                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}')" style="width: 100%; font-size: 0.8rem; padding: 0.6rem 1rem; justify-content: center;">
+                            <i class="fas fa-eye"></i> View Trip Details
                         </button>
                     </div>
                 </div>
@@ -2611,6 +2678,22 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 summaryContent.style.display = 'none';
                 summaryIcon.style.transform = 'rotate(-90deg)';
+            }
+        }
+    };
+
+    // Toggle filters section
+    window.toggleFiltersSection = function(tabId) {
+        const filtersContent = document.getElementById(`filters-content-${tabId}`);
+        const filtersIcon = document.getElementById(`filters-icon-${tabId}`);
+
+        if (filtersContent && filtersIcon) {
+            if (filtersContent.style.display === 'none') {
+                filtersContent.style.display = 'block';
+                filtersIcon.style.transform = 'rotate(0deg)';
+            } else {
+                filtersContent.style.display = 'none';
+                filtersIcon.style.transform = 'rotate(-90deg)';
             }
         }
     };
