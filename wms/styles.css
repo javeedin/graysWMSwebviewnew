@@ -252,11 +252,28 @@ body {
     margin-top: 1rem;
     padding-top: 1rem;
     border-top: 2px solid var(--gray-200);
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.75rem;
 }
 
 .parameters-content .stat-card {
     background: var(--gray-50);
     border: 1px solid var(--gray-200);
+    padding: 0.75rem;
+    border-radius: 10px;
+}
+
+.parameters-content .stat-card::before {
+    height: 3px;
+}
+
+.parameters-content .stat-card .label {
+    font-size: 0.65rem;
+    margin-bottom: 0.35rem;
+}
+
+.parameters-content .stat-card .value {
+    font-size: 1.1rem;
 }
 
 .stat-card {
