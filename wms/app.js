@@ -3388,14 +3388,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[Set Data] Sample QOH record:', window.qohData[0]);
             }
 
-            // Build datalist options
+            // Get allocated quantity from item
+            const allocatedQty = item.ALLOCATED_QTY || item.allocated_qty || item.QTY || item.qty || item.QUANTITY || item.quantity || '';
+
+            // Build datalist options with quantity
             let lotDatalistOptions = '';
             const singleLotExpirationMap = {};
             availableLots.forEach(lot => {
                 const lotNum = lot.LOT_NUMBER || lot.lot_number || lot.LOT || lot.lot || '';
                 const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || lot.EXPIRE_DATE || lot.expire_date || '';
+                const lotQty = lot.QTY || lot.qty || lot.QUANTITY || lot.quantity || lot.QOH || lot.qoh || '';
                 if (lotNum) {
-                    lotDatalistOptions += `<option value="${lotNum}">`;
+                    // Show lot number with quantity in dropdown
+                    lotDatalistOptions += `<option value="${lotNum}" label="Lot: ${lotNum} | Qty: ${lotQty}">`;
                     singleLotExpirationMap[lotNum] = lotExp;
                 }
             });
@@ -3442,7 +3447,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
                                         Picked Qty
                                     </label>
-                                    <input type="number" id="set-picked-qty" step="0.01"
+                                    <input type="number" id="set-picked-qty" step="0.01" value="${allocatedQty}"
                                         style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;"
                                         placeholder="Enter picked quantity">
                                 </div>
@@ -3454,8 +3459,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <select id="set-ship-confirm-status"
                                         style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
                                         <option value="">-- Select --</option>
-                                        <option value="Y">Yes</option>
-                                        <option value="N">No</option>
+                                        <option value="YES">YES</option>
+                                        <option value="NO">NO</option>
                                     </select>
                                 </div>
 
@@ -3466,8 +3471,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <select id="set-pick-confirm-status"
                                         style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
                                         <option value="">-- Select --</option>
-                                        <option value="Y">Yes</option>
-                                        <option value="N">No</option>
+                                        <option value="YES">YES</option>
+                                        <option value="NO">NO</option>
                                     </select>
                                 </div>
 
@@ -3478,8 +3483,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <select id="set-cancelled-status"
                                         style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
                                         <option value="">-- Select --</option>
-                                        <option value="Y">Yes</option>
-                                        <option value="N">No</option>
+                                        <option value="YES">YES</option>
+                                        <option value="NO">NO</option>
                                     </select>
                                 </div>
                             </form>
@@ -3522,7 +3527,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     console.log('[Set Data] Sample QOH record:', window.qohData[0]);
                 }
 
-                // Build datalist options for autocomplete
+                // Get allocated quantity from item
+                const allocatedQty = item.ALLOCATED_QTY || item.allocated_qty || item.QTY || item.qty || item.QUANTITY || item.quantity || '';
+
+                // Build datalist options for autocomplete with quantity
                 let lotDatalistId = `lot-datalist-${index}`;
                 let lotDatalistOptions = '';
                 const lotExpirationMap = {};
@@ -3530,8 +3538,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 availableLots.forEach(lot => {
                     const lotNum = lot.LOT_NUMBER || lot.lot_number || lot.LOT || lot.lot || '';
                     const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || lot.EXPIRE_DATE || lot.expire_date || '';
+                    const lotQty = lot.QTY || lot.qty || lot.QUANTITY || lot.quantity || lot.QOH || lot.qoh || '';
                     if (lotNum) {
-                        lotDatalistOptions += `<option value="${lotNum}">`;
+                        // Show lot number with quantity in dropdown
+                        lotDatalistOptions += `<option value="${lotNum}" label="Lot: ${lotNum} | Qty: ${lotQty}">`;
                         lotExpirationMap[lotNum] = lotExp;
                     }
                 });
@@ -3559,31 +3569,31 @@ document.addEventListener('DOMContentLoaded', function() {
                                 style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; background: #f8f9fc;">
                         </td>
                         <td style="padding: 0.5rem;">
-                            <input type="number" class="grid-picked-qty" data-row="${index}" step="0.01"
+                            <input type="number" class="grid-picked-qty" data-row="${index}" step="0.01" value="${allocatedQty}"
                                 style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
                         </td>
                         <td style="padding: 0.5rem;">
                             <select class="grid-ship-status" data-row="${index}"
                                 style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
                                 <option value="">--</option>
-                                <option value="Y">Y</option>
-                                <option value="N">N</option>
+                                <option value="YES">YES</option>
+                                <option value="NO">NO</option>
                             </select>
                         </td>
                         <td style="padding: 0.5rem;">
                             <select class="grid-pick-status" data-row="${index}"
                                 style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
                                 <option value="">--</option>
-                                <option value="Y">Y</option>
-                                <option value="N">N</option>
+                                <option value="YES">YES</option>
+                                <option value="NO">NO</option>
                             </select>
                         </td>
                         <td style="padding: 0.5rem;">
                             <select class="grid-cancel-status" data-row="${index}"
                                 style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
                                 <option value="">--</option>
-                                <option value="Y">Y</option>
-                                <option value="N">N</option>
+                                <option value="YES">YES</option>
+                                <option value="NO">NO</option>
                             </select>
                         </td>
                     </tr>
