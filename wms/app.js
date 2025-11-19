@@ -2796,6 +2796,14 @@ document.addEventListener('DOMContentLoaded', function() {
             existingModal.remove();
         }
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Auto-load all tabs data
+        console.log('[Store Transactions] Auto-loading all tab data for order:', orderNumber);
+        setTimeout(() => {
+            refreshTransactionDetails(orderNumber);
+            refreshQOHDetails(orderNumber);
+            refreshAllocatedLots(orderNumber);
+        }, 100);
     }
 
     window.closeStoreTransactionsModal = function() {
@@ -3192,6 +3200,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const response = JSON.parse(data);
 
                 if (response && response.items && response.items.length > 0) {
+                    // Store QOH data globally for lot number lookup
+                    window.qohData = response.items;
+
                     const keys = Object.keys(response.items[0]);
 
                     // Create search box and table
@@ -3342,104 +3353,231 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Open Set Data Dialog
     function openSetDataDialog(orderNumber, selectedItems) {
-        const modalHtml = `
-            <div id="set-data-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
-                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
-                    <!-- Header -->
-                    <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
-                            <i class="fas fa-edit"></i> Set Data for Selected Records
-                        </h3>
-                        <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem;">
-                            ${selectedItems.length} record(s) selected
-                        </p>
-                    </div>
+        const isSingleSelection = selectedItems.length === 1;
+        let modalHtml = '';
 
-                    <!-- Content -->
-                    <div style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
-                        <form id="set-data-form" style="display: grid; gap: 1rem;">
-                            <!-- Lot Number -->
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
-                                    Lot Number
-                                </label>
-                                <input type="text" id="set-lot-number"
-                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;"
-                                    placeholder="Enter lot number">
-                            </div>
+        if (isSingleSelection) {
+            // Single selection mode - Form with dropdown
+            const item = selectedItems[0];
+            const itemNumber = item.ITEM_NUMBER || item.item_number || '';
 
-                            <!-- Lot Expiration Date -->
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
-                                    Lot Expiration Date
-                                </label>
-                                <input type="date" id="set-lot-exp-date"
-                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
-                            </div>
+            // Get available lots for this item from QOH data
+            const availableLots = window.qohData ? window.qohData.filter(qoh => {
+                const qohItem = qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
+                return qohItem === itemNumber;
+            }) : [];
 
-                            <!-- Picked Qty -->
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
-                                    Picked Qty
-                                </label>
-                                <input type="number" id="set-picked-qty" step="0.01"
-                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;"
-                                    placeholder="Enter picked quantity">
-                            </div>
+            console.log('[Set Data] Available lots for item', itemNumber, ':', availableLots);
 
-                            <!-- Ship Confirm Status -->
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
-                                    Ship Confirm Status
-                                </label>
-                                <select id="set-ship-confirm-status"
-                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
-                                    <option value="">-- Select --</option>
-                                    <option value="Y">Yes</option>
-                                    <option value="N">No</option>
-                                </select>
-                            </div>
+            let lotOptions = '<option value="">-- Select Lot Number --</option>';
+            availableLots.forEach(lot => {
+                const lotNum = lot.LOT_NUMBER || lot.lot_number || '';
+                const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || '';
+                lotOptions += `<option value="${lotNum}" data-expiration="${lotExp}">${lotNum}</option>`;
+            });
 
-                            <!-- Pick Confirm Status -->
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
-                                    Pick Confirm Status
-                                </label>
-                                <select id="set-pick-confirm-status"
-                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
-                                    <option value="">-- Select --</option>
-                                    <option value="Y">Yes</option>
-                                    <option value="N">No</option>
-                                </select>
-                            </div>
+            modalHtml = `
+                <div id="set-data-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                    <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                        <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                                <i class="fas fa-edit"></i> Set Data for Item
+                            </h3>
+                            <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem;">
+                                Item: ${itemNumber}
+                            </p>
+                        </div>
 
-                            <!-- Cancelled Status -->
-                            <div>
-                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
-                                    Cancelled Status
-                                </label>
-                                <select id="set-cancelled-status"
-                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
-                                    <option value="">-- Select --</option>
-                                    <option value="Y">Yes</option>
-                                    <option value="N">No</option>
-                                </select>
-                            </div>
-                        </form>
-                    </div>
+                        <div style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
+                            <form id="set-data-form" style="display: grid; gap: 1rem;">
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Lot Number
+                                    </label>
+                                    <select id="set-lot-number" onchange="onLotNumberChange()"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                        ${lotOptions}
+                                    </select>
+                                </div>
 
-                    <!-- Footer -->
-                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
-                        <button class="btn btn-secondary" onclick="closeSetDataDialog()">
-                            <i class="fas fa-times"></i> Cancel
-                        </button>
-                        <button class="btn btn-primary" onclick="submitSetData('${orderNumber}', ${JSON.stringify(selectedItems).replace(/"/g, '&quot;')})">
-                            <i class="fas fa-save"></i> Set Data
-                        </button>
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Lot Expiration Date
+                                    </label>
+                                    <input type="date" id="set-lot-exp-date" readonly
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; background: #f8f9fc;">
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Picked Qty
+                                    </label>
+                                    <input type="number" id="set-picked-qty" step="0.01"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;"
+                                        placeholder="Enter picked quantity">
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Ship Confirm Status
+                                    </label>
+                                    <select id="set-ship-confirm-status"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                        <option value="">-- Select --</option>
+                                        <option value="Y">Yes</option>
+                                        <option value="N">No</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Pick Confirm Status
+                                    </label>
+                                    <select id="set-pick-confirm-status"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                        <option value="">-- Select --</option>
+                                        <option value="Y">Yes</option>
+                                        <option value="N">No</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Cancelled Status
+                                    </label>
+                                    <select id="set-cancelled-status"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                        <option value="">-- Select --</option>
+                                        <option value="Y">Yes</option>
+                                        <option value="N">No</option>
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="closeSetDataDialog()">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button class="btn btn-primary" onclick="submitSetData('${orderNumber}', ${JSON.stringify(selectedItems).replace(/"/g, '&quot;')})">
+                                <i class="fas fa-save"></i> Set Data
+                            </button>
+                        </div>
                     </div>
                 </div>
-            </div>
-        `;
+            `;
+        } else {
+            // Multiple selection mode - Grid view
+            let gridRows = '';
+            selectedItems.forEach((item, index) => {
+                const itemNumber = item.ITEM_NUMBER || item.item_number || '';
+                const lineNumber = item.LINE_NUMBER || item.line_number || index + 1;
+
+                // Get available lots for this item
+                const availableLots = window.qohData ? window.qohData.filter(qoh => {
+                    const qohItem = qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
+                    return qohItem === itemNumber;
+                }) : [];
+
+                let lotOptions = '<option value="">-- Select --</option>';
+                availableLots.forEach(lot => {
+                    const lotNum = lot.LOT_NUMBER || lot.lot_number || '';
+                    const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || '';
+                    lotOptions += `<option value="${lotNum}" data-expiration="${lotExp}">${lotNum}</option>`;
+                });
+
+                gridRows += `
+                    <tr style="border-bottom: 1px solid #e2e8f0;">
+                        <td style="padding: 0.5rem; font-size: 0.75rem; white-space: nowrap;">${lineNumber}</td>
+                        <td style="padding: 0.5rem; font-size: 0.75rem; white-space: nowrap;">${itemNumber}</td>
+                        <td style="padding: 0.5rem;">
+                            <select class="grid-lot-number" data-row="${index}" onchange="onGridLotChange(${index})"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                                ${lotOptions}
+                            </select>
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <input type="date" class="grid-lot-exp" data-row="${index}" readonly
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; background: #f8f9fc;">
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <input type="number" class="grid-picked-qty" data-row="${index}" step="0.01"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <select class="grid-ship-status" data-row="${index}"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                                <option value="">--</option>
+                                <option value="Y">Y</option>
+                                <option value="N">N</option>
+                            </select>
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <select class="grid-pick-status" data-row="${index}"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                                <option value="">--</option>
+                                <option value="Y">Y</option>
+                                <option value="N">N</option>
+                            </select>
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <select class="grid-cancel-status" data-row="${index}"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                                <option value="">--</option>
+                                <option value="Y">Y</option>
+                                <option value="N">N</option>
+                            </select>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            modalHtml = `
+                <div id="set-data-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                    <div style="background: white; width: 95%; max-width: 1200px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                        <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                                <i class="fas fa-edit"></i> Set Data for Multiple Records
+                            </h3>
+                            <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem;">
+                                ${selectedItems.length} records selected
+                            </p>
+                        </div>
+
+                        <div style="padding: 1rem; overflow-y: auto; max-height: 70vh;">
+                            <div style="overflow-x: auto;">
+                                <table style="width: 100%; border-collapse: collapse;">
+                                    <thead style="position: sticky; top: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); z-index: 10;">
+                                        <tr>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Line</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Item Number</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Lot Number</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Lot Exp Date</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Picked Qty</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Ship Confirm</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Pick Confirm</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Cancelled</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${gridRows}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="closeSetDataDialog()">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button class="btn btn-primary" onclick="submitSetDataGrid('${orderNumber}', ${JSON.stringify(selectedItems).replace(/"/g, '&quot;')})">
+                                <i class="fas fa-save"></i> Set Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
 
         // Remove existing modal if any
         const existingModal = document.getElementById('set-data-modal');
@@ -3489,6 +3627,81 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         console.log('[Store Transactions] POST data:', postData);
+
+        // TODO: User will provide POST endpoint
+        alert('Set Data POST endpoint will be integrated here.\n\nData prepared:\n' + JSON.stringify(postData, null, 2));
+
+        // Close dialog
+        closeSetDataDialog();
+    };
+
+    // Handle lot number change for single selection
+    window.onLotNumberChange = function() {
+        const lotSelect = document.getElementById('set-lot-number');
+        const expDateInput = document.getElementById('set-lot-exp-date');
+
+        const selectedOption = lotSelect.options[lotSelect.selectedIndex];
+        const expiration = selectedOption.getAttribute('data-expiration');
+
+        if (expiration) {
+            // Format date for input field (YYYY-MM-DD)
+            const formattedDate = expiration.split('T')[0]; // Handle ISO date format
+            expDateInput.value = formattedDate;
+        } else {
+            expDateInput.value = '';
+        }
+    };
+
+    // Handle lot number change for grid rows
+    window.onGridLotChange = function(rowIndex) {
+        const lotSelect = document.querySelector(`.grid-lot-number[data-row="${rowIndex}"]`);
+        const expDateInput = document.querySelector(`.grid-lot-exp[data-row="${rowIndex}"]`);
+
+        const selectedOption = lotSelect.options[lotSelect.selectedIndex];
+        const expiration = selectedOption.getAttribute('data-expiration');
+
+        if (expiration) {
+            const formattedDate = expiration.split('T')[0];
+            expDateInput.value = formattedDate;
+        } else {
+            expDateInput.value = '';
+        }
+    };
+
+    // Submit grid data for multiple selections
+    window.submitSetDataGrid = function(orderNumber, selectedItems) {
+        console.log('[Store Transactions] Submitting grid set data for:', orderNumber);
+
+        // Collect data from grid
+        const gridData = [];
+        selectedItems.forEach((item, index) => {
+            const lotNumber = document.querySelector(`.grid-lot-number[data-row="${index}"]`).value;
+            const lotExpDate = document.querySelector(`.grid-lot-exp[data-row="${index}"]`).value;
+            const pickedQty = document.querySelector(`.grid-picked-qty[data-row="${index}"]`).value;
+            const shipStatus = document.querySelector(`.grid-ship-status[data-row="${index}"]`).value;
+            const pickStatus = document.querySelector(`.grid-pick-status[data-row="${index}"]`).value;
+            const cancelStatus = document.querySelector(`.grid-cancel-status[data-row="${index}"]`).value;
+
+            gridData.push({
+                item_data: item,
+                updates: {
+                    lot_number: lotNumber || null,
+                    lot_expiration_date: lotExpDate || null,
+                    picked_qty: pickedQty ? parseFloat(pickedQty) : null,
+                    ship_confirm_status: shipStatus || null,
+                    pick_confirm_status: pickStatus || null,
+                    cancelled_status: cancelStatus || null
+                }
+            });
+        });
+
+        // Prepare POST data
+        const postData = {
+            order_number: orderNumber,
+            records: gridData
+        };
+
+        console.log('[Store Transactions] Grid POST data:', postData);
 
         // TODO: User will provide POST endpoint
         alert('Set Data POST endpoint will be integrated here.\n\nData prepared:\n' + JSON.stringify(postData, null, 2));
