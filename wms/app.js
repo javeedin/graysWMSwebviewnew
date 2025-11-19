@@ -2166,87 +2166,65 @@ document.addEventListener('DOMContentLoaded', function() {
                               trip.PRIORITY.toLowerCase().includes('low') ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
 
             html += `
-                <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden; transition: all 0.3s ease; border-left: 4px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 16px rgba(0,0,0,0.12)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(0,0,0,0.08)';">
+                <div style="background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 3px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';">
                     <!-- Card Header -->
-                    <div style="padding: 1rem; background: linear-gradient(to bottom, #f8f9fc, #ffffff); border-bottom: 2px solid #f1f5f9;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                            <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                    <i class="fas fa-route" style="color: white; font-size: 0.9rem;"></i>
-                                </div>
-                                <div>
-                                    <div style="font-size: 0.7rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Trip ID</div>
-                                    <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b;">${trip.TRIP_ID}</div>
-                                </div>
+                    <div style="padding: 0.5rem 0.65rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.45rem;">
+                            <div style="width: 24px; height: 24px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 5px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: white; font-size: 0.65rem;"></i>
                             </div>
-                            <div style="background: ${priorityBg}; color: white; padding: 0.35rem 0.75rem; border-radius: 20px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-                                ${trip.PRIORITY}
-                            </div>
+                            <span style="font-size: 0.85rem; font-weight: 700; color: #1e293b;">#${trip.TRIP_ID}</span>
+                        </div>
+                        <div style="background: ${priorityBg}; color: white; padding: 0.2rem 0.5rem; border-radius: 10px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase;">
+                            ${trip.PRIORITY}
                         </div>
                     </div>
 
                     <!-- Card Body -->
-                    <div style="padding: 1rem;">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+                    <div style="padding: 0.6rem 0.65rem;">
+                        <div style="display: flex; gap: 0.45rem; margin-bottom: 0.5rem;">
                             <!-- Trip Date -->
-                            <div style="padding: 0.75rem; background: linear-gradient(135deg, #f0f9ff, #e0f2fe); border-radius: 8px; border-left: 3px solid #3b82f6;">
-                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                                    <i class="fas fa-calendar-alt" style="color: #3b82f6; font-size: 0.8rem;"></i>
-                                    <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px;">Date</div>
-                                </div>
-                                <div style="font-size: 0.85rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
+                            <div style="flex: 1; padding: 0.4rem; background: #f0f9ff; border-radius: 5px; border-left: 2px solid #3b82f6;">
+                                <div style="font-size: 0.55rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem;">DATE</div>
+                                <div style="font-size: 0.7rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
                             </div>
 
                             <!-- Lorry Number -->
-                            <div style="padding: 0.75rem; background: linear-gradient(135deg, #f0fdf4, #dcfce7); border-radius: 8px; border-left: 3px solid #10b981;">
-                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                                    <i class="fas fa-truck" style="color: #10b981; font-size: 0.8rem;"></i>
-                                    <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
-                                </div>
-                                <div style="font-size: 0.85rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
+                            <div style="flex: 1; padding: 0.4rem; background: #f0fdf4; border-radius: 5px; border-left: 2px solid #10b981;">
+                                <div style="font-size: 0.55rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem;">LORRY</div>
+                                <div style="font-size: 0.7rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
                             </div>
 
                             <!-- Total Orders -->
-                            <div style="padding: 0.75rem; background: linear-gradient(135deg, #fff7ed, #ffedd5); border-radius: 8px; border-left: 3px solid #f59e0b;">
-                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                                    <i class="fas fa-box" style="color: #f59e0b; font-size: 0.8rem;"></i>
-                                    <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
-                                </div>
-                                <div style="font-size: 1.2rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            <div style="flex: 1; padding: 0.4rem; background: #fff7ed; border-radius: 5px; border-left: 2px solid #f59e0b;">
+                                <div style="font-size: 0.55rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem;">ORDERS</div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
                             </div>
                         </div>
 
                         <!-- Auto Print Section -->
-                        <div style="padding: 0.75rem; background: linear-gradient(135deg, #f8f9fc, #f1f5f9); border-radius: 8px; border: 1px solid #e2e8f0;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <div style="flex: 1;">
-                                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
-                                        <i class="fas fa-print" style="color: #667eea; font-size: 0.8rem;"></i>
-                                        <strong style="font-size: 0.75rem; color: #1e293b; font-weight: 700;">Auto Print</strong>
-                                    </div>
-                                    <div style="font-size: 0.65rem; color: #64748b;">Auto download & print</div>
-                                </div>
-                                <label class="toggle-switch">
-                                    <input type="checkbox"
-                                           class="auto-print-toggle"
-                                           id="autoPrint_${trip.TRIP_ID}_${trip.TRIP_DATE}"
-                                           data-trip-id="${trip.TRIP_ID}"
-                                           data-trip-date="${trip.TRIP_DATE}"
-                                           onchange="handleAutoPrintToggle('${trip.TRIP_ID}', '${trip.TRIP_DATE}', this.checked, ${trip.TOTAL_ORDERS})">
-                                    <span class="toggle-slider"></span>
-                                </label>
+                        <div style="padding: 0.4rem 0.5rem; background: #f8fafc; border-radius: 5px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                <i class="fas fa-print" style="color: #667eea; font-size: 0.65rem;"></i>
+                                <span style="font-size: 0.65rem; color: #1e293b; font-weight: 600;">Auto Print</span>
                             </div>
-                            <div class="auto-print-status"
-                                 id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}"
-                                 style="margin-top: 0.5rem; padding: 0.4rem; font-size: 0.65rem; border-radius: 4px; display: none;">
-                            </div>
+                            <label class="toggle-switch" style="transform: scale(0.8);">
+                                <input type="checkbox"
+                                       class="auto-print-toggle"
+                                       id="autoPrint_${trip.TRIP_ID}_${trip.TRIP_DATE}"
+                                       data-trip-id="${trip.TRIP_ID}"
+                                       data-trip-date="${trip.TRIP_DATE}"
+                                       onchange="handleAutoPrintToggle('${trip.TRIP_ID}', '${trip.TRIP_DATE}', this.checked, ${trip.TOTAL_ORDERS})">
+                                <span class="toggle-slider"></span>
+                            </label>
                         </div>
+                        <div class="auto-print-status" id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}" style="margin-top: 0.35rem; padding: 0.3rem; font-size: 0.6rem; border-radius: 4px; display: none;"></div>
                     </div>
 
                     <!-- Card Footer -->
-                    <div style="padding: 1rem; background: #f8f9fc; border-top: 2px solid #f1f5f9;">
-                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}')" style="width: 100%; font-size: 0.8rem; padding: 0.6rem 1rem; justify-content: center;">
-                            <i class="fas fa-eye"></i> View Trip Details
+                    <div style="padding: 0.45rem 0.65rem; background: #f8f9fc; border-top: 1px solid #e2e8f0;">
+                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}')" style="width: 100%; font-size: 0.65rem; padding: 0.4rem 0.6rem; justify-content: center;">
+                            <i class="fas fa-eye"></i> View Details
                         </button>
                     </div>
                 </div>
@@ -2345,94 +2323,94 @@ document.addEventListener('DOMContentLoaded', function() {
                         <i class="fas fa-chevron-down" id="summary-icon-${tabId}" style="color: white; font-size: 1rem; transition: transform 0.3s ease;"></i>
                     </div>
 
-                    <div id="trip-summary-${tabId}" style="padding: 1.25rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem;">
+                    <div id="trip-summary-${tabId}" style="padding: 0.75rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem;">
                             <!-- Trip Date Card -->
-                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1); border-left: 4px solid #6366f1; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(99, 102, 241, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(99, 102, 241, 0.1)';">
-                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #6366f1, #4f46e5); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-calendar-alt" style="color: white; font-size: 0.9rem;"></i>
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(99, 102, 241, 0.1); border-left: 3px solid #6366f1; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(99, 102, 241, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(99, 102, 241, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #6366f1, #4f46e5); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-calendar-alt" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Trip Date</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Trip Date</div>
                                 </div>
-                                <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${tripDate}</div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${tripDate}</div>
                             </div>
 
                             <!-- Lorry Number Card -->
-                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1); border-left: 4px solid #10b981; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(16, 185, 129, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(16, 185, 129, 0.1)';">
-                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-truck" style="color: white; font-size: 0.9rem;"></i>
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(16, 185, 129, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(16, 185, 129, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-truck" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Lorry</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
                                 </div>
-                                <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${lorryNumber}</div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${lorryNumber}</div>
                             </div>
 
                             <!-- Total Orders Card -->
-                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(245, 158, 11, 0.1); border-left: 4px solid #f59e0b; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(245, 158, 11, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(245, 158, 11, 0.1)';">
-                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-box" style="color: white; font-size: 0.9rem;"></i>
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.1); border-left: 3px solid #f59e0b; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(245, 158, 11, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(245, 158, 11, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-box" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Orders</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
                                 </div>
-                                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${totalOrders}</div>
+                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalOrders}</div>
                             </div>
 
                             <!-- Customers Card -->
-                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(59, 130, 246, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(59, 130, 246, 0.1)';">
-                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-users" style="color: white; font-size: 0.9rem;"></i>
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(59, 130, 246, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(59, 130, 246, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-users" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Customers</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Customers</div>
                                 </div>
-                                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${uniqueCustomers}</div>
+                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
                             </div>
 
                             <!-- Total Quantity Card -->
-                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(139, 92, 246, 0.1); border-left: 4px solid #8b5cf6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(139, 92, 246, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(139, 92, 246, 0.1)';">
-                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-cubes" style="color: white; font-size: 0.9rem;"></i>
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(139, 92, 246, 0.1); border-left: 3px solid #8b5cf6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(139, 92, 246, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(139, 92, 246, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-cubes" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Quantity</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Quantity</div>
                                 </div>
-                                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${totalQuantity.toLocaleString()}</div>
+                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
                             </div>
 
                             <!-- Total Weight Card -->
-                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(236, 72, 153, 0.1); border-left: 4px solid #ec4899; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(236, 72, 153, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(236, 72, 153, 0.1)';">
-                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #ec4899, #db2777); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-weight" style="color: white; font-size: 0.9rem;"></i>
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(236, 72, 153, 0.1); border-left: 3px solid #ec4899; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(236, 72, 153, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(236, 72, 153, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #ec4899, #db2777); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-weight" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Weight</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Weight</div>
                                 </div>
-                                <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${totalWeight.toFixed(2)} kg</div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalWeight.toFixed(2)} kg</div>
                             </div>
 
                             <!-- Products Card -->
-                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(20, 184, 166, 0.1); border-left: 4px solid #14b8a6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(20, 184, 166, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(20, 184, 166, 0.1)';">
-                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, #14b8a6, #0d9488); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-boxes" style="color: white; font-size: 0.9rem;"></i>
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(20, 184, 166, 0.1); border-left: 3px solid #14b8a6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(20, 184, 166, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(20, 184, 166, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #14b8a6, #0d9488); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-boxes" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Products</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Products</div>
                                 </div>
-                                <div style="font-size: 1.4rem; font-weight: 800; color: #1e293b; margin-left: 2.75rem;">${uniqueProducts}</div>
+                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueProducts}</div>
                             </div>
 
                             <!-- Priority Card -->
-                            <div style="background: white; padding: 1rem; border-radius: 10px; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.1); border-left: 4px solid ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 4px 12px rgba(239, 68, 68, 0.2)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(239, 68, 68, 0.1)';">
-                                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                                    <div style="width: 36px; height: 36px; background: linear-gradient(135deg, ${priority.toLowerCase().includes('high') ? '#ef4444, #dc2626' : priority.toLowerCase().includes('low') ? '#22c55e, #16a34a' : '#f59e0b, #d97706'}); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-flag" style="color: white; font-size: 0.9rem;"></i>
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1); border-left: 3px solid ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(239, 68, 68, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(239, 68, 68, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, ${priority.toLowerCase().includes('high') ? '#ef4444, #dc2626' : priority.toLowerCase().includes('low') ? '#22c55e, #16a34a' : '#f59e0b, #d97706'}); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-flag" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">Priority</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Priority</div>
                                 </div>
-                                <div style="font-size: 1.1rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.75rem;">${priority}</div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
                             </div>
                         </div>
                     </div>
