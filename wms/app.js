@@ -2833,8 +2833,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Submit Assign Picker (POST to API)
-    window.submitAssignPicker = async function(tripId, selectedOrders) {
+    // Submit Assign Picker (POST to API via C# backend)
+    window.submitAssignPicker = function(tripId, selectedOrders) {
         const pickerSelect = document.getElementById('assign-picker-select');
         const pickerId = pickerSelect.value;
 
@@ -2887,60 +2887,116 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.body.appendChild(loadingDiv);
 
-        try {
-            const response = await fetch('https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/pickerassignment', {
+        const PICKER_ASSIGNMENT_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/pickerassignment';
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: PICKER_ASSIGNMENT_API,
+                body: JSON.stringify(payload)
+            }, function(error, data) {
+                // Remove loading indicator
+                const loading = document.getElementById('assign-picker-loading');
+                if (loading) loading.remove();
+
+                if (error) {
+                    console.error('[Assign Picker] Error:', error);
+                    alert('Error assigning picker:\n' + error);
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Assign Picker] API Response:', result);
+
+                        if (result.success === true || result.success === 'true') {
+                            // Success - show notification
+                            const notification = document.createElement('div');
+                            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                            notification.innerHTML = `
+                                <i class="fas fa-check-circle"></i>
+                                Successfully assigned <strong>${pickerName}</strong> to ${result.ordersAssigned || orders.length} order(s)
+                            `;
+                            document.body.appendChild(notification);
+
+                            setTimeout(() => notification.remove(), 4000);
+
+                            // Close dialog
+                            closeAssignPickerDialog();
+
+                            // Refresh the grid to show updated picker assignments
+                            const tabId = `trip-detail-${tripId}`;
+                            const gridId = `grid-${tabId}`;
+                            const gridContainer = $(`#${gridId}`);
+                            if (gridContainer && gridContainer.length > 0) {
+                                const gridInstance = gridContainer.dxDataGrid('instance');
+                                if (gridInstance) {
+                                    gridInstance.refresh();
+                                }
+                            }
+                        } else {
+                            // Error from API
+                            alert(`Failed to assign picker:\n${result.message || 'Unknown error'}`);
+                        }
+                    } catch (parseError) {
+                        console.error('[Assign Picker] Error parsing response:', parseError);
+                        alert('Error processing response: ' + parseError.message);
+                    }
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            fetch(PICKER_ASSIGNMENT_API, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(payload)
-            });
+            })
+            .then(response => response.json())
+            .then(result => {
+                // Remove loading indicator
+                const loading = document.getElementById('assign-picker-loading');
+                if (loading) loading.remove();
 
-            const result = await response.json();
+                console.log('[Assign Picker] API Response:', result);
 
-            // Remove loading indicator
-            const loading = document.getElementById('assign-picker-loading');
-            if (loading) loading.remove();
+                if (result.success === true || result.success === 'true') {
+                    // Success - show notification
+                    const notification = document.createElement('div');
+                    notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                    notification.innerHTML = `
+                        <i class="fas fa-check-circle"></i>
+                        Successfully assigned <strong>${pickerName}</strong> to ${result.ordersAssigned || orders.length} order(s)
+                    `;
+                    document.body.appendChild(notification);
 
-            console.log('[Assign Picker] API Response:', result);
+                    setTimeout(() => notification.remove(), 4000);
 
-            if (result.success === true || result.success === 'true') {
-                // Success - show notification
-                const notification = document.createElement('div');
-                notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
-                notification.innerHTML = `
-                    <i class="fas fa-check-circle"></i>
-                    Successfully assigned <strong>${pickerName}</strong> to ${result.ordersAssigned || orders.length} order(s)
-                `;
-                document.body.appendChild(notification);
+                    // Close dialog
+                    closeAssignPickerDialog();
 
-                setTimeout(() => notification.remove(), 4000);
-
-                // Close dialog
-                closeAssignPickerDialog();
-
-                // Refresh the grid to show updated picker assignments
-                const tabId = `trip-detail-${tripId}`;
-                const gridId = `grid-${tabId}`;
-                const gridContainer = $(`#${gridId}`);
-                if (gridContainer && gridContainer.length > 0) {
-                    const gridInstance = gridContainer.dxDataGrid('instance');
-                    if (gridInstance) {
-                        gridInstance.refresh();
+                    // Refresh the grid
+                    const tabId = `trip-detail-${tripId}`;
+                    const gridId = `grid-${tabId}`;
+                    const gridContainer = $(`#${gridId}`);
+                    if (gridContainer && gridContainer.length > 0) {
+                        const gridInstance = gridContainer.dxDataGrid('instance');
+                        if (gridInstance) {
+                            gridInstance.refresh();
+                        }
                     }
+                } else {
+                    alert(`Failed to assign picker:\n${result.message || 'Unknown error'}`);
                 }
-            } else {
-                // Error from API
-                alert(`Failed to assign picker:\n${result.message || 'Unknown error'}`);
-            }
+            })
+            .catch(error => {
+                // Remove loading indicator
+                const loading = document.getElementById('assign-picker-loading');
+                if (loading) loading.remove();
 
-        } catch (error) {
-            // Remove loading indicator
-            const loading = document.getElementById('assign-picker-loading');
-            if (loading) loading.remove();
-
-            console.error('[Assign Picker] Error:', error);
-            alert(`Error assigning picker:\n${error.message || 'Network error occurred'}`);
+                console.error('[Assign Picker] Error:', error);
+                alert(`Error assigning picker:\n${error.message || 'Network error occurred'}`);
+            });
         }
     };
 
