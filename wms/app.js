@@ -2739,8 +2739,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     <!-- Tab Content -->
                     <div style="flex: 1; overflow: hidden; position: relative;">
                         <!-- Tab 1: Transaction Details -->
-                        <div id="store-trans-transaction-details" class="store-trans-tab-content active" style="height: 100%; overflow: auto; padding: 1.5rem;">
-                            <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem;">
+                        <div id="store-trans-transaction-details" class="store-trans-tab-content active" style="height: 100%; overflow: auto; padding: 1rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
                                 <button class="btn btn-secondary" onclick="refreshTransactionDetails('${orderNumber}')">
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
@@ -2748,21 +2748,21 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <i class="fas fa-list"></i> Fetch Lot Details
                                 </button>
                             </div>
-                            <div id="transaction-details-content" style="background: white; border-radius: 8px; padding: 1rem;">
-                                <p style="color: #64748b; text-align: center;">Click Refresh to load transaction details</p>
+                            <div id="transaction-details-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
+                                <p style="color: #64748b; text-align: center; font-size: 0.8rem;">Click Refresh to load transaction details</p>
                             </div>
                         </div>
 
                         <!-- Tab 2: QOH Details -->
-                        <div id="store-trans-qoh-details" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1.5rem; display: none;">
-                            <div id="qoh-details-content" style="background: white; border-radius: 8px; padding: 1rem;">
-                                <p style="color: #64748b;">QOH Details for items will be displayed here</p>
+                        <div id="store-trans-qoh-details" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div id="qoh-details-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
+                                <p style="color: #64748b; font-size: 0.8rem;">QOH Details for items will be displayed here</p>
                             </div>
                         </div>
 
                         <!-- Tab 3: Allocated Lots -->
-                        <div id="store-trans-allocated-lots" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1.5rem; display: none;">
-                            <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem;">
+                        <div id="store-trans-allocated-lots" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
                                 <button class="btn btn-primary" onclick="processTransaction('${orderNumber}')">
                                     <i class="fas fa-cogs"></i> Process Transaction
                                 </button>
@@ -2773,8 +2773,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <i class="fas fa-check-circle"></i> Check Fusion Status
                                 </button>
                             </div>
-                            <div id="allocated-lots-content" style="background: white; border-radius: 8px; padding: 1rem;">
-                                <p style="color: #64748b;">Allocated Lots for items will be displayed here</p>
+                            <div id="allocated-lots-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
+                                <p style="color: #64748b; font-size: 0.8rem;">Allocated Lots for items will be displayed here</p>
                             </div>
                         </div>
                     </div>
@@ -2851,16 +2851,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     // Create search box and table
                     let html = `
-                        <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; background: white; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;">
+                        <div style="margin-bottom: 0.75rem; display: flex; gap: 0.75rem; align-items: center; background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0;">
                             <div style="flex: 1; position: relative;">
-                                <i class="fas fa-search" style="position: absolute; left: 0.75rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.9rem;"></i>
+                                <i class="fas fa-search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.75rem;"></i>
                                 <input type="text" id="trans-search-input" placeholder="Search in table..."
-                                    style="width: 100%; padding: 0.5rem 0.75rem 0.5rem 2.5rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; outline: none; transition: all 0.2s;"
+                                    style="width: 100%; padding: 0.4rem 0.5rem 0.4rem 2rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; outline: none; transition: all 0.2s;"
                                     onkeyup="filterTransactionTable()"
                                     onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102, 126, 234, 0.1)'"
                                     onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
                             </div>
-                            <div style="font-size: 0.85rem; color: #64748b;">
+                            <div style="font-size: 0.75rem; color: #64748b; white-space: nowrap;">
                                 <span id="trans-row-count">${response.items.length}</span> rows
                             </div>
                         </div>
@@ -2873,7 +2873,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     `;
 
                     keys.forEach(key => {
-                        html += `<th style="padding: 0.75rem; text-align: left; font-weight: 600; color: white; font-size: 0.85rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
+                        html += `<th style="padding: 0.5rem; text-align: left; font-weight: 600; color: white; font-size: 0.7rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
                     });
 
                     html += '</tr></thead><tbody>';
@@ -2885,7 +2885,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
                             data-row-index="${index}">`;
                         keys.forEach(key => {
-                            html += `<td style="padding: 0.75rem; font-size: 0.85rem; color: #475569; white-space: nowrap;">${item[key] !== null && item[key] !== undefined ? item[key] : ''}</td>`;
+                            html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap;">${item[key] !== null && item[key] !== undefined ? item[key] : ''}</td>`;
                         });
                         html += '</tr>';
                     });
