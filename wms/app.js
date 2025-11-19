@@ -2087,7 +2087,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
 
             <!-- Trip Cards Container -->
-            <div id="trip-cards-${tabId}" class="trip-cards-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 1rem; padding: 0 0.5rem;"></div>
+            <div id="trip-cards-${tabId}" class="trip-cards-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; padding: 0 0.5rem;"></div>
         `;
         
         setTimeout(() => {
@@ -2150,39 +2150,39 @@ document.addEventListener('DOMContentLoaded', function() {
                               trip.PRIORITY.toLowerCase().includes('low') ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
 
             html += `
-                <div style="background: white; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 4px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)';">
+                <div style="background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 3px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 3px 8px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';">
                     <!-- Card Header -->
-                    <div style="padding: 0.75rem 1rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 0.6rem;">
-                            <div style="width: 32px; height: 32px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-route" style="color: white; font-size: 0.85rem;"></i>
+                    <div style="padding: 0.5rem 0.75rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 5px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: white; font-size: 0.75rem;"></i>
                             </div>
-                            <span style="font-size: 1.1rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}</span>
+                            <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}</span>
                         </div>
-                        <div style="background: ${priorityBg}; color: white; padding: 0.35rem 0.75rem; border-radius: 12px; font-size: 0.7rem; font-weight: 600; text-transform: uppercase;">
+                        <div style="background: ${priorityBg}; color: white; padding: 0.25rem 0.6rem; border-radius: 10px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase;">
                             ${trip.PRIORITY}
                         </div>
                     </div>
 
                     <!-- Card Body -->
-                    <div style="padding: 1rem;">
-                        <div style="display: flex; gap: 0.75rem; margin-bottom: 0.75rem;">
+                    <div style="padding: 0.75rem;">
+                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
                             <!-- Trip Date -->
-                            <div style="flex: 1; padding: 0.75rem; background: #f0f9ff; border-radius: 6px; border-left: 3px solid #3b82f6;">
-                                <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px;">Date</div>
-                                <div style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
+                            <div style="flex: 1; padding: 0.5rem; background: #f0f9ff; border-radius: 5px; border-left: 2px solid #3b82f6;">
+                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Date</div>
+                                <div style="font-size: 0.75rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
                             </div>
 
                             <!-- Lorry Number -->
-                            <div style="flex: 1; padding: 0.75rem; background: #f0fdf4; border-radius: 6px; border-left: 3px solid #10b981;">
-                                <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px;">Lorry</div>
-                                <div style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
+                            <div style="flex: 1; padding: 0.5rem; background: #f0fdf4; border-radius: 5px; border-left: 2px solid #10b981;">
+                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
+                                <div style="font-size: 0.75rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
                             </div>
 
                             <!-- Total Orders -->
-                            <div style="flex: 1; padding: 0.75rem; background: #fff7ed; border-radius: 6px; border-left: 3px solid #f59e0b;">
-                                <div style="font-size: 0.65rem; font-weight: 600; color: #64748b; margin-bottom: 0.25rem; text-transform: uppercase; letter-spacing: 0.5px;">Orders</div>
-                                <div style="font-size: 1.1rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            <div style="flex: 1; padding: 0.5rem; background: #fff7ed; border-radius: 5px; border-left: 2px solid #f59e0b;">
+                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
                             </div>
                         </div>
 
