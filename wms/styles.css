@@ -249,8 +249,14 @@ body {
 .parameters-content .summary-stats {
     flex-basis: 100%;
     margin-bottom: 0;
+    margin-top: 1rem;
     padding-top: 1rem;
-    border-top: 1px solid var(--gray-200);
+    border-top: 2px solid var(--gray-200);
+}
+
+.parameters-content .stat-card {
+    background: var(--gray-50);
+    border: 1px solid var(--gray-200);
 }
 
 .stat-card {
