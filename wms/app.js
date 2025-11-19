@@ -1562,6 +1562,9 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         summaryStats.style.display = 'grid';
 
+        // Auto-populate Trips tab
+        openTripManagementTab('trips');
+
         setupAllTripsFilters(trips);
         
         const first = trips[0];
