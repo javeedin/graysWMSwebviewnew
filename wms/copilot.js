@@ -497,6 +497,10 @@ window.createNewTrip = async function() {
 
     console.log('[New Trip] Trip data:', tripData);
 
+    // Store original form values for later use
+    const originalLoadingBay = loadingBay;
+    const originalPriority = priority;
+
     // Disable create button and show loading
     const createBtn = document.getElementById('create-trip-btn');
     const originalBtnText = createBtn.innerHTML;
@@ -532,16 +536,16 @@ window.createNewTrip = async function() {
                             // Navigate to trip details page
                             if (typeof window.openTripDetailsPage === 'function') {
                                 // Prepare trip data for details page
-                                const tripData = {
+                                const tripDetailsData = {
                                     trip_id: response.trip_id,
                                     trip_date: response.trip_date,
                                     trip_lorry: response.trip_lorry,
-                                    trip_loading_bay: tripData.loading_bay,
-                                    trip_priority: tripData.priority,
+                                    trip_loading_bay: originalLoadingBay,
+                                    trip_priority: originalPriority,
                                     vehicle: response.trip_lorry,
                                     status: 'DRAFT'
                                 };
-                                window.openTripDetailsPage(tripData);
+                                window.openTripDetailsPage(tripDetailsData);
                             } else {
                                 alert('✅ Trip created successfully!\n\nTrip Date: ' + response.trip_date + '\nVehicle: ' + response.trip_lorry);
                             }
@@ -581,16 +585,16 @@ window.createNewTrip = async function() {
                 // Navigate to trip details page
                 if (typeof window.openTripDetailsPage === 'function') {
                     // Prepare trip data for details page
-                    const tripDataForPage = {
+                    const tripDetailsData = {
                         trip_id: result.trip_id,
                         trip_date: result.trip_date,
                         trip_lorry: result.trip_lorry,
-                        trip_loading_bay: tripData.loading_bay,
-                        trip_priority: tripData.priority,
+                        trip_loading_bay: originalLoadingBay,
+                        trip_priority: originalPriority,
                         vehicle: result.trip_lorry,
                         status: 'DRAFT'
                     };
-                    window.openTripDetailsPage(tripDataForPage);
+                    window.openTripDetailsPage(tripDetailsData);
                 } else {
                     alert('✅ Trip created successfully!\n\nTrip Date: ' + result.trip_date + '\nVehicle: ' + result.trip_lorry);
                 }
