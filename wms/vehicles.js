@@ -161,12 +161,23 @@ window.loadVehicles = async function() {
     try {
         // Use WebView2's REST API call feature to bypass CORS
         if (window.chrome && window.chrome.webview) {
-            // WebView2 environment - use postMessage to C# backend
-            window.chrome.webview.postMessage({
-                type: 'REST_API_CALL',
-                url: VEHICLES_API,
-                method: 'GET',
-                callback: 'handleVehiclesData'
+            // WebView2 environment - use sendMessageToCSharp helper
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: VEHICLES_API
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Vehicles] Error loading vehicles:', error);
+                    alert('Error loading vehicles: ' + error);
+                } else {
+                    try {
+                        const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
+                        handleVehiclesData(jsonData);
+                    } catch (parseError) {
+                        console.error('[Vehicles] Error parsing response:', parseError);
+                        alert('Error parsing vehicles data: ' + parseError.message);
+                    }
+                }
             });
         } else {
             // Fallback to direct fetch for testing in browser

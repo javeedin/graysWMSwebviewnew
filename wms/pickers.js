@@ -190,12 +190,23 @@ window.loadPickers = async function() {
     try {
         // Use WebView2's REST API call feature to bypass CORS
         if (window.chrome && window.chrome.webview) {
-            // WebView2 environment - use postMessage to C# backend
-            window.chrome.webview.postMessage({
-                type: 'REST_API_CALL',
-                url: PICKERS_API,
-                method: 'GET',
-                callback: 'handlePickersData'
+            // WebView2 environment - use sendMessageToCSharp helper
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: PICKERS_API
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Pickers] Error loading pickers:', error);
+                    alert('Error loading pickers: ' + error);
+                } else {
+                    try {
+                        const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
+                        handlePickersData(jsonData);
+                    } catch (parseError) {
+                        console.error('[Pickers] Error parsing response:', parseError);
+                        alert('Error parsing pickers data: ' + parseError.message);
+                    }
+                }
             });
         } else {
             // Fallback to direct fetch for testing in browser
