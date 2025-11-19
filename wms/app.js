@@ -2490,7 +2490,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="icon-btn" onclick="pickRelease('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Pick Release">
                                 <i class="fas fa-check-circle" style="color: #10b981;"></i>
                             </button>
-                            <button class="icon-btn" onclick="editTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Edit">
+                            <button class="icon-btn" onclick='editTripOrder(${JSON.stringify(rowData)})' title="Edit">
                                 <i class="fas fa-edit" style="color: #3b82f6;"></i>
                             </button>
                             <button class="icon-btn" onclick="deleteTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Delete">
@@ -2668,9 +2668,229 @@ document.addEventListener('DOMContentLoaded', function() {
         alert('Pick Release functionality - To be implemented');
     };
 
-    window.editTripOrder = function(tripId, orderNumber) {
-        console.log('[Trip Management] Edit order:', orderNumber);
-        alert('Edit Order functionality - To be implemented');
+    window.editTripOrder = function(rowData) {
+        console.log('[Trip Management] Edit order:', rowData);
+
+        const orderType = rowData.ORDER_TYPE || rowData.order_type || '';
+
+        // Check if order type is 'Store to Van' or 'Van to Store'
+        if (orderType === 'Store to Van' || orderType === 'Van to Store') {
+            openStoreTransactionsDialog(rowData);
+        } else {
+            alert('Store Transactions dialog is only available for "Store to Van" or "Van to Store" order types.');
+        }
+    };
+
+    function openStoreTransactionsDialog(rowData) {
+        console.log('[Store Transactions] Opening dialog for order:', rowData);
+
+        const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || '';
+        const tripId = rowData.TRIP_ID || rowData.trip_id || '';
+        const tripDate = rowData.TRIP_DATE || rowData.trip_date || '';
+        const accountNumber = rowData.ACCOUNT_NUMBER || rowData.account_number || '';
+        const accountName = rowData.ACCOUNT_NAME || rowData.account_name || '';
+        const picker = rowData.PICKER || rowData.picker || '';
+        const lorry = rowData.LORRY_NUMBER || rowData.lorry_number || '';
+        const priority = rowData.PRIORITY || rowData.priority || '';
+        const pickConfirmSt = rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
+
+        // Create modal HTML
+        const modalHtml = `
+            <div id="store-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Modal Header -->
+                    <div style="padding: 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <h2 style="margin: 0; font-size: 1.5rem; color: white; font-weight: 700;">
+                                <i class="fas fa-exchange-alt"></i> Store Transactions
+                            </h2>
+                            <button onclick="closeStoreTransactionsModal()" style="background: rgba(255,255,255,0.2); border: none; font-size: 28px; cursor: pointer; color: white; padding: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 6px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                                ×
+                            </button>
+                        </div>
+
+                        <!-- Header Details -->
+                        <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; padding: 1rem; background: rgba(255,255,255,0.15); border-radius: 8px;">
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Trip ID:</span><br><strong style="color: white; font-size: 0.9rem;">${tripId}</strong></div>
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Order Number:</span><br><strong style="color: white; font-size: 0.9rem;">${orderNumber}</strong></div>
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Date:</span><br><strong style="color: white; font-size: 0.9rem;">${tripDate}</strong></div>
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Account Number:</span><br><strong style="color: white; font-size: 0.9rem;">${accountNumber}</strong></div>
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Account Name:</span><br><strong style="color: white; font-size: 0.9rem;">${accountName}</strong></div>
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Picker:</span><br><strong style="color: white; font-size: 0.9rem;">${picker}</strong></div>
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Lorry:</span><br><strong style="color: white; font-size: 0.9rem;">${lorry}</strong></div>
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Priority:</span><br><strong style="color: white; font-size: 0.9rem;">${priority}</strong></div>
+                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Pick Confirm St:</span><br><strong style="color: white; font-size: 0.9rem;">${pickConfirmSt}</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Header -->
+                    <div style="display: flex; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #f8f9fc; border-bottom: 2px solid #e2e8f0;">
+                        <button class="store-trans-tab active" data-tab="transaction-details" onclick="switchStoreTransTab('transaction-details')" style="padding: 0.5rem 1.5rem; border: none; background: white; border-radius: 6px; cursor: pointer; font-weight: 600; color: #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                            Transaction Details
+                        </button>
+                        <button class="store-trans-tab" data-tab="qoh-details" onclick="switchStoreTransTab('qoh-details')" style="padding: 0.5rem 1.5rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b;">
+                            QOH Details
+                        </button>
+                        <button class="store-trans-tab" data-tab="allocated-lots" onclick="switchStoreTransTab('allocated-lots')" style="padding: 0.5rem 1.5rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b;">
+                            Allocated Lots
+                        </button>
+                    </div>
+
+                    <!-- Tab Content -->
+                    <div style="flex: 1; overflow: hidden; position: relative;">
+                        <!-- Tab 1: Transaction Details -->
+                        <div id="store-trans-transaction-details" class="store-trans-tab-content active" style="height: 100%; overflow: auto; padding: 1.5rem;">
+                            <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshTransactionDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn btn-primary" onclick="fetchLotDetails('${orderNumber}')" id="fetch-lot-btn" style="display: none;">
+                                    <i class="fas fa-list"></i> Fetch Lot Details
+                                </button>
+                            </div>
+                            <div id="transaction-details-content" style="background: white; border-radius: 8px; padding: 1rem;">
+                                <p style="color: #64748b; text-align: center;">Click Refresh to load transaction details</p>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: QOH Details -->
+                        <div id="store-trans-qoh-details" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1.5rem; display: none;">
+                            <div id="qoh-details-content" style="background: white; border-radius: 8px; padding: 1rem;">
+                                <p style="color: #64748b;">QOH Details for items will be displayed here</p>
+                            </div>
+                        </div>
+
+                        <!-- Tab 3: Allocated Lots -->
+                        <div id="store-trans-allocated-lots" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1.5rem; display: none;">
+                            <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-primary" onclick="processTransaction('${orderNumber}')">
+                                    <i class="fas fa-cogs"></i> Process Transaction
+                                </button>
+                                <button class="btn btn-secondary" onclick="setData('${orderNumber}')">
+                                    <i class="fas fa-database"></i> Set Data
+                                </button>
+                                <button class="btn btn-info" onclick="checkFusionStatus('${orderNumber}')">
+                                    <i class="fas fa-check-circle"></i> Check Fusion Status
+                                </button>
+                            </div>
+                            <div id="allocated-lots-content" style="background: white; border-radius: 8px; padding: 1rem;">
+                                <p style="color: #64748b;">Allocated Lots for items will be displayed here</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal to body
+        const existingModal = document.getElementById('store-transactions-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    window.closeStoreTransactionsModal = function() {
+        const modal = document.getElementById('store-transactions-modal');
+        if (modal) {
+            modal.remove();
+        }
+    };
+
+    window.switchStoreTransTab = function(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.store-trans-tab').forEach(tab => {
+            if (tab.dataset.tab === tabName) {
+                tab.style.background = 'white';
+                tab.style.color = '#667eea';
+                tab.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            } else {
+                tab.style.background = 'transparent';
+                tab.style.color = '#64748b';
+                tab.style.boxShadow = 'none';
+            }
+        });
+
+        // Update tab content
+        document.querySelectorAll('.store-trans-tab-content').forEach(content => {
+            content.style.display = 'none';
+        });
+        const activeContent = document.getElementById(`store-trans-${tabName}`);
+        if (activeContent) {
+            activeContent.style.display = 'block';
+        }
+    };
+
+    window.refreshTransactionDetails = async function(orderNumber) {
+        console.log('[Store Transactions] Refreshing transaction details for:', orderNumber);
+
+        const contentDiv = document.getElementById('transaction-details-content');
+        contentDiv.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
+
+        try {
+            const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
+
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: apiUrl
+            }, (response) => {
+                console.log('[Store Transactions] API Response:', response);
+
+                if (response && response.items && response.items.length > 0) {
+                    // Display data in a table
+                    let html = '<table style="width: 100%; border-collapse: collapse;">';
+                    html += '<thead><tr style="background: #f8f9fc; border-bottom: 2px solid #e2e8f0;">';
+
+                    // Get keys from first item
+                    const keys = Object.keys(response.items[0]);
+                    keys.forEach(key => {
+                        html += `<th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; font-size: 0.85rem;">${key.replace(/_/g, ' ')}</th>`;
+                    });
+                    html += '</tr></thead><tbody>';
+
+                    // Add rows
+                    response.items.forEach((item, index) => {
+                        html += `<tr style="border-bottom: 1px solid #e2e8f0; ${index % 2 === 0 ? 'background: #f8f9fc;' : ''}">`;
+                        keys.forEach(key => {
+                            html += `<td style="padding: 0.75rem; font-size: 0.85rem; color: #475569;">${item[key] || ''}</td>`;
+                        });
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table>';
+                    contentDiv.innerHTML = html;
+
+                    // Show Fetch Lot Details button
+                    document.getElementById('fetch-lot-btn').style.display = 'inline-flex';
+                } else {
+                    contentDiv.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No data found for this order</p>';
+                }
+            });
+        } catch (error) {
+            console.error('[Store Transactions] Error:', error);
+            contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error loading data: ${error.message}</p>`;
+        }
+    };
+
+    window.fetchLotDetails = function(orderNumber) {
+        console.log('[Store Transactions] Fetching lot details for:', orderNumber);
+        alert('Fetch Lot Details functionality - To be implemented');
+    };
+
+    window.processTransaction = function(orderNumber) {
+        console.log('[Store Transactions] Process transaction for:', orderNumber);
+        alert('Process Transaction functionality - To be implemented');
+    };
+
+    window.setData = function(orderNumber) {
+        console.log('[Store Transactions] Set data for:', orderNumber);
+        alert('Set Data functionality - To be implemented');
+    };
+
+    window.checkFusionStatus = function(orderNumber) {
+        console.log('[Store Transactions] Check fusion status for:', orderNumber);
+        alert('Check Fusion Status functionality - To be implemented');
     };
 
     window.deleteTripOrder = function(tripId, orderNumber) {

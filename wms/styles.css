@@ -586,6 +586,15 @@ body {
     box-shadow: 0 4px 12px rgba(245, 158, 11, 0.4);
 }
 
+.btn-info {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+    color: white;
+}
+
+.btn-info:hover {
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+}
+
 .icon-btn {
     background: transparent;
     border: none;
