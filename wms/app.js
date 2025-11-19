@@ -2947,7 +2947,68 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.fetchLotDetails = function(orderNumber) {
         console.log('[Store Transactions] Fetching lot details for:', orderNumber);
-        alert('Fetch Lot Details functionality - To be implemented');
+
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to fetch lot details for transaction ${orderNumber}?`)) {
+            console.log('[Store Transactions] Fetch lot details cancelled by user');
+            return;
+        }
+
+        // Get fusion instance from localStorage
+        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Show loading state
+        const fetchBtn = document.getElementById('fetch-lot-btn');
+        if (fetchBtn) {
+            fetchBtn.disabled = true;
+            fetchBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Fetching...';
+        }
+
+        // Prepare POST data
+        const postData = {
+            p_trx_number: orderNumber,
+            p_instance_name: fusionInstance
+        };
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
+
+        console.log('[Store Transactions] Calling fetch lot details API:', apiUrl, postData);
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            bodyJson: JSON.stringify(postData)
+        }, function(error, data) {
+            console.log('[Store Transactions] Fetch Lot Details Response - Error:', error, 'Data:', data);
+
+            // Re-enable button
+            if (fetchBtn) {
+                fetchBtn.disabled = false;
+                fetchBtn.innerHTML = '<i class="fas fa-list"></i> Fetch Lot Details';
+            }
+
+            if (error) {
+                alert('Error fetching lot details: ' + error);
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+                console.log('[Store Transactions] Parsed response:', response);
+
+                if (response.success) {
+                    alert('Success: ' + (response.message || 'Lot details fetched successfully'));
+
+                    // Refresh the transaction details to show updated data
+                    refreshTransactionDetails(orderNumber);
+                } else {
+                    alert('Failed: ' + (response.message || 'Unknown error occurred'));
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                alert('Error parsing response: ' + parseError.message);
+            }
+        });
     };
 
     window.processTransaction = function(orderNumber) {
