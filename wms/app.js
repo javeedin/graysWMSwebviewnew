@@ -3043,6 +3043,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const response = JSON.parse(data);
 
                 if (response && response.items && response.items.length > 0) {
+                    // Store items globally for access when setting data
+                    window.allocatedLotsData = response.items;
+
                     const keys = Object.keys(response.items[0]);
 
                     // Helper function to render status icons
@@ -3069,6 +3072,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
                             </div>
                             <div style="font-size: 0.75rem; color: #64748b; white-space: nowrap;">
+                                <span id="allocated-selected-count">0</span> selected |
                                 <span id="allocated-row-count">${response.items.length}</span> rows
                             </div>
                         </div>
@@ -3078,6 +3082,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <table id="allocated-data-table" style="width: 100%; border-collapse: collapse;">
                                     <thead style="position: sticky; top: 0; z-index: 10;">
                                         <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 2px solid #667eea;">
+                                            <th style="padding: 0.5rem; width: 40px; text-align: center;">
+                                                <input type="checkbox" id="select-all-allocated" onchange="toggleSelectAllAllocated()"
+                                                    style="cursor: pointer; width: 16px; height: 16px;">
+                                            </th>
                     `;
 
                     keys.forEach(key => {
@@ -3086,12 +3094,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     html += '</tr></thead><tbody>';
 
-                    // Add rows with status icons
+                    // Add rows with checkboxes and status icons
                     response.items.forEach((item, index) => {
                         html += `<tr class="allocated-table-row" style="border-bottom: 1px solid #e2e8f0; transition: background 0.2s;"
                             onmouseover="this.style.background='#f0f9ff'"
                             onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
-                            data-row-index="${index}">`;
+                            data-row-index="${index}">
+                            <td style="padding: 0.5rem; text-align: center;">
+                                <input type="checkbox" class="allocated-row-checkbox" data-index="${index}"
+                                    onchange="updateAllocatedSelectedCount()" style="cursor: pointer; width: 16px; height: 16px;">
+                            </td>`;
                         keys.forEach(key => {
                             const value = item[key];
                             const lowerKey = key.toLowerCase();
@@ -3273,6 +3285,35 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
+    // Toggle Select All checkbox for Allocated Lots
+    window.toggleSelectAllAllocated = function() {
+        const selectAll = document.getElementById('select-all-allocated');
+        const checkboxes = document.querySelectorAll('.allocated-row-checkbox');
+
+        checkboxes.forEach(cb => {
+            cb.checked = selectAll.checked;
+        });
+
+        updateAllocatedSelectedCount();
+    };
+
+    // Update selected count for Allocated Lots
+    window.updateAllocatedSelectedCount = function() {
+        const checkboxes = document.querySelectorAll('.allocated-row-checkbox');
+        const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
+
+        const countSpan = document.getElementById('allocated-selected-count');
+        if (countSpan) {
+            countSpan.textContent = checkedCount;
+        }
+
+        // Update select-all checkbox state
+        const selectAll = document.getElementById('select-all-allocated');
+        if (selectAll) {
+            selectAll.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
+        }
+    };
+
     window.processTransaction = function(orderNumber) {
         console.log('[Store Transactions] Process transaction for:', orderNumber);
         alert('Process Transaction functionality - To be implemented');
@@ -3280,7 +3321,180 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.setData = function(orderNumber) {
         console.log('[Store Transactions] Set data for:', orderNumber);
-        alert('Set Data functionality - To be implemented');
+
+        // Get selected rows
+        const checkboxes = document.querySelectorAll('.allocated-row-checkbox:checked');
+
+        if (checkboxes.length === 0) {
+            alert('Please select at least one record to set data');
+            return;
+        }
+
+        // Get selected items data
+        const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.index));
+        const selectedItems = selectedIndices.map(index => window.allocatedLotsData[index]);
+
+        console.log('[Store Transactions] Selected items:', selectedItems);
+
+        // Open Set Data dialog
+        openSetDataDialog(orderNumber, selectedItems);
+    };
+
+    // Open Set Data Dialog
+    function openSetDataDialog(orderNumber, selectedItems) {
+        const modalHtml = `
+            <div id="set-data-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                            <i class="fas fa-edit"></i> Set Data for Selected Records
+                        </h3>
+                        <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem;">
+                            ${selectedItems.length} record(s) selected
+                        </p>
+                    </div>
+
+                    <!-- Content -->
+                    <div style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
+                        <form id="set-data-form" style="display: grid; gap: 1rem;">
+                            <!-- Lot Number -->
+                            <div>
+                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                    Lot Number
+                                </label>
+                                <input type="text" id="set-lot-number"
+                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;"
+                                    placeholder="Enter lot number">
+                            </div>
+
+                            <!-- Lot Expiration Date -->
+                            <div>
+                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                    Lot Expiration Date
+                                </label>
+                                <input type="date" id="set-lot-exp-date"
+                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                            </div>
+
+                            <!-- Picked Qty -->
+                            <div>
+                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                    Picked Qty
+                                </label>
+                                <input type="number" id="set-picked-qty" step="0.01"
+                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;"
+                                    placeholder="Enter picked quantity">
+                            </div>
+
+                            <!-- Ship Confirm Status -->
+                            <div>
+                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                    Ship Confirm Status
+                                </label>
+                                <select id="set-ship-confirm-status"
+                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                    <option value="">-- Select --</option>
+                                    <option value="Y">Yes</option>
+                                    <option value="N">No</option>
+                                </select>
+                            </div>
+
+                            <!-- Pick Confirm Status -->
+                            <div>
+                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                    Pick Confirm Status
+                                </label>
+                                <select id="set-pick-confirm-status"
+                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                    <option value="">-- Select --</option>
+                                    <option value="Y">Yes</option>
+                                    <option value="N">No</option>
+                                </select>
+                            </div>
+
+                            <!-- Cancelled Status -->
+                            <div>
+                                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                    Cancelled Status
+                                </label>
+                                <select id="set-cancelled-status"
+                                    style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                    <option value="">-- Select --</option>
+                                    <option value="Y">Yes</option>
+                                    <option value="N">No</option>
+                                </select>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeSetDataDialog()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-primary" onclick="submitSetData('${orderNumber}', ${JSON.stringify(selectedItems).replace(/"/g, '&quot;')})">
+                            <i class="fas fa-save"></i> Set Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if any
+        const existingModal = document.getElementById('set-data-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    window.closeSetDataDialog = function() {
+        const modal = document.getElementById('set-data-modal');
+        if (modal) {
+            modal.remove();
+        }
+    };
+
+    window.submitSetData = function(orderNumber, selectedItems) {
+        console.log('[Store Transactions] Submitting set data for:', orderNumber, selectedItems);
+
+        // Get form values
+        const lotNumber = document.getElementById('set-lot-number').value.trim();
+        const lotExpDate = document.getElementById('set-lot-exp-date').value;
+        const pickedQty = document.getElementById('set-picked-qty').value;
+        const shipConfirmStatus = document.getElementById('set-ship-confirm-status').value;
+        const pickConfirmStatus = document.getElementById('set-pick-confirm-status').value;
+        const cancelledStatus = document.getElementById('set-cancelled-status').value;
+
+        // Validate at least one field is filled
+        if (!lotNumber && !lotExpDate && !pickedQty && !shipConfirmStatus && !pickConfirmStatus && !cancelledStatus) {
+            alert('Please fill at least one field to update');
+            return;
+        }
+
+        // Prepare POST data (structure will be provided by user)
+        const postData = {
+            order_number: orderNumber,
+            selected_items: selectedItems,
+            updates: {
+                lot_number: lotNumber || null,
+                lot_expiration_date: lotExpDate || null,
+                picked_qty: pickedQty ? parseFloat(pickedQty) : null,
+                ship_confirm_status: shipConfirmStatus || null,
+                pick_confirm_status: pickConfirmStatus || null,
+                cancelled_status: cancelledStatus || null
+            }
+        };
+
+        console.log('[Store Transactions] POST data:', postData);
+
+        // TODO: User will provide POST endpoint
+        alert('Set Data POST endpoint will be integrated here.\n\nData prepared:\n' + JSON.stringify(postData, null, 2));
+
+        // Close dialog
+        closeSetDataDialog();
     };
 
     window.checkFusionStatus = function(orderNumber) {
