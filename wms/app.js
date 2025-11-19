@@ -2699,27 +2699,27 @@ document.addEventListener('DOMContentLoaded', function() {
             <div id="store-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
                 <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
                     <!-- Modal Header -->
-                    <div style="padding: 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <h2 style="margin: 0; font-size: 1.5rem; color: white; font-weight: 700;">
-                                <i class="fas fa-exchange-alt"></i> Store Transactions
+                    <div style="padding: 0.75rem 1rem; border-bottom: 2px solid #e2e8f0; background: whitesmoke;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                            <h2 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
+                                <i class="fas fa-exchange-alt" style="color: #667eea;"></i> Store Transactions
                             </h2>
-                            <button onclick="closeStoreTransactionsModal()" style="background: rgba(255,255,255,0.2); border: none; font-size: 28px; cursor: pointer; color: white; padding: 0; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 6px; transition: background 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <button onclick="closeStoreTransactionsModal()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1e293b';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">
                                 ×
                             </button>
                         </div>
 
                         <!-- Header Details -->
-                        <div style="margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; padding: 1rem; background: rgba(255,255,255,0.15); border-radius: 8px;">
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Trip ID:</span><br><strong style="color: white; font-size: 0.9rem;">${tripId}</strong></div>
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Order Number:</span><br><strong style="color: white; font-size: 0.9rem;">${orderNumber}</strong></div>
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Date:</span><br><strong style="color: white; font-size: 0.9rem;">${tripDate}</strong></div>
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Account Number:</span><br><strong style="color: white; font-size: 0.9rem;">${accountNumber}</strong></div>
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Account Name:</span><br><strong style="color: white; font-size: 0.9rem;">${accountName}</strong></div>
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Picker:</span><br><strong style="color: white; font-size: 0.9rem;">${picker}</strong></div>
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Lorry:</span><br><strong style="color: white; font-size: 0.9rem;">${lorry}</strong></div>
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Priority:</span><br><strong style="color: white; font-size: 0.9rem;">${priority}</strong></div>
-                            <div><span style="color: rgba(255,255,255,0.8); font-size: 0.75rem;">Pick Confirm St:</span><br><strong style="color: white; font-size: 0.9rem;">${pickConfirmSt}</strong></div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem; padding: 0.6rem; background: white; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Trip ID:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${tripId}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Order Number:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${orderNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Date:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${tripDate}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Account Number:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${accountNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Account Name:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${accountName}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Picker:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${picker}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${lorry}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${priority}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Pick Confirm St:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${pickConfirmSt}</strong></div>
                         </div>
                     </div>
 
@@ -2827,25 +2827,33 @@ document.addEventListener('DOMContentLoaded', function() {
         const contentDiv = document.getElementById('transaction-details-content');
         contentDiv.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
 
-        try {
-            const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
-            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
+        const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
 
-            sendMessageToCSharp({
-                action: 'executeGet',
-                fullUrl: apiUrl
-            }, (response) => {
-                console.log('[Store Transactions] API Response:', response);
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            console.log('[Store Transactions] Callback - Error:', error, 'Data:', data);
+
+            if (error) {
+                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+                console.log('[Store Transactions] Parsed Response:', response);
 
                 if (response && response.items && response.items.length > 0) {
                     // Display data in a table
-                    let html = '<table style="width: 100%; border-collapse: collapse;">';
+                    let html = '<div style="overflow-x: auto;"><table style="width: 100%; border-collapse: collapse;">';
                     html += '<thead><tr style="background: #f8f9fc; border-bottom: 2px solid #e2e8f0;">';
 
                     // Get keys from first item
                     const keys = Object.keys(response.items[0]);
                     keys.forEach(key => {
-                        html += `<th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; font-size: 0.85rem;">${key.replace(/_/g, ' ')}</th>`;
+                        html += `<th style="padding: 0.75rem; text-align: left; font-weight: 600; color: #1e293b; font-size: 0.85rem; white-space: nowrap;">${key.replace(/_/g, ' ')}</th>`;
                     });
                     html += '</tr></thead><tbody>';
 
@@ -2858,7 +2866,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         html += '</tr>';
                     });
 
-                    html += '</tbody></table>';
+                    html += '</tbody></table></div>';
                     contentDiv.innerHTML = html;
 
                     // Show Fetch Lot Details button
@@ -2866,11 +2874,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else {
                     contentDiv.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No data found for this order</p>';
                 }
-            });
-        } catch (error) {
-            console.error('[Store Transactions] Error:', error);
-            contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error loading data: ${error.message}</p>`;
-        }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+            }
+        });
     };
 
     window.fetchLotDetails = function(orderNumber) {
