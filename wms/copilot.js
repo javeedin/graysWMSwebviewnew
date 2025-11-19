@@ -74,41 +74,45 @@ document.addEventListener('DOMContentLoaded', function() {
     window.copilotAction = function(action, actionName) {
         console.log('[Co-Pilot] Action:', action);
 
-        // Add to chat history
-        addChatMessage('user', actionName || action);
+        switch(action) {
+            case 'createTrip':
+                // Open the New Trip modal directly
+                openNewTripModal();
+                break;
+            case 'addToTrip':
+            case 'printOrder':
+            case 'printTrip':
+            case 'autoSchedule':
+            case 'optimizeRoute':
+                // For other actions, show in chat
+                addChatMessage('user', actionName || action);
+                switchCopilotTab('chat');
 
-        // Switch to chat tab to show response
-        switchCopilotTab('chat');
+                setTimeout(() => {
+                    let response = '';
 
-        // Simulate processing
-        setTimeout(() => {
-            let response = '';
+                    if (action === 'addToTrip') {
+                        response = '📦 To add orders to an existing trip, I need:\n\n• Trip ID\n• Order numbers to add\n\n(Full implementation coming soon)';
+                    } else if (action === 'printOrder') {
+                        response = '🖨️ I can help you print orders. Please specify:\n\n• Order numbers\n• Printer to use\n\n(Full implementation coming soon)';
+                    } else if (action === 'printTrip') {
+                        response = '📄 I can print trip documents. Please provide:\n\n• Trip ID\n• Document type (Trip Sheet / Delivery Notes / All)\n\n(Full implementation coming soon)';
+                    } else if (action === 'autoSchedule') {
+                        response = '🤖 Auto-scheduling feature will:\n\n• Analyze pending orders\n• Optimize routes\n• Assign to available lorries\n• Consider delivery priorities\n\n(Full implementation coming soon)';
+                    } else if (action === 'optimizeRoute') {
+                        response = '🗺️ Route optimization will:\n\n• Minimize travel distance\n• Reduce delivery time\n• Consider traffic patterns\n• Maximize efficiency\n\n(Full implementation coming soon)';
+                    }
 
-            switch(action) {
-                case 'createTrip':
-                    response = '🚚 I can help you create a new trip. Please provide the following details:\n\n• Trip Date\n• Lorry Number\n• Route\n• Orders to include\n\n(Full implementation coming soon)';
-                    break;
-                case 'addToTrip':
-                    response = '📦 To add orders to an existing trip, I need:\n\n• Trip ID\n• Order numbers to add\n\n(Full implementation coming soon)';
-                    break;
-                case 'printOrder':
-                    response = '🖨️ I can help you print orders. Please specify:\n\n• Order numbers\n• Printer to use\n\n(Full implementation coming soon)';
-                    break;
-                case 'printTrip':
-                    response = '📄 I can print trip documents. Please provide:\n\n• Trip ID\n• Document type (Trip Sheet / Delivery Notes / All)\n\n(Full implementation coming soon)';
-                    break;
-                case 'autoSchedule':
-                    response = '🤖 Auto-scheduling feature will:\n\n• Analyze pending orders\n• Optimize routes\n• Assign to available lorries\n• Consider delivery priorities\n\n(Full implementation coming soon)';
-                    break;
-                case 'optimizeRoute':
-                    response = '🗺️ Route optimization will:\n\n• Minimize travel distance\n• Reduce delivery time\n• Consider traffic patterns\n• Maximize efficiency\n\n(Full implementation coming soon)';
-                    break;
-                default:
-                    response = `Processing action: ${actionName || action}\n\n(Implementation coming soon)`;
-            }
-
-            addChatMessage('assistant', response);
-        }, 500);
+                    addChatMessage('assistant', response);
+                }, 500);
+                break;
+            default:
+                addChatMessage('user', actionName || action);
+                switchCopilotTab('chat');
+                setTimeout(() => {
+                    addChatMessage('assistant', `Processing action: ${actionName || action}\n\n(Implementation coming soon)`);
+                }, 500);
+        }
     };
 
     // Use prompt
@@ -213,3 +217,292 @@ document.addEventListener('DOMContentLoaded', function() {
 
     console.log('[Co-Pilot] ✅ Ready! (Press Alt+C to toggle)');
 });
+
+// ============================================================================
+// NEW TRIP MODAL FUNCTIONS
+// ============================================================================
+
+// Open New Trip Modal
+window.openNewTripModal = async function() {
+    console.log('[New Trip] Opening modal...');
+
+    const modal = document.getElementById('new-trip-modal');
+    const loading = document.getElementById('new-trip-loading');
+    const formContent = document.getElementById('new-trip-form-content');
+
+    if (!modal) {
+        console.error('[New Trip] Modal element not found');
+        return;
+    }
+
+    // Show modal with loading state
+    modal.style.display = 'flex';
+    loading.style.display = 'block';
+    formContent.style.display = 'none';
+
+    // Close copilot panel
+    const copilotPanel = document.getElementById('copilot-panel');
+    const copilotOverlay = document.getElementById('copilot-overlay');
+    if (copilotPanel) copilotPanel.classList.remove('open');
+    if (copilotOverlay) copilotOverlay.classList.remove('open');
+
+    try {
+        // Check and load vehicles and pickers
+        await loadDataForNewTrip();
+
+        // Populate form
+        populateNewTripForm();
+
+        // Hide loading, show form
+        loading.style.display = 'none';
+        formContent.style.display = 'block';
+
+        console.log('[New Trip] Modal ready');
+    } catch (error) {
+        console.error('[New Trip] Error loading data:', error);
+        alert('Error loading form data: ' + error.message);
+        closeNewTripModal();
+    }
+};
+
+// Close New Trip Modal
+window.closeNewTripModal = function() {
+    const modal = document.getElementById('new-trip-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        resetNewTripForm();
+    }
+};
+
+// Load data for new trip (vehicles and pickers)
+async function loadDataForNewTrip() {
+    const vehiclesStatus = document.getElementById('vehicles-status');
+    const pickersStatus = document.getElementById('pickers-status');
+
+    console.log('[New Trip] Checking data availability...');
+
+    // Check if vehicles data is loaded
+    const needsVehicles = !window.vehiclesData || window.vehiclesData.length === 0;
+    const needsPickers = !window.pickersData || window.pickersData.length === 0;
+
+    const promises = [];
+
+    if (needsVehicles) {
+        console.log('[New Trip] Loading vehicles...');
+        vehiclesStatus.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Loading vehicles...';
+
+        promises.push(
+            new Promise((resolve, reject) => {
+                if (typeof window.loadVehicles === 'function') {
+                    // Call loadVehicles and wait for it to complete
+                    const checkVehicles = setInterval(() => {
+                        if (window.vehiclesData && window.vehiclesData.length > 0) {
+                            clearInterval(checkVehicles);
+                            vehiclesStatus.innerHTML = '<i class="fas fa-check-circle" style="color: #28a745;"></i> Vehicles loaded (' + window.vehiclesData.length + ')';
+                            resolve();
+                        }
+                    }, 500);
+
+                    // Timeout after 10 seconds
+                    setTimeout(() => {
+                        clearInterval(checkVehicles);
+                        if (!window.vehiclesData || window.vehiclesData.length === 0) {
+                            reject(new Error('Timeout loading vehicles'));
+                        }
+                    }, 10000);
+
+                    window.loadVehicles();
+                } else {
+                    reject(new Error('loadVehicles function not available'));
+                }
+            })
+        );
+    } else {
+        console.log('[New Trip] Vehicles already loaded:', window.vehiclesData.length);
+        vehiclesStatus.innerHTML = '<i class="fas fa-check-circle" style="color: #28a745;"></i> Vehicles loaded (' + window.vehiclesData.length + ')';
+    }
+
+    if (needsPickers) {
+        console.log('[New Trip] Loading pickers...');
+        pickersStatus.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Loading pickers...';
+
+        promises.push(
+            new Promise((resolve, reject) => {
+                if (typeof window.loadPickers === 'function') {
+                    // Call loadPickers and wait for it to complete
+                    const checkPickers = setInterval(() => {
+                        if (window.pickersData && window.pickersData.length > 0) {
+                            clearInterval(checkPickers);
+                            pickersStatus.innerHTML = '<i class="fas fa-check-circle" style="color: #28a745;"></i> Pickers loaded (' + window.pickersData.length + ')';
+                            resolve();
+                        }
+                    }, 500);
+
+                    // Timeout after 10 seconds
+                    setTimeout(() => {
+                        clearInterval(checkPickers);
+                        if (!window.pickersData || window.pickersData.length === 0) {
+                            reject(new Error('Timeout loading pickers'));
+                        }
+                    }, 10000);
+
+                    window.loadPickers();
+                } else {
+                    reject(new Error('loadPickers function not available'));
+                }
+            })
+        );
+    } else {
+        console.log('[New Trip] Pickers already loaded:', window.pickersData.length);
+        pickersStatus.innerHTML = '<i class="fas fa-check-circle" style="color: #28a745;"></i> Pickers loaded (' + window.pickersData.length + ')';
+    }
+
+    // Wait for all data to load
+    if (promises.length > 0) {
+        await Promise.all(promises);
+    }
+
+    console.log('[New Trip] All data loaded');
+}
+
+// Populate New Trip Form
+function populateNewTripForm() {
+    console.log('[New Trip] Populating form...');
+
+    // Set default dates to today
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('new-trip-date').value = today;
+    document.getElementById('new-trip-cost-date').value = today;
+
+    // Populate vehicles dropdown
+    const vehicleSelect = document.getElementById('new-trip-vehicle');
+    vehicleSelect.innerHTML = '<option value="">Select Vehicle</option>';
+
+    if (window.vehiclesData && window.vehiclesData.length > 0) {
+        window.vehiclesData.forEach(vehicle => {
+            const option = document.createElement('option');
+            option.value = vehicle.lorry_number;
+            option.textContent = `${vehicle.lorry_number}${vehicle.assigned_route ? ' - ' + vehicle.assigned_route : ''}`;
+            vehicleSelect.appendChild(option);
+        });
+        console.log('[New Trip] Populated vehicles:', window.vehiclesData.length);
+    }
+
+    // Populate pickers dropdown
+    const pickerSelect = document.getElementById('new-trip-picker');
+    pickerSelect.innerHTML = '<option value="">Select Picker</option>';
+
+    if (window.pickersData && window.pickersData.length > 0) {
+        // Filter out deleted pickers
+        const activePickers = window.pickersData.filter(p => p.deleted !== 1);
+        activePickers.forEach(picker => {
+            const option = document.createElement('option');
+            option.value = picker.picker_id;
+            option.textContent = `${picker.name}${picker.picker_type ? ' (' + picker.picker_type + ')' : ''}`;
+            pickerSelect.appendChild(option);
+        });
+        console.log('[New Trip] Populated pickers:', activePickers.length);
+    }
+
+    // Populate priority dropdown (1-20)
+    const prioritySelect = document.getElementById('new-trip-priority');
+    prioritySelect.innerHTML = '<option value="">Select Priority</option>';
+    for (let i = 1; i <= 20; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = `Priority ${i}`;
+        prioritySelect.appendChild(option);
+    }
+
+    // Populate loading bay dropdown (L1-L30)
+    const loadingBaySelect = document.getElementById('new-trip-loading-bay');
+    loadingBaySelect.innerHTML = '<option value="">Select Loading Bay</option>';
+    for (let i = 1; i <= 30; i++) {
+        const option = document.createElement('option');
+        const bay = `L${i}`;
+        option.value = bay;
+        option.textContent = `Loading Bay ${bay}`;
+        loadingBaySelect.appendChild(option);
+    }
+
+    console.log('[New Trip] Form populated successfully');
+}
+
+// Reset form
+function resetNewTripForm() {
+    document.getElementById('new-trip-id').value = '';
+    document.getElementById('new-trip-date').value = '';
+    document.getElementById('new-trip-cost-date').value = '';
+    document.getElementById('new-trip-vehicle').value = '';
+    document.getElementById('new-trip-picker').value = '';
+    document.getElementById('new-trip-priority').value = '';
+    document.getElementById('new-trip-loading-bay').value = '';
+    document.getElementById('new-trip-notes').value = '';
+}
+
+// Create New Trip
+window.createNewTrip = function() {
+    console.log('[New Trip] Creating trip...');
+
+    // Get form values
+    const tripDate = document.getElementById('new-trip-date').value;
+    const costDate = document.getElementById('new-trip-cost-date').value;
+    const vehicle = document.getElementById('new-trip-vehicle').value;
+    const picker = document.getElementById('new-trip-picker').value;
+    const priority = document.getElementById('new-trip-priority').value;
+    const loadingBay = document.getElementById('new-trip-loading-bay').value;
+    const notes = document.getElementById('new-trip-notes').value;
+
+    // Validate required fields
+    if (!tripDate) {
+        alert('Please select a trip date');
+        return;
+    }
+
+    if (!costDate) {
+        alert('Please select a trip cost date');
+        return;
+    }
+
+    if (!vehicle) {
+        alert('Please select a vehicle');
+        return;
+    }
+
+    if (!picker) {
+        alert('Please select a picker');
+        return;
+    }
+
+    if (!priority) {
+        alert('Please select a priority');
+        return;
+    }
+
+    if (!loadingBay) {
+        alert('Please select a loading bay');
+        return;
+    }
+
+    // Prepare trip data
+    const tripData = {
+        trip_date: tripDate,
+        cost_date: costDate,
+        vehicle: vehicle,
+        picker: picker,
+        priority: priority,
+        loading_bay: loadingBay,
+        notes: notes
+    };
+
+    console.log('[New Trip] Trip data:', tripData);
+
+    // TODO: Call POST API to create trip
+    // For now, show success message
+    alert('Trip creation ready!\n\nTrip Data:\n' + JSON.stringify(tripData, null, 2) + '\n\n(POST API call will be implemented next)');
+
+    // Close modal
+    closeNewTripModal();
+};
+
+console.log('[Co-Pilot] ✅ New Trip functions loaded');

@@ -1276,6 +1276,100 @@
         </div>
     </div>
 
+    <!-- New Trip Modal -->
+    <div id="new-trip-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+        <div style="background: white; width: 90%; max-width: 700px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+            <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; font-size: 18px; color: #333;">
+                    <i class="fas fa-plus-circle" style="color: #667eea;"></i>
+                    Create New Trip
+                </h3>
+                <button onclick="closeNewTripModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666;">×</button>
+            </div>
+
+            <!-- Loading Status -->
+            <div id="new-trip-loading" style="display: none; padding: 2rem; text-align: center;">
+                <i class="fas fa-circle-notch fa-spin" style="font-size: 48px; color: #667eea;"></i>
+                <p style="margin-top: 1rem; color: #666; font-size: 16px;" id="loading-status-text">Preparing form...</p>
+                <div style="margin-top: 1rem;">
+                    <div id="vehicles-status" style="color: #666; font-size: 14px; margin: 5px 0;">
+                        <i class="fas fa-circle-notch fa-spin"></i> Loading vehicles...
+                    </div>
+                    <div id="pickers-status" style="color: #666; font-size: 14px; margin: 5px 0;">
+                        <i class="fas fa-circle-notch fa-spin"></i> Loading pickers...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Form Content -->
+            <div id="new-trip-form-content" style="padding: 1.5rem; max-height: 60vh; overflow-y: auto;">
+                <div class="form-group">
+                    <label for="new-trip-id">Trip ID *</label>
+                    <input type="text" id="new-trip-id" class="form-control" placeholder="Auto-generated or enter Trip ID" readonly style="background: #f5f5f5;">
+                    <small style="color: #666; font-size: 12px; margin-top: 4px; display: block;">Trip ID will be auto-generated</small>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label for="new-trip-date">Trip Date *</label>
+                        <input type="date" id="new-trip-date" class="form-control" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="new-trip-cost-date">Trip Cost Date *</label>
+                        <input type="date" id="new-trip-cost-date" class="form-control" required>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label for="new-trip-vehicle">Vehicle *</label>
+                        <select id="new-trip-vehicle" class="form-control" required>
+                            <option value="">Select Vehicle</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="new-trip-picker">Picker *</label>
+                        <select id="new-trip-picker" class="form-control" required>
+                            <option value="">Select Picker</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                    <div class="form-group">
+                        <label for="new-trip-priority">Priority *</label>
+                        <select id="new-trip-priority" class="form-control" required>
+                            <option value="">Select Priority</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="new-trip-loading-bay">Loading Bay *</label>
+                        <select id="new-trip-loading-bay" class="form-control" required>
+                            <option value="">Select Loading Bay</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="new-trip-notes">Notes (Optional)</label>
+                    <textarea id="new-trip-notes" class="form-control" rows="3" placeholder="Enter any additional notes or instructions..."></textarea>
+                </div>
+            </div>
+
+            <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button class="btn btn-secondary" onclick="closeNewTripModal()">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button class="btn btn-primary" onclick="createNewTrip()" id="create-trip-btn">
+                    <i class="fas fa-plus-circle"></i> Create Trip
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- WMS Co-Pilot -->
     <div id="copilot-fab" class="copilot-fab" onclick="toggleCopilot()" title="WMS Co-Pilot (Alt+C)">
         <i class="fas fa-robot"></i>
