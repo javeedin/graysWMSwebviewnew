@@ -16,6 +16,16 @@ const PENDING_ORDERS_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1
 const ADD_TO_TRIP_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/addtotrip'; // To be provided
 
 // ============================================================================
+// HELPER FUNCTION FOR TRIP MANAGEMENT
+// ============================================================================
+
+// Allow Trip Management to set trip data before opening Add Orders modal
+window.setTripDetailsDataForModal = function(tripData) {
+    console.log('[Trip Details] Setting trip data for modal:', tripData);
+    tripDetailsData = tripData;
+};
+
+// ============================================================================
 // OPEN TRIP DETAILS PAGE
 // ============================================================================
 
@@ -519,6 +529,11 @@ window.addSelectedOrdersToTrip = async function() {
 
                             // Reload pending orders to update "added_to_trip" status
                             loadPendingOrders();
+
+                            // Refresh Trip Management grid if function exists
+                            if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
+                                window.refreshTripManagementAfterAddOrders(tripDetailsData.trip_id);
+                            }
                         } else {
                             alert('Error adding orders:\n' + (response.error || 'Unknown error'));
                         }
@@ -558,6 +573,11 @@ window.addSelectedOrdersToTrip = async function() {
 
                 // Reload pending orders
                 loadPendingOrders();
+
+                // Refresh Trip Management grid if function exists
+                if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
+                    window.refreshTripManagementAfterAddOrders(tripDetailsData.trip_id);
+                }
             } else {
                 console.error('[Trip Details] Error response:', result);
                 alert('Error adding orders:\n' + (result.error || 'Unknown error'));

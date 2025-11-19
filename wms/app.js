@@ -2312,8 +2312,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h3 style="font-size: 0.85rem; font-weight: 600; margin: 0; color: var(--gray-800);">
                             <i class="fas fa-table" style="font-size: 0.75rem;"></i> Order Details
                         </h3>
-                        <div style="color: var(--gray-600); font-size: 0.7rem;">
-                            <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
+                        <div style="display: flex; gap: 0.75rem; align-items: center;">
+                            <div style="color: var(--gray-600); font-size: 0.7rem;">
+                                <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
+                            </div>
+                            <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-plus"></i> Add Orders
+                            </button>
                         </div>
                     </div>
                     <div id="grid-${tabId}" style="height: 500px;"></div>
@@ -2414,17 +2419,79 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.closeTripTab = function(tabId, event) {
         event.stopPropagation();
-        
+
         const tabItem = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
         const tabPane = document.getElementById(`trip-${tabId}-tab`);
-        
+
         const wasActive = tabItem && tabItem.classList.contains('active');
-        
+
         if (tabItem) tabItem.remove();
         if (tabPane) tabPane.remove();
-        
+
         if (wasActive) {
             activateTripTab('all-trips');
+        }
+    };
+
+    // Open Add Orders modal for a trip from Trip Management
+    window.openAddOrdersModalForTrip = function(tripId) {
+        console.log('[Trip Management] Opening Add Orders modal for trip:', tripId);
+
+        // Check if trip-details.js functions are available
+        if (typeof window.openAddOrdersModal !== 'function') {
+            alert('Add Orders functionality not available. Please refresh the page.');
+            return;
+        }
+
+        // Find trip data from currentFullData
+        const tripRecords = currentFullData.filter(trip => {
+            const tripIdLower = (trip.trip_id || '').toString().toLowerCase();
+            const tripIdUpper = (trip.TRIP_ID || '').toString().toLowerCase();
+            const searchId = tripId.toString().toLowerCase();
+            return tripIdLower === searchId || tripIdUpper === searchId;
+        });
+
+        if (tripRecords.length === 0) {
+            alert('Trip data not found. Please try again.');
+            return;
+        }
+
+        const firstRecord = tripRecords[0];
+
+        // Set trip details data for trip-details.js to use
+        if (typeof window.setTripDetailsDataForModal === 'function') {
+            window.setTripDetailsDataForModal({
+                trip_id: tripId,
+                trip_date: firstRecord.TRIP_DATE || firstRecord.trip_date,
+                trip_lorry: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
+                trip_loading_bay: firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay,
+                trip_priority: firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY,
+                vehicle: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
+                status: firstRecord.TRIP_STATUS || firstRecord.trip_status || 'ACTIVE'
+            });
+        }
+
+        // Open the modal
+        window.openAddOrdersModal();
+    };
+
+    // Refresh Trip Management grid after adding orders
+    window.refreshTripManagementAfterAddOrders = function(tripId) {
+        console.log('[Trip Management] Refreshing grid after adding orders to trip:', tripId);
+
+        const tabId = 'trip-detail-' + tripId;
+        const gridContainer = $(`#grid-${tabId}`);
+
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Trip Management] Grid not found, might be on Co-Pilot page');
+            return;
+        }
+
+        // Get the grid instance
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        if (gridInstance) {
+            console.log('[Trip Management] Reloading grid data...');
+            gridInstance.refresh();
         }
     };
 
