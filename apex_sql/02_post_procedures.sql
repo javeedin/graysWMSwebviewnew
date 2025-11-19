@@ -375,6 +375,106 @@ END wms_bulk_update_jobs;
 
 
 -- ========================================
+-- PROCEDURE 6: ASSIGN PICKER TO ORDERS
+-- ========================================
+CREATE OR REPLACE PROCEDURE wms_assign_picker (
+    p_orders_json       IN CLOB,  -- JSON array of orders to assign
+    p_result            OUT VARCHAR2,
+    p_orders_assigned   OUT NUMBER
+) AS
+    v_order_count       NUMBER := 0;
+    v_instance_type     VARCHAR2(50);
+BEGIN
+    -- Get instance type (TEST, PROD, etc.)
+    BEGIN
+        SELECT value INTO v_instance_type
+        FROM apex_application_items
+        WHERE application_id = 100
+          AND item_name = 'INSTANCETYPE';
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            v_instance_type := 'TEST';  -- Default value
+    END;
+
+    -- Parse JSON and process picker assignments
+    FOR order_rec IN (
+        SELECT
+            jt.order_number,
+            jt.account_number,
+            jt.account_name,
+            jt.picker_name,
+            jt.loading_bay,
+            jt.order_type_code,
+            TO_DATE(jt.assignment_date, 'YYYY-MM-DD') AS assignment_date,
+            jt.pickslip,
+            jt.pickwave
+        FROM JSON_TABLE(
+            p_orders_json, '$[*]'
+            COLUMNS (
+                order_number        VARCHAR2(50)  PATH '$.orderNumber',
+                account_number      VARCHAR2(50)  PATH '$.accountNumber',
+                account_name        VARCHAR2(200) PATH '$.accountName',
+                picker_name         VARCHAR2(100) PATH '$.pickerName',
+                loading_bay         VARCHAR2(50)  PATH '$.loadingBay',
+                order_type_code     VARCHAR2(50)  PATH '$.orderTypeCode',
+                assignment_date     VARCHAR2(20)  PATH '$.assignmentDate',
+                pickslip            VARCHAR2(50)  PATH '$.pickslip',
+                pickwave            VARCHAR2(50)  PATH '$.pickwave'
+            )
+        ) jt
+    ) LOOP
+        -- Delete existing assignment for this order
+        DELETE FROM WMS_PICKER_ASSIGNMENT
+        WHERE TRIM(SOURCE_ORDER_NUMBER) = RTRIM(LTRIM(TRIM(order_rec.order_number)));
+
+        -- Insert new picker assignment
+        INSERT INTO WMS_PICKER_ASSIGNMENT (
+            SOURCE_ORDER_NUMBER,
+            ACCOUNT_NUMBER,
+            ACCOUNT_NAME,
+            PICKER_NAME,
+            LOADING_BAY,
+            INSTANCE,
+            ORDER_TYPE_CODE,
+            PICKER_ASSIGNMENT_DATE,
+            PICKSLIP,
+            PICKWAVE
+        ) VALUES (
+            order_rec.order_number,
+            NVL(order_rec.account_number, ''),
+            NVL(order_rec.account_name, ''),
+            order_rec.picker_name,
+            NVL(order_rec.loading_bay, ''),
+            v_instance_type,
+            NVL(order_rec.order_type_code, ''),
+            order_rec.assignment_date,
+            NVL(order_rec.pickslip, ''),
+            NVL(order_rec.pickwave, '')
+        );
+
+        -- Update picker in open picks table
+        UPDATE WMS_OPEN_PICKS_RELEASED_2_WAREHOUSE
+        SET picker_name = order_rec.picker_name
+        WHERE SOURCE_ORDER_NUMBER = order_rec.order_number;
+
+        v_order_count := v_order_count + 1;
+    END LOOP;
+
+    COMMIT;
+
+    p_result := 'SUCCESS';
+    p_orders_assigned := v_order_count;
+
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        p_result := 'ERROR: ' || SQLERRM;
+        p_orders_assigned := 0;
+END wms_assign_picker;
+/
+
+
+-- ========================================
 -- SHOW COMPILATION ERRORS
 -- ========================================
 SHOW ERRORS;

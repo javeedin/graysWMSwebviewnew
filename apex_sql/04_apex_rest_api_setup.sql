@@ -455,6 +455,47 @@ BEGIN
 END;
 
 
+/*
+═══════════════════════════════════════════════════════════════
+ENDPOINT 12: POST ASSIGN PICKER TO ORDERS
+═══════════════════════════════════════════════════════════════
+URI Template:   /picker/assign
+HTTP Method:    POST
+Source Type:    PL/SQL
+Source:
+*/
+DECLARE
+    v_body              CLOB;
+    v_result            VARCHAR2(100);
+    v_orders_assigned   NUMBER;
+    v_orders_json       CLOB;
+BEGIN
+    v_body := :body_text;
+
+    -- Parse JSON
+    APEX_JSON.parse(v_body);
+
+    -- Extract orders array as JSON string
+    v_orders_json := APEX_JSON.get_clob('orders');
+
+    -- Call procedure
+    wms_assign_picker(
+        p_orders_json => v_orders_json,
+        p_result => v_result,
+        p_orders_assigned => v_orders_assigned
+    );
+
+    -- Return JSON response
+    :status_code := CASE WHEN v_result = 'SUCCESS' THEN 200 ELSE 500 END;
+
+    HTP.p('{');
+    HTP.p('"success": ' || CASE WHEN v_result = 'SUCCESS' THEN 'true' ELSE 'false' END || ',');
+    HTP.p('"message": "' || v_result || '",');
+    HTP.p('"ordersAssigned": ' || NVL(TO_CHAR(v_orders_assigned), '0'));
+    HTP.p('}');
+END;
+
+
 -- ========================================
 -- SIMPLIFIED APEX REST MODULE SETUP
 -- ========================================
