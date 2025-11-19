@@ -581,7 +581,112 @@
                     <div id="pickers-grid" style="height: 600px;"></div>
                 </div>
             </div>
-            
+
+            <!-- Trip Details Management Page -->
+            <div id="trip-details-management" class="page-content" style="display: none;">
+                <!-- Trip Header Card -->
+                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h2 style="margin: 0 0 0.5rem 0; font-size: 24px;">
+                                <i class="fas fa-truck"></i> Trip Details
+                            </h2>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
+                                <div>
+                                    <div style="opacity: 0.9; font-size: 12px; margin-bottom: 4px;">Trip ID</div>
+                                    <div id="trip-detail-id" style="font-size: 18px; font-weight: 700;">-</div>
+                                </div>
+                                <div>
+                                    <div style="opacity: 0.9; font-size: 12px; margin-bottom: 4px;">Trip Date</div>
+                                    <div id="trip-detail-date" style="font-size: 18px; font-weight: 700;">-</div>
+                                </div>
+                                <div>
+                                    <div style="opacity: 0.9; font-size: 12px; margin-bottom: 4px;">Vehicle</div>
+                                    <div id="trip-detail-vehicle" style="font-size: 18px; font-weight: 700;">-</div>
+                                </div>
+                                <div>
+                                    <div style="opacity: 0.9; font-size: 12px; margin-bottom: 4px;">Loading Bay</div>
+                                    <div id="trip-detail-loading-bay" style="font-size: 18px; font-weight: 700;">-</div>
+                                </div>
+                                <div>
+                                    <div style="opacity: 0.9; font-size: 12px; margin-bottom: 4px;">Priority</div>
+                                    <div id="trip-detail-priority" style="font-size: 18px; font-weight: 700;">-</div>
+                                </div>
+                                <div>
+                                    <div style="opacity: 0.9; font-size: 12px; margin-bottom: 4px;">Status</div>
+                                    <div id="trip-detail-status" style="font-size: 18px; font-weight: 700;">DRAFT</div>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn" onclick="goBackToTripManagement()" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3);">
+                            <i class="fas fa-arrow-left"></i> Back to Trips
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Orders Section -->
+                <div class="grid-container">
+                    <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="grid-title">Trip Orders</div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <div id="trip-orders-count" style="color: #666; font-size: 14px; margin-right: 1rem;">0 orders</div>
+                            <button class="btn btn-primary" onclick="openAddOrdersModal()">
+                                <i class="fas fa-plus"></i> Add Orders
+                            </button>
+                        </div>
+                    </div>
+                    <div id="trip-orders-grid" style="height: 500px;"></div>
+                </div>
+            </div>
+
+            <!-- Add Orders Modal -->
+            <div id="add-orders-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 1200px; height: 90%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+                    <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 18px; color: #333;">
+                            <i class="fas fa-box" style="color: #667eea;"></i>
+                            Select Orders to Add to Trip
+                        </h3>
+                        <button onclick="closeAddOrdersModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666;">×</button>
+                    </div>
+
+                    <!-- Search and Filter -->
+                    <div style="padding: 1rem 1.5rem; background: #f8f9fa; border-bottom: 2px solid #f0f0f0;">
+                        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <div class="form-group" style="margin: 0; flex: 1; min-width: 200px;">
+                                <input type="text" id="orders-search" class="form-control" placeholder="Search orders...">
+                            </div>
+                            <button class="btn btn-secondary" onclick="loadPendingOrders()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                            <div style="color: #666; font-size: 14px;">
+                                <span id="pending-orders-count">0</span> pending orders
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Orders Grid -->
+                    <div style="flex: 1; overflow: hidden; padding: 1.5rem;">
+                        <div id="pending-orders-grid" style="height: 100%;"></div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="color: #666; font-size: 14px;">
+                            Selected: <span id="selected-orders-count" style="font-weight: 700; color: #667eea;">0</span> orders
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary" onclick="closeAddOrdersModal()">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button class="btn btn-primary" onclick="addSelectedOrdersToTrip()" id="add-orders-to-trip-btn">
+                                <i class="fas fa-plus-circle"></i> Add to Trip
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
       <!-- ============================================================ -->
 <!-- REPLACE THE ENTIRE <div id="monitor-printing"> SECTION -->
 <!-- ============================================================ -->
@@ -1527,6 +1632,7 @@
         document.write('<script src="copilot.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="vehicles.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="pickers.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="trip-details.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </body>
 </html>

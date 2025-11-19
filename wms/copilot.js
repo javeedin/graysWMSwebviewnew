@@ -526,8 +526,25 @@ window.createNewTrip = async function() {
                         console.log('[New Trip] Trip created successfully:', response);
 
                         if (response.success) {
-                            alert('✅ Trip created successfully!\n\nTrip Date: ' + response.trip_date + '\nVehicle: ' + response.trip_lorry);
+                            console.log('[New Trip] Trip created, navigating to trip details...');
                             closeNewTripModal();
+
+                            // Navigate to trip details page
+                            if (typeof window.openTripDetailsPage === 'function') {
+                                // Prepare trip data for details page
+                                const tripData = {
+                                    trip_id: response.trip_id,
+                                    trip_date: response.trip_date,
+                                    trip_lorry: response.trip_lorry,
+                                    trip_loading_bay: tripData.loading_bay,
+                                    trip_priority: tripData.priority,
+                                    vehicle: response.trip_lorry,
+                                    status: 'DRAFT'
+                                };
+                                window.openTripDetailsPage(tripData);
+                            } else {
+                                alert('✅ Trip created successfully!\n\nTrip Date: ' + response.trip_date + '\nVehicle: ' + response.trip_lorry);
+                            }
 
                             // Optionally refresh trips grid if on trip management page
                             if (typeof window.fetchTrips === 'function') {
@@ -558,9 +575,25 @@ window.createNewTrip = async function() {
             createBtn.innerHTML = originalBtnText;
 
             if (response.ok && result.success) {
-                console.log('[New Trip] Trip created successfully:', result);
-                alert('✅ Trip created successfully!\n\nTrip Date: ' + result.trip_date + '\nVehicle: ' + result.trip_lorry);
+                console.log('[New Trip] Trip created, navigating to trip details...');
                 closeNewTripModal();
+
+                // Navigate to trip details page
+                if (typeof window.openTripDetailsPage === 'function') {
+                    // Prepare trip data for details page
+                    const tripDataForPage = {
+                        trip_id: result.trip_id,
+                        trip_date: result.trip_date,
+                        trip_lorry: result.trip_lorry,
+                        trip_loading_bay: tripData.loading_bay,
+                        trip_priority: tripData.priority,
+                        vehicle: result.trip_lorry,
+                        status: 'DRAFT'
+                    };
+                    window.openTripDetailsPage(tripDataForPage);
+                } else {
+                    alert('✅ Trip created successfully!\n\nTrip Date: ' + result.trip_date + '\nVehicle: ' + result.trip_lorry);
+                }
 
                 // Optionally refresh trips grid
                 if (typeof window.fetchTrips === 'function') {
