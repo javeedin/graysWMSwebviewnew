@@ -1273,10 +1273,10 @@ input:checked + .toggle-slider:before {
         flex: 1 1 auto;
         min-width: 150px;
     }
-    
+
     #pdf-preview-modal > div {
         width: 95%;
         height: 95%;
     }
 }
-</style>
+

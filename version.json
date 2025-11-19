@@ -1,0 +1,11 @@
+{
+    "version":  "1.1.7",
+    "build_date":  "2025-11-19",
+    "files":  {
+                  "index.html":  "2025-11-19T01:01:07Z",
+                  "app.js":  "2025-11-19T01:01:07Z",
+                  "monitor-printing.js":  "2025-11-19T01:01:07Z",
+                  "styles.css":  "2025-11-19T01:01:07Z"
+              },
+    "changelog":  "UI improvements: Reduced sizes, removed page titles, tab beautification"
+}

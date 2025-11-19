@@ -1,0 +1,108 @@
+================================================================================
+APEX REST API - PRINTER CONFIG ENDPOINT - QUICK REFERENCE
+================================================================================
+
+SETUP IN APEX (5 STEPS)
+================================================================================
+
+1. SQL Workshop → RESTful Services → Create Module
+
+   Module Name:  wms_api
+   Base Path:    /wms/v1/
+
+
+2. Click module → Create Template
+
+   URI Template:  config/printer
+
+
+3. Click template → Create Handler
+
+   Method:        GET
+   Source Type:   PL/SQL
+
+
+4. Paste this code in Source:
+
+   BEGIN
+       wms_get_printer_config(p_cursor => :cursor);
+   END;
+
+
+5. Set Pagination Size: 25
+
+   Click Create Handler
+
+
+TEST IN APEX
+================================================================================
+
+Click Test button → Should see JSON output
+
+
+TEST IN BROWSER
+================================================================================
+
+Open browser and go to:
+https://YOUR-APEX-URL/ords/workspace/wms/v1/config/printer
+
+
+TEST WITH CURL
+================================================================================
+
+curl "https://YOUR-APEX-URL/ords/workspace/wms/v1/config/printer"
+
+
+EXPECTED OUTPUT
+================================================================================
+
+{
+  "items": [
+    {
+      "config_id": 1,
+      "printer_name": "Microsoft Print to PDF",
+      "fusion_instance": "TEST",
+      "fusion_username": "shaik",
+      "auto_download": "Y",
+      "auto_print": "Y",
+      "is_active": "Y"
+    }
+  ],
+  "hasMore": false,
+  "limit": 25,
+  "offset": 0,
+  "count": 1
+}
+
+
+TROUBLESHOOTING
+================================================================================
+
+ERROR: Procedure doesn't exist
+RUN: @03_get_procedures.sql
+
+ERROR: Table doesn't exist
+RUN: @01_create_tables.sql
+
+ERROR: Empty items array
+RUN: @05_test_data.sql
+
+ERROR: Can't find RESTful Services
+GO TO: SQL Workshop → Utilities → RESTful Services
+
+
+VERIFICATION QUERIES
+================================================================================
+
+-- Check procedure exists
+SELECT object_name FROM user_objects WHERE object_name = 'WMS_GET_PRINTER_CONFIG';
+
+-- Check table exists
+SELECT table_name FROM user_tables WHERE table_name = 'WMS_PRINTER_CONFIG';
+
+-- Check data exists
+SELECT COUNT(*) FROM wms_printer_config WHERE is_active = 'Y';
+
+
+THAT'S IT!
+================================================================================
