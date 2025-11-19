@@ -3357,24 +3357,35 @@ document.addEventListener('DOMContentLoaded', function() {
         let modalHtml = '';
 
         if (isSingleSelection) {
-            // Single selection mode - Form with dropdown
+            // Single selection mode - Form with input + datalist
             const item = selectedItems[0];
-            const itemNumber = item.ITEM_NUMBER || item.item_number || '';
+            const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || '';
+
+            console.log('[Set Data] Single selection - Item:', itemNumber);
 
             // Get available lots for this item from QOH data
             const availableLots = window.qohData ? window.qohData.filter(qoh => {
                 const qohItem = qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
-                return qohItem === itemNumber;
+                const match = qohItem === itemNumber || qohItem.trim() === itemNumber.trim();
+                return match;
             }) : [];
 
-            console.log('[Set Data] Available lots for item', itemNumber, ':', availableLots);
+            console.log('[Set Data] Single selection - Found', availableLots.length, 'lots:', availableLots);
 
-            let lotOptions = '<option value="">-- Select Lot Number --</option>';
+            // Build datalist options
+            let lotDatalistOptions = '';
+            const singleLotExpirationMap = {};
             availableLots.forEach(lot => {
-                const lotNum = lot.LOT_NUMBER || lot.lot_number || '';
-                const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || '';
-                lotOptions += `<option value="${lotNum}" data-expiration="${lotExp}">${lotNum}</option>`;
+                const lotNum = lot.LOT_NUMBER || lot.lot_number || lot.LOT || lot.lot || '';
+                const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || lot.EXPIRE_DATE || lot.expire_date || '';
+                if (lotNum) {
+                    lotDatalistOptions += `<option value="${lotNum}">`;
+                    singleLotExpirationMap[lotNum] = lotExp;
+                }
             });
+
+            // Store expiration map globally
+            window.singleLotExpirationMap = singleLotExpirationMap;
 
             modalHtml = `
                 <div id="set-data-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
@@ -3384,7 +3395,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <i class="fas fa-edit"></i> Set Data for Item
                             </h3>
                             <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem;">
-                                Item: ${itemNumber}
+                                Item: ${itemNumber} | ${availableLots.length} lot(s) available
                             </p>
                         </div>
 
@@ -3394,10 +3405,13 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
                                         Lot Number
                                     </label>
-                                    <select id="set-lot-number" onchange="onLotNumberChange()"
+                                    <input type="text" list="single-lot-datalist" id="set-lot-number"
+                                        onchange="onLotNumberChangeInput()" oninput="onLotNumberChangeInput()"
+                                        placeholder="Type or select lot number"
                                         style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
-                                        ${lotOptions}
-                                    </select>
+                                    <datalist id="single-lot-datalist">
+                                        ${lotDatalistOptions}
+                                    </datalist>
                                 </div>
 
                                 <div>
@@ -3470,31 +3484,51 @@ document.addEventListener('DOMContentLoaded', function() {
             // Multiple selection mode - Grid view
             let gridRows = '';
             selectedItems.forEach((item, index) => {
-                const itemNumber = item.ITEM_NUMBER || item.item_number || '';
-                const lineNumber = item.LINE_NUMBER || item.line_number || index + 1;
+                const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || '';
+                const lineNumber = item.LINE_NUMBER || item.line_number || item.LINE || item.line || index + 1;
+
+                console.log(`[Set Data] Row ${index} - Item: ${itemNumber}`);
 
                 // Get available lots for this item
                 const availableLots = window.qohData ? window.qohData.filter(qoh => {
                     const qohItem = qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
-                    return qohItem === itemNumber;
+                    const match = qohItem === itemNumber || qohItem.trim() === itemNumber.trim();
+                    return match;
                 }) : [];
 
-                let lotOptions = '<option value="">-- Select --</option>';
+                console.log(`[Set Data] Row ${index} - Found ${availableLots.length} lots:`, availableLots);
+
+                // Build datalist options for autocomplete
+                let lotDatalistId = `lot-datalist-${index}`;
+                let lotDatalistOptions = '';
+                const lotExpirationMap = {};
+
                 availableLots.forEach(lot => {
-                    const lotNum = lot.LOT_NUMBER || lot.lot_number || '';
-                    const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || '';
-                    lotOptions += `<option value="${lotNum}" data-expiration="${lotExp}">${lotNum}</option>`;
+                    const lotNum = lot.LOT_NUMBER || lot.lot_number || lot.LOT || lot.lot || '';
+                    const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || lot.EXPIRE_DATE || lot.expire_date || '';
+                    if (lotNum) {
+                        lotDatalistOptions += `<option value="${lotNum}">`;
+                        lotExpirationMap[lotNum] = lotExp;
+                    }
                 });
+
+                // Store expiration map globally for this row
+                if (!window.lotExpirationMaps) window.lotExpirationMaps = {};
+                window.lotExpirationMaps[index] = lotExpirationMap;
 
                 gridRows += `
                     <tr style="border-bottom: 1px solid #e2e8f0;">
                         <td style="padding: 0.5rem; font-size: 0.75rem; white-space: nowrap;">${lineNumber}</td>
                         <td style="padding: 0.5rem; font-size: 0.75rem; white-space: nowrap;">${itemNumber}</td>
                         <td style="padding: 0.5rem;">
-                            <select class="grid-lot-number" data-row="${index}" onchange="onGridLotChange(${index})"
+                            <input type="text" list="${lotDatalistId}" class="grid-lot-number" data-row="${index}"
+                                onchange="onGridLotChangeInput(${index})" oninput="onGridLotChangeInput(${index})"
+                                placeholder="Type or select lot"
                                 style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
-                                ${lotOptions}
-                            </select>
+                            <datalist id="${lotDatalistId}">
+                                ${lotDatalistOptions}
+                            </datalist>
+                            <small style="color: #64748b; font-size: 0.65rem;">${availableLots.length} lot(s) available</small>
                         </td>
                         <td style="padding: 0.5rem;">
                             <input type="date" class="grid-lot-exp" data-row="${index}" readonly
@@ -3635,37 +3669,56 @@ document.addEventListener('DOMContentLoaded', function() {
         closeSetDataDialog();
     };
 
-    // Handle lot number change for single selection
-    window.onLotNumberChange = function() {
-        const lotSelect = document.getElementById('set-lot-number');
+    // Handle lot number change for single selection (input field with datalist)
+    window.onLotNumberChangeInput = function() {
+        const lotInput = document.getElementById('set-lot-number');
         const expDateInput = document.getElementById('set-lot-exp-date');
 
-        const selectedOption = lotSelect.options[lotSelect.selectedIndex];
-        const expiration = selectedOption.getAttribute('data-expiration');
+        const lotNumber = lotInput.value.trim();
 
-        if (expiration) {
-            // Format date for input field (YYYY-MM-DD)
-            const formattedDate = expiration.split('T')[0]; // Handle ISO date format
-            expDateInput.value = formattedDate;
+        // Check if this lot number has an expiration date in our map
+        if (window.singleLotExpirationMap && window.singleLotExpirationMap[lotNumber]) {
+            const expiration = window.singleLotExpirationMap[lotNumber];
+            if (expiration) {
+                const formattedDate = expiration.split('T')[0]; // Handle ISO date format
+                expDateInput.value = formattedDate;
+            } else {
+                expDateInput.value = '';
+            }
         } else {
             expDateInput.value = '';
         }
     };
 
-    // Handle lot number change for grid rows
-    window.onGridLotChange = function(rowIndex) {
-        const lotSelect = document.querySelector(`.grid-lot-number[data-row="${rowIndex}"]`);
+    // Keep old function for backward compatibility
+    window.onLotNumberChange = function() {
+        onLotNumberChangeInput();
+    };
+
+    // Handle lot number change for grid rows (input field with datalist)
+    window.onGridLotChangeInput = function(rowIndex) {
+        const lotInput = document.querySelector(`.grid-lot-number[data-row="${rowIndex}"]`);
         const expDateInput = document.querySelector(`.grid-lot-exp[data-row="${rowIndex}"]`);
 
-        const selectedOption = lotSelect.options[lotSelect.selectedIndex];
-        const expiration = selectedOption.getAttribute('data-expiration');
+        const lotNumber = lotInput.value.trim();
 
-        if (expiration) {
-            const formattedDate = expiration.split('T')[0];
-            expDateInput.value = formattedDate;
+        // Check if this lot number has an expiration date in our map
+        if (window.lotExpirationMaps && window.lotExpirationMaps[rowIndex]) {
+            const expiration = window.lotExpirationMaps[rowIndex][lotNumber];
+            if (expiration) {
+                const formattedDate = expiration.split('T')[0];
+                expDateInput.value = formattedDate;
+            } else {
+                expDateInput.value = '';
+            }
         } else {
             expDateInput.value = '';
         }
+    };
+
+    // Keep old function for backward compatibility
+    window.onGridLotChange = function(rowIndex) {
+        onGridLotChangeInput(rowIndex);
     };
 
     // Submit grid data for multiple selections
