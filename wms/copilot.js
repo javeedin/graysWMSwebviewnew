@@ -441,7 +441,7 @@ function resetNewTripForm() {
 }
 
 // Create New Trip
-window.createNewTrip = function() {
+window.createNewTrip = async function() {
     console.log('[New Trip] Creating trip...');
 
     // Get form values
@@ -489,20 +489,94 @@ window.createNewTrip = function() {
         trip_date: tripDate,
         cost_date: costDate,
         vehicle: vehicle,
-        picker: picker,
-        priority: priority,
+        picker: parseInt(picker),
+        priority: parseInt(priority),
         loading_bay: loadingBay,
-        notes: notes
+        notes: notes || ''
     };
 
     console.log('[New Trip] Trip data:', tripData);
 
-    // TODO: Call POST API to create trip
-    // For now, show success message
-    alert('Trip creation ready!\n\nTrip Data:\n' + JSON.stringify(tripData, null, 2) + '\n\n(POST API call will be implemented next)');
+    // Disable create button and show loading
+    const createBtn = document.getElementById('create-trip-btn');
+    const originalBtnText = createBtn.innerHTML;
+    createBtn.disabled = true;
+    createBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Creating...';
 
-    // Close modal
-    closeNewTripModal();
+    try {
+        // Call POST API to create trip
+        const CREATE_TRIP_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/create';
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use sendMessageToCSharp for POST
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: CREATE_TRIP_API,
+                body: JSON.stringify(tripData)
+            }, function(error, data) {
+                createBtn.disabled = false;
+                createBtn.innerHTML = originalBtnText;
+
+                if (error) {
+                    console.error('[New Trip] Error creating trip:', error);
+                    alert('Error creating trip:\n' + error);
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[New Trip] Trip created successfully:', response);
+
+                        if (response.success) {
+                            alert('✅ Trip created successfully!\n\nTrip Date: ' + response.trip_date + '\nVehicle: ' + response.trip_lorry);
+                            closeNewTripModal();
+
+                            // Optionally refresh trips grid if on trip management page
+                            if (typeof window.fetchTrips === 'function') {
+                                window.fetchTrips();
+                            }
+                        } else {
+                            alert('Error creating trip:\n' + (response.error || 'Unknown error'));
+                        }
+                    } catch (parseError) {
+                        console.error('[New Trip] Error parsing response:', parseError);
+                        alert('Error processing response: ' + parseError.message);
+                    }
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            const response = await fetch(CREATE_TRIP_API, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(tripData)
+            });
+
+            const result = await response.json();
+
+            createBtn.disabled = false;
+            createBtn.innerHTML = originalBtnText;
+
+            if (response.ok && result.success) {
+                console.log('[New Trip] Trip created successfully:', result);
+                alert('✅ Trip created successfully!\n\nTrip Date: ' + result.trip_date + '\nVehicle: ' + result.trip_lorry);
+                closeNewTripModal();
+
+                // Optionally refresh trips grid
+                if (typeof window.fetchTrips === 'function') {
+                    window.fetchTrips();
+                }
+            } else {
+                console.error('[New Trip] Error response:', result);
+                alert('Error creating trip:\n' + (result.error || 'Unknown error'));
+            }
+        }
+    } catch (error) {
+        console.error('[New Trip] Exception creating trip:', error);
+        createBtn.disabled = false;
+        createBtn.innerHTML = originalBtnText;
+        alert('Error creating trip:\n' + error.message);
+    }
 };
 
 console.log('[Co-Pilot] ✅ New Trip functions loaded');
