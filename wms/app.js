@@ -2833,8 +2833,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Submit Assign Picker (to be connected to webservice)
-    window.submitAssignPicker = function(tripId, selectedOrders) {
+    // Submit Assign Picker (POST to API)
+    window.submitAssignPicker = async function(tripId, selectedOrders) {
         const pickerSelect = document.getElementById('assign-picker-select');
         const pickerId = pickerSelect.value;
 
@@ -2849,11 +2849,99 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Assign Picker] To orders:', selectedOrders);
         console.log('[Assign Picker] Trip ID:', tripId);
 
-        // TODO: Call webservice to assign picker
-        alert(`Assign Picker webservice integration pending.\n\nPicker: ${pickerName}\nOrders: ${selectedOrders.length}`);
+        // Get instance from toolbar
+        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+        console.log('[Assign Picker] Instance:', instance);
 
-        // Close dialog
-        closeAssignPickerDialog();
+        // Get current date for assignment
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
+        // Build orders array for API
+        const orders = selectedOrders.map(order => ({
+            orderNumber: order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || '',
+            accountNumber: order.ACCOUNT_NUMBER || order.account_number || '',
+            accountName: order.ACCOUNT_NAME || order.account_name || order.CUSTOMER_NAME || order.customer_name || '',
+            pickerName: pickerName,
+            loadingBay: order.LOADING_BAY || order.loading_bay || '',
+            orderTypeCode: order.ORDER_TYPE_CODE || order.order_type_code || order.ORDER_TYPE || order.order_type || '',
+            assignmentDate: today,
+            pickslip: order.PICKSLIP || order.pickslip || '',
+            pickwave: order.PICKWAVE || order.pickwave || '',
+            instance: instance
+        }));
+
+        const payload = { orders };
+
+        console.log('[Assign Picker] Payload:', payload);
+
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'assign-picker-loading';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #667eea; margin-bottom: 1rem;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Assigning Picker...</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">Processing ${orders.length} order(s)</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
+
+        try {
+            const response = await fetch('https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/pickerassignment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            });
+
+            const result = await response.json();
+
+            // Remove loading indicator
+            const loading = document.getElementById('assign-picker-loading');
+            if (loading) loading.remove();
+
+            console.log('[Assign Picker] API Response:', result);
+
+            if (result.success === true || result.success === 'true') {
+                // Success - show notification
+                const notification = document.createElement('div');
+                notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                notification.innerHTML = `
+                    <i class="fas fa-check-circle"></i>
+                    Successfully assigned <strong>${pickerName}</strong> to ${result.ordersAssigned || orders.length} order(s)
+                `;
+                document.body.appendChild(notification);
+
+                setTimeout(() => notification.remove(), 4000);
+
+                // Close dialog
+                closeAssignPickerDialog();
+
+                // Refresh the grid to show updated picker assignments
+                const tabId = `trip-detail-${tripId}`;
+                const gridId = `grid-${tabId}`;
+                const gridContainer = $(`#${gridId}`);
+                if (gridContainer && gridContainer.length > 0) {
+                    const gridInstance = gridContainer.dxDataGrid('instance');
+                    if (gridInstance) {
+                        gridInstance.refresh();
+                    }
+                }
+            } else {
+                // Error from API
+                alert(`Failed to assign picker:\n${result.message || 'Unknown error'}`);
+            }
+
+        } catch (error) {
+            // Remove loading indicator
+            const loading = document.getElementById('assign-picker-loading');
+            if (loading) loading.remove();
+
+            console.error('[Assign Picker] Error:', error);
+            alert(`Error assigning picker:\n${error.message || 'Network error occurred'}`);
+        }
     };
 
     window.pickReleaseAll = function(tripId) {
