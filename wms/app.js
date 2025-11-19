@@ -2755,14 +2755,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         <!-- Tab 2: QOH Details -->
                         <div id="store-trans-qoh-details" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshQOHDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
                             <div id="qoh-details-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
-                                <p style="color: #64748b; font-size: 0.8rem;">QOH Details for items will be displayed here</p>
+                                <p style="color: #64748b; text-align: center; font-size: 0.8rem;">Click Refresh to load QOH details</p>
                             </div>
                         </div>
 
                         <!-- Tab 3: Allocated Lots -->
                         <div id="store-trans-allocated-lots" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
-                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <button class="btn btn-secondary" onclick="refreshAllocatedLots('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
                                 <button class="btn btn-primary" onclick="processTransaction('${orderNumber}')">
                                     <i class="fas fa-cogs"></i> Process Transaction
                                 </button>
@@ -2774,7 +2782,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </button>
                             </div>
                             <div id="allocated-lots-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
-                                <p style="color: #64748b; font-size: 0.8rem;">Allocated Lots for items will be displayed here</p>
+                                <p style="color: #64748b; text-align: center; font-size: 0.8rem;">Click Refresh to load allocated lots</p>
                             </div>
                         </div>
                     </div>
@@ -3009,6 +3017,260 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Error parsing response: ' + parseError.message);
             }
         });
+    };
+
+    // Refresh Allocated Lots (Tab 3)
+    window.refreshAllocatedLots = async function(orderNumber) {
+        console.log('[Store Transactions] Refreshing allocated lots for:', orderNumber);
+
+        const contentDiv = document.getElementById('allocated-lots-content');
+        contentDiv.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>';
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}`;
+
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            console.log('[Store Transactions] Allocated Lots Callback - Error:', error, 'Data:', data);
+
+            if (error) {
+                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center;">Error: ${error}</p>`;
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+
+                if (response && response.items && response.items.length > 0) {
+                    const keys = Object.keys(response.items[0]);
+
+                    // Helper function to render status icons
+                    const renderStatusIcon = (value) => {
+                        if (value === 'Y' || value === 'Yes' || value === 'YES') {
+                            return '<i class="fas fa-check-circle" style="color: #10b981; font-size: 0.9rem;" title="Yes"></i>';
+                        } else if (value === 'N' || value === 'No' || value === 'NO') {
+                            return '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 0.9rem;" title="No"></i>';
+                        } else if (value === null || value === '') {
+                            return '<span style="color: #94a3b8;">-</span>';
+                        }
+                        return value;
+                    };
+
+                    // Create search box and table
+                    let html = `
+                        <div style="margin-bottom: 0.75rem; display: flex; gap: 0.75rem; align-items: center; background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <div style="flex: 1; position: relative;">
+                                <i class="fas fa-search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.75rem;"></i>
+                                <input type="text" id="allocated-search-input" placeholder="Search in table..."
+                                    style="width: 100%; padding: 0.4rem 0.5rem 0.4rem 2rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; outline: none; transition: all 0.2s;"
+                                    onkeyup="filterAllocatedLotsTable()"
+                                    onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102, 126, 234, 0.1)'"
+                                    onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; white-space: nowrap;">
+                                <span id="allocated-row-count">${response.items.length}</span> rows
+                            </div>
+                        </div>
+
+                        <div style="background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
+                                <table id="allocated-data-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead style="position: sticky; top: 0; z-index: 10;">
+                                        <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 2px solid #667eea;">
+                    `;
+
+                    keys.forEach(key => {
+                        html += `<th style="padding: 0.5rem; text-align: left; font-weight: 600; color: white; font-size: 0.7rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
+                    });
+
+                    html += '</tr></thead><tbody>';
+
+                    // Add rows with status icons
+                    response.items.forEach((item, index) => {
+                        html += `<tr class="allocated-table-row" style="border-bottom: 1px solid #e2e8f0; transition: background 0.2s;"
+                            onmouseover="this.style.background='#f0f9ff'"
+                            onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
+                            data-row-index="${index}">`;
+                        keys.forEach(key => {
+                            const value = item[key];
+                            const lowerKey = key.toLowerCase();
+
+                            // Check if this is a status column
+                            if (lowerKey.includes('status') || lowerKey === 'picked_status' || lowerKey === 'canceled_status' || lowerKey === 'ship_confirm_st') {
+                                html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap; text-align: center;">${renderStatusIcon(value)}</td>`;
+                            } else {
+                                html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap;">${value !== null && value !== undefined ? value : ''}</td>`;
+                            }
+                        });
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table></div></div>';
+                    contentDiv.innerHTML = html;
+                } else {
+                    contentDiv.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No allocated lots found for this order</p>';
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+            }
+        });
+    };
+
+    // Filter function for Allocated Lots table
+    window.filterAllocatedLotsTable = function() {
+        const input = document.getElementById('allocated-search-input');
+        const filter = input.value.toUpperCase();
+        const table = document.getElementById('allocated-data-table');
+        const rows = table.getElementsByTagName('tr');
+        let visibleCount = 0;
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            const cells = row.getElementsByTagName('td');
+            let found = false;
+
+            for (let j = 0; j < cells.length; j++) {
+                const cell = cells[j];
+                if (cell) {
+                    const textValue = cell.textContent || cell.innerText;
+                    if (textValue.toUpperCase().indexOf(filter) > -1) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if (found) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        }
+
+        const rowCountSpan = document.getElementById('allocated-row-count');
+        if (rowCountSpan) {
+            rowCountSpan.textContent = visibleCount;
+        }
+    };
+
+    // Refresh QOH Details (Tab 2)
+    window.refreshQOHDetails = async function(orderNumber) {
+        console.log('[Store Transactions] Refreshing QOH details for:', orderNumber);
+
+        const contentDiv = document.getElementById('qoh-details-content');
+        contentDiv.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>';
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}`;
+
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            console.log('[Store Transactions] QOH Details Callback - Error:', error, 'Data:', data);
+
+            if (error) {
+                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center;">Error: ${error}</p>`;
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+
+                if (response && response.items && response.items.length > 0) {
+                    const keys = Object.keys(response.items[0]);
+
+                    // Create search box and table
+                    let html = `
+                        <div style="margin-bottom: 0.75rem; display: flex; gap: 0.75rem; align-items: center; background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0;">
+                            <div style="flex: 1; position: relative;">
+                                <i class="fas fa-search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.75rem;"></i>
+                                <input type="text" id="qoh-search-input" placeholder="Search in table..."
+                                    style="width: 100%; padding: 0.4rem 0.5rem 0.4rem 2rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; outline: none; transition: all 0.2s;"
+                                    onkeyup="filterQOHTable()"
+                                    onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102, 126, 234, 0.1)'"
+                                    onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
+                            </div>
+                            <div style="font-size: 0.75rem; color: #64748b; white-space: nowrap;">
+                                <span id="qoh-row-count">${response.items.length}</span> rows
+                            </div>
+                        </div>
+
+                        <div style="background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
+                                <table id="qoh-data-table" style="width: 100%; border-collapse: collapse;">
+                                    <thead style="position: sticky; top: 0; z-index: 10;">
+                                        <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 2px solid #667eea;">
+                    `;
+
+                    keys.forEach(key => {
+                        html += `<th style="padding: 0.5rem; text-align: left; font-weight: 600; color: white; font-size: 0.7rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
+                    });
+
+                    html += '</tr></thead><tbody>';
+
+                    // Add rows
+                    response.items.forEach((item, index) => {
+                        html += `<tr class="qoh-table-row" style="border-bottom: 1px solid #e2e8f0; transition: background 0.2s;"
+                            onmouseover="this.style.background='#f0f9ff'"
+                            onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
+                            data-row-index="${index}">`;
+                        keys.forEach(key => {
+                            html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap;">${item[key] !== null && item[key] !== undefined ? item[key] : ''}</td>`;
+                        });
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table></div></div>';
+                    contentDiv.innerHTML = html;
+                } else {
+                    contentDiv.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No QOH data found for this order</p>';
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+            }
+        });
+    };
+
+    // Filter function for QOH Details table
+    window.filterQOHTable = function() {
+        const input = document.getElementById('qoh-search-input');
+        const filter = input.value.toUpperCase();
+        const table = document.getElementById('qoh-data-table');
+        const rows = table.getElementsByTagName('tr');
+        let visibleCount = 0;
+
+        for (let i = 1; i < rows.length; i++) {
+            const row = rows[i];
+            const cells = row.getElementsByTagName('td');
+            let found = false;
+
+            for (let j = 0; j < cells.length; j++) {
+                const cell = cells[j];
+                if (cell) {
+                    const textValue = cell.textContent || cell.innerText;
+                    if (textValue.toUpperCase().indexOf(filter) > -1) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if (found) {
+                row.style.display = '';
+                visibleCount++;
+            } else {
+                row.style.display = 'none';
+            }
+        }
+
+        const rowCountSpan = document.getElementById('qoh-row-count');
+        if (rowCountSpan) {
+            rowCountSpan.textContent = visibleCount;
+        }
     };
 
     window.processTransaction = function(orderNumber) {
