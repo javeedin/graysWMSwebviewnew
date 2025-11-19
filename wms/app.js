@@ -2053,184 +2053,60 @@ document.addEventListener('DOMContentLoaded', function() {
         const container = document.getElementById(`grid-${tabId}`);
         container.style.height = 'auto';
         container.innerHTML = `
-            <!-- Collapsible Filter Section -->
-            <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden;">
-                <div onclick="toggleFiltersSection('${tabId}')" style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
-                    <div style="display: flex; align-items: center; gap: 0.75rem;">
-                        <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                            <i class="fas fa-filter" style="color: white; font-size: 1.1rem;"></i>
-                        </div>
-                        <div>
-                            <h3 style="font-size: 1rem; font-weight: 700; color: white; margin: 0;">Query Filters</h3>
-                            <p style="color: rgba(255,255,255,0.9); font-size: 0.75rem; margin: 0.2rem 0 0 0;">Filter trips by date</p>
-                        </div>
-                    </div>
-                    <i class="fas fa-chevron-down" id="filters-icon-${tabId}" style="color: white; font-size: 1rem; transition: transform 0.3s ease;"></i>
-                </div>
-
-                <div id="filters-content-${tabId}" style="padding: 1.25rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
-                    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem;">
-                        <div style="color: #64748b; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.5rem;">
-                            <i class="fas fa-calendar-alt" style="color: #667eea;"></i>
-                            Select Dates:
-                        </div>
-                        <div id="date-filters-${tabId}" style="display: flex; flex-wrap: wrap; gap: 0.5rem; flex: 1;">
-                            ${uniqueDates.map(date =>
-                                `<span class="filter-chip active" data-date="${date}" data-tab="${tabId}">${date}</span>`
-                            ).join('')}
-                        </div>
-                        <button class="btn btn-secondary" id="select-all-dates-${tabId}" style="white-space: nowrap; font-size: 0.75rem; padding: 0.4rem 0.8rem;">
-                            <i class="fas fa-check-double"></i> Select All
-                        </button>
-                        <button class="btn btn-secondary" id="clear-all-dates-${tabId}" style="white-space: nowrap; font-size: 0.75rem; padding: 0.4rem 0.8rem;">
-                            <i class="fas fa-times"></i> Clear All
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Results Header -->
-            <div style="padding: 1rem 1.5rem; background: white; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <div style="width: 32px; height: 32px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
-                        <i class="fas fa-truck-loading" style="color: white; font-size: 0.9rem;"></i>
-                    </div>
-                    <div>
-                        <div style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip Results</div>
-                        <div style="font-size: 0.7rem; color: #64748b;">Showing <span id="trips-count-${tabId}" style="font-weight: 700; color: #667eea;">${tripsArray.length}</span> of ${tripsArray.length} trips</div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Trip Cards Container -->
-            <div id="trip-cards-${tabId}" class="trip-cards-container"></div>
+            <div id="trip-cards-${tabId}" class="trip-cards-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 15px; padding: 15px;"></div>
         `;
-        
-        setTimeout(() => {
-            document.querySelectorAll(`#date-filters-${tabId} .filter-chip`).forEach(chip => {
-                chip.addEventListener('click', function() {
-                    this.classList.toggle('active');
-                    
-                    const selectedDates = Array.from(document.querySelectorAll(`#date-filters-${tabId} .filter-chip.active`))
-                        .map(c => c.dataset.date);
-                    
-                    renderTripCards(tabId, tripsArray, selectedDates.length > 0 ? selectedDates : null);
-                });
-            });
-            
-            document.getElementById(`select-all-dates-${tabId}`).addEventListener('click', function() {
-                document.querySelectorAll(`#date-filters-${tabId} .filter-chip`).forEach(chip => {
-                    chip.classList.add('active');
-                });
-                renderTripCards(tabId, tripsArray, null);
-            });
-            
-            document.getElementById(`clear-all-dates-${tabId}`).addEventListener('click', function() {
-                document.querySelectorAll(`#date-filters-${tabId} .filter-chip`).forEach(chip => {
-                    chip.classList.remove('active');
-                });
-                renderTripCards(tabId, tripsArray, []);
-            });
-        }, 50);
-        
+
         renderTripCards(tabId, tripsArray, null);
     }
 
     function renderTripCards(tabId, trips, filterDates) {
         const container = document.getElementById(`trip-cards-${tabId}`);
-        
+
         let filteredTrips = trips;
-        
+
         if (filterDates && filterDates.length === 0) {
             container.innerHTML = '<div class="empty-state"><i class="fas fa-truck"></i><h3>No dates selected</h3><p>Please select at least one date to view trips</p></div>';
-            document.getElementById(`trips-count-${tabId}`).textContent = '0';
             return;
         }
-        
+
         if (filterDates && filterDates.length > 0) {
             filteredTrips = trips.filter(t => filterDates.includes(t.TRIP_DATE));
         }
-        
-        document.getElementById(`trips-count-${tabId}`).textContent = filteredTrips.length;
-        
+
         if (filteredTrips.length === 0) {
             container.innerHTML = '<div class="empty-state"><i class="fas fa-truck"></i><h3>No Trips Found</h3><p>No trips match the selected dates</p></div>';
             return;
         }
-        
+
         let html = '';
         filteredTrips.forEach(trip => {
-            const priorityColor = trip.PRIORITY.toLowerCase().includes('high') ? '#ef4444' :
-                                 trip.PRIORITY.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
-            const priorityBg = trip.PRIORITY.toLowerCase().includes('high') ? 'linear-gradient(135deg, #ef4444, #dc2626)' :
-                              trip.PRIORITY.toLowerCase().includes('low') ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
-
             html += `
-                <div style="background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 3px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';">
-                    <!-- Card Header -->
-                    <div style="padding: 0.5rem 0.65rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 0.45rem;">
-                            <div style="width: 24px; height: 24px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 5px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-route" style="color: white; font-size: 0.65rem;"></i>
-                            </div>
-                            <span style="font-size: 0.85rem; font-weight: 700; color: #1e293b;">#${trip.TRIP_ID}</span>
-                        </div>
-                        <div style="background: ${priorityBg}; color: white; padding: 0.2rem 0.5rem; border-radius: 10px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase;">
-                            ${trip.PRIORITY}
-                        </div>
+                <div class="vehicle-card-new" style="cursor: pointer;" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}')">
+                    <div class="vehicle-card-header">
+                        <h3 class="vehicle-card-title">Trip #${trip.TRIP_ID}</h3>
+                        <span class="vehicle-date-badge">Priority: ${trip.PRIORITY}</span>
                     </div>
-
-                    <!-- Card Body -->
-                    <div style="padding: 0.6rem 0.65rem;">
-                        <div style="display: flex; gap: 0.45rem; margin-bottom: 0.5rem;">
-                            <!-- Trip Date -->
-                            <div style="flex: 1; padding: 0.4rem; background: #f0f9ff; border-radius: 5px; border-left: 2px solid #3b82f6;">
-                                <div style="font-size: 0.55rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem;">DATE</div>
-                                <div style="font-size: 0.7rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
+                    <div class="vehicle-card-body">
+                        <div class="vehicle-card-stats">
+                            <div class="stat-row">
+                                <span class="stat-label">Date</span>
+                                <span class="stat-value">${trip.TRIP_DATE}</span>
                             </div>
-
-                            <!-- Lorry Number -->
-                            <div style="flex: 1; padding: 0.4rem; background: #f0fdf4; border-radius: 5px; border-left: 2px solid #10b981;">
-                                <div style="font-size: 0.55rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem;">LORRY</div>
-                                <div style="font-size: 0.7rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
+                            <div class="stat-row">
+                                <span class="stat-label">Lorry</span>
+                                <span class="stat-value">${trip.LORRY_NUMBER}</span>
                             </div>
-
-                            <!-- Total Orders -->
-                            <div style="flex: 1; padding: 0.4rem; background: #fff7ed; border-radius: 5px; border-left: 2px solid #f59e0b;">
-                                <div style="font-size: 0.55rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem;">ORDERS</div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            <div class="stat-row">
+                                <span class="stat-label">Orders</span>
+                                <span class="stat-value">${trip.TOTAL_ORDERS}</span>
                             </div>
                         </div>
-
-                        <!-- Auto Print Section -->
-                        <div style="padding: 0.4rem 0.5rem; background: #f8fafc; border-radius: 5px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                            <div style="display: flex; align-items: center; gap: 0.35rem;">
-                                <i class="fas fa-print" style="color: #667eea; font-size: 0.65rem;"></i>
-                                <span style="font-size: 0.65rem; color: #1e293b; font-weight: 600;">Auto Print</span>
-                            </div>
-                            <label class="toggle-switch" style="transform: scale(0.8);">
-                                <input type="checkbox"
-                                       class="auto-print-toggle"
-                                       id="autoPrint_${trip.TRIP_ID}_${trip.TRIP_DATE}"
-                                       data-trip-id="${trip.TRIP_ID}"
-                                       data-trip-date="${trip.TRIP_DATE}"
-                                       onchange="handleAutoPrintToggle('${trip.TRIP_ID}', '${trip.TRIP_DATE}', this.checked, ${trip.TOTAL_ORDERS})">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="auto-print-status" id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}" style="margin-top: 0.35rem; padding: 0.3rem; font-size: 0.6rem; border-radius: 4px; display: none;"></div>
-                    </div>
-
-                    <!-- Card Footer -->
-                    <div style="padding: 0.45rem 0.65rem; background: #f8f9fc; border-top: 1px solid #e2e8f0;">
-                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}')" style="width: 100%; font-size: 0.65rem; padding: 0.4rem 0.6rem; justify-content: center;">
-                            <i class="fas fa-eye"></i> View Details
-                        </button>
                     </div>
                 </div>
             `;
         });
-        
+
         container.innerHTML = html;
         
         setTimeout(() => {
@@ -2656,22 +2532,6 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 summaryContent.style.display = 'none';
                 summaryIcon.style.transform = 'rotate(-90deg)';
-            }
-        }
-    };
-
-    // Toggle filters section
-    window.toggleFiltersSection = function(tabId) {
-        const filtersContent = document.getElementById(`filters-content-${tabId}`);
-        const filtersIcon = document.getElementById(`filters-icon-${tabId}`);
-
-        if (filtersContent && filtersIcon) {
-            if (filtersContent.style.display === 'none') {
-                filtersContent.style.display = 'block';
-                filtersIcon.style.transform = 'rotate(0deg)';
-            } else {
-                filtersContent.style.display = 'none';
-                filtersIcon.style.transform = 'rotate(-90deg)';
             }
         }
     };
