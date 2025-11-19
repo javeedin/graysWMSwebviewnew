@@ -13,7 +13,8 @@ namespace WMSApp
             {
                 "WMS", new Dictionary<string, string>
                 {
-                    { "GETTRIPDETAILS", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS" }
+                    { "GETTRIPDETAILS", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS" },
+                    { "GETPRINTERCONFIG", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/wms/v1/printers/all" }
                 }
             },
             // General Ledger (GL)

@@ -1,0 +1,1103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WMS - Trip Management</title>
+    <!-- Prevent aggressive caching in WebView2 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        // Dynamic cache busting - generate unique timestamp
+        window.APP_CACHE_BUSTER = Date.now();
+        console.log('[Cache Buster] Timestamp generated:', window.APP_CACHE_BUSTER);
+    </script>
+    <script src="https://cdn3.devexpress.com/jslib/23.2.6/js/dx.all.js"></script>
+    <script>
+        // DevExpress License Configuration - AFTER library loads
+        // Account: jshaik@grays.mu
+        DevExpress.config({
+            licenseKey: "ewogICJmb3JtYXQiOiAxLAogICJjdXN0b21lcklkIjogImVlOWVhYTEwLTlkN2QtNGY5OS04YWM1LTdjZmI0ZDA1NWYwZCIsCiAgIm1heFZlcnNpb25BbGxvd2VkIjogMjMyCn0=.Vea066tbF42irVJqwpiFoZQvJi9X4UgfbFNGbmIgqrDv54JlxP+P4/WSJjiy5XpZkqTTbhMRnin//dl0sg1K5kCGOE3XquKboK++pqSbJ+vG7jzjJpfnx8BY10M28dh9iO7Wfw=="
+        });
+        console.log('[DevExpress] License configured');
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script>
+        // Load config.js with cache buster
+        document.write('<script src="config.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
+</head>
+<body>
+    <header class="header">
+        <button class="hamburger" id="hamburger">
+            <i class="fas fa-bars"></i>
+        </button>
+        <div class="logo">
+            <i class="fas fa-warehouse"></i>
+            <span>WMS</span>
+            <span id="app-version-badge" style="font-size: 9px; background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600;">Loading...</span>
+        </div>
+        <div class="module-buttons">
+            <!-- Module buttons hidden - navigation handled by C# Form -->
+        </div>
+        <div class="user-info">
+            <i class="fas fa-user-circle"></i>
+            <span>Admin</span>
+        </div>
+        <div id="instance-selector" style="margin-left: 1rem; display: flex; align-items: center; gap: 0.5rem; background: #f8f9fa; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; border: 2px solid #dee2e6; transition: all 0.2s;" onclick="toggleInstanceMenu()">
+            <i class="fas fa-server" style="color: #667eea;"></i>
+            <span style="font-weight: 600; color: #2d3748; font-size: 14px;">Instance:</span>
+            <span id="current-instance-display" style="font-weight: 700; color: #667eea; font-size: 14px;">PROD</span>
+            <i class="fas fa-chevron-down" style="color: #667eea; font-size: 12px;"></i>
+        </div>
+        <!-- Instance Dropdown Menu -->
+        <div id="instance-dropdown-menu" style="display: none; position: absolute; top: 60px; right: 20px; background: white; border: 2px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10000; min-width: 150px;">
+            <div class="instance-menu-item" data-instance="PROD" style="padding: 0.75rem 1rem; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.2s; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'" onclick="selectInstance('PROD')">
+                <i class="fas fa-check" id="check-PROD" style="color: #28a745; visibility: visible;"></i>
+                <span style="font-weight: 600; color: #2d3748;">PROD</span>
+            </div>
+            <div class="instance-menu-item" data-instance="TEST" style="padding: 0.75rem 1rem; cursor: pointer; transition: background 0.2s; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'" onclick="selectInstance('TEST')">
+                <i class="fas fa-check" id="check-TEST" style="color: #28a745; visibility: hidden;"></i>
+                <span style="font-weight: 600; color: #2d3748;">TEST</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Fetch and display latest version from GitHub -->
+    <script>
+        (async function() {
+            try {
+                console.log('[Version Badge] Fetching latest version from GitHub API...');
+                const response = await fetch('https://api.github.com/repos/javeedin/graysWMSwebviewnew/releases/latest');
+
+                if (response.ok) {
+                    const release = await response.json();
+                    const version = release.tag_name || 'Unknown';
+                    const badge = document.getElementById('app-version-badge');
+
+                    if (badge) {
+                        badge.textContent = version;
+                        console.log('[Version Badge] Updated to:', version);
+                    }
+                } else {
+                    console.warn('[Version Badge] Failed to fetch version:', response.status);
+                    // Keep "Loading..." if fetch fails
+                }
+            } catch (error) {
+                console.error('[Version Badge] Error fetching version:', error);
+                // Keep "Loading..." if error occurs
+            }
+        })();
+    </script>
+
+    <div class="container">
+        <aside class="sidebar" id="sidebar">
+            <div class="menu-item active" data-page="trip-management">
+                <i class="fas fa-truck"></i>
+                <span>Trip Management</span>
+            </div>
+            <div class="menu-item" data-page="vehicles">
+                <i class="fas fa-car"></i>
+                <span>Vehicles Dashboard</span>
+            </div>
+            <div class="menu-item" data-page="vehicle-management">
+                <i class="fas fa-chart-line"></i>
+                <span>Analytics</span>
+            </div>
+            <div class="menu-item" data-page="picker-management">
+                <i class="fas fa-user-tie"></i>
+                <span>Picker Management</span>
+            </div>
+            <div class="menu-item" data-page="monitor-printing">
+                <i class="fas fa-print"></i>
+                <span>Monitor Printing</span>
+            </div>
+            <div class="menu-item" data-page="printer-setup">
+                <i class="fas fa-cog"></i>
+                <span>Printer Setup</span>
+            </div>
+            <div class="menu-item" data-page="printer-setup-new">
+                <i class="fas fa-print"></i>
+                <span>Printer Setup New</span>
+            </div>
+            <div class="menu-item" data-page="settings">
+                <i class="fas fa-cog"></i>
+                <span>Settings & Updates</span>
+            </div>
+        </aside>
+        
+        <main class="main-content" id="main-content">
+            <div id="trip-management" class="page-content">
+                <div class="parameters-section">
+                    <div class="parameters-header" id="parameters-toggle">
+                        <h3>Query Parameters</h3>
+                        <i class="fas fa-chevron-down collapse-icon" id="collapse-icon"></i>
+                    </div>
+                    <div class="parameters-content" id="parameters-content">
+                        <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                            <label for="trip-instance-name">Instance Name</label>
+                            <select id="trip-instance-name" class="form-control">
+                                <option value="PROD">PROD</option>
+                                <option value="TEST">TEST</option>
+                                <option value="DEV">DEV</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0; min-width: 160px;">
+                            <label for="trip-date-from">From Date</label>
+                            <input type="date" id="trip-date-from" class="form-control">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0; min-width: 160px;">
+                            <label for="trip-date-to">To Date</label>
+                            <input type="date" id="trip-date-to" class="form-control">
+                        </div>
+                        <button id="fetch-trips-btn" class="btn" style="height: 34px;">
+                            <i class="fas fa-sync-alt" id="fetch-icon"></i> 
+                            <span id="fetch-text">Fetch Trips</span>
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="summary-stats" class="summary-stats" style="display: none;"></div>
+                
+                <div class="grid-container">
+                    <div class="grid-header" style="padding: 0;">
+                        <div id="trip-tab-header" class="tab-header" style="width: 100%;">
+                            <div class="tab-item active" data-tab="all-trips">
+                                <span>All Trips</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="trip-tab-content" class="tab-content">
+                        <div id="trip-all-trips-tab" class="tab-pane active">
+                            <div class="filter-controls">
+                                <div class="filter-group">
+                                    <label>Filter Lorries</label>
+                                    <div class="multi-select-dropdown" id="lorry-filter-dropdown">
+                                        <button class="multi-select-button" type="button">
+                                            <span id="lorry-filter-text">All Lorries</span>
+                                            <i class="fas fa-chevron-down"></i>
+                                        </button>
+                                        <div class="multi-select-dropdown-content" id="lorry-filter-content"></div>
+                                    </div>
+                                </div>
+                                <div class="filter-group">
+                                    <label>Filter Dates</label>
+                                    <div class="multi-select-dropdown" id="date-filter-dropdown">
+                                        <button class="multi-select-button" type="button">
+                                            <span id="date-filter-text">All Dates</span>
+                                            <i class="fas fa-chevron-down"></i>
+                                        </button>
+                                        <div class="multi-select-dropdown-content" id="date-filter-content"></div>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 1.2rem;">
+                                    <button class="btn btn-secondary" id="clear-all-filters-btn">
+                                        <i class="fas fa-times"></i> Clear Filters
+                                    </button>
+                                </div>
+                            </div>
+                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">All Trips Data</div>
+                                <div id="trip-count">0 trips</div>
+                            </div>
+                            <div id="trips-grid" style="height: 500px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="vehicles" class="page-content" style="display: none;">
+                <div class="grid-container" style="margin-top: 20px;">
+                    <div class="grid-header" style="padding: 0;">
+                        <div id="vehicles-tab-header" class="tab-header" style="width: 100%;">
+                            <div class="tab-item active" data-tab="summary">
+                                <span>Summary</span>
+                            </div>
+                            <div class="tab-item" data-tab="debug">
+                                <span>Debug Data</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="vehicles-tab-content" class="tab-content">
+                        <div id="vehicles-summary-tab" class="tab-pane active">
+                            <div class="summary-panel" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin: 1rem;">
+                                <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                                    <label>Vehicle</label>
+                                    <select id="vehicles-vehicle-filter" class="form-control">
+                                        <option value="">All Vehicles</option>
+                                    </select>
+                                </div>
+                                <div style="flex: 1; min-width: 300px;">
+                                    <label class="date-filter-label" style="display: block; margin-bottom: 0.5rem;">Filter by Date:</label>
+                                    <div id="vehicles-date-filters" style="display: flex; flex-wrap: wrap; gap: 0.5rem;"></div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.5rem;">
+                                    <input type="checkbox" id="merge-dates-checkbox" style="width: 18px; height: 18px; cursor: pointer;">
+                                    <label for="merge-dates-checkbox" style="cursor: pointer; font-weight: 600; color: var(--gray-700); margin: 0;">Merge Dates</label>
+                                </div>
+                            </div>
+                            <div id="vehicles-cards-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; padding: 15px;">
+                                <div class="loading"><i class="fas fa-circle-notch"></i><p>Loading vehicles...</p></div>
+                            </div>
+                        </div>
+                        <div id="vehicles-debug-tab" class="tab-pane">
+                            <div class="summary-panel">
+                                <strong>Debug Information:</strong><br>
+                                Total Records: <span id="debug-record-count">0</span><br>
+                                Vehicle Count: <span id="debug-vehicle-count">0</span>
+                            </div>
+                            <div id="debug-data-container" style="padding: 15px;">
+                                <div class="loading">Loading debug data...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div id="vehicle-management" class="page-content" style="display: none;">
+                <!-- Analytics Dashboard -->
+                <div id="analytics-dashboard" style="display: none;">
+                    <!-- Filters Section -->
+                    <div class="parameters-section" style="margin-bottom: 1.5rem;">
+                        <div class="parameters-header">
+                            <h3><i class="fas fa-filter"></i> Analytics Filters</h3>
+                        </div>
+                        <div class="parameters-content" style="display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap;">
+                            <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                                <label for="analytics-date-from">From Date</label>
+                                <input type="date" id="analytics-date-from" class="form-control">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                                <label for="analytics-date-to">To Date</label>
+                                <input type="date" id="analytics-date-to" class="form-control">
+                            </div>
+
+                            <!-- Custom Filter Button: Customers -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                                <label>Customers</label>
+                                <button type="button" class="custom-filter-btn" id="customers-filter-btn">
+                                    <span class="filter-text">All Customers</span>
+                                    <i class="fas fa-filter"></i>
+                                </button>
+                            </div>
+
+                            <!-- Custom Filter Button: Lorries -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                                <label>Lorries</label>
+                                <button type="button" class="custom-filter-btn" id="lorries-filter-btn">
+                                    <span class="filter-text">All Lorries</span>
+                                    <i class="fas fa-filter"></i>
+                                </button>
+                            </div>
+
+                            <!-- Custom Filter Button: Pickers -->
+                            <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                                <label>Pickers</label>
+                                <button type="button" class="custom-filter-btn" id="pickers-filter-btn">
+                                    <span class="filter-text">All Pickers</span>
+                                    <i class="fas fa-filter"></i>
+                                </button>
+                            </div>
+
+                            <button id="analytics-refresh-btn" class="btn" style="height: 34px; margin-top: 22px;">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                            <button id="analytics-show-details-btn" class="btn" style="height: 34px; margin-top: 22px; background: #8b5cf6;">
+                                <i class="fas fa-info-circle"></i> Show Details
+                            </button>
+                            <button id="analytics-clear-filters-btn" class="btn" style="height: 34px; margin-top: 22px; background: #f59e0b;">
+                                <i class="fas fa-eraser"></i> Clear Filters
+                            </button>
+                            <button id="analytics-export-btn" class="btn" style="height: 34px; margin-top: 22px; background: #10b981;">
+                                <i class="fas fa-file-excel"></i> Export to Excel
+                            </button>
+                        </div>
+
+                        <!-- Selected Filters Display -->
+                        <div id="analytics-selected-filters" style="display: none; margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                                <span style="font-weight: 600; color: #475569; font-size: 0.875rem;">Active Filters:</span>
+                                <div id="analytics-filter-chips" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                    <!-- Filter chips added dynamically -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KPI Cards -->
+                    <div class="analytics-kpis" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Orders</div>
+                            <div id="kpi-total-orders" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Trips</div>
+                            <div id="kpi-total-trips" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Customers</div>
+                            <div id="kpi-total-customers" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Lorries</div>
+                            <div id="kpi-total-lorries" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Total Pickers</div>
+                            <div id="kpi-total-pickers" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                        <div class="kpi-card" style="background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+                            <div style="font-size: 0.875rem; opacity: 0.9; margin-bottom: 0.5rem;">Avg Orders/Trip</div>
+                            <div id="kpi-avg-orders" style="font-size: 2rem; font-weight: 700;">0</div>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row 1: Daily, Weekly, Monthly Trends -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Daily Orders Trend</h3>
+                            <canvas id="chart-orders-trend" style="max-height: 300px;"></canvas>
+                        </div>
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Weekly Orders Trend</h3>
+                            <canvas id="chart-weekly-trend" style="max-height: 300px;"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row 2: Monthly Trend & Status Distribution -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Monthly Orders Trend</h3>
+                            <canvas id="chart-monthly-trend" style="max-height: 300px;"></canvas>
+                        </div>
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Status Distribution</h3>
+                            <canvas id="chart-status-dist" style="max-height: 300px;"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row 3 -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Orders by Lorry</h3>
+                            <canvas id="chart-orders-lorry" style="max-height: 300px;"></canvas>
+                        </div>
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Orders by Picker</h3>
+                            <canvas id="chart-orders-picker" style="max-height: 300px;"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Charts Row 3 -->
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Top 10 Customers</h3>
+                            <canvas id="chart-top-customers" style="max-height: 300px;"></canvas>
+                        </div>
+                        <div class="chart-container" style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+                            <h3 style="margin: 0 0 1rem 0; font-size: 1.125rem; color: #1e293b;">Total Weight by Lorry</h3>
+                            <canvas id="chart-weight-lorry" style="max-height: 300px;"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div id="analytics-empty-state" class="empty-state">
+                    <i class="fas fa-chart-line"></i>
+                    <h3>Analytics Dashboard</h3>
+                    <p>Click "Fetch Trips" in Trip Management to load analytics data</p>
+                    <button onclick="document.querySelector('[data-page=trip-management]').click()" class="btn" style="margin-top: 1rem;">
+                        <i class="fas fa-arrow-left"></i> Go to Trip Management
+                    </button>
+                </div>
+
+                <!-- Filter Modal: Customers -->
+                <div class="filter-modal" id="customers-filter-modal" style="display: none;">
+                    <div class="filter-modal-backdrop"></div>
+                    <div class="filter-modal-content">
+                        <div class="filter-modal-header">
+                            <h3><i class="fas fa-users"></i> Select Customers</h3>
+                            <button type="button" class="filter-modal-close" data-modal="customers">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="filter-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search customers..." id="customers-search" autocomplete="off">
+                        </div>
+                        <div class="filter-options" id="customers-options">
+                            <!-- Options populated dynamically -->
+                        </div>
+                        <div class="filter-modal-footer">
+                            <button type="button" class="filter-action-btn select-all" data-filter="customers">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" class="filter-action-btn clear-all" data-filter="customers">
+                                <i class="fas fa-times-circle"></i> Clear All
+                            </button>
+                            <button type="button" class="filter-action-btn apply-filter" data-modal="customers">
+                                <i class="fas fa-check"></i> Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter Modal: Lorries -->
+                <div class="filter-modal" id="lorries-filter-modal" style="display: none;">
+                    <div class="filter-modal-backdrop"></div>
+                    <div class="filter-modal-content">
+                        <div class="filter-modal-header">
+                            <h3><i class="fas fa-truck"></i> Select Lorries</h3>
+                            <button type="button" class="filter-modal-close" data-modal="lorries">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="filter-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search lorries..." id="lorries-search" autocomplete="off">
+                        </div>
+                        <div class="filter-options" id="lorries-options">
+                            <!-- Options populated dynamically -->
+                        </div>
+                        <div class="filter-modal-footer">
+                            <button type="button" class="filter-action-btn select-all" data-filter="lorries">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" class="filter-action-btn clear-all" data-filter="lorries">
+                                <i class="fas fa-times-circle"></i> Clear All
+                            </button>
+                            <button type="button" class="filter-action-btn apply-filter" data-modal="lorries">
+                                <i class="fas fa-check"></i> Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Filter Modal: Pickers -->
+                <div class="filter-modal" id="pickers-filter-modal" style="display: none;">
+                    <div class="filter-modal-backdrop"></div>
+                    <div class="filter-modal-content">
+                        <div class="filter-modal-header">
+                            <h3><i class="fas fa-user-check"></i> Select Pickers</h3>
+                            <button type="button" class="filter-modal-close" data-modal="pickers">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="filter-search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="Search pickers..." id="pickers-search" autocomplete="off">
+                        </div>
+                        <div class="filter-options" id="pickers-options">
+                            <!-- Options populated dynamically -->
+                        </div>
+                        <div class="filter-modal-footer">
+                            <button type="button" class="filter-action-btn select-all" data-filter="pickers">
+                                <i class="fas fa-check-double"></i> Select All
+                            </button>
+                            <button type="button" class="filter-action-btn clear-all" data-filter="pickers">
+                                <i class="fas fa-times-circle"></i> Clear All
+                            </button>
+                            <button type="button" class="filter-action-btn apply-filter" data-modal="pickers">
+                                <i class="fas fa-check"></i> Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Details Modal -->
+                <div class="filter-modal" id="analytics-details-modal" style="display: none;">
+                    <div class="filter-modal-backdrop"></div>
+                    <div class="filter-modal-content" style="max-width: 700px;">
+                        <div class="filter-modal-header">
+                            <h3><i class="fas fa-chart-bar"></i> Analytics Details</h3>
+                            <button type="button" class="filter-modal-close" id="details-modal-close">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div style="padding: 1.5rem; max-height: 60vh; overflow-y: auto;">
+                            <div id="analytics-details-content">
+                                <!-- Content populated dynamically -->
+                            </div>
+                        </div>
+                        <div class="filter-modal-footer">
+                            <button type="button" class="filter-action-btn apply-filter" id="details-modal-ok" style="flex: 0 0 auto; min-width: 120px;">
+                                <i class="fas fa-check"></i> OK
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="picker-management" class="page-content" style="display: none;">
+                <div class="grid-container">
+                    <div class="empty-state">
+                        <i class="fas fa-user-tie"></i>
+                        <h3>Picker Management</h3>
+                        <p>This feature will be implemented soon</p>
+                    </div>
+                </div>
+            </div>
+            
+      <!-- ============================================================ -->
+<!-- REPLACE THE ENTIRE <div id="monitor-printing"> SECTION -->
+<!-- ============================================================ -->
+
+<div id="monitor-printing" class="page-content" style="display: none;">
+    <div style="margin-bottom: 1.5rem;">
+        <!-- Search Parameters -->
+        <div class="parameters-section">
+            <div class="parameters-header" id="monitor-parameters-toggle">
+                <h3>Query Parameters</h3>
+                <i class="fas fa-chevron-down collapse-icon" id="monitor-collapse-icon"></i>
+            </div>
+            <div class="parameters-content" id="monitor-parameters-content">
+                <div class="form-group" style="margin-bottom: 0; min-width: 160px;">
+                    <label for="monitor-date-from">From Date</label>
+                    <input type="date" id="monitor-date-from" class="form-control">
+                </div>
+                <div class="form-group" style="margin-bottom: 0; min-width: 160px;">
+                    <label for="monitor-date-to">To Date</label>
+                    <input type="date" id="monitor-date-to" class="form-control">
+                </div>
+                <button id="load-monitor-trips-btn" class="btn" style="height: 34px;" onclick="loadMonitoringTrips()">
+                    <i class="fas fa-sync-alt" id="monitor-fetch-icon"></i>
+                    <span id="monitor-fetch-text">Load Trips</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="print-stats-grid">
+        <div class="print-stat-card">
+            <div class="print-stat-value" id="stat-total-jobs">0</div>
+            <div class="print-stat-label">Total Jobs</div>
+        </div>
+        <div class="print-stat-card">
+            <div class="print-stat-value" id="stat-pending-download">0</div>
+            <div class="print-stat-label">Pending Download</div>
+        </div>
+        <div class="print-stat-card">
+            <div class="print-stat-value" id="stat-completed-download">0</div>
+            <div class="print-stat-label">Downloaded</div>
+        </div>
+        <div class="print-stat-card">
+            <div class="print-stat-value" id="stat-pending-print">0</div>
+            <div class="print-stat-label">Pending Print</div>
+        </div>
+        <div class="print-stat-card">
+            <div class="print-stat-value" id="stat-printed">0</div>
+            <div class="print-stat-label">Printed</div>
+        </div>
+        <div class="print-stat-card">
+            <div class="print-stat-value" id="stat-failed">0</div>
+            <div class="print-stat-label">Failed</div>
+        </div>
+    </div>
+
+    <!-- Tabs for Trips and Trip Details -->
+    <div class="grid-container">
+        <div class="grid-header" style="padding: 0;">
+            <div id="monitor-tab-header" class="tab-header" style="width: 100%;">
+                <div class="tab-item active" data-tab="trips" onclick="switchMonitorTab('trips')">
+                    <span>Trips</span>
+                </div>
+                <div class="tab-item" data-tab="print-queue" onclick="switchMonitorTab('print-queue')">
+                    <span><i class="fas fa-print"></i> Print Queue</span>
+                </div>
+                <!-- Trip detail tabs will be added dynamically here -->
+            </div>
+        </div>
+        <div id="monitor-tab-content" class="tab-content">
+            <!-- Tab 1: Trips List -->
+            <div id="monitor-trips-tab" class="tab-pane active" data-tab-content="trips">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title">Monitored Trips</div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="filtered-count" style="color: #666; font-size: 14px;">0 trips</div>
+                    </div>
+                </div>
+                <div id="print-jobs-grid" style="height: 600px;"></div>
+            </div>
+
+            <!-- Tab 2: Print Queue -->
+            <div id="monitor-print-queue-tab" class="tab-pane" data-tab-content="print-queue">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title"><i class="fas fa-print"></i> Print Queue</div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="print-queue-count" style="color: #666; font-size: 14px;">0 jobs</div>
+                        <button id="start-print-queue-btn" class="btn btn-success" onclick="processPrintQueue()" style="font-size: 12px; padding: 6px 16px;">
+                            <i class="fas fa-play"></i> Start Printing
+                        </button>
+                        <button id="clear-print-queue-btn" class="btn btn-secondary" onclick="clearPrintQueue()" style="font-size: 12px; padding: 6px 16px;">
+                            <i class="fas fa-trash"></i> Clear Queue
+                        </button>
+                    </div>
+                </div>
+                <div id="print-queue-grid" style="height: 600px;"></div>
+            </div>
+
+            <!-- Trip detail tab panes will be added dynamically here -->
+        </div>
+    </div>
+</div>
+
+<!-- PDF Preview Modal -->
+<div id="pdf-preview-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 10000; justify-content: center; align-items: center;">
+    <div style="background: white; width: 90%; max-width: 1200px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <!-- Modal Header -->
+        <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h3 style="margin: 0; font-size: 18px; color: #333;">
+                    <i class="fas fa-file-pdf" style="color: #dc3545;"></i> 
+                    PDF Preview
+                </h3>
+                <p id="preview-order-info" style="margin: 5px 0 0 0; font-size: 13px; color: #666;"></p>
+            </div>
+            <button onclick="closePdfPreview()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 4px;">
+                ×
+            </button>
+        </div>
+        
+        <!-- Modal Content -->
+        <div style="flex: 1; overflow: hidden; position: relative; background: #f5f5f5;">
+            <iframe id="pdf-preview-iframe" style="width: 100%; height: 100%; border: none;"></iframe>
+            <div id="pdf-loading" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); display: none;">
+                <i class="fas fa-circle-notch fa-spin" style="font-size: 48px; color: #667eea;"></i>
+                <p style="margin-top: 1rem; color: #666;">Loading PDF...</p>
+            </div>
+        </div>
+        
+        <!-- Modal Footer -->
+        <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+            <div id="preview-file-info" style="font-size: 13px; color: #666;"></div>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-secondary" onclick="closePdfPreview()">
+                    <i class="fas fa-times"></i> Close
+                </button>
+                <button class="btn btn-primary" onclick="downloadCurrentPdf()">
+                    <i class="fas fa-download"></i> Download
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Printer Selection Modal for Auto-Print -->
+<div id="printer-selection-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+    <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0;">
+            <h3 style="margin: 0; font-size: 18px; color: #333;">
+                <i class="fas fa-print" style="color: #667eea;"></i> Select Printer for Auto-Print
+            </h3>
+            <p style="margin: 8px 0 0 0; font-size: 14px; color: #666;">
+                Choose a printer to automatically download and print documents
+            </p>
+        </div>
+
+        <div style="padding: 1.5rem;">
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-truck" style="color: #667eea;"></i> Trip ID
+                </label>
+                <div id="modal-trip-id" style="padding: 0.75rem; background: #f7fafc; border-radius: 6px; font-family: 'Courier New', monospace; font-weight: 600; color: #2d3748;"></div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-calendar" style="color: #667eea;"></i> Trip Date
+                </label>
+                <div id="modal-trip-date" style="padding: 0.75rem; background: #f7fafc; border-radius: 6px; color: #2d3748;"></div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-box" style="color: #667eea;"></i> Total Orders
+                </label>
+                <div id="modal-order-count" style="padding: 0.75rem; background: #f7fafc; border-radius: 6px; color: #2d3748;"></div>
+            </div>
+
+            <div style="margin-bottom: 1.5rem;">
+                <label for="modal-printer-select" style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-print" style="color: #667eea;"></i> Select Printer <span style="color: #dc3545;">*</span>
+                </label>
+                <select id="modal-printer-select" class="form-control" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <option value="">-- Loading printers... --</option>
+                </select>
+            </div>
+
+            <div id="printer-selection-error" style="display: none; padding: 0.75rem; background: #fee2e2; border-left: 4px solid #dc3545; border-radius: 4px; margin-bottom: 1rem; color: #991b1b; font-size: 14px;"></div>
+        </div>
+
+        <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+            <button class="btn btn-secondary" onclick="closePrinterSelectionModal()">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+            <button class="btn btn-primary" onclick="confirmPrinterSelection()">
+                <i class="fas fa-check"></i> Enable Auto-Print
+            </button>
+        </div>
+    </div>
+</div>
+
+            <div id="printer-setup" class="page-content" style="display: none;">
+                <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 1.5rem;">
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="loadAllPrinters()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <button class="btn btn-primary" onclick="showAddPrinterModal()">
+                            <i class="fas fa-plus"></i> Add Printer
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Printers Table -->
+                <div class="grid-container">
+                    <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="grid-title">Configured Printers</div>
+                        <div id="printer-count-display" style="color: #666; font-size: 14px;">0 printers</div>
+                    </div>
+                    <div id="printers-grid" style="height: 500px;"></div>
+                </div>
+            </div>
+
+            <!-- Add/Edit Printer Modal -->
+            <div id="printer-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                    <!-- Modal Header -->
+                    <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 18px; color: #333;">
+                            <i class="fas fa-printer"></i>
+                            <span id="printer-modal-title">Add New Printer</span>
+                        </h3>
+                        <button onclick="closePrinterModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666;">×</button>
+                    </div>
+
+                    <!-- Modal Content -->
+                    <div style="padding: 1.5rem; max-height: 60vh; overflow-y: auto;">
+                        <input type="hidden" id="edit-printer-id">
+
+                        <div class="form-group">
+                            <label for="modal-printer-select">Printer Name *</label>
+                            <select id="modal-printer-select" class="form-control">
+                                <option value="">Select a printer...</option>
+                            </select>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="modal-paper-size">Paper Size</label>
+                                <select id="modal-paper-size" class="form-control">
+                                    <option value="A4">A4</option>
+                                    <option value="Letter">Letter</option>
+                                    <option value="Legal">Legal</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="modal-orientation">Orientation</label>
+                                <select id="modal-orientation" class="form-control">
+                                    <option value="Portrait">Portrait</option>
+                                    <option value="Landscape">Landscape</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="modal-fusion-instance">Fusion Instance *</label>
+                            <select id="modal-fusion-instance" class="form-control">
+                                <option value="TEST">TEST</option>
+                                <option value="PROD">PROD</option>
+                                <option value="DEV">DEV</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="modal-fusion-username">Fusion Username *</label>
+                            <input type="text" id="modal-fusion-username" class="form-control" placeholder="Enter username">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="modal-fusion-password">Fusion Password *</label>
+                            <input type="password" id="modal-fusion-password" class="form-control" placeholder="Enter password">
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="modal-auto-download" checked style="width: 18px; height: 18px;">
+                                <span>Auto-download PDFs when auto-print is enabled</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="modal-auto-print" checked style="width: 18px; height: 18px;">
+                                <span>Auto-print PDFs after download</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Modal Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="closePrinterModal()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-primary" onclick="savePrinterFromModal()">
+                            <i class="fas fa-save"></i> Save Printer
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- NEW PRINTER SETUP PAGE -->
+            <div id="printer-setup-new" class="page-content" style="display: none;">
+                <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 1.5rem;">
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="loadAllPrintersNew()">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <button class="btn btn-primary" onclick="showAddPrinterModalNew()">
+                            <i class="fas fa-plus"></i> Add Printer
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Printers Table -->
+                <div class="grid-container">
+                    <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="grid-title">Configured Printers (NEW VERSION)</div>
+                        <div id="printer-count-display-new" style="color: #666; font-size: 14px;">0 printers</div>
+                    </div>
+                    <div id="printers-grid-new" style="height: 500px;"></div>
+                </div>
+            </div>
+
+            <!-- Add/Edit Printer Modal (NEW) -->
+            <div id="printer-modal-new" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                    <!-- Modal Header -->
+                    <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 18px; color: #333;">
+                            <i class="fas fa-printer"></i>
+                            <span id="printer-modal-title-new">Add New Printer</span>
+                        </h3>
+                        <button onclick="closePrinterModalNew()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666;">×</button>
+                    </div>
+
+                    <!-- Modal Content -->
+                    <div style="padding: 1.5rem; max-height: 60vh; overflow-y: auto;">
+                        <input type="hidden" id="edit-printer-id-new">
+
+                        <div class="form-group">
+                            <label for="modal-printer-select-new">Printer Name *</label>
+                            <select id="modal-printer-select-new" class="form-control">
+                                <option value="">Select a printer...</option>
+                            </select>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="modal-paper-size-new">Paper Size</label>
+                                <select id="modal-paper-size-new" class="form-control">
+                                    <option value="A4">A4</option>
+                                    <option value="Letter">Letter</option>
+                                    <option value="Legal">Legal</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="modal-orientation-new">Orientation</label>
+                                <select id="modal-orientation-new" class="form-control">
+                                    <option value="Portrait">Portrait</option>
+                                    <option value="Landscape">Landscape</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="modal-fusion-instance-new">Fusion Instance *</label>
+                            <select id="modal-fusion-instance-new" class="form-control">
+                                <option value="TEST">TEST</option>
+                                <option value="PROD">PROD</option>
+                                <option value="DEV">DEV</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="modal-fusion-username-new">Fusion Username *</label>
+                            <input type="text" id="modal-fusion-username-new" class="form-control" placeholder="Enter username">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="modal-fusion-password-new">Fusion Password *</label>
+                            <input type="password" id="modal-fusion-password-new" class="form-control" placeholder="Enter password">
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="modal-auto-download-new" checked style="width: 18px; height: 18px;">
+                                <span>Auto-download PDFs when auto-print is enabled</span>
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                <input type="checkbox" id="modal-auto-print-new" checked style="width: 18px; height: 18px;">
+                                <span>Auto-print PDFs after download</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Modal Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="closePrinterModalNew()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-primary" onclick="savePrinterFromModalNew()">
+                            <i class="fas fa-save"></i> Save Printer
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings & Updates Page -->
+            <div id="settings" class="page-content" style="display: none;">
+                <div class="grid-container" style="max-width: 800px; margin: 0 auto;">
+                    <!-- Application Information -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-info-circle" style="color: #4CAF50;"></i>
+                            Application Information
+                        </h3>
+                        <div style="display: grid; gap: 1rem;">
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: #666;">Current Version:</span>
+                                <strong id="current-version-display" style="color: #333;">Loading...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0; border-bottom: 1px solid #f0f0f0;">
+                                <span style="color: #666;">Build Date:</span>
+                                <strong id="build-date-display" style="color: #333;">Loading...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; padding: 0.5rem 0;">
+                                <span style="color: #666;">Update Status:</span>
+                                <strong id="update-status-display" style="color: #4CAF50;">Checking...</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Update Settings -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-sync-alt" style="color: #2196F3;"></i>
+                            Update Settings
+                        </h3>
+                        <div style="display: grid; gap: 1.5rem;">
+                            <div>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="auto-update-html-checkbox" checked>
+                                    <span>Automatically download HTML/JS updates</span>
+                                </label>
+                                <p style="margin: 0.5rem 0 0 1.5rem; font-size: 0.875rem; color: #666;">
+                                    Updates will be applied on next restart
+                                </p>
+                            </div>
+                            <div>
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="check-updates-on-start-checkbox" checked>
+                                    <span>Check for updates on startup</span>
+                                </label>
+                            </div>
+                            <div>
+                                <label style="display: block; margin-bottom: 0.5rem; color: #666;">
+                                    Update check interval (minutes):
+                                </label>
+                                <input type="number" id="update-interval-input" value="60" min="15" max="1440"
+                                       style="width: 100px; padding: 0.5rem; border: 1px solid #ddd; border-radius: 6px;">
+                            </div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="saveUpdateSettings()">
+                                    <i class="fas fa-save"></i> Save Settings
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Update Actions -->
+                    <div style="background: white; padding: 2rem; border-radius: 12px;">
+                        <h3 style="margin-top: 0; color: #333; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-cloud-download-alt" style="color: #FF9800;"></i>
+                            Update Actions
+                        </h3>
+                        <div style="display: grid; gap: 1rem;">
+                            <button class="btn btn-primary" onclick="manualCheckForUpdates()" style="width: 100%; justify-content: center;">
+                                <i class="fas fa-sync-alt"></i> Check for Updates Now
+                            </button>
+                            <div style="padding: 1rem; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #2196F3;">
+                                <p style="margin: 0; font-size: 0.875rem; color: #666;">
+                                    <strong>Last checked:</strong> <span id="last-update-check-time">Never</span>
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Diagnostic Toolbar (Bottom) -->
+    <div id="diagnostic-toolbar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 9999; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); font-size: 12px;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-weight: 600; color: #00d4ff;">🔧 Diagnostics:</span>
+            <button onclick="runDiagnosticCheckButtons()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Buttons
+            </button>
+            <button onclick="runDiagnosticShowButtons()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Force Show Buttons
+            </button>
+            <button onclick="runDiagnosticCheckGrid()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Grid
+            </button>
+            <button onclick="runDiagnosticCheckTab()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Tab Visibility
+            </button>
+            <button onclick="runDiagnosticShowConsole()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Show All Info
+            </button>
+            <button onclick="runDiagnosticCheckTripData()" class="btn btn-sm" style="background: #ff9800; color: white; border: 1px solid #f57c00; padding: 4px 10px; font-size: 11px; font-weight: 600;">
+                Check Trip Data
+            </button>
+            <button id="btn-download-version" disabled onclick="if(typeof downloadNewVersion === 'function') { downloadNewVersion(); } else { console.error('downloadNewVersion function not loaded!'); alert('Distribution manager not loaded. Please refresh the page.'); }" class="btn btn-sm" style="background: #4CAF50; color: white; border: 1px solid #45a049; padding: 4px 10px; font-size: 11px; font-weight: 600; opacity: 0.6;">
+                <i class="fas fa-download"></i> Get New Version
+            </button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
+            <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
+                Hide
+            </button>
+        </div>
+    </div>
+
+    <!-- Dynamic cache busting - Load scripts synchronously to ensure DOMContentLoaded fires -->
+    <script>
+        // Load JavaScript files synchronously with cache buster
+        console.log('[Cache Buster] Loading scripts synchronously with timestamp:', window.APP_CACHE_BUSTER);
+
+        // Use document.write to load synchronously (ensures scripts execute BEFORE DOMContentLoaded)
+        document.write('<script src="app.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="printer-management-new.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="monitor-printing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="update-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="distribution-manager.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
+</body>
+</html>

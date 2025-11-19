@@ -1,0 +1,8 @@
+{
+    "version":  "1.1.8",
+    "release_date":  "2025-11-20T00:42:45Z",
+    "html_package_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/download/v1.1.8/wms-webview-html-1.1.8.zip",
+    "exe_url":  "",
+    "changelog_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/tag/v1.1.8",
+    "changelog":  "UI improvements: Reduced sizes, removed page titles, tab beautification"
+}
