@@ -3218,6 +3218,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         <button class="store-trans-tab" data-tab="allocated-lots" onclick="switchStoreTransTab('allocated-lots')" style="padding: 0.5rem 1.5rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b;">
                             Allocated Lots
                         </button>
+                        <button class="store-trans-tab" data-tab="debug" onclick="switchStoreTransTab('debug')" style="padding: 0.5rem 1.5rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b;">
+                            <i class="fas fa-bug"></i> Debug
+                        </button>
                     </div>
 
                     <!-- Tab Content -->
@@ -3267,6 +3270,25 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                             <div id="allocated-lots-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
                                 <p style="color: #64748b; text-align: center; font-size: 0.8rem;">Click Refresh to load allocated lots</p>
+                            </div>
+                        </div>
+
+                        <!-- Tab 4: Debug -->
+                        <div id="store-trans-debug" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; justify-content: space-between; align-items: center;">
+                                <h3 style="margin: 0; font-size: 0.9rem; color: #1e293b;">
+                                    <i class="fas fa-bug"></i> Debug Log
+                                </h3>
+                                <button class="btn btn-secondary" onclick="clearDebugLog()" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                    <i class="fas fa-trash"></i> Clear Log
+                                </button>
+                            </div>
+                            <div id="debug-log-content" style="background: #1e293b; border-radius: 8px; padding: 1rem; font-family: 'Courier New', monospace; font-size: 0.75rem; color: #10b981; height: calc(100% - 3rem); overflow: auto;">
+                                <div style="color: #64748b; text-align: center; padding: 2rem;">
+                                    <i class="fas fa-info-circle" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                                    <p>Debug log will appear here when you click any button</p>
+                                    <p style="font-size: 0.7rem; margin-top: 0.5rem;">Endpoints, JSON payloads, and responses will be logged</p>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -3321,6 +3343,85 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
+    // Debug logging function
+    window.logDebugInfo = function(action, endpoint, payload, response, error) {
+        const debugContent = document.getElementById('debug-log-content');
+        if (!debugContent) return;
+
+        // Clear welcome message if it exists
+        const welcomeMsg = debugContent.querySelector('div[style*="text-align: center"]');
+        if (welcomeMsg) {
+            debugContent.innerHTML = '';
+        }
+
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry = document.createElement('div');
+        logEntry.style.cssText = 'margin-bottom: 1.5rem; padding: 1rem; background: #0f172a; border-radius: 6px; border-left: 4px solid #667eea;';
+
+        let html = `
+            <div style="color: #10b981; font-weight: 700; margin-bottom: 0.5rem;">
+                [${timestamp}] ${action}
+            </div>
+        `;
+
+        if (endpoint) {
+            html += `
+                <div style="color: #60a5fa; margin-bottom: 0.5rem;">
+                    <strong>Endpoint:</strong>
+                </div>
+                <div style="color: #cbd5e1; margin-bottom: 0.75rem; word-break: break-all; font-size: 0.7rem;">
+                    ${endpoint}
+                </div>
+            `;
+        }
+
+        if (payload) {
+            html += `
+                <div style="color: #fbbf24; margin-bottom: 0.5rem;">
+                    <strong>Payload:</strong>
+                </div>
+                <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; margin-bottom: 0.75rem;">${JSON.stringify(payload, null, 2)}</pre>
+            `;
+        }
+
+        if (response) {
+            html += `
+                <div style="color: #34d399; margin-bottom: 0.5rem;">
+                    <strong>Response:</strong>
+                </div>
+                <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem;">${JSON.stringify(response, null, 2)}</pre>
+            `;
+        }
+
+        if (error) {
+            html += `
+                <div style="color: #f87171; margin-bottom: 0.5rem;">
+                    <strong>Error:</strong>
+                </div>
+                <div style="color: #fca5a5; background: #7f1d1d; padding: 0.5rem; border-radius: 4px; font-size: 0.7rem;">
+                    ${error}
+                </div>
+            `;
+        }
+
+        logEntry.innerHTML = html;
+        debugContent.insertBefore(logEntry, debugContent.firstChild);
+    };
+
+    // Clear debug log
+    window.clearDebugLog = function() {
+        const debugContent = document.getElementById('debug-log-content');
+        if (debugContent) {
+            debugContent.innerHTML = `
+                <div style="color: #64748b; text-align: center; padding: 2rem;">
+                    <i class="fas fa-info-circle" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                    <p>Debug log cleared</p>
+                    <p style="font-size: 0.7rem; margin-top: 0.5rem;">New actions will be logged here</p>
+                </div>
+            `;
+        }
+    };
+
     window.refreshTransactionDetails = async function(orderNumber) {
         console.log('[Store Transactions] Refreshing transaction details for:', orderNumber);
 
@@ -3330,11 +3431,21 @@ document.addEventListener('DOMContentLoaded', function() {
         const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
 
+        // Log debug info
+        logDebugInfo('Refresh Transaction Details', apiUrl, { orderNumber, instance: currentInstance });
+
         sendMessageToCSharp({
             action: 'executeGet',
             fullUrl: apiUrl
         }, function(error, data) {
             console.log('[Store Transactions] Callback - Error:', error, 'Data:', data);
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Refresh Transaction Details - Error', apiUrl, null, null, error);
+            } else {
+                logDebugInfo('Refresh Transaction Details - Success', apiUrl, null, data);
+            }
 
             if (error) {
                 contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
@@ -3474,12 +3585,27 @@ document.addEventListener('DOMContentLoaded', function() {
 
         console.log('[Store Transactions] Calling fetch lot details API:', apiUrl, postData);
 
+        // Log debug info
+        logDebugInfo('Fetch Lot Details', apiUrl, postData);
+
         sendMessageToCSharp({
             action: 'executePost',
             fullUrl: apiUrl,
             bodyJson: JSON.stringify(postData)
         }, function(error, data) {
             console.log('[Store Transactions] Fetch Lot Details Response - Error:', error, 'Data:', data);
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Fetch Lot Details - Error', apiUrl, postData, null, error);
+            } else {
+                try {
+                    const response = JSON.parse(data);
+                    logDebugInfo('Fetch Lot Details - Success', apiUrl, postData, response);
+                } catch (e) {
+                    logDebugInfo('Fetch Lot Details - Success', apiUrl, postData, data);
+                }
+            }
 
             // Re-enable button
             if (fetchBtn) {
@@ -3520,11 +3646,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}`;
 
+        // Log debug info
+        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber });
+
         sendMessageToCSharp({
             action: 'executeGet',
             fullUrl: apiUrl
         }, function(error, data) {
             console.log('[Store Transactions] Allocated Lots Callback - Error:', error, 'Data:', data);
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Refresh Allocated Lots - Error', apiUrl, null, null, error);
+            } else {
+                try {
+                    const response = JSON.parse(data);
+                    logDebugInfo('Refresh Allocated Lots - Success', apiUrl, null, response);
+                } catch (e) {
+                    logDebugInfo('Refresh Allocated Lots - Success', apiUrl, null, data);
+                }
+            }
 
             if (error) {
                 contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center;">Error: ${error}</p>`;
@@ -3677,11 +3818,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}`;
 
+        // Log debug info
+        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber });
+
         sendMessageToCSharp({
             action: 'executeGet',
             fullUrl: apiUrl
         }, function(error, data) {
             console.log('[Store Transactions] QOH Details Callback - Error:', error, 'Data:', data);
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Refresh QOH Details - Error', apiUrl, null, null, error);
+            } else {
+                try {
+                    const response = JSON.parse(data);
+                    logDebugInfo('Refresh QOH Details - Success', apiUrl, null, response);
+                } catch (e) {
+                    logDebugInfo('Refresh QOH Details - Success', apiUrl, null, data);
+                }
+            }
 
             if (error) {
                 contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center;">Error: ${error}</p>`;
