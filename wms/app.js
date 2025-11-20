@@ -2567,9 +2567,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 cellTemplate: function(container, options) {
                     const rowData = options.data;
                     const instanceName = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
+                    const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
                     $(container).html(`
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}')" title="Print Store Transaction">
+                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}')" title="Print Store Transaction">
                                 <i class="fas fa-print" style="color: #8b5cf6;"></i>
                             </button>
                             <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
@@ -3279,19 +3280,20 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Print Store Transaction - calls C# Fusion PDF handler
-    window.printStoreTransaction = function(orderNumber, instanceFromRow) {
+    window.printStoreTransaction = function(orderNumber, instanceFromRow, orderTypeFromRow) {
         console.log('[Print Store Transaction] Printing for order:', orderNumber);
 
         // Get instance from row data first, fallback to localStorage
         const instance = instanceFromRow || localStorage.getItem('fusionInstance') || 'TEST';
         console.log('[Print Store Transaction] Using instance:', instance, '(from:', instanceFromRow ? 'row data' : 'localStorage', ')');
 
-        // Get order type from global (set when dialog was opened)
-        const orderType = (window.currentStoreTransOrderType || '').toUpperCase().trim();
+        // Get order type from parameter first, then fallback to global (for backward compatibility)
+        const orderType = (orderTypeFromRow || window.currentStoreTransOrderType || '').toUpperCase().trim();
 
         // Debug: Show exact order type value
-        console.log('[Print Store Transaction] Raw Order Type:', window.currentStoreTransOrderType);
-        console.log('[Print Store Transaction] Processed Order Type:', orderType);
+        console.log('[Print Store Transaction] Order Type from row:', orderTypeFromRow);
+        console.log('[Print Store Transaction] Order Type from global:', window.currentStoreTransOrderType);
+        console.log('[Print Store Transaction] Final Order Type:', orderType, '(from:', orderTypeFromRow ? 'row data' : 'global variable', ')');
         console.log('[Print Store Transaction] Order Type Length:', orderType.length);
 
         // Determine report based on order type
@@ -3691,7 +3693,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <i class="fas fa-exchange-alt" style="color: #667eea;"></i> Store Transactions
                             </h2>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                <button onclick="printStoreTransaction('${orderNumber}', '${instance}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
+                                <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
                                     <i class="fas fa-print"></i> Print
                                 </button>
                                 <button onclick="closeStoreTransactionsModal()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1e293b';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">
