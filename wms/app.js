@@ -3600,7 +3600,7 @@ document.addEventListener('DOMContentLoaded', function() {
         sendMessageToCSharp({
             action: 'executePost',
             fullUrl: apiUrl,
-            bodyJson: JSON.stringify(postData)
+            body: JSON.stringify(postData)
         }, function(error, data) {
             console.log('[Store Transactions] Fetch Lot Details Response - Error:', error, 'Data:', data);
 
