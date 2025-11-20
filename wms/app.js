@@ -4333,19 +4333,31 @@ document.addEventListener('DOMContentLoaded', function() {
                             column.cellTemplate = function(container, options) {
                                 const value = options.value;
                                 console.log('[Store Transactions] Rendering status cell:', key, '=', value, 'Type:', typeof value);
-                                let icon = '';
+
+                                // Create wrapper div
+                                const wrapper = document.createElement('div');
+                                wrapper.style.textAlign = 'center';
+
+                                // Create icon element using DOM methods
+                                const icon = document.createElement('i');
+                                icon.style.fontSize = '0.9rem';
+
                                 if (value === 'Y' || value === 'Yes' || value === 'YES') {
-                                    icon = '<i class="fas fa-check-circle" style="color: #10b981; font-size: 0.9rem;" title="Yes"></i>';
-                                    console.log('[Store Transactions] Matched YES condition, icon:', icon);
+                                    icon.className = 'fas fa-check-circle';
+                                    icon.style.color = '#10b981';
+                                    icon.title = 'Yes';
+                                    console.log('[Store Transactions] Matched YES condition - creating green check');
                                 } else {
                                     // Show red X for NO, null, or empty values
-                                    icon = '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 0.9rem;" title="No"></i>';
-                                    console.log('[Store Transactions] Matched NO condition, icon:', icon);
+                                    icon.className = 'fas fa-times-circle';
+                                    icon.style.color = '#ef4444';
+                                    icon.title = 'No';
+                                    console.log('[Store Transactions] Matched NO condition - creating red X');
                                 }
-                                const html = `<div style="text-align: center;">${icon}</div>`;
-                                console.log('[Store Transactions] Setting innerHTML to:', html);
-                                container.innerHTML = html;
-                                console.log('[Store Transactions] Container after innerHTML:', container.innerHTML);
+
+                                wrapper.appendChild(icon);
+                                $(container).empty().append(wrapper);
+                                console.log('[Store Transactions] Icon element appended to container');
                             };
                             column.alignment = 'center';
                         }
