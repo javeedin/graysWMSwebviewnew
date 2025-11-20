@@ -1068,7 +1068,7 @@ window.addPastedOrdersToTrip = async function() {
 
                             updateOrdersCount();
                             closePasteOrdersPopup();
-                            closeAddOrdersModal();
+                            // Keep Add Orders modal open so user can continue adding more orders
 
                             // Reload pending orders to update "added_to_trip" status
                             loadPendingOrders();
@@ -1117,7 +1117,7 @@ window.addPastedOrdersToTrip = async function() {
 
                 updateOrdersCount();
                 closePasteOrdersPopup();
-                closeAddOrdersModal();
+                // Keep Add Orders modal open so user can continue adding more orders
 
                 // Reload pending orders
                 loadPendingOrders();
