@@ -2418,6 +2418,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-user-check"></i> Assign Picker
                             </button>
+                            <button class="btn btn-success" onclick="allocateLotsForS2V('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-boxes"></i> Allocate Lots for S2V
+                            </button>
                             <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-truck-loading"></i> Pick Release All
                             </button>
@@ -3007,6 +3010,173 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Trip Management] Pick release all for trip:', tripId);
         alert('Pick Release All functionality - To be implemented');
     };
+
+    // Allocate Lots for S2V - Process selected S2V orders
+    window.allocateLotsForS2V = function(tripId) {
+        console.log('[Allocate Lots S2V] Processing trip:', tripId);
+
+        // Get the grid instance
+        const tabId = `trip-detail-${tripId}`;
+        const gridId = `grid-${tabId}`;
+        const gridInstance = $(`#${gridId}`).dxDataGrid('instance');
+
+        if (!gridInstance) {
+            alert('Grid not found. Please refresh the page.');
+            return;
+        }
+
+        // Get selected rows
+        const selectedRows = gridInstance.getSelectedRowsData();
+
+        if (selectedRows.length === 0) {
+            alert('Please select at least one order from the grid.');
+            return;
+        }
+
+        console.log('[Allocate Lots S2V] Selected rows:', selectedRows);
+
+        // Filter only S2V order types
+        const s2vOrders = selectedRows.filter(row => {
+            const orderType = (row.ORDER_TYPE_CODE || row.order_type_code || row.ORDER_TYPE || row.order_type || '').toUpperCase();
+            return orderType === 'S2V';
+        });
+
+        if (s2vOrders.length === 0) {
+            alert('No Store to Van (S2V) orders selected. This function only works for S2V order types.');
+            return;
+        }
+
+        console.log('[Allocate Lots S2V] S2V orders found:', s2vOrders.length);
+
+        // Create progress dialog
+        const dialogHtml = `
+            <div id="s2v-allocate-dialog" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10002; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 90%; max-width: 800px; max-height: 80vh; display: flex; flex-direction: column;">
+                    <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">
+                            <i class="fas fa-boxes" style="color: #10b981;"></i> Allocate Lots for S2V Orders
+                        </h3>
+                        <button onclick="closeS2VDialog()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; padding: 0; width: 30px; height: 30px;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                        <div style="margin-bottom: 1rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px;">
+                            <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">Processing ${s2vOrders.length} S2V Order(s)</div>
+                            <div style="font-size: 0.875rem; color: #047857;">Calling Allocate Lots API for each transaction...</div>
+                        </div>
+                        <div id="s2v-progress-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            ${s2vOrders.map((order, index) => {
+                                const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || 'Unknown';
+                                return `
+                                    <div id="s2v-item-${index}" style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                            <div style="font-weight: 600; color: #1f2937;">#${index + 1}: ${orderNumber}</div>
+                                            <div id="s2v-status-${index}" style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <i class="fas fa-clock" style="color: #9ca3af;"></i>
+                                                <span style="color: #6b7280; font-size: 0.875rem;">Waiting...</span>
+                                            </div>
+                                        </div>
+                                        <div id="s2v-details-${index}" style="font-size: 0.875rem; color: #6b7280;"></div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
+                        <div id="s2v-summary" style="font-size: 0.875rem; color: #6b7280;">Ready to process...</div>
+                        <button onclick="closeS2VDialog()" class="btn btn-secondary" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add dialog to DOM
+        const dialogDiv = document.createElement('div');
+        dialogDiv.innerHTML = dialogHtml;
+        document.body.appendChild(dialogDiv);
+
+        // Process each S2V order
+        processS2VOrders(s2vOrders, 0);
+    };
+
+    // Close S2V Dialog
+    window.closeS2VDialog = function() {
+        const dialog = document.getElementById('s2v-allocate-dialog');
+        if (dialog) {
+            dialog.remove();
+        }
+    };
+
+    // Process S2V orders sequentially
+    function processS2VOrders(orders, index) {
+        if (index >= orders.length) {
+            // All done
+            document.getElementById('s2v-summary').innerHTML = '<span style="color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> All orders processed!</span>';
+            return;
+        }
+
+        const order = orders[index];
+        const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || 'Unknown';
+        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Update status to processing
+        const statusDiv = document.getElementById(`s2v-status-${index}`);
+        statusDiv.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="color: #3b82f6;"></i><span style="color: #3b82f6; font-size: 0.875rem;">Processing...</span>';
+
+        // Update summary
+        document.getElementById('s2v-summary').innerHTML = `Processing ${index + 1} of ${orders.length}...`;
+
+        // Prepare POST data
+        const postData = {
+            p_trx_number: orderNumber,
+            p_instance_name: fusionInstance
+        };
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
+
+        console.log(`[Allocate Lots S2V] Processing order ${index + 1}/${orders.length}:`, orderNumber);
+
+        // Call API
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(postData)
+        }, function(error, data) {
+            const detailsDiv = document.getElementById(`s2v-details-${index}`);
+
+            if (error) {
+                // Error
+                statusDiv.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i><span style="color: #ef4444; font-size: 0.875rem;">Failed</span>';
+                detailsDiv.innerHTML = `<div style="color: #ef4444;">Error: ${error}</div>`;
+
+                // Process next order
+                setTimeout(() => processS2VOrders(orders, index + 1), 500);
+            } else {
+                try {
+                    const response = JSON.parse(data);
+
+                    if (response.success) {
+                        const recordCount = response.recordCount || 0;
+                        statusDiv.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i><span style="color: #10b981; font-size: 0.875rem;">Success</span>';
+                        detailsDiv.innerHTML = `
+                            <div style="color: #10b981;">✓ ${response.message || 'Success'}</div>
+                            <div style="color: #059669; margin-top: 0.25rem;"><strong>${recordCount}</strong> record(s) allocated</div>
+                        `;
+                    } else {
+                        statusDiv.innerHTML = '<i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i><span style="color: #f59e0b; font-size: 0.875rem;">Warning</span>';
+                        detailsDiv.innerHTML = `<div style="color: #f59e0b;">${response.message || 'Unknown error'}</div>`;
+                    }
+                } catch (parseError) {
+                    statusDiv.innerHTML = '<i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i><span style="color: #f59e0b; font-size: 0.875rem;">Parse Error</span>';
+                    detailsDiv.innerHTML = `<div style="color: #f59e0b;">Parse Error: ${parseError.message}</div>`;
+                }
+
+                // Process next order
+                setTimeout(() => processS2VOrders(orders, index + 1), 500);
+            }
+        });
+    }
 
     window.unassignPicker = function(tripId, orderNumber) {
         console.log('[Trip Management] Unassign picker for order:', orderNumber);
