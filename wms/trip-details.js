@@ -283,7 +283,10 @@ function initializePendingOrdersGrid() {
             hoverStateEnabled: true,
             selection: {
                 mode: 'multiple',
-                showCheckBoxesMode: 'always'
+                showCheckBoxesMode: 'always',
+                allowSelectAll: true,
+                selectAllMode: 'page',
+                deferred: false
             },
             filterRow: {
                 visible: true,
@@ -1047,8 +1050,12 @@ window.selectFoundOrders = function() {
 
     // Select all rows at once
     if (rowIndexesToSelect.length > 0) {
+        // Use promise-based selection to ensure proper state update
         pendingOrdersGrid.selectRowsByIndexes(rowIndexesToSelect);
         console.log('[Paste Orders] Called selectRowsByIndexes with', rowIndexesToSelect.length, 'indexes');
+
+        // Refresh grid to ensure checkboxes are properly updated
+        pendingOrdersGrid.refresh();
     }
 
     // Wait a moment for grid to update, then get selected count
