@@ -11,6 +11,10 @@ let currentVehiclesData = [];
 window.currentFullData = currentFullData;
 window.pendingRequests = {};
 
+// Store Transactions Dialog Grid Instances
+let transactionDetailsGrid = null;
+let qohDetailsGrid = null;
+
 // ========================================
 // INSTANCE MANAGEMENT
 // ========================================
@@ -3786,8 +3790,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <i class="fas fa-list"></i> Fetch Lot Details
                                 </button>
                             </div>
-                            <div id="transaction-details-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
-                                <p style="color: #64748b; text-align: center; font-size: 0.8rem;">Click Refresh to load transaction details</p>
+                            <div id="transaction-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="transaction-details-grid" style="height: 100%;"></div>
                             </div>
                         </div>
 
@@ -3798,8 +3802,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
                             </div>
-                            <div id="qoh-details-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
-                                <p style="color: #64748b; text-align: center; font-size: 0.8rem;">Click Refresh to load QOH details</p>
+                            <div id="qoh-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="qoh-details-grid" style="height: 100%;"></div>
                             </div>
                         </div>
 
@@ -4013,8 +4017,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window.refreshTransactionDetails = async function(orderNumber) {
         console.log('[Store Transactions] Refreshing transaction details for:', orderNumber);
 
-        const contentDiv = document.getElementById('transaction-details-content');
-        contentDiv.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
+        const gridContainer = document.getElementById('transaction-details-grid');
+        if (!gridContainer) {
+            console.error('[Store Transactions] Grid container not found');
+            return;
+        }
+
+        // Show loading indicator
+        gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
 
         const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
@@ -4031,13 +4041,10 @@ document.addEventListener('DOMContentLoaded', function() {
             // Log response or error
             if (error) {
                 logDebugInfo('Refresh Transaction Details - Error', apiUrl, null, null, error, 'GET');
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
+                return;
             } else {
                 logDebugInfo('Refresh Transaction Details - Success', apiUrl, null, data, null, 'GET');
-            }
-
-            if (error) {
-                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
-                return;
             }
 
             try {
@@ -4045,104 +4052,101 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[Store Transactions] Parsed Response:', response);
 
                 if (response && response.items && response.items.length > 0) {
-                    // Get keys from first item
+                    // Clear loading message
+                    gridContainer.innerHTML = '';
+
+                    // Destroy existing grid if present
+                    if (transactionDetailsGrid) {
+                        try {
+                            transactionDetailsGrid.dispose();
+                        } catch (e) {
+                            console.warn('[Store Transactions] Error disposing grid:', e);
+                        }
+                    }
+
+                    // Get keys from first item to create columns dynamically
                     const keys = Object.keys(response.items[0]);
+                    const columns = keys.map(key => ({
+                        dataField: key,
+                        caption: key.replace(/_/g, ' ').toUpperCase(),
+                        width: 'auto'
+                    }));
 
-                    // Create search box and table
-                    let html = `
-                        <div style="margin-bottom: 0.75rem; display: flex; gap: 0.75rem; align-items: center; background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0;">
-                            <div style="flex: 1; position: relative;">
-                                <i class="fas fa-search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.75rem;"></i>
-                                <input type="text" id="trans-search-input" placeholder="Search in table..."
-                                    style="width: 100%; padding: 0.4rem 0.5rem 0.4rem 2rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; outline: none; transition: all 0.2s;"
-                                    onkeyup="filterTransactionTable()"
-                                    onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102, 126, 234, 0.1)'"
-                                    onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
-                            </div>
-                            <div style="font-size: 0.75rem; color: #64748b; white-space: nowrap;">
-                                <span id="trans-row-count">${response.items.length}</span> rows
-                            </div>
-                        </div>
+                    // Initialize DevExpress DataGrid
+                    transactionDetailsGrid = $('#transaction-details-grid').dxDataGrid({
+                        dataSource: response.items,
+                        showBorders: true,
+                        showRowLines: true,
+                        showColumnLines: true,
+                        rowAlternationEnabled: true,
+                        columnAutoWidth: true,
+                        allowColumnReordering: true,
+                        allowColumnResizing: true,
+                        wordWrapEnabled: false,
+                        hoverStateEnabled: true,
+                        columns: columns,
+                        paging: {
+                            pageSize: 20
+                        },
+                        pager: {
+                            visible: true,
+                            showPageSizeSelector: true,
+                            allowedPageSizes: [10, 20, 50, 100],
+                            showInfo: true,
+                            showNavigationButtons: true
+                        },
+                        filterRow: {
+                            visible: true,
+                            applyFilter: 'auto'
+                        },
+                        headerFilter: {
+                            visible: true
+                        },
+                        searchPanel: {
+                            visible: true,
+                            width: 240,
+                            placeholder: 'Search...'
+                        },
+                        columnChooser: {
+                            enabled: true,
+                            mode: 'select'
+                        },
+                        export: {
+                            enabled: true,
+                            allowExportSelectedData: false
+                        },
+                        onExporting: function(e) {
+                            const workbook = new ExcelJS.Workbook();
+                            const worksheet = workbook.addWorksheet('Transaction Details');
 
-                        <div style="background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
-                                <table id="trans-data-table" style="width: 100%; border-collapse: collapse;">
-                                    <thead style="position: sticky; top: 0; z-index: 10;">
-                                        <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 2px solid #667eea;">
-                    `;
-
-                    keys.forEach(key => {
-                        html += `<th style="padding: 0.5rem; text-align: left; font-weight: 600; color: white; font-size: 0.7rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
-                    });
-
-                    html += '</tr></thead><tbody>';
-
-                    // Add rows with hover effect
-                    response.items.forEach((item, index) => {
-                        html += `<tr class="trans-table-row" style="border-bottom: 1px solid #e2e8f0; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f0f9ff'"
-                            onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
-                            data-row-index="${index}">`;
-                        keys.forEach(key => {
-                            html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap;">${item[key] !== null && item[key] !== undefined ? item[key] : ''}</td>`;
-                        });
-                        html += '</tr>';
-                    });
-
-                    html += '</tbody></table></div></div>';
-                    contentDiv.innerHTML = html;
+                            DevExpress.excelExporter.exportDataGrid({
+                                component: e.component,
+                                worksheet: worksheet,
+                                autoFilterEnabled: true
+                            }).then(function() {
+                                workbook.xlsx.writeBuffer().then(function(buffer) {
+                                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'TransactionDetails.xlsx');
+                                });
+                            });
+                            e.cancel = true;
+                        },
+                        onContentReady: function(e) {
+                            console.log('[Store Transactions] Transaction Details Grid loaded, row count:', e.component.totalCount());
+                        }
+                    }).dxDataGrid('instance');
 
                     // Show Fetch Lot Details button
                     document.getElementById('fetch-lot-btn').style.display = 'inline-flex';
                 } else {
-                    contentDiv.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No data found for this order</p>';
+                    gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No data found for this order</p>';
                 }
             } catch (parseError) {
                 console.error('[Store Transactions] Parse Error:', parseError);
-                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
             }
         });
     };
 
-    window.filterTransactionTable = function() {
-        const input = document.getElementById('trans-search-input');
-        const filter = input.value.toUpperCase();
-        const table = document.getElementById('trans-data-table');
-        const rows = table.getElementsByTagName('tr');
-        let visibleCount = 0;
-
-        // Loop through all table rows (skip header)
-        for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            const cells = row.getElementsByTagName('td');
-            let found = false;
-
-            // Search in all cells of the row
-            for (let j = 0; j < cells.length; j++) {
-                const cell = cells[j];
-                if (cell) {
-                    const textValue = cell.textContent || cell.innerText;
-                    if (textValue.toUpperCase().indexOf(filter) > -1) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            if (found) {
-                row.style.display = '';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
-        }
-
-        // Update row count
-        const rowCountSpan = document.getElementById('trans-row-count');
-        if (rowCountSpan) {
-            rowCountSpan.textContent = visibleCount;
-        }
-    };
 
     window.fetchLotDetails = function(orderNumber) {
         console.log('[Store Transactions] Fetching lot details for:', orderNumber);
@@ -4403,8 +4407,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window.refreshQOHDetails = async function(orderNumber) {
         console.log('[Store Transactions] Refreshing QOH details for:', orderNumber);
 
-        const contentDiv = document.getElementById('qoh-details-content');
-        contentDiv.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>';
+        const gridContainer = document.getElementById('qoh-details-grid');
+        if (!gridContainer) {
+            console.error('[Store Transactions] QOH Grid container not found');
+            return;
+        }
+
+        // Show loading indicator
+        gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading QOH details...</p></div>';
 
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}`;
 
@@ -4420,6 +4430,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Log response or error
             if (error) {
                 logDebugInfo('Refresh QOH Details - Error', apiUrl, null, null, error, 'GET');
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
+                return;
             } else {
                 try {
                     const response = JSON.parse(data);
@@ -4429,11 +4441,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
 
-            if (error) {
-                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center;">Error: ${error}</p>`;
-                return;
-            }
-
             try {
                 const response = JSON.parse(data);
 
@@ -4441,98 +4448,98 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Store QOH data globally for lot number lookup
                     window.qohData = response.items;
 
+                    // Clear loading message
+                    gridContainer.innerHTML = '';
+
+                    // Destroy existing grid if present
+                    if (qohDetailsGrid) {
+                        try {
+                            qohDetailsGrid.dispose();
+                        } catch (e) {
+                            console.warn('[Store Transactions] Error disposing QOH grid:', e);
+                        }
+                    }
+
+                    // Get keys from first item to create columns dynamically
                     const keys = Object.keys(response.items[0]);
+                    const columns = keys.map(key => ({
+                        dataField: key,
+                        caption: key.replace(/_/g, ' ').toUpperCase(),
+                        width: 'auto'
+                    }));
 
-                    // Create search box and table
-                    let html = `
-                        <div style="margin-bottom: 0.75rem; display: flex; gap: 0.75rem; align-items: center; background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0;">
-                            <div style="flex: 1; position: relative;">
-                                <i class="fas fa-search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.75rem;"></i>
-                                <input type="text" id="qoh-search-input" placeholder="Search in table..."
-                                    style="width: 100%; padding: 0.4rem 0.5rem 0.4rem 2rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; outline: none; transition: all 0.2s;"
-                                    onkeyup="filterQOHTable()"
-                                    onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102, 126, 234, 0.1)'"
-                                    onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
-                            </div>
-                            <div style="font-size: 0.75rem; color: #64748b; white-space: nowrap;">
-                                <span id="qoh-row-count">${response.items.length}</span> rows
-                            </div>
-                        </div>
+                    // Initialize DevExpress DataGrid
+                    qohDetailsGrid = $('#qoh-details-grid').dxDataGrid({
+                        dataSource: response.items,
+                        showBorders: true,
+                        showRowLines: true,
+                        showColumnLines: true,
+                        rowAlternationEnabled: true,
+                        columnAutoWidth: true,
+                        allowColumnReordering: true,
+                        allowColumnResizing: true,
+                        wordWrapEnabled: false,
+                        hoverStateEnabled: true,
+                        columns: columns,
+                        paging: {
+                            pageSize: 20
+                        },
+                        pager: {
+                            visible: true,
+                            showPageSizeSelector: true,
+                            allowedPageSizes: [10, 20, 50, 100],
+                            showInfo: true,
+                            showNavigationButtons: true
+                        },
+                        filterRow: {
+                            visible: true,
+                            applyFilter: 'auto'
+                        },
+                        headerFilter: {
+                            visible: true
+                        },
+                        searchPanel: {
+                            visible: true,
+                            width: 240,
+                            placeholder: 'Search...'
+                        },
+                        columnChooser: {
+                            enabled: true,
+                            mode: 'select'
+                        },
+                        export: {
+                            enabled: true,
+                            allowExportSelectedData: false
+                        },
+                        onExporting: function(e) {
+                            const workbook = new ExcelJS.Workbook();
+                            const worksheet = workbook.addWorksheet('QOH Details');
 
-                        <div style="background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
-                                <table id="qoh-data-table" style="width: 100%; border-collapse: collapse;">
-                                    <thead style="position: sticky; top: 0; z-index: 10;">
-                                        <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 2px solid #667eea;">
-                    `;
-
-                    keys.forEach(key => {
-                        html += `<th style="padding: 0.5rem; text-align: left; font-weight: 600; color: white; font-size: 0.7rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
-                    });
-
-                    html += '</tr></thead><tbody>';
-
-                    // Add rows
-                    response.items.forEach((item, index) => {
-                        html += `<tr class="qoh-table-row" style="border-bottom: 1px solid #e2e8f0; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f0f9ff'"
-                            onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
-                            data-row-index="${index}">`;
-                        keys.forEach(key => {
-                            html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap;">${item[key] !== null && item[key] !== undefined ? item[key] : ''}</td>`;
-                        });
-                        html += '</tr>';
-                    });
-
-                    html += '</tbody></table></div></div>';
-                    contentDiv.innerHTML = html;
+                            DevExpress.excelExporter.exportDataGrid({
+                                component: e.component,
+                                worksheet: worksheet,
+                                autoFilterEnabled: true
+                            }).then(function() {
+                                workbook.xlsx.writeBuffer().then(function(buffer) {
+                                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'QOHDetails.xlsx');
+                                });
+                            });
+                            e.cancel = true;
+                        },
+                        onContentReady: function(e) {
+                            console.log('[Store Transactions] QOH Details Grid loaded, row count:', e.component.totalCount());
+                        }
+                    }).dxDataGrid('instance');
                 } else {
-                    contentDiv.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No QOH data found for this order</p>';
+                    gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No QOH data found for this order</p>';
                 }
             } catch (parseError) {
                 console.error('[Store Transactions] Parse Error:', parseError);
-                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
             }
         });
     };
 
-    // Filter function for QOH Details table
-    window.filterQOHTable = function() {
-        const input = document.getElementById('qoh-search-input');
-        const filter = input.value.toUpperCase();
-        const table = document.getElementById('qoh-data-table');
-        const rows = table.getElementsByTagName('tr');
-        let visibleCount = 0;
-
-        for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            const cells = row.getElementsByTagName('td');
-            let found = false;
-
-            for (let j = 0; j < cells.length; j++) {
-                const cell = cells[j];
-                if (cell) {
-                    const textValue = cell.textContent || cell.innerText;
-                    if (textValue.toUpperCase().indexOf(filter) > -1) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            if (found) {
-                row.style.display = '';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
-        }
-
-        const rowCountSpan = document.getElementById('qoh-row-count');
-        if (rowCountSpan) {
-            rowCountSpan.textContent = visibleCount;
-        }
-    };
 
     // Toggle Select All checkbox for Allocated Lots
     window.toggleSelectAllAllocated = function() {
