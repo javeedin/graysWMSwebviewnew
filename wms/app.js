@@ -2031,6 +2031,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     TRIP_DATE: tripDate ? String(tripDate).split(' ')[0] : 'N/A',
                     LORRY_NUMBER: trip.trip_lorry || trip.TRIP_LORRY || 'N/A',
                     PRIORITY: trip.TRIP_PRIORITY || trip.trip_priority || 'Medium',
+                    STATUS: trip.TRIP_STATUS || trip.trip_status || trip.LINE_STATUS || 'ACTIVE',
                     INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || null,
                     TOTAL_ORDERS: 0,
                     orders: []
@@ -2161,7 +2162,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 5px; display: flex; align-items: center; justify-content: center;">
                                 <i class="fas fa-route" style="color: white; font-size: 0.75rem;"></i>
                             </div>
-                            <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}</span>
+                            <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+                                <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}</span>
+                                <span style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase;">${trip.STATUS || 'ACTIVE'}</span>
+                            </div>
                         </div>
                         <div style="background: ${priorityBg}; color: white; padding: 0.25rem 0.6rem; border-radius: 10px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase;">
                             ${trip.PRIORITY}
