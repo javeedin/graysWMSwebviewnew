@@ -2175,15 +2175,18 @@ namespace WMSApp
                     System.Diagnostics.Debug.WriteLine($"[C#] Printing report: {reportPath}");
                     System.Diagnostics.Debug.WriteLine($"[C#] Parameter: {parameterName}={orderNumber}, Instance: {instance}");
 
-                    // Get credentials from local storage
-                    var username = _storageManager.GetSetting($"fusion{instance}Username");
-                    var password = _storageManager.GetSetting($"fusion{instance}Password");
+                    // Get credentials from printer config
+                    var printerConfig = _storageManager.LoadPrinterConfig();
+                    var username = printerConfig.FusionUsername;
+                    var password = printerConfig.FusionPassword;
 
                     if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
                     {
-                        SendErrorResponse(wv, requestId, $"Fusion {instance} credentials not configured. Please configure in printer settings.");
+                        SendErrorResponse(wv, requestId, "Fusion credentials not configured. Please configure in printer settings.");
                         return;
                     }
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using credentials - Username: {username}, Instance: {instance}");
 
                     // Download PDF using Generic method
                     var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
