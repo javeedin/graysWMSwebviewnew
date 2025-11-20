@@ -3297,13 +3297,21 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.body.appendChild(loadingDiv);
 
+        // Get tripId and tripDate from globals
+        const tripId = window.currentStoreTransTripId || '';
+        const tripDate = window.currentStoreTransTripDate || '';
+
+        console.log('[Print Store Transaction] TripId:', tripId, 'TripDate:', tripDate);
+
         // Call C# handler
         sendMessageToCSharp({
             action: 'printStoreTransaction',
             orderNumber: orderNumber,
             instance: instance,
             reportPath: reportPath,
-            parameterName: parameterName
+            parameterName: parameterName,
+            tripId: tripId,
+            tripDate: tripDate
         }, function(error, data) {
             // Remove loading indicator
             const loading = document.getElementById('print-loading-indicator');
@@ -3526,8 +3534,10 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Store Transactions] ORDER_TYPE char codes:', Array.from(orderType).map(c => c.charCodeAt(0)));
         console.log('===========================================');
 
-        // Store order type in a global for print function
+        // Store order type, tripId, and tripDate in globals for print function
         window.currentStoreTransOrderType = orderType;
+        window.currentStoreTransTripId = tripId;
+        window.currentStoreTransTripDate = tripDate;
 
         // Create modal HTML
         const modalHtml = `

@@ -2229,9 +2229,12 @@ namespace WMSApp
                     string instance = root.GetProperty("instance").GetString();
                     string reportPath = root.GetProperty("reportPath").GetString();
                     string parameterName = root.GetProperty("parameterName").GetString();
+                    string tripId = root.GetProperty("tripId").GetString();
+                    string tripDate = root.GetProperty("tripDate").GetString();
 
                     System.Diagnostics.Debug.WriteLine($"[C#] Printing report: {reportPath}");
                     System.Diagnostics.Debug.WriteLine($"[C#] Parameter: {parameterName}={orderNumber}, Instance: {instance}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] TripId: {tripId}, TripDate: {tripDate}");
 
                     // ✅ FIX: Get credentials from APEX REST API instead of local config
                     var printerConfig = await GetActivePrinterConfigFromApexAsync();
@@ -2277,18 +2280,16 @@ namespace WMSApp
                         return;
                     }
 
-                    // Convert base64 to bytes and save to Downloads folder
+                    // Convert base64 to bytes and save to C:\fusion\{tripDate}\{tripId}\ folder
                     byte[] pdfBytes = Convert.FromBase64String(result.Base64Content);
-                    string downloadsPath = Path.Combine(
-                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                        "Downloads"
-                    );
-                    Directory.CreateDirectory(downloadsPath);
 
-                    // Extract report name from path for filename
-                    string reportName = Path.GetFileNameWithoutExtension(reportPath).Replace("GRAYS_", "").Replace("_BIP", "");
-                    string fileName = $"{reportName}_{orderNumber}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
-                    string filePath = Path.Combine(downloadsPath, fileName);
+                    // Create folder structure: C:\fusion\{tripDate}\{tripId}
+                    string folderPath = Path.Combine(@"C:\fusion", tripDate, tripId);
+                    Directory.CreateDirectory(folderPath);
+
+                    // Simple filename: {orderNumber}.pdf
+                    string fileName = $"{orderNumber}.pdf";
+                    string filePath = Path.Combine(folderPath, fileName);
 
                     await File.WriteAllBytesAsync(filePath, pdfBytes);
 
@@ -2300,7 +2301,7 @@ namespace WMSApp
                         action = "printStoreTransactionResponse",
                         requestId = requestId,
                         success = true,
-                        message = $"Report saved to Downloads: {fileName}",
+                        message = $"Report saved to: {filePath}",
                         filePath = filePath
                     };
 
