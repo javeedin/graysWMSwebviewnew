@@ -3035,11 +3035,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
         console.log('[Allocate Lots S2V] Selected rows:', selectedRows);
 
-        // Filter only S2V order types
+        // Debug: Log all order types found in selected rows
+        selectedRows.forEach((row, idx) => {
+            const orderType = row.ORDER_TYPE_CODE || row.order_type_code || row.ORDER_TYPE || row.order_type || 'NOT_FOUND';
+            console.log(`[Allocate Lots S2V] Row ${idx + 1} Order Type:`, orderType);
+        });
+
+        // Filter only S2V/Store to Van order types
         const s2vOrders = selectedRows.filter(row => {
             const orderType = (row.ORDER_TYPE_CODE || row.order_type_code || row.ORDER_TYPE || row.order_type || '').toUpperCase();
-            return orderType === 'S2V';
+            return orderType === 'S2V' || orderType === 'STORE TO VAN' || orderType.includes('STORE TO VAN');
         });
+
+        console.log('[Allocate Lots S2V] Filtered S2V orders:', s2vOrders.length, 'out of', selectedRows.length);
 
         if (s2vOrders.length === 0) {
             alert('No Store to Van orders selected. This function only works for Store to Van order types.');
