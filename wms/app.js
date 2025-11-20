@@ -2228,28 +2228,92 @@ document.addEventListener('DOMContentLoaded', function() {
     // Use stored tripMap for better data access
     window.openTripDetails = function(tripId, tripDate, lorryNumber) {
         console.log('[JS] Opening trip details for:', tripId);
-        console.log('[JS] currentFullData length:', currentFullData.length);
 
-        // Check if data has been loaded
-        if (!currentFullData || currentFullData.length === 0) {
-            alert('No trip data loaded!\n\nPlease click "Fetch Trips" button first to load the data, then try viewing trip details again.');
-            return;
+        // Get instance from localStorage
+        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'trip-details-loading';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #667eea; margin-bottom: 1rem;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Loading Trip Details...</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">Trip ID: ${tripId}</div>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${instance}</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
+
+        // Call GETTRIPDETAILS API
+        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${instance}`;
+
+        console.log('[JS] Calling GETTRIPDETAILS API:', GET_TRIP_DETAILS_API);
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: GET_TRIP_DETAILS_API
+            }, function(error, data) {
+                // Remove loading indicator
+                const loading = document.getElementById('trip-details-loading');
+                if (loading) loading.remove();
+
+                if (error) {
+                    console.error('[JS] Error loading trip details:', error);
+                    alert('Error loading trip details:\n' + error);
+                    return;
+                }
+
+                try {
+                    const result = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[JS] Trip details loaded from API:', result);
+
+                    if (result && result.items && result.items.length > 0) {
+                        const tripData = result.items;
+                        openTripDetailsWithData(tripId, tripData);
+                    } else {
+                        alert('No data found for trip: ' + tripId);
+                    }
+                } catch (parseError) {
+                    console.error('[JS] Error parsing trip details response:', parseError);
+                    alert('Error processing trip details: ' + parseError.message);
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            fetch(GET_TRIP_DETAILS_API)
+                .then(response => response.json())
+                .then(result => {
+                    // Remove loading indicator
+                    const loading = document.getElementById('trip-details-loading');
+                    if (loading) loading.remove();
+
+                    console.log('[JS] Trip details loaded from API:', result);
+
+                    if (result && result.items && result.items.length > 0) {
+                        const tripData = result.items;
+                        openTripDetailsWithData(tripId, tripData);
+                    } else {
+                        alert('No data found for trip: ' + tripId);
+                    }
+                })
+                .catch(error => {
+                    // Remove loading indicator
+                    const loading = document.getElementById('trip-details-loading');
+                    if (loading) loading.remove();
+
+                    console.error('[JS] Error loading trip details:', error);
+                    alert('Error loading trip details:\n' + error.message);
+                });
         }
+    };
 
-        // Filter trip data - match original logic (case-insensitive, trip_id OR TRIP_ID)
-        const tripData = currentFullData.filter(trip => {
-            const tripIdLower = (trip.trip_id || '').toString().toLowerCase();
-            const tripIdUpper = (trip.TRIP_ID || '').toString().toLowerCase();
-            const searchId = tripId.toString().toLowerCase();
-            return tripIdLower === searchId || tripIdUpper === searchId;
-        });
-
-        console.log('[JS] Found', tripData.length, 'records for trip:', tripId);
-
-        if (tripData.length === 0) {
-            alert('No data found for trip: ' + tripId + '\n\nThe trip might not be in the current date range.\nPlease adjust the date range and click "Fetch Trips" again.');
-            return;
-        }
+    // Helper function to open trip details with data
+    function openTripDetailsWithData(tripId, tripData) {
+        console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId);
         
         // Create unique tab ID
         const tabId = 'trip-detail-' + tripId;
