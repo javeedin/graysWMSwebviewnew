@@ -2542,27 +2542,75 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[JS] Creating grid with', tripData.length, 'records');
                 const first = tripData[0];
                 const columns = Object.keys(first).map(key => {
-                let col = { dataField: key, caption: key.replace(/_/g, ' ') };
-                if (key === 'LINE_STATUS') {
-                    col.cellTemplate = (container, options) => {
-                        const val = options.value || 'Unknown';
-                        const safeClass = String(val).toLowerCase()
-                            .replace(/,/g, ' ')
-                            .replace(/\s+/g, '-')
-                            .replace(/[^a-z0-9-]/g, '')
-                            .replace(/-+/g, '-')
-                            .replace(/^-|-$/g, '') || 'unknown';
-                        $(container).html(`<span class="status-badge status-${safeClass}">${val}</span>`);
-                    };
-                } else if (key.endsWith('_WEIGHT')) {
-                    col.format = { type: 'fixedPoint', precision: 2 };
-                    col.alignment = 'right';
-                } else if (key.endsWith('_ITEMS') || !isNaN(Number(first[key]))) {
-                    col.format = { type: 'fixedPoint', precision: 0 };
-                    col.alignment = 'right';
-                }
-                return col;
-            });
+                    let col = { dataField: key, caption: key.replace(/_/g, ' ') };
+
+                    // Status columns with icons (YES = ✓, NO/null = ✗)
+                    if (key === 'PICK_CONFIRM_ST' || key === 'SHIP_CONFIRM_ST' || key === 'PRINTING_ST') {
+                        col.width = 120;
+                        col.alignment = 'center';
+                        col.cellTemplate = (container, options) => {
+                            const val = (options.value || '').toString().toUpperCase();
+                            const isYes = val === 'YES' || val === 'Y';
+                            const icon = isYes
+                                ? '<i class="fas fa-check-circle" style="color: #10b981; font-size: 1.1rem;"></i>'
+                                : '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 1.1rem;"></i>';
+                            $(container).html(`<div style="text-align: center;">${icon}</div>`);
+                        };
+                    }
+                    // Count columns with bold and colors
+                    else if (key.toLowerCase() === 'lot_count' || key.toLowerCase() === 'picks_count' ||
+                             key.toLowerCase() === 'order_lines' || key.toLowerCase() === 'not_picked') {
+                        col.width = 110;
+                        col.alignment = 'center';
+                        col.cellTemplate = (container, options) => {
+                            const val = options.value;
+                            const numVal = Number(val) || 0;
+
+                            let color = '#3b82f6'; // Default blue
+                            let displayText = numVal;
+
+                            if (key.toLowerCase() === 'lot_count') {
+                                color = '#8b5cf6'; // Purple
+                            } else if (key.toLowerCase() === 'picks_count') {
+                                color = '#10b981'; // Green
+                            } else if (key.toLowerCase() === 'order_lines') {
+                                color = '#f59e0b'; // Orange
+                            } else if (key.toLowerCase() === 'not_picked') {
+                                color = '#ef4444'; // Red
+                                // Add asterisk if 0 or null
+                                if (numVal === 0 || val === null || val === undefined || val === '') {
+                                    displayText = numVal + ' *';
+                                }
+                            }
+
+                            $(container).html(`<span style="font-weight: 700; color: ${color}; font-size: 0.9rem;">${displayText}</span>`);
+                        };
+                    }
+                    // LINE_STATUS column
+                    else if (key === 'LINE_STATUS') {
+                        col.cellTemplate = (container, options) => {
+                            const val = options.value || 'Unknown';
+                            const safeClass = String(val).toLowerCase()
+                                .replace(/,/g, ' ')
+                                .replace(/\s+/g, '-')
+                                .replace(/[^a-z0-9-]/g, '')
+                                .replace(/-+/g, '-')
+                                .replace(/^-|-$/g, '') || 'unknown';
+                            $(container).html(`<span class="status-badge status-${safeClass}">${val}</span>`);
+                        };
+                    }
+                    // Weight columns
+                    else if (key.endsWith('_WEIGHT')) {
+                        col.format = { type: 'fixedPoint', precision: 2 };
+                        col.alignment = 'right';
+                    }
+                    // Other numeric columns
+                    else if (key.endsWith('_ITEMS') || !isNaN(Number(first[key]))) {
+                        col.format = { type: 'fixedPoint', precision: 0 };
+                        col.alignment = 'right';
+                    }
+                    return col;
+                });
 
             // Add Actions column at the beginning
             columns.unshift({
