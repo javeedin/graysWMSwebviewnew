@@ -3207,12 +3207,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const instance = localStorage.getItem('fusionInstance') || 'TEST';
 
         // Get order type from global (set when dialog was opened)
-        const orderType = (window.currentStoreTransOrderType || '').toUpperCase();
+        const orderType = (window.currentStoreTransOrderType || '').toUpperCase().trim();
+
+        // Debug: Show exact order type value
+        console.log('[Print Store Transaction] Raw Order Type:', window.currentStoreTransOrderType);
+        console.log('[Print Store Transaction] Processed Order Type:', orderType);
+        console.log('[Print Store Transaction] Order Type Length:', orderType.length);
 
         // Determine report based on order type
         let reportPath, parameterName, reportName;
 
-        if (orderType === 'STORE TO VAN' || orderType === 'VAN TO STORE' || orderType === 'S2V') {
+        // Check if order type contains "STORE" and "VAN" keywords (more robust)
+        const isStoreToVan = orderType.includes('STORE') && orderType.includes('VAN');
+
+        if (isStoreToVan || orderType === 'S2V') {
             // Store to Van / Van to Store - use Store Transaction report
             reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
             parameterName = 'SOURCE_CODE';
