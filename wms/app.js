@@ -2566,9 +2566,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 allowSorting: false,
                 cellTemplate: function(container, options) {
                     const rowData = options.data;
+                    const instanceName = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
                     $(container).html(`
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}')" title="Print Store Transaction">
+                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}')" title="Print Store Transaction">
                                 <i class="fas fa-print" style="color: #8b5cf6;"></i>
                             </button>
                             <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
@@ -3278,11 +3279,12 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Print Store Transaction - calls C# Fusion PDF handler
-    window.printStoreTransaction = function(orderNumber) {
+    window.printStoreTransaction = function(orderNumber, instanceFromRow) {
         console.log('[Print Store Transaction] Printing for order:', orderNumber);
 
-        // Get instance from localStorage
-        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+        // Get instance from row data first, fallback to localStorage
+        const instance = instanceFromRow || localStorage.getItem('fusionInstance') || 'TEST';
+        console.log('[Print Store Transaction] Using instance:', instance, '(from:', instanceFromRow ? 'row data' : 'localStorage', ')');
 
         // Get order type from global (set when dialog was opened)
         const orderType = (window.currentStoreTransOrderType || '').toUpperCase().trim();
@@ -3423,7 +3425,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     );
 
                     if (response.success) {
-                        alert('Report generated successfully and downloaded!');
+                        // Show PDF viewer dialog if pdfPath is available
+                        if (response.pdfPath) {
+                            showPdfViewer(response.pdfPath, orderNumber, reportName);
+                        } else {
+                            alert('Report generated successfully and downloaded!');
+                        }
                     } else {
                         alert('Failed to generate report: ' + (response.message || 'Unknown error'));
                     }
@@ -3440,6 +3447,61 @@ document.addEventListener('DOMContentLoaded', function() {
                     );
                     alert('Report generated successfully!');
                 }
+            }
+        });
+    };
+
+    // Show PDF Viewer Dialog
+    window.showPdfViewer = function(pdfPath, orderNumber, reportName) {
+        console.log('[PDF Viewer] Opening PDF:', pdfPath);
+
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.id = 'pdf-viewer-modal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10003; display: flex; align-items: center; justify-content: center; padding: 2rem;';
+
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 100%; max-width: 1200px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+                <!-- Header -->
+                <div style="padding: 1.25rem 1.5rem; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0;">
+                    <div>
+                        <div style="font-size: 1.2rem; font-weight: 700;">${reportName}</div>
+                        <div style="font-size: 0.85rem; opacity: 0.9; margin-top: 0.25rem;">Order: ${orderNumber}</div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button onclick="window.open('file:///${pdfPath.replace(/\\/g, '/')}')" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i class="fas fa-external-link-alt"></i> Open External
+                        </button>
+                        <button onclick="document.getElementById('pdf-viewer-modal').remove()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PDF Viewer Body -->
+                <div style="flex: 1; overflow: auto; background: #f1f5f9; display: flex; align-items: center; justify-content: center; padding: 1rem;">
+                    <iframe src="file:///${pdfPath.replace(/\\/g, '/')}" style="width: 100%; height: 100%; border: none; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-radius: 8px;"></iframe>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 0.75rem 1.5rem; background: #f8f9fc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 0.75rem; color: #64748b;">
+                        <i class="fas fa-file-pdf" style="color: #ef4444; margin-right: 0.5rem;"></i>
+                        ${pdfPath}
+                    </div>
+                    <button onclick="navigator.clipboard.writeText('${pdfPath}')" style="background: #667eea; border: none; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 600;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                        <i class="fas fa-copy"></i> Copy Path
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Close on overlay click
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                modal.remove();
             }
         });
     };
