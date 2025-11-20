@@ -2545,7 +2545,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
                     // Status columns with icons (YES = ✓, NO/null = ✗)
-                    if (key === 'PICK_CONFIRM_ST' || key === 'SHIP_CONFIRM_ST' || key === 'PRINTING_ST') {
+                    const keyUpper = key.toUpperCase();
+                    if (keyUpper === 'PICK_CONFIRM_ST' || keyUpper === 'SHIP_CONFIRM_ST' || keyUpper === 'PRINTING_ST') {
                         col.width = 120;
                         col.alignment = 'center';
                         col.cellTemplate = (container, options) => {
