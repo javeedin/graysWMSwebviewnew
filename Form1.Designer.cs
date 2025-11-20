@@ -36,7 +36,7 @@
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
             Name = "Form1";
-            Text = "Fusion Client";
+            Text = "Fusion Client v2.5.0";
             ResumeLayout(false);
         }
 

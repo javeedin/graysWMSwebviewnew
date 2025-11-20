@@ -235,6 +235,114 @@ namespace WMSApp.PrintManagement
                          .Replace("\t", "");
         }
 
+        /// <summary>
+        /// Downloads Store Transaction PDF from Oracle Fusion
+        /// </summary>
+        /// <param name="orderNumber">The order/transaction number (SOURCE_CODE parameter)</param>
+        /// <param name="instance">Instance name (TEST or PROD)</param>
+        /// <param name="username">Fusion username</param>
+        /// <param name="password">Fusion password</param>
+        /// <returns>FusionPdfResult with PDF data or error</returns>
+        public async Task<FusionPdfResult> DownloadStoreTransactionPdfAsync(
+            string orderNumber,
+            string instance,
+            string username,
+            string password)
+        {
+            try
+            {
+                // Determine URL based on instance
+                string serviceUrl = instance.ToUpper() == "PROD" ? PROD_URL : TEST_URL;
+
+                // Report path for Store Transactions
+                string reportPath = "/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo";
+
+                // Build SOAP request
+                string soapRequest = BuildStoreTransactionSoapRequest(orderNumber, username, password, reportPath);
+
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Requesting Store Transaction PDF for: {orderNumber}");
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Using instance: {instance} ({serviceUrl})");
+
+                // Make HTTP POST request
+                var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
+                content.Headers.Add("SOAPAction", "\"runReport\"");
+
+                var response = await _httpClient.PostAsync(serviceUrl, content);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new FusionPdfResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"HTTP Error: {response.StatusCode} - {response.ReasonPhrase}"
+                    };
+                }
+
+                // Read response
+                string responseContent = await response.Content.ReadAsStringAsync();
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Response received, length: {responseContent.Length}");
+
+                // Parse SOAP response
+                var base64Pdf = ExtractBase64FromSoapResponse(responseContent);
+
+                if (string.IsNullOrEmpty(base64Pdf))
+                {
+                    return new FusionPdfResult
+                    {
+                        Success = false,
+                        ErrorMessage = "No <reportBytes> found in SOAP response"
+                    };
+                }
+
+                // Clean up base64 string
+                base64Pdf = CleanBase64String(base64Pdf);
+
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Store Transaction PDF download successful, base64 length: {base64Pdf.Length}");
+
+                return new FusionPdfResult
+                {
+                    Success = true,
+                    Base64Content = base64Pdf
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader ERROR] {ex.Message}");
+                return new FusionPdfResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        /// <summary>
+        /// Builds SOAP request for Store Transaction report
+        /// </summary>
+        private string BuildStoreTransactionSoapRequest(string orderNumber, string username, string password, string reportPath)
+        {
+            return $@"<?xml version=""1.0"" encoding=""utf-8""?>
+<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/"" xmlns:v2=""http://xmlns.oracle.com/oxp/service/v2"">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>{reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+           <v2:listOfParamNameValues>
+            <v2:item><v2:name>SOURCE_CODE</v2:name><v2:values><v2:item>{orderNumber}</v2:item></v2:values></v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:reportData/>
+        <v2:reportOutputPath/>
+      </v2:reportRequest>
+      <v2:userID>{username}</v2:userID>
+      <v2:password>{password}</v2:password>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>";
+        }
+
         public void Dispose()
         {
             _httpClient?.Dispose();

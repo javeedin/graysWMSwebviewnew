@@ -1103,6 +1103,11 @@ namespace WMSApp
                                     await HandleOpenPdfFile(wv, messageJson, requestId);
                                     break;
 
+                                // 🔧 NEW: Print Store Transaction Report
+                                case "printStoreTransaction":
+                                    await HandlePrintStoreTransaction(wv, messageJson, requestId);
+                                    break;
+
                                 // Distribution System Cases
                                 case "check-distribution-folder":
                                     await HandleCheckDistributionFolder(wv, messageJson, requestId);
@@ -2150,6 +2155,81 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Check PDF exists failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // 🔧 NEW: Print Store Transaction Report
+        private async Task HandlePrintStoreTransaction(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string orderNumber = root.GetProperty("orderNumber").GetString();
+                    string instance = root.GetProperty("instance").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Printing Store Transaction for: {orderNumber}, Instance: {instance}");
+
+                    // Get credentials from local storage
+                    var username = _storageManager.GetSetting($"fusion{instance}Username");
+                    var password = _storageManager.GetSetting($"fusion{instance}Password");
+
+                    if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                    {
+                        SendErrorResponse(wv, requestId, $"Fusion {instance} credentials not configured. Please configure in printer settings.");
+                        return;
+                    }
+
+                    // Download PDF using FusionPdfDownloader
+                    var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                    var result = await downloader.DownloadStoreTransactionPdfAsync(
+                        orderNumber,
+                        instance,
+                        username,
+                        password
+                    );
+
+                    if (!result.Success)
+                    {
+                        SendErrorResponse(wv, requestId, $"Failed to generate report: {result.ErrorMessage}");
+                        return;
+                    }
+
+                    // Convert base64 to bytes and save to Downloads folder
+                    byte[] pdfBytes = Convert.FromBase64String(result.Base64Content);
+                    string downloadsPath = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        "Downloads"
+                    );
+                    Directory.CreateDirectory(downloadsPath);
+
+                    string fileName = $"StoreTransaction_{orderNumber}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+                    string filePath = Path.Combine(downloadsPath, fileName);
+
+                    await File.WriteAllBytesAsync(filePath, pdfBytes);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Store Transaction PDF saved to: {filePath}");
+
+                    // Send success response
+                    var response = new
+                    {
+                        action = "printStoreTransactionResponse",
+                        requestId = requestId,
+                        success = true,
+                        message = $"Report saved to Downloads: {fileName}",
+                        filePath = filePath
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Print Store Transaction failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
