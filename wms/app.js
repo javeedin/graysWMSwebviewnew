@@ -4379,8 +4379,83 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.processTransaction = function(orderNumber) {
-        console.log('[Store Transactions] Process transaction for:', orderNumber);
-        alert('Process Transaction functionality - To be implemented');
+        console.log('[Store Transactions] Processing transaction for:', orderNumber);
+
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to process transaction ${orderNumber}?`)) {
+            console.log('[Store Transactions] Process transaction cancelled by user');
+            return;
+        }
+
+        // Get fusion instance from localStorage
+        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Prepare POST data
+        const postData = {
+            p_trx_number: orderNumber,
+            p_instance_name: fusionInstance
+        };
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/processs2v';
+
+        console.log('[Store Transactions] Calling process transaction API:', apiUrl, postData);
+
+        // Log debug info
+        logDebugInfo('Process Transaction', apiUrl, postData, null, null, 'POST');
+
+        // Show loading dialog
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'process-transaction-loading';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #667eea; margin-bottom: 1rem;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Processing Transaction...</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">Order: ${orderNumber}</div>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${fusionInstance}</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(postData)
+        }, function(error, data) {
+            console.log('[Store Transactions] Process Transaction Response - Error:', error, 'Data:', data);
+
+            // Remove loading dialog
+            const loading = document.getElementById('process-transaction-loading');
+            if (loading) loading.remove();
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Process Transaction - Error', apiUrl, postData, null, error, 'POST');
+                alert('Error processing transaction: ' + error);
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+                logDebugInfo('Process Transaction - Success', apiUrl, postData, response, null, 'POST');
+
+                console.log('[Store Transactions] Parsed response:', response);
+
+                if (response.success) {
+                    alert('Success: ' + (response.message || 'Transaction processed successfully'));
+
+                    // Refresh the transaction details and allocated lots to show updated data
+                    refreshTransactionDetails(orderNumber);
+                    refreshAllocatedLots(orderNumber);
+                } else {
+                    alert('Failed: ' + (response.message || 'Unknown error occurred'));
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                logDebugInfo('Process Transaction - Success', apiUrl, postData, data, null, 'POST');
+                alert('Transaction response: ' + data);
+            }
+        });
     };
 
     window.setData = function(orderNumber) {
