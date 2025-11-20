@@ -809,7 +809,7 @@ window.openPasteOrdersPopup = function() {
     // Reset textarea and results
     document.getElementById('paste-orders-textarea').value = '';
     document.getElementById('paste-orders-results').style.display = 'none';
-    document.getElementById('select-found-orders-btn').style.display = 'none';
+    document.getElementById('add-pasted-orders-btn').style.display = 'none';
     foundOrdersFromPaste = [];
 
     // Show popup
@@ -989,91 +989,153 @@ function displayPasteOrdersResults(results) {
     document.getElementById('paste-orders-results-list').innerHTML = html;
     document.getElementById('paste-orders-results').style.display = 'block';
 
-    // Show/hide select button
+    // Show/hide Add to Trip button
     if (foundCount > 0) {
-        document.getElementById('select-found-orders-btn').style.display = 'inline-block';
+        document.getElementById('add-pasted-orders-btn').style.display = 'inline-block';
     } else {
-        document.getElementById('select-found-orders-btn').style.display = 'none';
+        document.getElementById('add-pasted-orders-btn').style.display = 'none';
     }
 }
 
-window.selectFoundOrders = function() {
-    console.log('[Paste Orders] Selecting', foundOrdersFromPaste.length, 'found orders in grid');
-
-    if (!pendingOrdersGrid) {
-        alert('Grid not initialized');
-        return;
-    }
+window.addPastedOrdersToTrip = async function() {
+    console.log('[Paste Orders] Adding', foundOrdersFromPaste.length, 'pasted orders to trip...');
 
     if (foundOrdersFromPaste.length === 0) {
-        alert('No orders to select');
+        alert('No orders to add');
         return;
     }
 
-    // Clear existing selection
-    pendingOrdersGrid.clearSelection();
-
-    // Get all rows in the grid
-    const dataSource = pendingOrdersGrid.option('dataSource');
-
-    console.log('[Paste Orders] Grid has', dataSource.length, 'rows');
-    console.log('[Paste Orders] Trying to select', foundOrdersFromPaste.length, 'orders');
-
-    // Collect all row indexes to select
-    const rowIndexesToSelect = [];
-
-    // Find the row keys for the found orders
-    foundOrdersFromPaste.forEach(foundOrder => {
-        const orderNumber = foundOrder.source_order_number || foundOrder.SOURCE_ORDER_NUMBER || foundOrder.ORDER_NUMBER || foundOrder.order_number || foundOrder.orderNumber;
-
-        console.log('[Paste Orders] Looking for order:', orderNumber, 'in grid');
-
-        // Find the row index in the data source
-        const rowIndex = dataSource.findIndex(row => {
-            const rowOrderNum = (row.source_order_number || row.SOURCE_ORDER_NUMBER || row.ORDER_NUMBER || row.order_number || row.orderNumber || '').toString();
-            const match = rowOrderNum === orderNumber.toString();
-            if (match) {
-                console.log('[Paste Orders]   ✅ Found at index', rowIndex);
-            }
-            return match;
-        });
-
-        if (rowIndex >= 0) {
-            rowIndexesToSelect.push(rowIndex);
-            console.log('[Paste Orders] Added index', rowIndex, 'to selection list');
-        } else {
-            console.log('[Paste Orders] ❌ Order not found in grid:', orderNumber);
-        }
-    });
-
-    console.log('[Paste Orders] Total indexes to select:', rowIndexesToSelect);
-
-    // Select all rows at once
-    if (rowIndexesToSelect.length > 0) {
-        // Use promise-based selection to ensure proper state update
-        pendingOrdersGrid.selectRowsByIndexes(rowIndexesToSelect);
-        console.log('[Paste Orders] Called selectRowsByIndexes with', rowIndexesToSelect.length, 'indexes');
-
-        // Refresh grid to ensure checkboxes are properly updated
-        pendingOrdersGrid.refresh();
+    if (!tripDetailsData || !tripDetailsData.trip_id) {
+        alert('Trip ID not found');
+        return;
     }
 
-    // Wait a moment for grid to update, then get selected count
-    setTimeout(() => {
-        const selectedCount = pendingOrdersGrid.getSelectedRowsData().length;
-        console.log('[Paste Orders] Selected count after selection:', selectedCount);
-        document.getElementById('selected-orders-count').textContent = selectedCount;
+    console.log('[Paste Orders] Found orders:', foundOrdersFromPaste);
 
-        // Close popup
-        closePasteOrdersPopup();
+    // Prepare data for POST - same format as main Add to Trip
+    const ordersToAdd = foundOrdersFromPaste.map(order => ({
+        order_number: order.source_order_number,
+        account_number: order.account_number,
+        account_name: order.account_name,
+        order_date: order.order_date,
+        order_type: order.order_type_code,
+        salesrep_name: order.salesrep_name,
+        instance: order.instance
+    }));
 
-        // Show success message
-        if (selectedCount > 0) {
-            alert(`Successfully selected ${selectedCount} orders in the grid.\n\nClick "Add to Trip" to add them.`);
+    const postData = {
+        trip_id: parseInt(tripDetailsData.trip_id),
+        orders: ordersToAdd
+    };
+
+    console.log('[Paste Orders] POST data:', postData);
+
+    // Disable add button
+    const addBtn = document.getElementById('add-pasted-orders-btn');
+    const originalBtnText = addBtn.innerHTML;
+    addBtn.disabled = true;
+    addBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Adding...';
+
+    try {
+        const ADD_ORDERS_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/addorders';
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: ADD_ORDERS_API,
+                body: JSON.stringify(postData)
+            }, function(error, data) {
+                addBtn.disabled = false;
+                addBtn.innerHTML = originalBtnText;
+
+                if (error) {
+                    console.error('[Paste Orders] Error adding orders:', error);
+                    alert('Error adding orders to trip:\n' + error);
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Paste Orders] Orders added successfully:', response);
+
+                        if (response.success) {
+                            alert(`✅ Successfully added ${response.orders_added} order(s) to trip!`);
+
+                            // Add to trip orders grid
+                            tripOrdersData = [...tripOrdersData, ...foundOrdersFromPaste];
+                            if (tripOrdersGrid) {
+                                tripOrdersGrid.option('dataSource', tripOrdersData);
+                            }
+
+                            updateOrdersCount();
+                            closePasteOrdersPopup();
+                            closeAddOrdersModal();
+
+                            // Reload pending orders to update "added_to_trip" status
+                            loadPendingOrders();
+
+                            // Refresh Trip Management grid if function exists
+                            if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
+                                window.refreshTripManagementAfterAddOrders(tripDetailsData.trip_id);
+                            }
+                        } else {
+                            alert('Error adding orders:\n' + (response.error || 'Unknown error'));
+                        }
+                    } catch (parseError) {
+                        console.error('[Paste Orders] Error parsing response:', parseError);
+                        alert('Error processing server response');
+                    }
+                }
+            });
         } else {
-            alert(`Warning: Found ${foundOrdersFromPaste.length} orders but could not select them in grid.\n\nPlease check the console for details.`);
+            // Fallback for browser testing
+            const response = await fetch(ADD_ORDERS_API, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(postData)
+            });
+
+            addBtn.disabled = false;
+            addBtn.innerHTML = originalBtnText;
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const result = await response.json();
+            console.log('[Paste Orders] Orders added successfully:', result);
+
+            if (result.success) {
+                alert(`✅ Successfully added ${result.orders_added} order(s) to trip!`);
+
+                // Add to trip orders grid
+                tripOrdersData = [...tripOrdersData, ...foundOrdersFromPaste];
+                if (tripOrdersGrid) {
+                    tripOrdersGrid.option('dataSource', tripOrdersData);
+                }
+
+                updateOrdersCount();
+                closePasteOrdersPopup();
+                closeAddOrdersModal();
+
+                // Reload pending orders
+                loadPendingOrders();
+
+                // Refresh Trip Management grid
+                if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
+                    window.refreshTripManagementAfterAddOrders(tripDetailsData.trip_id);
+                }
+            } else {
+                alert('Error adding orders:\n' + (result.error || 'Unknown error'));
+            }
         }
-    }, 100);
+    } catch (error) {
+        console.error('[Paste Orders] Error adding orders:', error);
+        addBtn.disabled = false;
+        addBtn.innerHTML = originalBtnText;
+        alert('Error adding orders to trip:\n' + error.message);
+    }
 };
 
 console.log('[Trip Details] ✅ Module loaded');
