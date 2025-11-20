@@ -3042,11 +3042,11 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         if (s2vOrders.length === 0) {
-            alert('No Store to Van (S2V) orders selected. This function only works for S2V order types.');
+            alert('No Store to Van orders selected. This function only works for Store to Van order types.');
             return;
         }
 
-        console.log('[Allocate Lots S2V] S2V orders found:', s2vOrders.length);
+        console.log('[Allocate Lots S2V] Store to Van orders found:', s2vOrders.length);
 
         // Create progress dialog
         const dialogHtml = `
@@ -3054,13 +3054,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 90%; max-width: 800px; max-height: 80vh; display: flex; flex-direction: column;">
                     <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">
-                            <i class="fas fa-boxes" style="color: #10b981;"></i> Allocate Lots for S2V Orders
+                            <i class="fas fa-boxes" style="color: #10b981;"></i> Allocate Lots for Store to Van Orders
                         </h3>
                         <button onclick="closeS2VDialog()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; padding: 0; width: 30px; height: 30px;">&times;</button>
                     </div>
                     <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
                         <div style="margin-bottom: 1rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px;">
-                            <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">Processing ${s2vOrders.length} S2V Order(s)</div>
+                            <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">Processing ${s2vOrders.length} Store to Van Order(s)</div>
                             <div style="font-size: 0.875rem; color: #047857;">Calling Allocate Lots API for each transaction...</div>
                         </div>
                         <div id="s2v-progress-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
