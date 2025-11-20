@@ -2568,9 +2568,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     const rowData = options.data;
                     const instanceName = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
                     const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
+                    const tripIdFromRow = rowData.TRIP_ID || rowData.trip_id || '';
+                    const tripDateFromRow = rowData.TRIP_DATE || rowData.trip_date || '';
                     $(container).html(`
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}')" title="Print Store Transaction">
+                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
                                 <i class="fas fa-print" style="color: #8b5cf6;"></i>
                             </button>
                             <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
@@ -3280,7 +3282,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Print Store Transaction - calls C# Fusion PDF handler
-    window.printStoreTransaction = function(orderNumber, instanceFromRow, orderTypeFromRow) {
+    window.printStoreTransaction = function(orderNumber, instanceFromRow, orderTypeFromRow, tripIdFromRow, tripDateFromRow) {
         console.log('[Print Store Transaction] Printing for order:', orderNumber);
 
         // Get instance from row data first, fallback to localStorage
@@ -3377,11 +3379,16 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.body.appendChild(loadingDiv);
 
-        // Get tripId and tripDate from globals (ensure they are strings)
-        const tripId = String(window.currentStoreTransTripId || '');
-        const tripDate = String(window.currentStoreTransTripDate || '');
+        // Get tripId and tripDate from parameters first, then fallback to globals (for backward compatibility)
+        const tripId = String(tripIdFromRow || window.currentStoreTransTripId || '');
+        const tripDate = String(tripDateFromRow || window.currentStoreTransTripDate || '');
 
-        console.log('[Print Store Transaction] TripId:', tripId, 'TripDate:', tripDate);
+        console.log('[Print Store Transaction] TripId from row:', tripIdFromRow);
+        console.log('[Print Store Transaction] TripId from global:', window.currentStoreTransTripId);
+        console.log('[Print Store Transaction] Final TripId:', tripId, '(from:', tripIdFromRow ? 'row data' : 'global variable', ')');
+        console.log('[Print Store Transaction] TripDate from row:', tripDateFromRow);
+        console.log('[Print Store Transaction] TripDate from global:', window.currentStoreTransTripDate);
+        console.log('[Print Store Transaction] Final TripDate:', tripDate, '(from:', tripDateFromRow ? 'row data' : 'global variable', ')');
 
         // Call C# handler
         sendMessageToCSharp({
@@ -3727,7 +3734,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <i class="fas fa-exchange-alt" style="color: #667eea;"></i> Store Transactions
                             </h2>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
+                                <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}', '${tripId}', '${tripDate}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
                                     <i class="fas fa-print"></i> Print
                                 </button>
                                 <button onclick="closeStoreTransactionsModal()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1e293b';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">
