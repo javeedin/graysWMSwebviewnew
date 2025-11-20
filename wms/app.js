@@ -2234,6 +2234,13 @@ document.addEventListener('DOMContentLoaded', function() {
     window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard) {
         console.log('[JS] Opening trip details for:', tripId);
 
+        // Collapse hamburger menu sidebar automatically
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && !sidebar.classList.contains('collapsed')) {
+            sidebar.classList.add('collapsed');
+            console.log('[JS] Sidebar collapsed automatically');
+        }
+
         // Get instance from trip card data first, fallback to localStorage
         let instance = instanceFromCard && instanceFromCard !== 'null' && instanceFromCard !== 'undefined' && instanceFromCard.trim() !== ''
             ? instanceFromCard
