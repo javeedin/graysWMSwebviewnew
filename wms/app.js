@@ -2551,10 +2551,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         col.cellTemplate = (container, options) => {
                             const val = (options.value || '').toString().toUpperCase();
                             const isYes = val === 'YES' || val === 'Y';
-                            const icon = isYes
-                                ? '<i class="fas fa-check-circle" style="color: #10b981; font-size: 1.1rem;"></i>'
-                                : '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 1.1rem;"></i>';
-                            $(container).html(`<div style="text-align: center;">${icon}</div>`);
+                            if (isYes) {
+                                // Green tick
+                                $(container).html(`<div style="text-align: center; font-size: 1.3rem; color: #10b981; font-weight: bold;">✓</div>`);
+                            } else {
+                                // Red X
+                                $(container).html(`<div style="text-align: center; font-size: 1.3rem; color: #ef4444; font-weight: bold;">✗</div>`);
+                            }
                         };
                     }
                     // Count columns with bold and colors
