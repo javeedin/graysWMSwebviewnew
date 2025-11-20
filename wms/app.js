@@ -4332,15 +4332,20 @@ document.addEventListener('DOMContentLoaded', function() {
                             console.log('[Store Transactions] Status column detected:', key);
                             column.cellTemplate = function(container, options) {
                                 const value = options.value;
-                                console.log('[Store Transactions] Rendering status cell:', key, '=', value);
+                                console.log('[Store Transactions] Rendering status cell:', key, '=', value, 'Type:', typeof value);
                                 let icon = '';
                                 if (value === 'Y' || value === 'Yes' || value === 'YES') {
                                     icon = '<i class="fas fa-check-circle" style="color: #10b981; font-size: 0.9rem;" title="Yes"></i>';
+                                    console.log('[Store Transactions] Matched YES condition, icon:', icon);
                                 } else {
                                     // Show red X for NO, null, or empty values
                                     icon = '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 0.9rem;" title="No"></i>';
+                                    console.log('[Store Transactions] Matched NO condition, icon:', icon);
                                 }
-                                container.innerHTML = `<div style="text-align: center;">${icon}</div>`;
+                                const html = `<div style="text-align: center;">${icon}</div>`;
+                                console.log('[Store Transactions] Setting innerHTML to:', html);
+                                container.innerHTML = html;
+                                console.log('[Store Transactions] Container after innerHTML:', container.innerHTML);
                             };
                             column.alignment = 'center';
                         }
