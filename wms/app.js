@@ -3430,14 +3430,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     );
 
                     if (response.success) {
-                        // Show PDF viewer dialog if pdfPath is available
-                        if (response.pdfPath) {
-                            console.log('[Print Store Transaction] Opening PDF viewer with path:', response.pdfPath);
-                            showPdfViewer(response.pdfPath, orderNumber, reportName);
+                        // Show PDF viewer dialog if pdfPath or filePath is available
+                        const pdfPath = response.pdfPath || response.filePath || response.path;
+                        if (pdfPath) {
+                            console.log('[Print Store Transaction] Opening PDF viewer with path:', pdfPath);
+                            showPdfViewer(pdfPath, orderNumber, reportName);
                         } else {
-                            console.log('[Print Store Transaction] No pdfPath in response, showing alert');
+                            console.log('[Print Store Transaction] No PDF path in response');
                             console.log('[Print Store Transaction] Response object:', JSON.stringify(response));
-                            alert('Report generated successfully and downloaded!\n\nNote: PDF path not provided by backend.');
+                            alert('Report generated successfully and downloaded!\n\nNote: PDF path not found in response.\nChecked: pdfPath, filePath, path');
                         }
                     } else {
                         alert('Failed to generate report: ' + (response.message || 'Unknown error'));
