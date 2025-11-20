@@ -3632,7 +3632,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[Store Transactions] Parsed response:', response);
 
                 if (response.success) {
-                    alert('Success: ' + (response.message || 'Lot details fetched successfully'));
+                    const recordCount = response.recordCount || 0;
+                    const countMsg = recordCount > 0 ? ` - ${recordCount} record(s) processed` : '';
+                    alert('Success: ' + (response.message || 'Lot details fetched successfully') + countMsg);
 
                     // Refresh the transaction details to show updated data
                     refreshTransactionDetails(orderNumber);

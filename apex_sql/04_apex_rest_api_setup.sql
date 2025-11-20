@@ -510,6 +510,7 @@ DECLARE
     v_trx_number        VARCHAR2(50);
     v_instance_name     VARCHAR2(100);
     v_result            VARCHAR2(4000);
+    v_record_count      NUMBER := 0;
 BEGIN
     -- Get request body
     v_body := :body_text;
@@ -528,6 +529,17 @@ BEGIN
             p_instance_name => v_instance_name
         );
 
+        -- Get count of allocated lots for this transaction
+        BEGIN
+            SELECT COUNT(*)
+            INTO v_record_count
+            FROM mtl_material_transactions_temp
+            WHERE transaction_source_name = v_trx_number;
+        EXCEPTION
+            WHEN OTHERS THEN
+                v_record_count := 0;
+        END;
+
         v_result := 'SUCCESS';
         :status_code := 200;
     EXCEPTION
@@ -541,7 +553,8 @@ BEGIN
     HTP.p('"success": ' || CASE WHEN v_result = 'SUCCESS' THEN 'true' ELSE 'false' END || ',');
     HTP.p('"message": "' || REPLACE(v_result, '"', '\"') || '",');
     HTP.p('"trxNumber": "' || v_trx_number || '",');
-    HTP.p('"instanceName": "' || v_instance_name || '"');
+    HTP.p('"instanceName": "' || v_instance_name || '",');
+    HTP.p('"recordCount": ' || v_record_count);
     HTP.p('}');
 END;
 
