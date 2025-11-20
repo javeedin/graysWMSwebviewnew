@@ -3666,6 +3666,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const lorry = rowData.LORRY_NUMBER || rowData.lorry_number || '';
         const priority = rowData.PRIORITY || rowData.priority || '';
         const pickConfirmSt = rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
+        const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
 
         // Debug: Log the exact ORDER_TYPE value
         console.log('===========================================');
@@ -3690,7 +3691,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <i class="fas fa-exchange-alt" style="color: #667eea;"></i> Store Transactions
                             </h2>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                <button onclick="printStoreTransaction('${orderNumber}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
+                                <button onclick="printStoreTransaction('${orderNumber}', '${instance}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
                                     <i class="fas fa-print"></i> Print
                                 </button>
                                 <button onclick="closeStoreTransactionsModal()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1e293b';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">
@@ -3703,6 +3704,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem; padding: 0.6rem; background: white; border-radius: 6px; border: 1px solid #e2e8f0;">
                             <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Trip ID:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${tripId}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Order Number:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${orderNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Instance:</span><br><strong style="color: #8b5cf6; font-size: 0.8rem; font-weight: 700;">${instance}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Date:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${tripDate}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Account Number:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${accountNumber}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Account Name:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${accountName}</strong></div>
