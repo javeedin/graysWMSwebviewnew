@@ -4330,68 +4330,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     const keys = Object.keys(response.items[0]);
 
-                    // Helper function to render status icons
-                    const renderStatusIcon = (value) => {
-                        if (value === 'Y' || value === 'Yes' || value === 'YES') {
-                            return '<i class="fas fa-check-circle" style="color: #10b981; font-size: 0.9rem;" title="Yes"></i>';
-                        } else if (value === 'N' || value === 'No' || value === 'NO') {
-                            return '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 0.9rem;" title="No"></i>';
-                        } else if (value === null || value === '') {
-                            return '<span style="color: #94a3b8;">-</span>';
+                    // Create DevExpress grid container
+                    contentDiv.innerHTML = '<div id="allocated-lots-grid" style="height: 600px;"></div>';
+
+                    // Initialize DevExpress grid
+                    setTimeout(() => {
+                        const gridContainer = $('#allocated-lots-grid');
+
+                        if (!gridContainer || gridContainer.length === 0) {
+                            console.error('[Store Transactions] Grid container not found');
+                            return;
                         }
-                        return value;
-                    };
 
-                    // Create search box and table
-                    let html = `
-                        <div style="margin-bottom: 0.75rem; display: flex; gap: 0.75rem; align-items: center; background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0;">
-                            <div style="flex: 1; position: relative;">
-                                <i class="fas fa-search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.75rem;"></i>
-                                <input type="text" id="allocated-search-input" placeholder="Search in table..."
-                                    style="width: 100%; padding: 0.4rem 0.5rem 0.4rem 2rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; outline: none; transition: all 0.2s;"
-                                    onkeyup="filterAllocatedLotsTable()"
-                                    onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102, 126, 234, 0.1)'"
-                                    onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
-                            </div>
-                            <div style="font-size: 0.75rem; color: #64748b; white-space: nowrap;">
-                                <span id="allocated-selected-count">0</span> selected |
-                                <span id="allocated-row-count">${response.items.length}</span> rows
-                            </div>
-                        </div>
+                        // Build columns with status icon rendering
+                        const columns = keys.map(key => {
+                            let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
-                        <div style="background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
-                                <table id="allocated-data-table" style="width: 100%; border-collapse: collapse;">
-                                    <thead style="position: sticky; top: 0; z-index: 10;">
-                                        <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 2px solid #667eea;">
-                                            <th style="padding: 0.5rem; width: 40px; text-align: center;">
-                                                <input type="checkbox" id="select-all-allocated" onchange="toggleSelectAllAllocated()"
-                                                    style="cursor: pointer; width: 16px; height: 16px;">
-                                            </th>
-                    `;
-
-                    keys.forEach(key => {
-                        html += `<th style="padding: 0.5rem; text-align: left; font-weight: 600; color: white; font-size: 0.7rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
-                    });
-
-                    html += '</tr></thead><tbody>';
-
-                    // Add rows with checkboxes and status icons
-                    response.items.forEach((item, index) => {
-                        html += `<tr class="allocated-table-row" style="border-bottom: 1px solid #e2e8f0; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f0f9ff'"
-                            onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
-                            data-row-index="${index}">
-                            <td style="padding: 0.5rem; text-align: center;">
-                                <input type="checkbox" class="allocated-row-checkbox" data-index="${index}"
-                                    onchange="updateAllocatedSelectedCount()" style="cursor: pointer; width: 16px; height: 16px;">
-                            </td>`;
-                        keys.forEach(key => {
-                            const value = item[key];
                             const lowerKey = key.toLowerCase();
                             const upperKey = key.toUpperCase();
 
-                            // Check if this is a status column - updated to match new field names
+                            // Status columns with icons
                             if (lowerKey.includes('status') ||
                                 lowerKey.includes('_st') ||
                                 upperKey === 'PICKED_ST' ||
@@ -4400,16 +4358,52 @@ document.addEventListener('DOMContentLoaded', function() {
                                 lowerKey === 'picked_status' ||
                                 lowerKey === 'canceled_status' ||
                                 lowerKey === 'ship_confirm_st') {
-                                html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap; text-align: center;">${renderStatusIcon(value)}</td>`;
-                            } else {
-                                html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap;">${value !== null && value !== undefined ? value : ''}</td>`;
+                                col.width = 100;
+                                col.alignment = 'center';
+                                col.cellTemplate = (container, options) => {
+                                    const value = options.value;
+                                    if (value === 'Y' || value === 'Yes' || value === 'YES') {
+                                        $(container).html('<div style="text-align: center; font-size: 1.1rem; color: #10b981; font-weight: bold;">✓</div>');
+                                    } else if (value === 'N' || value === 'No' || value === 'NO') {
+                                        $(container).html('<div style="text-align: center; font-size: 1.1rem; color: #ef4444; font-weight: bold;">✗</div>');
+                                    } else if (value === null || value === '') {
+                                        $(container).html('<span style="color: #94a3b8;">-</span>');
+                                    } else {
+                                        $(container).html(value);
+                                    }
+                                };
+                            }
+
+                            return col;
+                        });
+
+                        // Initialize grid with checkbox selection
+                        gridContainer.dxDataGrid({
+                            dataSource: response.items,
+                            columns: columns,
+                            showBorders: true,
+                            columnAutoWidth: true,
+                            scrolling: { useNative: true, showScrollbar: 'always' },
+                            filterRow: { visible: true },
+                            headerFilter: { visible: true },
+                            searchPanel: { visible: true, placeholder: "Search..." },
+                            paging: { pageSize: 20 },
+                            pager: { showPageSizeSelector: true, allowedPageSizes: [10, 20, 50, 'all'] },
+                            allowColumnReordering: true,
+                            allowColumnResizing: true,
+                            columnResizingMode: 'widget',
+                            rowAlternationEnabled: true,
+                            selection: {
+                                mode: 'multiple',
+                                showCheckBoxesMode: 'always'
+                            },
+                            onSelectionChanged: function(e) {
+                                console.log('[Allocated Lots] Selection changed:', e.selectedRowsData.length, 'rows selected');
                             }
                         });
-                        html += '</tr>';
-                    });
 
-                    html += '</tbody></table></div></div>';
-                    contentDiv.innerHTML = html;
+                        console.log('[Store Transactions] DevExpress grid initialized with', response.items.length, 'rows');
+                    }, 100);
                 } else {
                     contentDiv.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No allocated lots found for this order</p>';
                 }
@@ -4420,43 +4414,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
-    // Filter function for Allocated Lots table
-    window.filterAllocatedLotsTable = function() {
-        const input = document.getElementById('allocated-search-input');
-        const filter = input.value.toUpperCase();
-        const table = document.getElementById('allocated-data-table');
-        const rows = table.getElementsByTagName('tr');
-        let visibleCount = 0;
-
-        for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            const cells = row.getElementsByTagName('td');
-            let found = false;
-
-            for (let j = 0; j < cells.length; j++) {
-                const cell = cells[j];
-                if (cell) {
-                    const textValue = cell.textContent || cell.innerText;
-                    if (textValue.toUpperCase().indexOf(filter) > -1) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            if (found) {
-                row.style.display = '';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
-        }
-
-        const rowCountSpan = document.getElementById('allocated-row-count');
-        if (rowCountSpan) {
-            rowCountSpan.textContent = visibleCount;
-        }
-    };
+    // Filter function for Allocated Lots table - NO LONGER NEEDED (DevExpress handles search)
+    // DevExpress grid has built-in search panel functionality
 
     // Refresh QOH Details (Tab 2)
     window.refreshQOHDetails = async function(orderNumber) {
@@ -4593,34 +4552,8 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Toggle Select All checkbox for Allocated Lots
-    window.toggleSelectAllAllocated = function() {
-        const selectAll = document.getElementById('select-all-allocated');
-        const checkboxes = document.querySelectorAll('.allocated-row-checkbox');
-
-        checkboxes.forEach(cb => {
-            cb.checked = selectAll.checked;
-        });
-
-        updateAllocatedSelectedCount();
-    };
-
-    // Update selected count for Allocated Lots
-    window.updateAllocatedSelectedCount = function() {
-        const checkboxes = document.querySelectorAll('.allocated-row-checkbox');
-        const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
-
-        const countSpan = document.getElementById('allocated-selected-count');
-        if (countSpan) {
-            countSpan.textContent = checkedCount;
-        }
-
-        // Update select-all checkbox state
-        const selectAll = document.getElementById('select-all-allocated');
-        if (selectAll) {
-            selectAll.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
-        }
-    };
+    // Checkbox functions - NO LONGER NEEDED (DevExpress handles selection)
+    // DevExpress grid has built-in checkbox selection with Select All functionality
 
     window.processTransaction = function(orderNumber) {
         console.log('[Store Transactions] Processing transaction for:', orderNumber);
@@ -4705,19 +4638,23 @@ document.addEventListener('DOMContentLoaded', function() {
     window.setData = function(orderNumber) {
         console.log('[Store Transactions] Set data for:', orderNumber);
 
-        // Get selected rows
-        const checkboxes = document.querySelectorAll('.allocated-row-checkbox:checked');
+        // Get selected rows from DevExpress grid
+        const gridContainer = $('#allocated-lots-grid');
 
-        if (checkboxes.length === 0) {
+        if (!gridContainer || gridContainer.length === 0) {
+            alert('Grid not found. Please refresh the allocated lots first.');
+            return;
+        }
+
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        const selectedItems = gridInstance.getSelectedRowsData();
+
+        if (selectedItems.length === 0) {
             alert('Please select at least one record to set data');
             return;
         }
 
-        // Get selected items data
-        const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.index));
-        const selectedItems = selectedIndices.map(index => window.allocatedLotsData[index]);
-
-        console.log('[Store Transactions] Selected items:', selectedItems);
+        console.log('[Store Transactions] Selected items from DevExpress grid:', selectedItems);
 
         // Open Set Data dialog
         openSetDataDialog(orderNumber, selectedItems);
