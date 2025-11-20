@@ -3344,7 +3344,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Debug logging function
-    window.logDebugInfo = function(action, endpoint, payload, response, error) {
+    window.logDebugInfo = function(action, endpoint, payload, response, error, method) {
         const debugContent = document.getElementById('debug-log-content');
         if (!debugContent) return;
 
@@ -3364,9 +3364,18 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         `;
 
+        if (method) {
+            const methodColor = method === 'POST' ? '#f59e0b' : '#06b6d4';
+            html += `
+                <div style="display: inline-block; background: ${methodColor}; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; margin-bottom: 0.5rem;">
+                    ${method}
+                </div>
+            `;
+        }
+
         if (endpoint) {
             html += `
-                <div style="color: #60a5fa; margin-bottom: 0.5rem;">
+                <div style="color: #60a5fa; margin-bottom: 0.5rem; margin-top: 0.5rem;">
                     <strong>Endpoint:</strong>
                 </div>
                 <div style="color: #cbd5e1; margin-bottom: 0.75rem; word-break: break-all; font-size: 0.7rem;">
@@ -3432,7 +3441,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
 
         // Log debug info
-        logDebugInfo('Refresh Transaction Details', apiUrl, { orderNumber, instance: currentInstance });
+        logDebugInfo('Refresh Transaction Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -3442,9 +3451,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Log response or error
             if (error) {
-                logDebugInfo('Refresh Transaction Details - Error', apiUrl, null, null, error);
+                logDebugInfo('Refresh Transaction Details - Error', apiUrl, null, null, error, 'GET');
             } else {
-                logDebugInfo('Refresh Transaction Details - Success', apiUrl, null, data);
+                logDebugInfo('Refresh Transaction Details - Success', apiUrl, null, data, null, 'GET');
             }
 
             if (error) {
@@ -3586,7 +3595,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Store Transactions] Calling fetch lot details API:', apiUrl, postData);
 
         // Log debug info
-        logDebugInfo('Fetch Lot Details', apiUrl, postData);
+        logDebugInfo('Fetch Lot Details', apiUrl, postData, null, null, 'POST');
 
         sendMessageToCSharp({
             action: 'executePost',
@@ -3597,13 +3606,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Log response or error
             if (error) {
-                logDebugInfo('Fetch Lot Details - Error', apiUrl, postData, null, error);
+                logDebugInfo('Fetch Lot Details - Error', apiUrl, postData, null, error, 'POST');
             } else {
                 try {
                     const response = JSON.parse(data);
-                    logDebugInfo('Fetch Lot Details - Success', apiUrl, postData, response);
+                    logDebugInfo('Fetch Lot Details - Success', apiUrl, postData, response, null, 'POST');
                 } catch (e) {
-                    logDebugInfo('Fetch Lot Details - Success', apiUrl, postData, data);
+                    logDebugInfo('Fetch Lot Details - Success', apiUrl, postData, data, null, 'POST');
                 }
             }
 
@@ -3647,7 +3656,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}`;
 
         // Log debug info
-        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber });
+        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -3657,13 +3666,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Log response or error
             if (error) {
-                logDebugInfo('Refresh Allocated Lots - Error', apiUrl, null, null, error);
+                logDebugInfo('Refresh Allocated Lots - Error', apiUrl, null, null, error, 'GET');
             } else {
                 try {
                     const response = JSON.parse(data);
-                    logDebugInfo('Refresh Allocated Lots - Success', apiUrl, null, response);
+                    logDebugInfo('Refresh Allocated Lots - Success', apiUrl, null, response, null, 'GET');
                 } catch (e) {
-                    logDebugInfo('Refresh Allocated Lots - Success', apiUrl, null, data);
+                    logDebugInfo('Refresh Allocated Lots - Success', apiUrl, null, data, null, 'GET');
                 }
             }
 
@@ -3819,7 +3828,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}`;
 
         // Log debug info
-        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber });
+        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -3829,13 +3838,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Log response or error
             if (error) {
-                logDebugInfo('Refresh QOH Details - Error', apiUrl, null, null, error);
+                logDebugInfo('Refresh QOH Details - Error', apiUrl, null, null, error, 'GET');
             } else {
                 try {
                     const response = JSON.parse(data);
-                    logDebugInfo('Refresh QOH Details - Success', apiUrl, null, response);
+                    logDebugInfo('Refresh QOH Details - Success', apiUrl, null, response, null, 'GET');
                 } catch (e) {
-                    logDebugInfo('Refresh QOH Details - Success', apiUrl, null, data);
+                    logDebugInfo('Refresh QOH Details - Success', apiUrl, null, data, null, 'GET');
                 }
             }
 
