@@ -2137,3 +2137,16 @@ input:checked + .toggle-slider:before {
         max-width: 85%;
     }
 }
+
+/* Small Font for DevExpress Grids */
+.dx-datagrid .small-font-grid {
+    font-size: 0.75rem !important;
+}
+
+.dx-datagrid .dx-header-row .dx-datagrid-text-content {
+    font-size: 0.7rem !important;
+}
+
+.dx-datagrid .dx-datagrid-rowsview .dx-row {
+    font-size: 0.75rem !important;
+}

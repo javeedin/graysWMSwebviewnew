@@ -106,6 +106,10 @@ function initializeTripOrdersGrid() {
             allowColumnReordering: true,
             allowColumnResizing: true,
             hoverStateEnabled: true,
+            scrolling: {
+                mode: 'virtual',
+                rowRenderingMode: 'virtual'
+            },
             filterRow: {
                 visible: true,
                 applyFilter: 'auto'
@@ -116,42 +120,47 @@ function initializeTripOrdersGrid() {
                 placeholder: 'Search orders...'
             },
             paging: {
-                pageSize: 20
+                pageSize: 50
             },
             pager: {
                 visible: true,
                 showPageSizeSelector: true,
-                allowedPageSizes: [10, 20, 50, 100],
+                allowedPageSizes: [20, 50, 100, 200],
                 showInfo: true
             },
             columns: [
                 {
                     dataField: 'source_order_number',
                     caption: 'Order Number',
-                    width: 150,
-                    fixed: true
+                    width: 130,
+                    fixed: true,
+                    cssClass: 'small-font-grid'
                 },
                 {
                     dataField: 'account_number',
                     caption: 'Account',
-                    width: 120
+                    width: 100,
+                    cssClass: 'small-font-grid'
                 },
                 {
                     dataField: 'account_name',
                     caption: 'Customer Name',
-                    width: 250
+                    width: 200,
+                    cssClass: 'small-font-grid'
                 },
                 {
                     dataField: 'order_date',
                     caption: 'Order Date',
-                    width: 120,
+                    width: 100,
                     dataType: 'date',
-                    format: 'yyyy-MM-dd'
+                    format: 'yyyy-MM-dd',
+                    cssClass: 'small-font-grid'
                 },
                 {
                     dataField: 'line_status',
                     caption: 'Status',
-                    width: 120,
+                    width: 100,
+                    cssClass: 'small-font-grid',
                     cellTemplate: function(container, options) {
                         const status = options.value || 'Unknown';
                         let badgeClass = 'status-pending';
@@ -166,16 +175,72 @@ function initializeTripOrdersGrid() {
                 {
                     dataField: 'salesrep_name',
                     caption: 'Sales Rep',
-                    width: 150
+                    width: 130,
+                    cssClass: 'small-font-grid'
                 },
                 {
                     dataField: 'order_type_code',
                     caption: 'Order Type',
-                    width: 120
+                    width: 90,
+                    cssClass: 'small-font-grid'
+                },
+                {
+                    dataField: 'pick_confirm_st',
+                    caption: 'Pick Status',
+                    width: 80,
+                    alignment: 'center',
+                    cellTemplate: function(container, options) {
+                        const value = options.value;
+                        const wrapper = document.createElement('div');
+                        wrapper.style.textAlign = 'center';
+
+                        const icon = document.createElement('i');
+                        icon.style.fontSize = '0.85rem';
+
+                        if (value === 'Y' || value === 'Yes' || value === 'YES') {
+                            icon.className = 'fas fa-check-circle';
+                            icon.style.color = '#10b981';
+                            icon.title = 'Yes';
+                        } else {
+                            icon.className = 'fas fa-times-circle';
+                            icon.style.color = '#ef4444';
+                            icon.title = 'No';
+                        }
+
+                        wrapper.appendChild(icon);
+                        $(container).empty().append(wrapper);
+                    }
+                },
+                {
+                    dataField: 'ship_confirm_st',
+                    caption: 'Ship Status',
+                    width: 80,
+                    alignment: 'center',
+                    cellTemplate: function(container, options) {
+                        const value = options.value;
+                        const wrapper = document.createElement('div');
+                        wrapper.style.textAlign = 'center';
+
+                        const icon = document.createElement('i');
+                        icon.style.fontSize = '0.85rem';
+
+                        if (value === 'Y' || value === 'Yes' || value === 'YES') {
+                            icon.className = 'fas fa-check-circle';
+                            icon.style.color = '#10b981';
+                            icon.title = 'Yes';
+                        } else {
+                            icon.className = 'fas fa-times-circle';
+                            icon.style.color = '#ef4444';
+                            icon.title = 'No';
+                        }
+
+                        wrapper.appendChild(icon);
+                        $(container).empty().append(wrapper);
+                    }
                 },
                 {
                     caption: 'Actions',
-                    width: 100,
+                    width: 80,
                     cellTemplate: function(container, options) {
                         const removeBtn = $('<button>')
                             .addClass('grid-action-btn btn-retry')

@@ -3741,12 +3741,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
                     <!-- Modal Header -->
                     <div style="padding: 0.75rem 1rem; border-bottom: 2px solid #e2e8f0; background: whitesmoke;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-                            <h2 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
-                                <i class="fas fa-exchange-alt" style="color: #667eea;"></i> Store Transactions
-                            </h2>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <h2 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
+                                    <i class="fas fa-exchange-alt" style="color: #667eea;"></i> Store Transactions
+                                </h2>
+                                <button id="store-trans-header-toggle" onclick="toggleStoreTransHeader()" style="background: transparent; border: none; cursor: pointer; color: #667eea; padding: 0.2rem 0.4rem; transition: all 0.2s;" title="Toggle Details">
+                                    <i class="fas fa-chevron-down" style="font-size: 0.9rem; transition: transform 0.3s;"></i>
+                                </button>
+                            </div>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
-                                <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}', '${tripId}', '${tripDate}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
+                                <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}', '${tripId}', '${tripDate}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.75rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
                                     <i class="fas fa-print"></i> Print
                                 </button>
                                 <button onclick="closeStoreTransactionsModal()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1e293b';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">
@@ -3755,18 +3760,18 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                         </div>
 
-                        <!-- Header Details -->
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.5rem; padding: 0.6rem; background: white; border-radius: 6px; border: 1px solid #e2e8f0;">
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Trip ID:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${tripId}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Order Number:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${orderNumber}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Instance:</span><br><strong style="color: #8b5cf6; font-size: 0.8rem; font-weight: 700;">${instance}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Date:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${tripDate}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Account Number:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${accountNumber}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Account Name:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${accountName}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Picker:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${picker}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${lorry}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${priority}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.65rem; font-weight: 600;">Pick Confirm St:</span><br><strong style="color: #1e293b; font-size: 0.8rem;">${pickConfirmSt}</strong></div>
+                        <!-- Header Details (Collapsible, Default Collapsed) -->
+                        <div id="store-trans-header-details" style="display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.4rem; padding: 0.5rem; background: white; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 0.5rem; transition: all 0.3s;">
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip ID:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripId}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Instance:</span><br><strong style="color: #8b5cf6; font-size: 0.75rem; font-weight: 700;">${instance}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Date:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripDate}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Name:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountName}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Picker:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${picker}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Pick Confirm St:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${pickConfirmSt}</strong></div>
                         </div>
                     </div>
 
@@ -3879,6 +3884,21 @@ document.addEventListener('DOMContentLoaded', function() {
         const modal = document.getElementById('store-transactions-modal');
         if (modal) {
             modal.remove();
+        }
+    };
+
+    // Toggle Store Transactions Header Details
+    window.toggleStoreTransHeader = function() {
+        const details = document.getElementById('store-trans-header-details');
+        const toggleBtn = document.getElementById('store-trans-header-toggle');
+        const icon = toggleBtn.querySelector('i');
+
+        if (details.style.display === 'none' || details.style.display === '') {
+            details.style.display = 'grid';
+            icon.style.transform = 'rotate(180deg)';
+        } else {
+            details.style.display = 'none';
+            icon.style.transform = 'rotate(0deg)';
         }
     };
 
@@ -4092,14 +4112,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         allowColumnResizing: true,
                         wordWrapEnabled: false,
                         hoverStateEnabled: true,
+                        scrolling: {
+                            mode: 'virtual',
+                            rowRenderingMode: 'virtual'
+                        },
                         columns: columns,
                         paging: {
-                            pageSize: 20
+                            pageSize: 50
                         },
                         pager: {
                             visible: true,
                             showPageSizeSelector: true,
-                            allowedPageSizes: [10, 20, 50, 100],
+                            allowedPageSizes: [20, 50, 100, 200],
                             showInfo: true,
                             showNavigationButtons: true
                         },
@@ -4378,18 +4402,22 @@ document.addEventListener('DOMContentLoaded', function() {
                         allowColumnResizing: true,
                         wordWrapEnabled: false,
                         hoverStateEnabled: true,
+                        scrolling: {
+                            mode: 'virtual',
+                            rowRenderingMode: 'virtual'
+                        },
                         selection: {
                             mode: 'multiple',
                             showCheckBoxesMode: 'always'
                         },
                         columns: columns,
                         paging: {
-                            pageSize: 20
+                            pageSize: 50
                         },
                         pager: {
                             visible: true,
                             showPageSizeSelector: true,
-                            allowedPageSizes: [10, 20, 50, 100],
+                            allowedPageSizes: [20, 50, 100, 200],
                             showInfo: true,
                             showNavigationButtons: true
                         },
@@ -4524,14 +4552,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         allowColumnResizing: true,
                         wordWrapEnabled: false,
                         hoverStateEnabled: true,
+                        scrolling: {
+                            mode: 'virtual',
+                            rowRenderingMode: 'virtual'
+                        },
                         columns: columns,
                         paging: {
-                            pageSize: 20
+                            pageSize: 50
                         },
                         pager: {
                             visible: true,
                             showPageSizeSelector: true,
-                            allowedPageSizes: [10, 20, 50, 100],
+                            allowedPageSizes: [20, 50, 100, 200],
                             showInfo: true,
                             showNavigationButtons: true
                         },
