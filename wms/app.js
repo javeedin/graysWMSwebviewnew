@@ -4284,6 +4284,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Store items globally for access when setting data
                     window.allocatedLotsData = response.items;
 
+                    // Debug: Log first item structure
+                    console.log('[Store Transactions] Allocated Lots - First item:', response.items[0]);
+                    console.log('[Store Transactions] Allocated Lots - Total items:', response.items.length);
+
                     // Clear loading message
                     gridContainer.innerHTML = '';
 
@@ -4312,17 +4316,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     // Get keys from first item to create columns dynamically
                     const keys = Object.keys(response.items[0]);
+                    console.log('[Store Transactions] Allocated Lots - Column keys:', keys);
+
                     const columns = keys.map(key => {
                         const column = {
                             dataField: key,
                             caption: key.replace(/_/g, ' ').toUpperCase(),
-                            width: 'auto'
+                            width: 'auto',
+                            allowFiltering: true,
+                            allowSorting: true
                         };
 
                         // Add custom cell template for status columns
                         if (isStatusColumn(key)) {
+                            console.log('[Store Transactions] Status column detected:', key);
                             column.cellTemplate = function(container, options) {
                                 const value = options.value;
+                                console.log('[Store Transactions] Rendering status cell:', key, '=', value);
                                 let icon = '';
                                 if (value === 'Y' || value === 'Yes' || value === 'YES') {
                                     icon = '<i class="fas fa-check-circle" style="color: #10b981; font-size: 0.9rem;" title="Yes"></i>';
@@ -4331,6 +4341,13 @@ document.addEventListener('DOMContentLoaded', function() {
                                     icon = '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 0.9rem;" title="No"></i>';
                                 }
                                 container.innerHTML = `<div style="text-align: center;">${icon}</div>`;
+                            };
+                        } else {
+                            // For non-status columns, use default rendering but log values
+                            column.cellTemplate = function(container, options) {
+                                const value = options.value;
+                                console.log('[Store Transactions] Rendering cell:', key, '=', value);
+                                container.textContent = (value !== null && value !== undefined) ? value : '';
                             };
                         }
 
