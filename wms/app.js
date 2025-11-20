@@ -3206,11 +3206,73 @@ document.addEventListener('DOMContentLoaded', function() {
         // Get instance from localStorage
         const instance = localStorage.getItem('fusionInstance') || 'TEST';
 
-        // Report configuration
-        const reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
-        const parameterName = 'SOURCE_CODE';
+        // Get order type from global (set when dialog was opened)
+        const orderType = (window.currentStoreTransOrderType || '').toUpperCase();
 
-        console.log('[Print Store Transaction] Order:', orderNumber, 'Instance:', instance, 'Report:', reportPath);
+        // Determine report based on order type
+        let reportPath, parameterName, reportName;
+
+        if (orderType === 'STORE TO VAN' || orderType === 'VAN TO STORE' || orderType === 'S2V') {
+            // Store to Van / Van to Store - use Store Transaction report
+            reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
+            parameterName = 'SOURCE_CODE';
+            reportName = 'Store Transaction Report';
+        } else {
+            // All other order types - use Sales Order report
+            reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+            parameterName = 'Order_Number';
+            reportName = 'Sales Order Report';
+        }
+
+        console.log('[Print Store Transaction] Order Type:', orderType);
+        console.log('[Print Store Transaction] Using:', reportName);
+        console.log('[Print Store Transaction] Report Path:', reportPath);
+        console.log('[Print Store Transaction] Parameter:', parameterName, '=', orderNumber);
+
+        // Build SOAP XML payload for debug display
+        const soapXmlPayload = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>${reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+           <v2:listOfParamNameValues>
+            <v2:item>
+              <v2:name>${parameterName}</v2:name>
+              <v2:values>
+                <v2:item>${orderNumber}</v2:item>
+              </v2:values>
+            </v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:reportData/>
+        <v2:reportOutputPath/>
+      </v2:reportRequest>
+      <v2:userID>[credentials]</v2:userID>
+      <v2:password>[credentials]</v2:password>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+        // Log to debug window
+        logDebugInfo(
+            `Print Report - ${reportName}`,
+            `${instance} - ${reportPath}`,
+            {
+                orderType: orderType,
+                reportPath: reportPath,
+                parameterName: parameterName,
+                parameterValue: orderNumber,
+                instance: instance,
+                soapPayload: soapXmlPayload
+            },
+            null,
+            null,
+            'SOAP'
+        );
 
         // Show loading indicator
         const loadingDiv = document.createElement('div');
@@ -3220,7 +3282,8 @@ document.addEventListener('DOMContentLoaded', function() {
             <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
                 <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #8b5cf6; margin-bottom: 1rem;"></i>
                 <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Generating PDF Report...</div>
-                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">Order: ${orderNumber}</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">${reportName}</div>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Order: ${orderNumber}</div>
                 <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${instance}</div>
             </div>
         `;
@@ -3241,10 +3304,29 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[Print Store Transaction] Response - Error:', error, 'Data:', data);
 
             if (error) {
+                // Log error to debug
+                logDebugInfo(
+                    `Print Report - ${reportName} - ERROR`,
+                    `${instance} - ${reportPath}`,
+                    { orderNumber, parameterName },
+                    null,
+                    error,
+                    'SOAP'
+                );
                 alert('Error generating report: ' + error);
             } else {
                 try {
                     const response = typeof data === 'string' ? JSON.parse(data) : data;
+
+                    // Log success to debug
+                    logDebugInfo(
+                        `Print Report - ${reportName} - SUCCESS`,
+                        `${instance} - ${reportPath}`,
+                        { orderNumber, parameterName },
+                        response,
+                        null,
+                        'SOAP'
+                    );
 
                     if (response.success) {
                         alert('Report generated successfully and downloaded!');
@@ -3254,6 +3336,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 } catch (parseError) {
                     // If not JSON, assume it was successful
                     console.log('[Print Store Transaction] Non-JSON response, assuming success');
+                    logDebugInfo(
+                        `Print Report - ${reportName} - SUCCESS`,
+                        `${instance} - ${reportPath}`,
+                        { orderNumber, parameterName },
+                        { success: true, message: data },
+                        null,
+                        'SOAP'
+                    );
                     alert('Report generated successfully!');
                 }
             }
@@ -3411,6 +3501,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Store Transactions] Opening dialog for order:', rowData);
 
         const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || '';
+        const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
         const tripId = rowData.TRIP_ID || rowData.trip_id || '';
         const tripDate = rowData.TRIP_DATE || rowData.trip_date || '';
         const accountNumber = rowData.ACCOUNT_NUMBER || rowData.account_number || '';
@@ -3419,6 +3510,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const lorry = rowData.LORRY_NUMBER || rowData.lorry_number || '';
         const priority = rowData.PRIORITY || rowData.priority || '';
         const pickConfirmSt = rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
+
+        // Store order type in a global for print function
+        window.currentStoreTransOrderType = orderType;
 
         // Create modal HTML
         const modalHtml = `
@@ -3612,7 +3706,7 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
 
         if (method) {
-            const methodColor = method === 'POST' ? '#f59e0b' : '#06b6d4';
+            const methodColor = method === 'POST' ? '#f59e0b' : (method === 'SOAP' ? '#a855f7' : '#06b6d4');
             html += `
                 <div style="display: inline-block; background: ${methodColor}; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; margin-bottom: 0.5rem;">
                     ${method}
@@ -3636,8 +3730,36 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div style="color: #fbbf24; margin-bottom: 0.5rem;">
                     <strong>Payload:</strong>
                 </div>
-                <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; margin-bottom: 0.75rem;">${JSON.stringify(payload, null, 2)}</pre>
             `;
+
+            // Special handling for SOAP XML
+            if (method === 'SOAP' && payload.soapPayload) {
+                // Show SOAP XML with syntax highlighting
+                const escapedXml = payload.soapPayload
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+
+                html += `
+                    <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; margin-bottom: 0.75rem; max-height: 300px;">${escapedXml}</pre>
+                `;
+
+                // Show other fields except soapPayload
+                const { soapPayload, ...otherFields } = payload;
+                if (Object.keys(otherFields).length > 0) {
+                    html += `
+                        <div style="color: #fbbf24; margin-bottom: 0.5rem; margin-top: 0.5rem;">
+                            <strong>Parameters:</strong>
+                        </div>
+                        <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; margin-bottom: 0.75rem;">${JSON.stringify(otherFields, null, 2)}</pre>
+                    `;
+                }
+            } else {
+                // Regular JSON display
+                html += `
+                    <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; margin-bottom: 0.75rem;">${JSON.stringify(payload, null, 2)}</pre>
+                `;
+            }
         }
 
         if (response) {
