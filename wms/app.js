@@ -3297,9 +3297,9 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         document.body.appendChild(loadingDiv);
 
-        // Get tripId and tripDate from globals
-        const tripId = window.currentStoreTransTripId || '';
-        const tripDate = window.currentStoreTransTripDate || '';
+        // Get tripId and tripDate from globals (ensure they are strings)
+        const tripId = String(window.currentStoreTransTripId || '');
+        const tripDate = String(window.currentStoreTransTripDate || '');
 
         console.log('[Print Store Transaction] TripId:', tripId, 'TripDate:', tripDate);
 
@@ -3536,7 +3536,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Store order type, tripId, and tripDate in globals for print function
         window.currentStoreTransOrderType = orderType;
-        window.currentStoreTransTripId = tripId;
+        window.currentStoreTransTripId = String(tripId);  // Convert to string for C# handler
         window.currentStoreTransTripDate = tripDate;
 
         // Create modal HTML
