@@ -55,6 +55,7 @@ namespace WMSApp
         private PrintJobManager _printJobManager;
         private LocalStorageManager _storageManager;
         private PrinterService _printerService;
+        private RestApiClient _restApiClient;
 
         public Form1()
         {
@@ -80,6 +81,7 @@ namespace WMSApp
             _printJobManager = new PrintJobManager();
             _storageManager = new LocalStorageManager();
             _printerService = new PrinterService();
+            _restApiClient = new RestApiClient();
         }
 
         private void InitializeComponent1()
@@ -2159,6 +2161,62 @@ namespace WMSApp
             }
         }
 
+        /// <summary>
+        /// Gets the active printer configuration from APEX REST API
+        /// Returns null if not found or on error (caller should fallback to local config)
+        /// </summary>
+        private async Task<PrinterConfig> GetActivePrinterConfigFromApexAsync()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[Form1] Getting printer config from APEX REST...");
+
+                string url = EndpointRegistry.GetEndpointUrl("WMS", "GETPRINTERCONFIG");
+                if (string.IsNullOrEmpty(url))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Form1] ❌ Printer config endpoint not found in registry");
+                    return null;
+                }
+
+                string jsonResponse = await _restApiClient.ExecuteGetAsync(url);
+
+                // Parse JSON response to get active printer
+                var jsonDoc = System.Text.Json.JsonDocument.Parse(jsonResponse);
+                var items = jsonDoc.RootElement.GetProperty("items");
+
+                foreach (var item in items.EnumerateArray())
+                {
+                    string isActive = item.GetProperty("isActive").GetString();
+                    if (isActive == "Y")
+                    {
+                        var config = new PrinterConfig
+                        {
+                            PrinterName = item.GetProperty("printerName").GetString(),
+                            PaperSize = item.GetProperty("paperSize").GetString(),
+                            Orientation = item.GetProperty("orientation").GetString(),
+                            FusionInstance = item.GetProperty("fusionInstance").GetString(),
+                            FusionUsername = item.GetProperty("fusionUsername").GetString(),
+                            FusionPassword = item.GetProperty("fusionPassword").GetString(),
+                            AutoDownload = item.GetProperty("autoDownload").GetString() == "Y",
+                            AutoPrint = item.GetProperty("autoPrint").GetString() == "Y"
+                        };
+
+                        System.Diagnostics.Debug.WriteLine($"[Form1] ✅ Got active printer config from APEX");
+                        System.Diagnostics.Debug.WriteLine($"[Form1] Fusion Username: {config.FusionUsername}, Instance: {config.FusionInstance}");
+                        return config;
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[Form1] ❌ No active printer found in APEX");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Form1] ❌ Failed to get printer config from APEX: {ex.Message}");
+                return null;
+            }
+        }
+
         // 🔧 NEW: Print Store Transaction Report (Generic Handler)
         private async Task HandlePrintStoreTransaction(WebView2 wv, string messageJson, string requestId)
         {
@@ -2175,18 +2233,32 @@ namespace WMSApp
                     System.Diagnostics.Debug.WriteLine($"[C#] Printing report: {reportPath}");
                     System.Diagnostics.Debug.WriteLine($"[C#] Parameter: {parameterName}={orderNumber}, Instance: {instance}");
 
-                    // Get credentials from printer config
-                    var printerConfig = _storageManager.LoadPrinterConfig();
+                    // ✅ FIX: Get credentials from APEX REST API instead of local config
+                    var printerConfig = await GetActivePrinterConfigFromApexAsync();
+
+                    if (printerConfig == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] ❌ Failed to get printer config from APEX, falling back to local config");
+                        // Fallback to local config if APEX fails
+                        printerConfig = _storageManager.LoadPrinterConfig();
+                    }
+
+                    if (printerConfig == null)
+                    {
+                        SendErrorResponse(wv, requestId, "Printer configuration not found in APEX or local storage");
+                        return;
+                    }
+
                     var username = printerConfig.FusionUsername;
                     var password = printerConfig.FusionPassword;
 
                     if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
                     {
-                        SendErrorResponse(wv, requestId, "Fusion credentials not configured. Please configure in printer settings.");
+                        SendErrorResponse(wv, requestId, "Fusion credentials not configured. Please check APEX printer configuration.");
                         return;
                     }
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] Using credentials - Username: {username}, Instance: {instance}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ Using credentials from APEX - Username: {username}, Instance: {instance}");
 
                     // Download PDF using Generic method
                     var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
