@@ -538,10 +538,25 @@ window.addSelectedOrdersToTrip = async function() {
                             }
 
                             updateOrdersCount();
-                            closeAddOrdersModal();
+                            // Keep Add Orders modal open so user can continue adding more orders
 
-                            // Reload pending orders to update "added_to_trip" status
-                            loadPendingOrders();
+                            // Remove added orders from pending orders grid
+                            const addedOrderNumbers = selectedOrders.map(o => o.source_order_number);
+                            if (pendingOrdersGrid) {
+                                const currentData = pendingOrdersGrid.option('dataSource');
+                                const filteredData = currentData.filter(order =>
+                                    !addedOrderNumbers.includes(order.source_order_number)
+                                );
+                                pendingOrdersGrid.option('dataSource', filteredData);
+                                pendingOrdersGrid.clearSelection();
+
+                                // Update pending orders data cache
+                                pendingOrdersData = filteredData;
+
+                                // Update count
+                                document.getElementById('pending-orders-count').textContent = filteredData.length;
+                                document.getElementById('selected-orders-count').textContent = 0;
+                            }
 
                             // Refresh Trip Management grid if function exists
                             if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
@@ -582,10 +597,25 @@ window.addSelectedOrdersToTrip = async function() {
                 }
 
                 updateOrdersCount();
-                closeAddOrdersModal();
+                // Keep Add Orders modal open so user can continue adding more orders
 
-                // Reload pending orders
-                loadPendingOrders();
+                // Remove added orders from pending orders grid
+                const addedOrderNumbers = selectedOrders.map(o => o.source_order_number);
+                if (pendingOrdersGrid) {
+                    const currentData = pendingOrdersGrid.option('dataSource');
+                    const filteredData = currentData.filter(order =>
+                        !addedOrderNumbers.includes(order.source_order_number)
+                    );
+                    pendingOrdersGrid.option('dataSource', filteredData);
+                    pendingOrdersGrid.clearSelection();
+
+                    // Update pending orders data cache
+                    pendingOrdersData = filteredData;
+
+                    // Update count
+                    document.getElementById('pending-orders-count').textContent = filteredData.length;
+                    document.getElementById('selected-orders-count').textContent = 0;
+                }
 
                 // Refresh Trip Management grid if function exists
                 if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
@@ -1070,8 +1100,23 @@ window.addPastedOrdersToTrip = async function() {
                             closePasteOrdersPopup();
                             // Keep Add Orders modal open so user can continue adding more orders
 
-                            // Reload pending orders to update "added_to_trip" status
-                            loadPendingOrders();
+                            // Remove added orders from pending orders grid
+                            const addedOrderNumbers = foundOrdersFromPaste.map(o => o.source_order_number);
+                            if (pendingOrdersGrid) {
+                                const currentData = pendingOrdersGrid.option('dataSource');
+                                const filteredData = currentData.filter(order =>
+                                    !addedOrderNumbers.includes(order.source_order_number)
+                                );
+                                pendingOrdersGrid.option('dataSource', filteredData);
+                                pendingOrdersGrid.clearSelection();
+
+                                // Update pending orders data cache
+                                pendingOrdersData = filteredData;
+
+                                // Update count
+                                document.getElementById('pending-orders-count').textContent = filteredData.length;
+                                document.getElementById('selected-orders-count').textContent = 0;
+                            }
 
                             // Refresh Trip Management grid if function exists
                             if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
@@ -1119,8 +1164,23 @@ window.addPastedOrdersToTrip = async function() {
                 closePasteOrdersPopup();
                 // Keep Add Orders modal open so user can continue adding more orders
 
-                // Reload pending orders
-                loadPendingOrders();
+                // Remove added orders from pending orders grid
+                const addedOrderNumbers = foundOrdersFromPaste.map(o => o.source_order_number);
+                if (pendingOrdersGrid) {
+                    const currentData = pendingOrdersGrid.option('dataSource');
+                    const filteredData = currentData.filter(order =>
+                        !addedOrderNumbers.includes(order.source_order_number)
+                    );
+                    pendingOrdersGrid.option('dataSource', filteredData);
+                    pendingOrdersGrid.clearSelection();
+
+                    // Update pending orders data cache
+                    pendingOrdersData = filteredData;
+
+                    // Update count
+                    document.getElementById('pending-orders-count').textContent = filteredData.length;
+                    document.getElementById('selected-orders-count').textContent = 0;
+                }
 
                 // Refresh Trip Management grid
                 if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
