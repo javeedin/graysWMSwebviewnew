@@ -2482,7 +2482,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add Actions column at the beginning
             columns.unshift({
                 caption: 'Actions',
-                width: 150,
+                width: 180,
                 alignment: 'center',
                 allowFiltering: false,
                 allowSorting: false,
@@ -2490,6 +2490,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     const rowData = options.data;
                     $(container).html(`
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}')" title="Print Store Transaction">
+                                <i class="fas fa-print" style="color: #8b5cf6;"></i>
+                            </button>
                             <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
                                 <i class="fas fa-user-times" style="color: #ef4444;"></i>
                             </button>
@@ -3196,6 +3199,67 @@ document.addEventListener('DOMContentLoaded', function() {
         alert('Pick Release functionality - To be implemented');
     };
 
+    // Print Store Transaction - calls C# Fusion PDF handler
+    window.printStoreTransaction = function(orderNumber) {
+        console.log('[Print Store Transaction] Printing for order:', orderNumber);
+
+        // Get instance from localStorage
+        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Report configuration
+        const reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
+        const parameterName = 'SOURCE_CODE';
+
+        console.log('[Print Store Transaction] Order:', orderNumber, 'Instance:', instance, 'Report:', reportPath);
+
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'print-loading-indicator';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #8b5cf6; margin-bottom: 1rem;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Generating PDF Report...</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">Order: ${orderNumber}</div>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${instance}</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
+
+        // Call C# handler
+        sendMessageToCSharp({
+            action: 'printStoreTransaction',
+            orderNumber: orderNumber,
+            instance: instance,
+            reportPath: reportPath,
+            parameterName: parameterName
+        }, function(error, data) {
+            // Remove loading indicator
+            const loading = document.getElementById('print-loading-indicator');
+            if (loading) loading.remove();
+
+            console.log('[Print Store Transaction] Response - Error:', error, 'Data:', data);
+
+            if (error) {
+                alert('Error generating report: ' + error);
+            } else {
+                try {
+                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+
+                    if (response.success) {
+                        alert('Report generated successfully and downloaded!');
+                    } else {
+                        alert('Failed to generate report: ' + (response.message || 'Unknown error'));
+                    }
+                } catch (parseError) {
+                    // If not JSON, assume it was successful
+                    console.log('[Print Store Transaction] Non-JSON response, assuming success');
+                    alert('Report generated successfully!');
+                }
+            }
+        });
+    };
+
     // Refresh Trip Details - calls GET endpoint to reload trip data
     window.refreshTripDetails = function(tripId) {
         console.log('[Refresh Trip] Refreshing trip:', tripId);
@@ -3366,9 +3430,14 @@ document.addEventListener('DOMContentLoaded', function() {
                             <h2 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
                                 <i class="fas fa-exchange-alt" style="color: #667eea;"></i> Store Transactions
                             </h2>
-                            <button onclick="closeStoreTransactionsModal()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1e293b';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">
-                                ×
-                            </button>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button onclick="printStoreTransaction('${orderNumber}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
+                                    <i class="fas fa-print"></i> Print
+                                </button>
+                                <button onclick="closeStoreTransactionsModal()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1e293b';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">
+                                    ×
+                                </button>
+                            </div>
                         </div>
 
                         <!-- Header Details -->
