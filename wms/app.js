@@ -3299,10 +3299,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Determine report based on order type
         let reportPath, parameterName, reportName;
 
-        // Check if order type contains "STORE" and "VAN" keywords (more robust)
-        const isStoreToVan = orderType.includes('STORE') && orderType.includes('VAN');
-
-        if (isStoreToVan || orderType === 'S2V') {
+        // Simple logic: Check if ORDER_TYPE is exactly "Store to Van" or "Van to Store"
+        if (orderType === 'STORE TO VAN' || orderType === 'VAN TO STORE') {
             // Store to Van / Van to Store - use Store Transaction report
             reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
             parameterName = 'SOURCE_CODE';
