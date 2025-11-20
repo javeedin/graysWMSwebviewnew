@@ -2159,7 +2159,7 @@ namespace WMSApp
             }
         }
 
-        // 🔧 NEW: Print Store Transaction Report
+        // 🔧 NEW: Print Store Transaction Report (Generic Handler)
         private async Task HandlePrintStoreTransaction(WebView2 wv, string messageJson, string requestId)
         {
             try
@@ -2169,8 +2169,11 @@ namespace WMSApp
                     var root = doc.RootElement;
                     string orderNumber = root.GetProperty("orderNumber").GetString();
                     string instance = root.GetProperty("instance").GetString();
+                    string reportPath = root.GetProperty("reportPath").GetString();
+                    string parameterName = root.GetProperty("parameterName").GetString();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] Printing Store Transaction for: {orderNumber}, Instance: {instance}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Printing report: {reportPath}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Parameter: {parameterName}={orderNumber}, Instance: {instance}");
 
                     // Get credentials from local storage
                     var username = _storageManager.GetSetting($"fusion{instance}Username");
@@ -2182,9 +2185,11 @@ namespace WMSApp
                         return;
                     }
 
-                    // Download PDF using FusionPdfDownloader
+                    // Download PDF using Generic method
                     var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
-                    var result = await downloader.DownloadStoreTransactionPdfAsync(
+                    var result = await downloader.DownloadGenericReportPdfAsync(
+                        reportPath,
+                        parameterName,
                         orderNumber,
                         instance,
                         username,
@@ -2205,12 +2210,14 @@ namespace WMSApp
                     );
                     Directory.CreateDirectory(downloadsPath);
 
-                    string fileName = $"StoreTransaction_{orderNumber}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
+                    // Extract report name from path for filename
+                    string reportName = Path.GetFileNameWithoutExtension(reportPath).Replace("GRAYS_", "").Replace("_BIP", "");
+                    string fileName = $"{reportName}_{orderNumber}_{DateTime.Now:yyyyMMdd_HHmmss}.pdf";
                     string filePath = Path.Combine(downloadsPath, fileName);
 
                     await File.WriteAllBytesAsync(filePath, pdfBytes);
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] Store Transaction PDF saved to: {filePath}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Report PDF saved to: {filePath}");
 
                     // Send success response
                     var response = new

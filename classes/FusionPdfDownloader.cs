@@ -236,15 +236,19 @@ namespace WMSApp.PrintManagement
         }
 
         /// <summary>
-        /// Downloads Store Transaction PDF from Oracle Fusion
+        /// Downloads any Fusion report PDF (Generic method)
         /// </summary>
-        /// <param name="orderNumber">The order/transaction number (SOURCE_CODE parameter)</param>
+        /// <param name="reportPath">Full report path (e.g., /Custom/DEXPRESS/...)</param>
+        /// <param name="parameterName">Parameter name (e.g., SOURCE_CODE, Order_Number)</param>
+        /// <param name="parameterValue">Parameter value (e.g., order number)</param>
         /// <param name="instance">Instance name (TEST or PROD)</param>
         /// <param name="username">Fusion username</param>
         /// <param name="password">Fusion password</param>
         /// <returns>FusionPdfResult with PDF data or error</returns>
-        public async Task<FusionPdfResult> DownloadStoreTransactionPdfAsync(
-            string orderNumber,
+        public async Task<FusionPdfResult> DownloadGenericReportPdfAsync(
+            string reportPath,
+            string parameterName,
+            string parameterValue,
             string instance,
             string username,
             string password)
@@ -254,13 +258,11 @@ namespace WMSApp.PrintManagement
                 // Determine URL based on instance
                 string serviceUrl = instance.ToUpper() == "PROD" ? PROD_URL : TEST_URL;
 
-                // Report path for Store Transactions
-                string reportPath = "/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo";
-
                 // Build SOAP request
-                string soapRequest = BuildStoreTransactionSoapRequest(orderNumber, username, password, reportPath);
+                string soapRequest = BuildGenericReportSoapRequest(parameterValue, username, password, reportPath, parameterName);
 
-                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Requesting Store Transaction PDF for: {orderNumber}");
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Requesting report: {reportPath}");
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Parameter: {parameterName}={parameterValue}");
                 System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Using instance: {instance} ({serviceUrl})");
 
                 // Make HTTP POST request
@@ -297,7 +299,7 @@ namespace WMSApp.PrintManagement
                 // Clean up base64 string
                 base64Pdf = CleanBase64String(base64Pdf);
 
-                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Store Transaction PDF download successful, base64 length: {base64Pdf.Length}");
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Report PDF download successful, base64 length: {base64Pdf.Length}");
 
                 return new FusionPdfResult
                 {
@@ -317,9 +319,14 @@ namespace WMSApp.PrintManagement
         }
 
         /// <summary>
-        /// Builds SOAP request for Store Transaction report
+        /// Builds SOAP request for any Fusion report (Generic)
         /// </summary>
-        private string BuildStoreTransactionSoapRequest(string orderNumber, string username, string password, string reportPath)
+        /// <param name="parameterValue">The value for the parameter</param>
+        /// <param name="username">Fusion username</param>
+        /// <param name="password">Fusion password</param>
+        /// <param name="reportPath">Full report path</param>
+        /// <param name="parameterName">Parameter name</param>
+        private string BuildGenericReportSoapRequest(string parameterValue, string username, string password, string reportPath, string parameterName)
         {
             return $@"<?xml version=""1.0"" encoding=""utf-8""?>
 <soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/"" xmlns:v2=""http://xmlns.oracle.com/oxp/service/v2"">
@@ -330,7 +337,7 @@ namespace WMSApp.PrintManagement
         <v2:reportAbsolutePath>{reportPath}</v2:reportAbsolutePath>
         <v2:parameterNameValues>
            <v2:listOfParamNameValues>
-            <v2:item><v2:name>SOURCE_CODE</v2:name><v2:values><v2:item>{orderNumber}</v2:item></v2:values></v2:item>
+            <v2:item><v2:name>{parameterName}</v2:name><v2:values><v2:item>{parameterValue}</v2:item></v2:values></v2:item>
           </v2:listOfParamNameValues>
         </v2:parameterNameValues>
         <v2:reportData/>
