@@ -36,7 +36,7 @@
             AutoScaleMode = AutoScaleMode.Font;
             ClientSize = new Size(800, 450);
             Name = "Form1";
-            Text = "Fusion Client v2.5.0";
+            Text = "Fusion client Webview v2 - Released 20-Nov-2025";
             ResumeLayout(false);
         }
 
