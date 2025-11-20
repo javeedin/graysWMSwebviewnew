@@ -866,8 +866,19 @@ window.searchPastedOrders = function() {
 
     // Debug: Log first order to see field structure
     if (gridData.length > 0) {
+        console.log('[Paste Orders] ===== GRID DATA STRUCTURE =====');
         console.log('[Paste Orders] Sample order from grid:', gridData[0]);
         console.log('[Paste Orders] Available fields:', Object.keys(gridData[0]));
+
+        // Show first 5 order numbers in grid
+        console.log('[Paste Orders] First 5 order numbers in grid:');
+        gridData.slice(0, 5).forEach((order, idx) => {
+            const on1 = order.ORDER_NUMBER;
+            const on2 = order.order_number;
+            const on3 = order.orderNumber;
+            console.log(`  [${idx}] ORDER_NUMBER="${on1}" (type: ${typeof on1}), order_number="${on2}" (type: ${typeof on2}), orderNumber="${on3}" (type: ${typeof on3})`);
+        });
+        console.log('[Paste Orders] ===============================');
     }
 
     // Search for each order in grid data
@@ -875,19 +886,33 @@ window.searchPastedOrders = function() {
     foundOrdersFromPaste = [];
 
     orderNumbers.forEach(orderNum => {
-        const upperOrderNum = orderNum.toUpperCase().trim();
+        const searchValue = orderNum.trim();
 
-        console.log('[Paste Orders] Searching for:', upperOrderNum);
+        console.log('[Paste Orders] ===== Searching for:', searchValue);
 
-        // Find order in grid data - check multiple possible field names
+        // Find order in grid data - try different approaches
         const foundOrder = gridData.find(order => {
-            const orderNumber = (order.ORDER_NUMBER || order.order_number || order.orderNumber || '').toString().toUpperCase().trim();
-            console.log('[Paste Orders] Comparing', orderNumber, 'with', upperOrderNum);
-            return orderNumber === upperOrderNum;
+            // Try all possible field names and comparisons
+            const on1 = order.ORDER_NUMBER ? order.ORDER_NUMBER.toString().trim() : null;
+            const on2 = order.order_number ? order.order_number.toString().trim() : null;
+            const on3 = order.orderNumber ? order.orderNumber.toString().trim() : null;
+
+            // Case-insensitive comparison
+            const match1 = on1 && on1.toUpperCase() === searchValue.toUpperCase();
+            const match2 = on2 && on2.toUpperCase() === searchValue.toUpperCase();
+            const match3 = on3 && on3.toUpperCase() === searchValue.toUpperCase();
+
+            // Also try exact match without case conversion
+            const match4 = on1 === searchValue;
+            const match5 = on2 === searchValue;
+            const match6 = on3 === searchValue;
+
+            return match1 || match2 || match3 || match4 || match5 || match6;
         });
 
         if (foundOrder) {
-            console.log('[Paste Orders] Found order:', foundOrder);
+            const on = foundOrder.ORDER_NUMBER || foundOrder.order_number || foundOrder.orderNumber;
+            console.log(`[Paste Orders] ✅ Found "${searchValue}" -> Order #${on}`);
             results.push({
                 orderNumber: orderNum,
                 found: true,
@@ -895,7 +920,20 @@ window.searchPastedOrders = function() {
             });
             foundOrdersFromPaste.push(foundOrder);
         } else {
-            console.log('[Paste Orders] Order not found:', upperOrderNum);
+            console.log(`[Paste Orders] ❌ NOT FOUND: "${searchValue}"`);
+
+            // Debug: Show if this order exists anywhere in the grid (case-insensitive search)
+            const exists = gridData.some(order => {
+                const on1 = order.ORDER_NUMBER ? order.ORDER_NUMBER.toString() : '';
+                const on2 = order.order_number ? order.order_number.toString() : '';
+                const on3 = order.orderNumber ? order.orderNumber.toString() : '';
+                return on1.includes(searchValue) || on2.includes(searchValue) || on3.includes(searchValue);
+            });
+
+            if (exists) {
+                console.log(`[Paste Orders]   ⚠️  But order containing "${searchValue}" EXISTS in grid (check for exact match issue)`);
+            }
+
             results.push({
                 orderNumber: orderNum,
                 found: false,
@@ -904,7 +942,8 @@ window.searchPastedOrders = function() {
         }
     });
 
-    console.log('[Paste Orders] Search complete. Found:', foundOrdersFromPaste.length, 'Not found:', (results.length - foundOrdersFromPaste.length));
+    console.log('[Paste Orders] ===== SEARCH COMPLETE =====');
+    console.log('[Paste Orders] Found:', foundOrdersFromPaste.length, 'Not found:', (results.length - foundOrdersFromPaste.length));
 
     // Display results
     displayPasteOrdersResults(results);
