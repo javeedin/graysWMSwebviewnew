@@ -1013,30 +1013,60 @@ window.selectFoundOrders = function() {
     // Get all rows in the grid
     const dataSource = pendingOrdersGrid.option('dataSource');
 
-    // Find the row keys for the found orders and select them
+    console.log('[Paste Orders] Grid has', dataSource.length, 'rows');
+    console.log('[Paste Orders] Trying to select', foundOrdersFromPaste.length, 'orders');
+
+    // Collect all row indexes to select
+    const rowIndexesToSelect = [];
+
+    // Find the row keys for the found orders
     foundOrdersFromPaste.forEach(foundOrder => {
         const orderNumber = foundOrder.source_order_number || foundOrder.SOURCE_ORDER_NUMBER || foundOrder.ORDER_NUMBER || foundOrder.order_number || foundOrder.orderNumber;
+
+        console.log('[Paste Orders] Looking for order:', orderNumber, 'in grid');
 
         // Find the row index in the data source
         const rowIndex = dataSource.findIndex(row => {
             const rowOrderNum = (row.source_order_number || row.SOURCE_ORDER_NUMBER || row.ORDER_NUMBER || row.order_number || row.orderNumber || '').toString();
-            return rowOrderNum === orderNumber.toString();
+            const match = rowOrderNum === orderNumber.toString();
+            if (match) {
+                console.log('[Paste Orders]   ✅ Found at index', rowIndex);
+            }
+            return match;
         });
 
         if (rowIndex >= 0) {
-            pendingOrdersGrid.selectRowsByIndexes([rowIndex]);
+            rowIndexesToSelect.push(rowIndex);
+            console.log('[Paste Orders] Added index', rowIndex, 'to selection list');
+        } else {
+            console.log('[Paste Orders] ❌ Order not found in grid:', orderNumber);
         }
     });
 
-    // Update selected orders count
-    const selectedCount = pendingOrdersGrid.getSelectedRowsData().length;
-    document.getElementById('selected-orders-count').textContent = selectedCount;
+    console.log('[Paste Orders] Total indexes to select:', rowIndexesToSelect);
 
-    // Close popup
-    closePasteOrdersPopup();
+    // Select all rows at once
+    if (rowIndexesToSelect.length > 0) {
+        pendingOrdersGrid.selectRowsByIndexes(rowIndexesToSelect);
+        console.log('[Paste Orders] Called selectRowsByIndexes with', rowIndexesToSelect.length, 'indexes');
+    }
 
-    // Show success message
-    alert(`Successfully selected ${selectedCount} orders in the grid.\n\nClick "Add to Trip" to add them.`);
+    // Wait a moment for grid to update, then get selected count
+    setTimeout(() => {
+        const selectedCount = pendingOrdersGrid.getSelectedRowsData().length;
+        console.log('[Paste Orders] Selected count after selection:', selectedCount);
+        document.getElementById('selected-orders-count').textContent = selectedCount;
+
+        // Close popup
+        closePasteOrdersPopup();
+
+        // Show success message
+        if (selectedCount > 0) {
+            alert(`Successfully selected ${selectedCount} orders in the grid.\n\nClick "Add to Trip" to add them.`);
+        } else {
+            alert(`Warning: Found ${foundOrdersFromPaste.length} orders but could not select them in grid.\n\nPlease check the console for details.`);
+        }
+    }, 100);
 };
 
 console.log('[Trip Details] ✅ Module loaded');
