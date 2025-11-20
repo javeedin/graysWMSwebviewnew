@@ -2031,6 +2031,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     TRIP_DATE: tripDate ? String(tripDate).split(' ')[0] : 'N/A',
                     LORRY_NUMBER: trip.trip_lorry || trip.TRIP_LORRY || 'N/A',
                     PRIORITY: trip.TRIP_PRIORITY || trip.trip_priority || 'Medium',
+                    INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || null,
                     TOTAL_ORDERS: 0,
                     orders: []
                 };
@@ -2210,7 +2211,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     <!-- Card Footer -->
                     <div style="padding: 0.45rem 0.65rem; background: #f8f9fc; border-top: 1px solid #e2e8f0;">
-                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}')" style="width: 100%; font-size: 0.65rem; padding: 0.4rem 0.6rem; justify-content: center;">
+                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}')" style="width: 100%; font-size: 0.65rem; padding: 0.4rem 0.6rem; justify-content: center;">
                             <i class="fas fa-eye"></i> View Details
                         </button>
                     </div>
@@ -2226,16 +2227,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Use stored tripMap for better data access
-    window.openTripDetails = function(tripId, tripDate, lorryNumber) {
+    window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard) {
         console.log('[JS] Opening trip details for:', tripId);
 
-        // Get instance from localStorage
-        const instance = localStorage.getItem('fusionInstance');
+        // Get instance from trip card data first, fallback to localStorage
+        let instance = instanceFromCard && instanceFromCard !== 'null' && instanceFromCard !== 'undefined' && instanceFromCard.trim() !== ''
+            ? instanceFromCard
+            : localStorage.getItem('fusionInstance');
 
         if (!instance) {
             alert('Instance not selected. Please select TEST or PROD from the instance selector in the toolbar.');
             return;
         }
+
+        console.log('[JS] Using instance:', instance, '(from:', instanceFromCard ? 'trip card' : 'localStorage', ')');
 
         // Show loading indicator
         const loadingDiv = document.createElement('div');
@@ -2278,7 +2283,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (result && result.items && result.items.length > 0) {
                         const tripData = result.items;
-                        openTripDetailsWithData(tripId, tripData);
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
                     } else {
                         alert('No data found for trip: ' + tripId);
                     }
@@ -2300,7 +2305,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (result && result.items && result.items.length > 0) {
                         const tripData = result.items;
-                        openTripDetailsWithData(tripId, tripData);
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
                     } else {
                         alert('No data found for trip: ' + tripId);
                     }
@@ -2317,7 +2322,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Helper function to open trip details with data
-    function openTripDetailsWithData(tripId, tripData) {
+    function openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber) {
         console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId);
         
         // Create unique tab ID
