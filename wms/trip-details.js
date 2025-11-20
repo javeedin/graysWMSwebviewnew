@@ -848,26 +848,46 @@ window.searchPastedOrders = function() {
 
     console.log('[Paste Orders] Searching for', orderNumbers.length, 'orders');
 
-    // Get current pending orders data
-    if (!pendingOrdersData || pendingOrdersData.length === 0) {
-        alert('No pending orders loaded. Please refresh the orders list first.');
+    // Get data directly from the grid
+    if (!pendingOrdersGrid) {
+        alert('Orders grid not initialized. Please open the Add Orders dialog first.');
         return;
     }
 
-    // Search for each order in pending orders data
+    // Get the current data source from the grid
+    const gridData = pendingOrdersGrid.option('dataSource');
+
+    if (!gridData || gridData.length === 0) {
+        alert('No pending orders loaded in grid. Please refresh the orders list first.');
+        return;
+    }
+
+    console.log('[Paste Orders] Grid has', gridData.length, 'orders');
+
+    // Debug: Log first order to see field structure
+    if (gridData.length > 0) {
+        console.log('[Paste Orders] Sample order from grid:', gridData[0]);
+        console.log('[Paste Orders] Available fields:', Object.keys(gridData[0]));
+    }
+
+    // Search for each order in grid data
     const results = [];
     foundOrdersFromPaste = [];
 
     orderNumbers.forEach(orderNum => {
-        const upperOrderNum = orderNum.toUpperCase();
+        const upperOrderNum = orderNum.toUpperCase().trim();
 
-        // Find order in pending orders data
-        const foundOrder = pendingOrdersData.find(order => {
-            const orderNumber = (order.ORDER_NUMBER || order.order_number || '').toString().toUpperCase();
+        console.log('[Paste Orders] Searching for:', upperOrderNum);
+
+        // Find order in grid data - check multiple possible field names
+        const foundOrder = gridData.find(order => {
+            const orderNumber = (order.ORDER_NUMBER || order.order_number || order.orderNumber || '').toString().toUpperCase().trim();
+            console.log('[Paste Orders] Comparing', orderNumber, 'with', upperOrderNum);
             return orderNumber === upperOrderNum;
         });
 
         if (foundOrder) {
+            console.log('[Paste Orders] Found order:', foundOrder);
             results.push({
                 orderNumber: orderNum,
                 found: true,
@@ -875,6 +895,7 @@ window.searchPastedOrders = function() {
             });
             foundOrdersFromPaste.push(foundOrder);
         } else {
+            console.log('[Paste Orders] Order not found:', upperOrderNum);
             results.push({
                 orderNumber: orderNum,
                 found: false,
@@ -882,6 +903,8 @@ window.searchPastedOrders = function() {
             });
         }
     });
+
+    console.log('[Paste Orders] Search complete. Found:', foundOrdersFromPaste.length, 'Not found:', (results.length - foundOrdersFromPaste.length));
 
     // Display results
     displayPasteOrdersResults(results);
