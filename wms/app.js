@@ -3397,7 +3397,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const loading = document.getElementById('print-loading-indicator');
             if (loading) loading.remove();
 
-            console.log('[Print Store Transaction] Response - Error:', error, 'Data:', data);
+            console.log('[Print Store Transaction] ===== RESPONSE RECEIVED =====');
+            console.log('[Print Store Transaction] Error:', error);
+            console.log('[Print Store Transaction] Data type:', typeof data);
+            console.log('[Print Store Transaction] Data value:', data);
+            console.log('[Print Store Transaction] ===============================');
 
             if (error) {
                 // Log error to debug
@@ -3413,6 +3417,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else {
                 try {
                     const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[Print Store Transaction] Parsed JSON response:', response);
 
                     // Log success to debug
                     logDebugInfo(
@@ -3427,22 +3432,29 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (response.success) {
                         // Show PDF viewer dialog if pdfPath is available
                         if (response.pdfPath) {
+                            console.log('[Print Store Transaction] Opening PDF viewer with path:', response.pdfPath);
                             showPdfViewer(response.pdfPath, orderNumber, reportName);
                         } else {
-                            alert('Report generated successfully and downloaded!');
+                            console.log('[Print Store Transaction] No pdfPath in response, showing alert');
+                            console.log('[Print Store Transaction] Response object:', JSON.stringify(response));
+                            alert('Report generated successfully and downloaded!\n\nNote: PDF path not provided by backend.');
                         }
                     } else {
                         alert('Failed to generate report: ' + (response.message || 'Unknown error'));
                     }
                 } catch (parseError) {
                     // If not JSON, check if it's a file path or success message
-                    console.log('[Print Store Transaction] Non-JSON response:', data);
+                    console.log('[Print Store Transaction] ===== NON-JSON RESPONSE =====');
+                    console.log('[Print Store Transaction] Parse error:', parseError.message);
+                    console.log('[Print Store Transaction] Raw data:', data);
+                    console.log('[Print Store Transaction] Data type:', typeof data);
+                    console.log('[Print Store Transaction] =====================================');
 
                     // Check if data looks like a file path (contains backslashes or .pdf)
-                    if (data && (data.includes('\\') || data.includes('.pdf') || data.includes('C:'))) {
+                    if (data && typeof data === 'string' && (data.includes('\\') || data.includes('.pdf') || data.includes('C:') || data.includes('/'))) {
                         // Assume it's a PDF file path
                         const pdfPath = data.trim();
-                        console.log('[Print Store Transaction] Extracted PDF path:', pdfPath);
+                        console.log('[Print Store Transaction] ✓ Detected as file path:', pdfPath);
 
                         logDebugInfo(
                             `Print Report - ${reportName} - SUCCESS`,
@@ -3453,10 +3465,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             'SOAP'
                         );
 
+                        console.log('[Print Store Transaction] Opening PDF viewer with path:', pdfPath);
                         // Show PDF viewer
                         showPdfViewer(pdfPath, orderNumber, reportName);
                     } else {
                         // Just a success message
+                        console.log('[Print Store Transaction] Detected as success message, not a file path');
                         logDebugInfo(
                             `Print Report - ${reportName} - SUCCESS`,
                             `${instance} - ${reportPath}`,
@@ -3465,7 +3479,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             null,
                             'SOAP'
                         );
-                        alert('Report generated successfully!');
+                        alert('Report generated successfully!\n\nNote: PDF path not detected in response.\nResponse: ' + data);
                     }
                 }
             }
