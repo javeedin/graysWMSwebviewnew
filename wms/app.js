@@ -3519,6 +3519,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const priority = rowData.PRIORITY || rowData.priority || '';
         const pickConfirmSt = rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
 
+        // Debug: Log the exact ORDER_TYPE value
+        console.log('===========================================');
+        console.log('[Store Transactions] ORDER_TYPE from rowData:', orderType);
+        console.log('[Store Transactions] ORDER_TYPE length:', orderType.length);
+        console.log('[Store Transactions] ORDER_TYPE char codes:', Array.from(orderType).map(c => c.charCodeAt(0)));
+        console.log('===========================================');
+
         // Store order type in a global for print function
         window.currentStoreTransOrderType = orderType;
 
