@@ -4327,7 +4327,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             allowSorting: true
                         };
 
-                        // Add custom cell template for status columns
+                        // Add custom cell template ONLY for status columns
                         if (isStatusColumn(key)) {
                             console.log('[Store Transactions] Status column detected:', key);
                             column.cellTemplate = function(container, options) {
@@ -4342,14 +4342,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 }
                                 container.innerHTML = `<div style="text-align: center;">${icon}</div>`;
                             };
-                        } else {
-                            // For non-status columns, use default rendering but log values
-                            column.cellTemplate = function(container, options) {
-                                const value = options.value;
-                                console.log('[Store Transactions] Rendering cell:', key, '=', value);
-                                container.textContent = (value !== null && value !== undefined) ? value : '';
-                            };
+                            column.alignment = 'center';
                         }
+                        // For non-status columns, let DevExpress handle default rendering (no cellTemplate)
 
                         return column;
                     });
