@@ -14,6 +14,7 @@ window.pendingRequests = {};
 // Store Transactions Dialog Grid Instances
 let transactionDetailsGrid = null;
 let qohDetailsGrid = null;
+let allocatedLotsGrid = null;
 
 // ========================================
 // INSTANCE MANAGEMENT
@@ -2238,6 +2239,13 @@ document.addEventListener('DOMContentLoaded', function() {
     window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard) {
         console.log('[JS] Opening trip details for:', tripId);
 
+        // Collapse sidebar when opening trip details
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && !sidebar.classList.contains('collapsed')) {
+            sidebar.classList.add('collapsed');
+            console.log('[JS] Sidebar collapsed for trip details view');
+        }
+
         // Get instance from trip card data first, fallback to localStorage
         let instance = instanceFromCard && instanceFromCard !== 'null' && instanceFromCard !== 'undefined' && instanceFromCard.trim() !== ''
             ? instanceFromCard
@@ -3823,8 +3831,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <i class="fas fa-check-circle"></i> Check Fusion Status
                                 </button>
                             </div>
-                            <div id="allocated-lots-content" style="background: white; border-radius: 8px; padding: 0.75rem;">
-                                <p style="color: #64748b; text-align: center; font-size: 0.8rem;">Click Refresh to load allocated lots</p>
+                            <div id="allocated-lots-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="allocated-lots-grid" style="height: 100%;"></div>
                             </div>
                         </div>
 
@@ -4235,8 +4243,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window.refreshAllocatedLots = async function(orderNumber) {
         console.log('[Store Transactions] Refreshing allocated lots for:', orderNumber);
 
-        const contentDiv = document.getElementById('allocated-lots-content');
-        contentDiv.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin"></i> Loading...</div>';
+        const gridContainer = document.getElementById('allocated-lots-grid');
+        if (!gridContainer) {
+            console.error('[Store Transactions] Allocated Lots Grid container not found');
+            return;
+        }
+
+        // Show loading indicator
+        gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading allocated lots...</p></div>';
 
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}`;
 
@@ -4252,6 +4266,8 @@ document.addEventListener('DOMContentLoaded', function() {
             // Log response or error
             if (error) {
                 logDebugInfo('Refresh Allocated Lots - Error', apiUrl, null, null, error, 'GET');
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
+                return;
             } else {
                 try {
                     const response = JSON.parse(data);
@@ -4261,11 +4277,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
 
-            if (error) {
-                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center;">Error: ${error}</p>`;
-                return;
-            }
-
             try {
                 const response = JSON.parse(data);
 
@@ -4273,135 +4284,142 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Store items globally for access when setting data
                     window.allocatedLotsData = response.items;
 
-                    const keys = Object.keys(response.items[0]);
+                    // Clear loading message
+                    gridContainer.innerHTML = '';
 
-                    // Helper function to render status icons
-                    const renderStatusIcon = (value) => {
-                        if (value === 'Y' || value === 'Yes' || value === 'YES') {
-                            return '<i class="fas fa-check-circle" style="color: #10b981; font-size: 0.9rem;" title="Yes"></i>';
-                        } else if (value === 'N' || value === 'No' || value === 'NO') {
-                            return '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 0.9rem;" title="No"></i>';
-                        } else if (value === null || value === '') {
-                            return '<span style="color: #94a3b8;">-</span>';
+                    // Destroy existing grid if present
+                    if (allocatedLotsGrid) {
+                        try {
+                            allocatedLotsGrid.dispose();
+                        } catch (e) {
+                            console.warn('[Store Transactions] Error disposing Allocated Lots grid:', e);
                         }
-                        return value;
+                    }
+
+                    // Helper function to check if column is status
+                    const isStatusColumn = (key) => {
+                        const lowerKey = key.toLowerCase();
+                        const upperKey = key.toUpperCase();
+                        return lowerKey.includes('status') ||
+                            lowerKey.includes('_st') ||
+                            upperKey === 'PICKED_ST' ||
+                            upperKey === 'CANCELED_ST' ||
+                            upperKey === 'SHIPED_ST' ||
+                            lowerKey === 'picked_status' ||
+                            lowerKey === 'canceled_status' ||
+                            lowerKey === 'ship_confirm_st';
                     };
 
-                    // Create search box and table
-                    let html = `
-                        <div style="margin-bottom: 0.75rem; display: flex; gap: 0.75rem; align-items: center; background: white; padding: 0.5rem; border-radius: 6px; border: 1px solid #e2e8f0;">
-                            <div style="flex: 1; position: relative;">
-                                <i class="fas fa-search" style="position: absolute; left: 0.6rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 0.75rem;"></i>
-                                <input type="text" id="allocated-search-input" placeholder="Search in table..."
-                                    style="width: 100%; padding: 0.4rem 0.5rem 0.4rem 2rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; outline: none; transition: all 0.2s;"
-                                    onkeyup="filterAllocatedLotsTable()"
-                                    onfocus="this.style.borderColor='#667eea'; this.style.boxShadow='0 0 0 3px rgba(102, 126, 234, 0.1)'"
-                                    onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none'">
-                            </div>
-                            <div style="font-size: 0.75rem; color: #64748b; white-space: nowrap;">
-                                <span id="allocated-selected-count">0</span> selected |
-                                <span id="allocated-row-count">${response.items.length}</span> rows
-                            </div>
-                        </div>
+                    // Get keys from first item to create columns dynamically
+                    const keys = Object.keys(response.items[0]);
+                    const columns = keys.map(key => {
+                        const column = {
+                            dataField: key,
+                            caption: key.replace(/_/g, ' ').toUpperCase(),
+                            width: 'auto'
+                        };
 
-                        <div style="background: white; border-radius: 8px; border: 1px solid #e2e8f0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                            <div style="overflow-x: auto; max-height: 500px; overflow-y: auto;">
-                                <table id="allocated-data-table" style="width: 100%; border-collapse: collapse;">
-                                    <thead style="position: sticky; top: 0; z-index: 10;">
-                                        <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-bottom: 2px solid #667eea;">
-                                            <th style="padding: 0.5rem; width: 40px; text-align: center;">
-                                                <input type="checkbox" id="select-all-allocated" onchange="toggleSelectAllAllocated()"
-                                                    style="cursor: pointer; width: 16px; height: 16px;">
-                                            </th>
-                    `;
+                        // Add custom cell template for status columns
+                        if (isStatusColumn(key)) {
+                            column.cellTemplate = function(container, options) {
+                                const value = options.value;
+                                let icon = '';
+                                if (value === 'Y' || value === 'Yes' || value === 'YES') {
+                                    icon = '<i class="fas fa-check-circle" style="color: #10b981; font-size: 0.9rem;" title="Yes"></i>';
+                                } else if (value === 'N' || value === 'No' || value === 'NO') {
+                                    icon = '<i class="fas fa-times-circle" style="color: #ef4444; font-size: 0.9rem;" title="No"></i>';
+                                } else if (value === null || value === '') {
+                                    icon = '<span style="color: #94a3b8;">-</span>';
+                                } else {
+                                    icon = value;
+                                }
+                                container.innerHTML = `<div style="text-align: center;">${icon}</div>`;
+                            };
+                        }
 
-                    keys.forEach(key => {
-                        html += `<th style="padding: 0.5rem; text-align: left; font-weight: 600; color: white; font-size: 0.7rem; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.3px;">${key.replace(/_/g, ' ')}</th>`;
+                        return column;
                     });
 
-                    html += '</tr></thead><tbody>';
+                    // Initialize DevExpress DataGrid with selection
+                    allocatedLotsGrid = $('#allocated-lots-grid').dxDataGrid({
+                        dataSource: response.items,
+                        showBorders: true,
+                        showRowLines: true,
+                        showColumnLines: true,
+                        rowAlternationEnabled: true,
+                        columnAutoWidth: true,
+                        allowColumnReordering: true,
+                        allowColumnResizing: true,
+                        wordWrapEnabled: false,
+                        hoverStateEnabled: true,
+                        selection: {
+                            mode: 'multiple',
+                            showCheckBoxesMode: 'always'
+                        },
+                        columns: columns,
+                        paging: {
+                            pageSize: 20
+                        },
+                        pager: {
+                            visible: true,
+                            showPageSizeSelector: true,
+                            allowedPageSizes: [10, 20, 50, 100],
+                            showInfo: true,
+                            showNavigationButtons: true
+                        },
+                        filterRow: {
+                            visible: true,
+                            applyFilter: 'auto'
+                        },
+                        headerFilter: {
+                            visible: true
+                        },
+                        searchPanel: {
+                            visible: true,
+                            width: 240,
+                            placeholder: 'Search...'
+                        },
+                        columnChooser: {
+                            enabled: true,
+                            mode: 'select'
+                        },
+                        export: {
+                            enabled: true,
+                            allowExportSelectedData: true
+                        },
+                        onExporting: function(e) {
+                            const workbook = new ExcelJS.Workbook();
+                            const worksheet = workbook.addWorksheet('Allocated Lots');
 
-                    // Add rows with checkboxes and status icons
-                    response.items.forEach((item, index) => {
-                        html += `<tr class="allocated-table-row" style="border-bottom: 1px solid #e2e8f0; transition: background 0.2s;"
-                            onmouseover="this.style.background='#f0f9ff'"
-                            onmouseout="this.style.background='${index % 2 === 0 ? '#f8f9fc' : 'white'}'"
-                            data-row-index="${index}">
-                            <td style="padding: 0.5rem; text-align: center;">
-                                <input type="checkbox" class="allocated-row-checkbox" data-index="${index}"
-                                    onchange="updateAllocatedSelectedCount()" style="cursor: pointer; width: 16px; height: 16px;">
-                            </td>`;
-                        keys.forEach(key => {
-                            const value = item[key];
-                            const lowerKey = key.toLowerCase();
-                            const upperKey = key.toUpperCase();
-
-                            // Check if this is a status column - updated to match new field names
-                            if (lowerKey.includes('status') ||
-                                lowerKey.includes('_st') ||
-                                upperKey === 'PICKED_ST' ||
-                                upperKey === 'CANCELED_ST' ||
-                                upperKey === 'SHIPED_ST' ||
-                                lowerKey === 'picked_status' ||
-                                lowerKey === 'canceled_status' ||
-                                lowerKey === 'ship_confirm_st') {
-                                html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap; text-align: center;">${renderStatusIcon(value)}</td>`;
-                            } else {
-                                html += `<td style="padding: 0.5rem; font-size: 0.7rem; color: #475569; white-space: nowrap;">${value !== null && value !== undefined ? value : ''}</td>`;
-                            }
-                        });
-                        html += '</tr>';
-                    });
-
-                    html += '</tbody></table></div></div>';
-                    contentDiv.innerHTML = html;
+                            DevExpress.excelExporter.exportDataGrid({
+                                component: e.component,
+                                worksheet: worksheet,
+                                autoFilterEnabled: true
+                            }).then(function() {
+                                workbook.xlsx.writeBuffer().then(function(buffer) {
+                                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'AllocatedLots.xlsx');
+                                });
+                            });
+                            e.cancel = true;
+                        },
+                        onSelectionChanged: function(e) {
+                            const selectedCount = e.selectedRowsData.length;
+                            console.log('[Store Transactions] Selected rows:', selectedCount);
+                        },
+                        onContentReady: function(e) {
+                            console.log('[Store Transactions] Allocated Lots Grid loaded, row count:', e.component.totalCount());
+                        }
+                    }).dxDataGrid('instance');
                 } else {
-                    contentDiv.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No allocated lots found for this order</p>';
+                    gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No allocated lots found for this order</p>';
                 }
             } catch (parseError) {
                 console.error('[Store Transactions] Parse Error:', parseError);
-                contentDiv.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
             }
         });
     };
 
-    // Filter function for Allocated Lots table
-    window.filterAllocatedLotsTable = function() {
-        const input = document.getElementById('allocated-search-input');
-        const filter = input.value.toUpperCase();
-        const table = document.getElementById('allocated-data-table');
-        const rows = table.getElementsByTagName('tr');
-        let visibleCount = 0;
-
-        for (let i = 1; i < rows.length; i++) {
-            const row = rows[i];
-            const cells = row.getElementsByTagName('td');
-            let found = false;
-
-            for (let j = 0; j < cells.length; j++) {
-                const cell = cells[j];
-                if (cell) {
-                    const textValue = cell.textContent || cell.innerText;
-                    if (textValue.toUpperCase().indexOf(filter) > -1) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-
-            if (found) {
-                row.style.display = '';
-                visibleCount++;
-            } else {
-                row.style.display = 'none';
-            }
-        }
-
-        const rowCountSpan = document.getElementById('allocated-row-count');
-        if (rowCountSpan) {
-            rowCountSpan.textContent = visibleCount;
-        }
-    };
 
     // Refresh QOH Details (Tab 2)
     window.refreshQOHDetails = async function(orderNumber) {
@@ -4541,33 +4559,12 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
 
-    // Toggle Select All checkbox for Allocated Lots
-    window.toggleSelectAllAllocated = function() {
-        const selectAll = document.getElementById('select-all-allocated');
-        const checkboxes = document.querySelectorAll('.allocated-row-checkbox');
-
-        checkboxes.forEach(cb => {
-            cb.checked = selectAll.checked;
-        });
-
-        updateAllocatedSelectedCount();
-    };
-
-    // Update selected count for Allocated Lots
-    window.updateAllocatedSelectedCount = function() {
-        const checkboxes = document.querySelectorAll('.allocated-row-checkbox');
-        const checkedCount = Array.from(checkboxes).filter(cb => cb.checked).length;
-
-        const countSpan = document.getElementById('allocated-selected-count');
-        if (countSpan) {
-            countSpan.textContent = checkedCount;
+    // Get selected rows from Allocated Lots grid (for use in setData and other functions)
+    window.getSelectedAllocatedLots = function() {
+        if (allocatedLotsGrid) {
+            return allocatedLotsGrid.getSelectedRowsData();
         }
-
-        // Update select-all checkbox state
-        const selectAll = document.getElementById('select-all-allocated');
-        if (selectAll) {
-            selectAll.checked = checkboxes.length > 0 && checkedCount === checkboxes.length;
-        }
+        return [];
     };
 
     window.processTransaction = function(orderNumber) {
@@ -4653,17 +4650,13 @@ document.addEventListener('DOMContentLoaded', function() {
     window.setData = function(orderNumber) {
         console.log('[Store Transactions] Set data for:', orderNumber);
 
-        // Get selected rows
-        const checkboxes = document.querySelectorAll('.allocated-row-checkbox:checked');
+        // Get selected rows from DevExpress grid
+        const selectedItems = getSelectedAllocatedLots();
 
-        if (checkboxes.length === 0) {
+        if (selectedItems.length === 0) {
             alert('Please select at least one record to set data');
             return;
         }
-
-        // Get selected items data
-        const selectedIndices = Array.from(checkboxes).map(cb => parseInt(cb.dataset.index));
-        const selectedItems = selectedIndices.map(index => window.allocatedLotsData[index]);
 
         console.log('[Store Transactions] Selected items:', selectedItems);
 
