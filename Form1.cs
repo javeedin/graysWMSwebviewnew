@@ -1233,7 +1233,7 @@ namespace WMSApp
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    httpClient.Timeout = TimeSpan.FromSeconds(1030);
 
                     HttpResponseMessage response;
 
