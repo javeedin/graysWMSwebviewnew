@@ -3435,17 +3435,38 @@ document.addEventListener('DOMContentLoaded', function() {
                         alert('Failed to generate report: ' + (response.message || 'Unknown error'));
                     }
                 } catch (parseError) {
-                    // If not JSON, assume it was successful
-                    console.log('[Print Store Transaction] Non-JSON response, assuming success');
-                    logDebugInfo(
-                        `Print Report - ${reportName} - SUCCESS`,
-                        `${instance} - ${reportPath}`,
-                        { orderNumber, parameterName },
-                        { success: true, message: data },
-                        null,
-                        'SOAP'
-                    );
-                    alert('Report generated successfully!');
+                    // If not JSON, check if it's a file path or success message
+                    console.log('[Print Store Transaction] Non-JSON response:', data);
+
+                    // Check if data looks like a file path (contains backslashes or .pdf)
+                    if (data && (data.includes('\\') || data.includes('.pdf') || data.includes('C:'))) {
+                        // Assume it's a PDF file path
+                        const pdfPath = data.trim();
+                        console.log('[Print Store Transaction] Extracted PDF path:', pdfPath);
+
+                        logDebugInfo(
+                            `Print Report - ${reportName} - SUCCESS`,
+                            `${instance} - ${reportPath}`,
+                            { orderNumber, parameterName },
+                            { success: true, pdfPath: pdfPath },
+                            null,
+                            'SOAP'
+                        );
+
+                        // Show PDF viewer
+                        showPdfViewer(pdfPath, orderNumber, reportName);
+                    } else {
+                        // Just a success message
+                        logDebugInfo(
+                            `Print Report - ${reportName} - SUCCESS`,
+                            `${instance} - ${reportPath}`,
+                            { orderNumber, parameterName },
+                            { success: true, message: data },
+                            null,
+                            'SOAP'
+                        );
+                        alert('Report generated successfully!');
+                    }
                 }
             }
         });
