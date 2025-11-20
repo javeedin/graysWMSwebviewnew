@@ -2230,7 +2230,12 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[JS] Opening trip details for:', tripId);
 
         // Get instance from localStorage
-        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+        const instance = localStorage.getItem('fusionInstance');
+
+        if (!instance) {
+            alert('Instance not selected. Please select TEST or PROD from the instance selector in the toolbar.');
+            return;
+        }
 
         // Show loading indicator
         const loadingDiv = document.createElement('div');
