@@ -496,6 +496,56 @@ BEGIN
 END;
 
 
+/*
+═══════════════════════════════════════════════════════════════
+ENDPOINT 13: POST ALLOCATE LOTS FOR TRANSACTION
+═══════════════════════════════════════════════════════════════
+URI Template:   /trip/fetchlotdetails
+HTTP Method:    POST
+Source Type:    PL/SQL
+Source:
+*/
+DECLARE
+    v_body              CLOB;
+    v_trx_number        VARCHAR2(50);
+    v_instance_name     VARCHAR2(100);
+    v_result            VARCHAR2(4000);
+BEGIN
+    -- Get request body
+    v_body := :body_text;
+
+    -- Parse JSON
+    APEX_JSON.parse(v_body);
+
+    -- Extract parameters
+    v_trx_number := APEX_JSON.get_varchar2('p_trx_number');
+    v_instance_name := APEX_JSON.get_varchar2('p_instance_name');
+
+    -- Call the allocation procedure
+    BEGIN
+        P_allocate_lots_to_transactions(
+            p_trx_number => v_trx_number,
+            p_instance_name => v_instance_name
+        );
+
+        v_result := 'SUCCESS';
+        :status_code := 200;
+    EXCEPTION
+        WHEN OTHERS THEN
+            v_result := 'ERROR: ' || SQLERRM;
+            :status_code := 500;
+    END;
+
+    -- Return JSON response
+    HTP.p('{');
+    HTP.p('"success": ' || CASE WHEN v_result = 'SUCCESS' THEN 'true' ELSE 'false' END || ',');
+    HTP.p('"message": "' || REPLACE(v_result, '"', '\"') || '",');
+    HTP.p('"trxNumber": "' || v_trx_number || '",');
+    HTP.p('"instanceName": "' || v_instance_name || '"');
+    HTP.p('}');
+END;
+
+
 -- ========================================
 -- SIMPLIFIED APEX REST MODULE SETUP
 -- ========================================
