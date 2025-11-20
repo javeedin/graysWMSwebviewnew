@@ -873,10 +873,8 @@ window.searchPastedOrders = function() {
         // Show first 5 order numbers in grid
         console.log('[Paste Orders] First 5 order numbers in grid:');
         gridData.slice(0, 5).forEach((order, idx) => {
-            const on1 = order.ORDER_NUMBER;
-            const on2 = order.order_number;
-            const on3 = order.orderNumber;
-            console.log(`  [${idx}] ORDER_NUMBER="${on1}" (type: ${typeof on1}), order_number="${on2}" (type: ${typeof on2}), orderNumber="${on3}" (type: ${typeof on3})`);
+            const on = order.source_order_number || order.SOURCE_ORDER_NUMBER || order.ORDER_NUMBER || order.order_number || order.orderNumber;
+            console.log(`  [${idx}] Order Number: "${on}" (type: ${typeof on})`);
         });
         console.log('[Paste Orders] ===============================');
     }
@@ -890,28 +888,27 @@ window.searchPastedOrders = function() {
 
         console.log('[Paste Orders] ===== Searching for:', searchValue);
 
-        // Find order in grid data - try different approaches
+        // Find order in grid data - try different field name variations
         const foundOrder = gridData.find(order => {
-            // Try all possible field names and comparisons
-            const on1 = order.ORDER_NUMBER ? order.ORDER_NUMBER.toString().trim() : null;
-            const on2 = order.order_number ? order.order_number.toString().trim() : null;
-            const on3 = order.orderNumber ? order.orderNumber.toString().trim() : null;
+            // Try all possible field names
+            const on1 = order.source_order_number ? order.source_order_number.toString().trim() : null;
+            const on2 = order.SOURCE_ORDER_NUMBER ? order.SOURCE_ORDER_NUMBER.toString().trim() : null;
+            const on3 = order.ORDER_NUMBER ? order.ORDER_NUMBER.toString().trim() : null;
+            const on4 = order.order_number ? order.order_number.toString().trim() : null;
+            const on5 = order.orderNumber ? order.orderNumber.toString().trim() : null;
 
             // Case-insensitive comparison
             const match1 = on1 && on1.toUpperCase() === searchValue.toUpperCase();
             const match2 = on2 && on2.toUpperCase() === searchValue.toUpperCase();
             const match3 = on3 && on3.toUpperCase() === searchValue.toUpperCase();
+            const match4 = on4 && on4.toUpperCase() === searchValue.toUpperCase();
+            const match5 = on5 && on5.toUpperCase() === searchValue.toUpperCase();
 
-            // Also try exact match without case conversion
-            const match4 = on1 === searchValue;
-            const match5 = on2 === searchValue;
-            const match6 = on3 === searchValue;
-
-            return match1 || match2 || match3 || match4 || match5 || match6;
+            return match1 || match2 || match3 || match4 || match5;
         });
 
         if (foundOrder) {
-            const on = foundOrder.ORDER_NUMBER || foundOrder.order_number || foundOrder.orderNumber;
+            const on = foundOrder.source_order_number || foundOrder.SOURCE_ORDER_NUMBER || foundOrder.ORDER_NUMBER || foundOrder.order_number || foundOrder.orderNumber;
             console.log(`[Paste Orders] ✅ Found "${searchValue}" -> Order #${on}`);
             results.push({
                 orderNumber: orderNum,
@@ -922,12 +919,14 @@ window.searchPastedOrders = function() {
         } else {
             console.log(`[Paste Orders] ❌ NOT FOUND: "${searchValue}"`);
 
-            // Debug: Show if this order exists anywhere in the grid (case-insensitive search)
+            // Debug: Show if this order exists anywhere in the grid (partial match search)
             const exists = gridData.some(order => {
-                const on1 = order.ORDER_NUMBER ? order.ORDER_NUMBER.toString() : '';
-                const on2 = order.order_number ? order.order_number.toString() : '';
-                const on3 = order.orderNumber ? order.orderNumber.toString() : '';
-                return on1.includes(searchValue) || on2.includes(searchValue) || on3.includes(searchValue);
+                const on1 = order.source_order_number ? order.source_order_number.toString() : '';
+                const on2 = order.SOURCE_ORDER_NUMBER ? order.SOURCE_ORDER_NUMBER.toString() : '';
+                const on3 = order.ORDER_NUMBER ? order.ORDER_NUMBER.toString() : '';
+                const on4 = order.order_number ? order.order_number.toString() : '';
+                const on5 = order.orderNumber ? order.orderNumber.toString() : '';
+                return on1.includes(searchValue) || on2.includes(searchValue) || on3.includes(searchValue) || on4.includes(searchValue) || on5.includes(searchValue);
             });
 
             if (exists) {
@@ -968,7 +967,7 @@ function displayPasteOrdersResults(results) {
                     <i class="fas fa-check-circle" style="color: #28a745; margin-right: 0.5rem;"></i>
                     <span style="font-family: monospace; font-weight: 600; color: #155724;">${result.orderNumber}</span>
                     <span style="margin-left: auto; font-size: 12px; color: #155724;">
-                        ${result.order.ACCOUNT_NAME || result.order.account_name || ''}
+                        ${result.order.account_name || result.order.ACCOUNT_NAME || ''}
                     </span>
                 </div>
             `;
@@ -1016,11 +1015,11 @@ window.selectFoundOrders = function() {
 
     // Find the row keys for the found orders and select them
     foundOrdersFromPaste.forEach(foundOrder => {
-        const orderNumber = foundOrder.ORDER_NUMBER || foundOrder.order_number;
+        const orderNumber = foundOrder.source_order_number || foundOrder.SOURCE_ORDER_NUMBER || foundOrder.ORDER_NUMBER || foundOrder.order_number || foundOrder.orderNumber;
 
         // Find the row index in the data source
         const rowIndex = dataSource.findIndex(row => {
-            const rowOrderNum = (row.ORDER_NUMBER || row.order_number || '').toString();
+            const rowOrderNum = (row.source_order_number || row.SOURCE_ORDER_NUMBER || row.ORDER_NUMBER || row.order_number || row.orderNumber || '').toString();
             return rowOrderNum === orderNumber.toString();
         });
 
