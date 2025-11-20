@@ -793,4 +793,189 @@ window.goBackToTripManagement = function() {
     tripOrdersData = [];
 };
 
+// ============================================================================
+// PASTE ORDERS FUNCTIONALITY
+// ============================================================================
+
+// Store found orders globally for selection
+let foundOrdersFromPaste = [];
+
+window.openPasteOrdersPopup = function() {
+    console.log('[Paste Orders] Opening paste orders popup');
+
+    // Reset textarea and results
+    document.getElementById('paste-orders-textarea').value = '';
+    document.getElementById('paste-orders-results').style.display = 'none';
+    document.getElementById('select-found-orders-btn').style.display = 'none';
+    foundOrdersFromPaste = [];
+
+    // Show popup
+    const popup = document.getElementById('paste-orders-popup');
+    if (popup) {
+        popup.style.display = 'flex';
+    }
+};
+
+window.closePasteOrdersPopup = function() {
+    console.log('[Paste Orders] Closing paste orders popup');
+    const popup = document.getElementById('paste-orders-popup');
+    if (popup) {
+        popup.style.display = 'none';
+    }
+};
+
+window.searchPastedOrders = function() {
+    console.log('[Paste Orders] Searching for pasted orders');
+
+    const textarea = document.getElementById('paste-orders-textarea');
+    const text = textarea.value.trim();
+
+    if (!text) {
+        alert('Please paste order numbers first');
+        return;
+    }
+
+    // Split by newlines and clean up
+    const orderNumbers = text
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
+    if (orderNumbers.length === 0) {
+        alert('No valid order numbers found');
+        return;
+    }
+
+    console.log('[Paste Orders] Searching for', orderNumbers.length, 'orders');
+
+    // Get current pending orders data
+    if (!pendingOrdersData || pendingOrdersData.length === 0) {
+        alert('No pending orders loaded. Please refresh the orders list first.');
+        return;
+    }
+
+    // Search for each order in pending orders data
+    const results = [];
+    foundOrdersFromPaste = [];
+
+    orderNumbers.forEach(orderNum => {
+        const upperOrderNum = orderNum.toUpperCase();
+
+        // Find order in pending orders data
+        const foundOrder = pendingOrdersData.find(order => {
+            const orderNumber = (order.ORDER_NUMBER || order.order_number || '').toString().toUpperCase();
+            return orderNumber === upperOrderNum;
+        });
+
+        if (foundOrder) {
+            results.push({
+                orderNumber: orderNum,
+                found: true,
+                order: foundOrder
+            });
+            foundOrdersFromPaste.push(foundOrder);
+        } else {
+            results.push({
+                orderNumber: orderNum,
+                found: false,
+                order: null
+            });
+        }
+    });
+
+    // Display results
+    displayPasteOrdersResults(results);
+};
+
+function displayPasteOrdersResults(results) {
+    const foundCount = results.filter(r => r.found).length;
+    const notFoundCount = results.filter(r => !r.found).length;
+
+    console.log('[Paste Orders] Results:', foundCount, 'found,', notFoundCount, 'not found');
+
+    // Update counts
+    document.getElementById('found-count').textContent = foundCount;
+    document.getElementById('not-found-count').textContent = notFoundCount;
+
+    // Build results list HTML
+    let html = '';
+    results.forEach(result => {
+        if (result.found) {
+            html += `
+                <div style="display: flex; align-items: center; padding: 0.5rem; margin-bottom: 0.25rem; background: #d4edda; border: 1px solid #c3e6cb; border-radius: 4px;">
+                    <i class="fas fa-check-circle" style="color: #28a745; margin-right: 0.5rem;"></i>
+                    <span style="font-family: monospace; font-weight: 600; color: #155724;">${result.orderNumber}</span>
+                    <span style="margin-left: auto; font-size: 12px; color: #155724;">
+                        ${result.order.ACCOUNT_NAME || result.order.account_name || ''}
+                    </span>
+                </div>
+            `;
+        } else {
+            html += `
+                <div style="display: flex; align-items: center; padding: 0.5rem; margin-bottom: 0.25rem; background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 4px;">
+                    <i class="fas fa-times-circle" style="color: #dc3545; margin-right: 0.5rem;"></i>
+                    <span style="font-family: monospace; font-weight: 600; color: #721c24;">${result.orderNumber}</span>
+                    <span style="margin-left: auto; font-size: 12px; color: #721c24; font-style: italic;">Not found in pending orders</span>
+                </div>
+            `;
+        }
+    });
+
+    // Display results
+    document.getElementById('paste-orders-results-list').innerHTML = html;
+    document.getElementById('paste-orders-results').style.display = 'block';
+
+    // Show/hide select button
+    if (foundCount > 0) {
+        document.getElementById('select-found-orders-btn').style.display = 'inline-block';
+    } else {
+        document.getElementById('select-found-orders-btn').style.display = 'none';
+    }
+}
+
+window.selectFoundOrders = function() {
+    console.log('[Paste Orders] Selecting', foundOrdersFromPaste.length, 'found orders in grid');
+
+    if (!pendingOrdersGrid) {
+        alert('Grid not initialized');
+        return;
+    }
+
+    if (foundOrdersFromPaste.length === 0) {
+        alert('No orders to select');
+        return;
+    }
+
+    // Clear existing selection
+    pendingOrdersGrid.clearSelection();
+
+    // Get all rows in the grid
+    const dataSource = pendingOrdersGrid.option('dataSource');
+
+    // Find the row keys for the found orders and select them
+    foundOrdersFromPaste.forEach(foundOrder => {
+        const orderNumber = foundOrder.ORDER_NUMBER || foundOrder.order_number;
+
+        // Find the row index in the data source
+        const rowIndex = dataSource.findIndex(row => {
+            const rowOrderNum = (row.ORDER_NUMBER || row.order_number || '').toString();
+            return rowOrderNum === orderNumber.toString();
+        });
+
+        if (rowIndex >= 0) {
+            pendingOrdersGrid.selectRowsByIndexes([rowIndex]);
+        }
+    });
+
+    // Update selected orders count
+    const selectedCount = pendingOrdersGrid.getSelectedRowsData().length;
+    document.getElementById('selected-orders-count').textContent = selectedCount;
+
+    // Close popup
+    closePasteOrdersPopup();
+
+    // Show success message
+    alert(`Successfully selected ${selectedCount} orders in the grid.\n\nClick "Add to Trip" to add them.`);
+};
+
 console.log('[Trip Details] ✅ Module loaded');
