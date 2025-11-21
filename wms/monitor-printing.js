@@ -2364,4 +2364,144 @@ window.toggleDiagnosticToolbar = function() {
     }
 };
 
+// Function to show system printer queue
+window.showPrinterQueue = async function() {
+    const status = document.getElementById('diagnostic-status');
+    status.textContent = 'Loading Printer Queue...';
+    status.style.color = '#ffc107';
+
+    try {
+        // Check if WebView2 API is available
+        if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
+            // Request printer queue from C# backend
+            window.chrome.webview.postMessage({
+                action: 'getPrinterQueue'
+            });
+
+            // Listen for response
+            window.chrome.webview.addEventListener('message', function(event) {
+                if (event.data && event.data.type === 'printerQueue') {
+                    displayPrinterQueueModal(event.data.queue);
+                }
+            });
+        } else {
+            // Fallback: Try to get printer list from printer management
+            const response = await fetch('/api/printers');
+            if (response.ok) {
+                const printers = await response.json();
+                displayPrinterQueueModal(printers);
+            } else {
+                throw new Error('Unable to retrieve printer information');
+            }
+        }
+    } catch (error) {
+        console.error('[Printer Queue] Error:', error);
+        alert('Unable to retrieve printer queue information.\n\nError: ' + error.message);
+        status.textContent = 'Error';
+        status.style.color = '#dc3545';
+    }
+};
+
+function displayPrinterQueueModal(queueData) {
+    const status = document.getElementById('diagnostic-status');
+
+    // Create modal HTML
+    const modalHTML = `
+        <div id="printer-queue-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+            <div style="background: white; width: 90%; max-width: 900px; max-height: 80vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+                <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 18px; color: #333;">
+                        <i class="fas fa-print" style="color: #667eea;"></i> System Printer Queue
+                    </h3>
+                    <button onclick="closePrinterQueueModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666;">×</button>
+                </div>
+                <div style="flex: 1; overflow-y: auto; padding: 1.5rem;">
+                    <div id="printer-queue-content" style="min-height: 200px;"></div>
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                    <button class="btn btn-secondary" onclick="closePrinterQueueModal()">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                    <button class="btn btn-primary" onclick="refreshPrinterQueue()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Remove existing modal if present
+    const existingModal = document.getElementById('printer-queue-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // Add modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    // Populate queue data
+    const content = document.getElementById('printer-queue-content');
+    if (queueData && queueData.length > 0) {
+        content.innerHTML = `
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f7fafc; border-bottom: 2px solid #e2e8f0;">
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #2d3748;">Printer Name</th>
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #2d3748;">Status</th>
+                        <th style="padding: 12px; text-align: center; font-weight: 600; color: #2d3748;">Jobs</th>
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #2d3748;">Location</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${queueData.map((printer, index) => `
+                        <tr style="border-bottom: 1px solid #e2e8f0; ${index % 2 === 0 ? 'background: #ffffff;' : 'background: #f7fafc;'}">
+                            <td style="padding: 12px;">
+                                <i class="fas fa-print" style="color: #667eea; margin-right: 8px;"></i>
+                                <strong>${printer.name || 'Unknown'}</strong>
+                            </td>
+                            <td style="padding: 12px;">
+                                <span style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;
+                                    ${printer.status === 'Ready' ? 'background: #d4edda; color: #155724;' :
+                                      printer.status === 'Offline' ? 'background: #f8d7da; color: #721c24;' :
+                                      'background: #fff3cd; color: #856404;'}">
+                                    ${printer.status || 'Unknown'}
+                                </span>
+                            </td>
+                            <td style="padding: 12px; text-align: center;">
+                                ${printer.jobCount > 0 ?
+                                    `<span style="background: #667eea; color: white; padding: 4px 8px; border-radius: 12px; font-weight: 600; font-size: 12px;">${printer.jobCount}</span>` :
+                                    '<span style="color: #999;">0</span>'}
+                            </td>
+                            <td style="padding: 12px; color: #718096; font-size: 14px;">${printer.location || 'N/A'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } else {
+        content.innerHTML = `
+            <div style="text-align: center; padding: 3rem; color: #666;">
+                <i class="fas fa-info-circle" style="font-size: 48px; color: #cbd5e0; margin-bottom: 1rem;"></i>
+                <p style="font-size: 16px; margin: 0;">No printer queue information available.</p>
+                <p style="font-size: 14px; margin-top: 0.5rem; color: #999;">Please ensure printers are configured and accessible.</p>
+            </div>
+        `;
+    }
+
+    status.textContent = 'Queue Loaded';
+    status.style.color = '#00ff88';
+}
+
+window.closePrinterQueueModal = function() {
+    const modal = document.getElementById('printer-queue-modal');
+    if (modal) {
+        modal.remove();
+    }
+};
+
+window.refreshPrinterQueue = function() {
+    closePrinterQueueModal();
+    showPrinterQueue();
+};
+
 console.log('[Monitor] monitor-printing.js loaded');
