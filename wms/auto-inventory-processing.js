@@ -518,9 +518,24 @@ function startAutoProcessing() {
     document.getElementById('auto-process-status').textContent = 'ENABLED';
     document.getElementById('auto-process-status').style.color = '#10b981';
 
-    addLogEntry('System', 'Auto processing ENABLED - Starting sequential processing...', 'success');
+    addLogEntry('System', 'Auto processing mode ENABLED - Ready to run simulation', 'success');
+}
 
-    // Start sequential processing (no auto-refresh)
+// Run simulation - manually triggered
+function runSimulation() {
+    if (!autoProcessingEnabled) {
+        alert('Please enable Auto Processing first');
+        return;
+    }
+
+    if (autoProcessingData.length === 0) {
+        alert('Please fetch data first');
+        return;
+    }
+
+    addLogEntry('System', 'Starting simulation - Processing all pending transactions...', 'info');
+
+    // Start sequential processing
     processNextBatch();
 }
 
@@ -707,6 +722,7 @@ function addLogEntry(type, message, level = 'info') {
 
 // Make functions globally accessible
 window.fetchAutoInventoryData = fetchAutoInventoryData;
+window.runSimulation = runSimulation;
 window.toggleTripDetails = toggleTripDetails;
 window.toggleOrderDetails = toggleOrderDetails;
 window.expandAllOrders = expandAllOrders;
