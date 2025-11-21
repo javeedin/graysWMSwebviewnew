@@ -60,6 +60,7 @@ namespace WMSApp
         // User Session Fields
         private string _loggedInUsername;
         private string _loggedInInstance;
+        private string _loggedInDateTime;
         private bool _isLoggedIn = false;
 
         public Form1()
@@ -104,9 +105,10 @@ namespace WMSApp
                 {
                     _loggedInUsername = loginForm.Username;
                     _loggedInInstance = loginForm.InstanceName;
+                    _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
                     _isLoggedIn = true;
 
-                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Success - User: {_loggedInUsername}, Instance: {_loggedInInstance}");
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Success - User: {_loggedInUsername}, Instance: {_loggedInInstance}, DateTime: {_loggedInDateTime}");
                     return true;
                 }
                 return false;
@@ -3021,13 +3023,14 @@ namespace WMSApp
                 {
                     action = "setUserSession",
                     username = _loggedInUsername,
-                    instance = _loggedInInstance
+                    instance = _loggedInInstance,
+                    loginDateTime = "Logged in: " + _loggedInDateTime
                 };
 
                 string jsonMessage = JsonSerializer.Serialize(sessionData);
                 await wv.ExecuteScriptAsync($"window.postMessage({jsonMessage}, '*');");
 
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Sent user session to WebView: {_loggedInUsername} ({_loggedInInstance})");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Sent user session to WebView: {_loggedInUsername} ({_loggedInInstance}) - {_loggedInDateTime}");
             }
             catch (Exception ex)
             {

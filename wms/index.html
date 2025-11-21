@@ -50,7 +50,10 @@
         </div>
         <div class="user-info">
             <i class="fas fa-user-circle"></i>
-            <span id="logged-in-username">Admin</span>
+            <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                <span id="logged-in-username" style="font-weight: 600;">Admin</span>
+                <span id="login-datetime" style="font-size: 11px; color: #888; margin-top: 2px;">Not logged in</span>
+            </div>
         </div>
         <div id="instance-selector" style="margin-left: 1rem; display: flex; align-items: center; gap: 0.5rem; background: #f8f9fa; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; border: 2px solid #dee2e6; transition: all 0.2s;" onclick="toggleInstanceMenu()">
             <i class="fas fa-server" style="color: #667eea;"></i>
@@ -1775,8 +1778,8 @@
     <!-- Login Session Handler -->
     <script>
         // Function to set logged-in username
-        window.setLoggedInUser = function(username, instance) {
-            console.log('[LOGIN] Setting logged-in user:', username, 'Instance:', instance);
+        window.setLoggedInUser = function(username, instance, loginDateTime) {
+            console.log('[LOGIN] Setting logged-in user:', username, 'Instance:', instance, 'DateTime:', loginDateTime);
 
             // Update username display
             const usernameElement = document.getElementById('logged-in-username');
@@ -1792,9 +1795,24 @@
                 console.log('[LOGIN] Instance updated in UI');
             }
 
+            // Update login date/time display
+            const loginDateTimeElement = document.getElementById('login-datetime');
+            if (loginDateTimeElement) {
+                if (loginDateTime) {
+                    loginDateTimeElement.textContent = loginDateTime;
+                } else {
+                    // If no loginDateTime provided, use current date/time
+                    const now = new Date();
+                    const formattedDateTime = now.toLocaleDateString() + ' ' + now.toLocaleTimeString();
+                    loginDateTimeElement.textContent = 'Logged in: ' + formattedDateTime;
+                }
+                console.log('[LOGIN] Login date/time updated in UI');
+            }
+
             // Store in session storage
             sessionStorage.setItem('loggedInUsername', username);
             sessionStorage.setItem('loggedInInstance', instance);
+            sessionStorage.setItem('loggedInDateTime', loginDateTime || new Date().toISOString());
         };
 
         // Listen for messages from C# WebView2
@@ -1803,7 +1821,7 @@
                 console.log('[LOGIN] Received WebView message:', event.data);
 
                 if (event.data && event.data.action === 'setUserSession') {
-                    setLoggedInUser(event.data.username, event.data.instance);
+                    setLoggedInUser(event.data.username, event.data.instance, event.data.loginDateTime);
                 }
             });
             console.log('[LOGIN] WebView2 message listener registered');
@@ -1813,10 +1831,17 @@
         document.addEventListener('DOMContentLoaded', function() {
             const savedUsername = sessionStorage.getItem('loggedInUsername');
             const savedInstance = sessionStorage.getItem('loggedInInstance');
+            const savedDateTime = sessionStorage.getItem('loggedInDateTime');
 
             if (savedUsername && savedInstance) {
-                console.log('[LOGIN] Restoring session:', savedUsername, savedInstance);
-                setLoggedInUser(savedUsername, savedInstance);
+                console.log('[LOGIN] Restoring session:', savedUsername, savedInstance, savedDateTime);
+                // Format saved date/time for display
+                let formattedDateTime = 'Not logged in';
+                if (savedDateTime) {
+                    const loginDate = new Date(savedDateTime);
+                    formattedDateTime = 'Logged in: ' + loginDate.toLocaleDateString() + ' ' + loginDate.toLocaleTimeString();
+                }
+                setLoggedInUser(savedUsername, savedInstance, formattedDateTime);
             }
         });
 
