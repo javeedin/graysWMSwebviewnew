@@ -326,23 +326,45 @@ namespace WMSApp
             {
                 string loginUrl = $"{baseUrl}/login?username={Uri.EscapeDataString(username)}&password={Uri.EscapeDataString(password)}";
 
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Validating: {loginUrl}");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Attempting login...");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] URL: {loginUrl}");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Username: {username}");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Instance: {baseUrl}");
 
                 using (var client = new HttpClient())
                 {
                     client.Timeout = TimeSpan.FromSeconds(30);
+
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Sending HTTP GET request...");
                     var response = await client.GetAsync(loginUrl);
+
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Response Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Response Success: {response.IsSuccessStatusCode}");
+
+                    string jsonResponse = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Response Length: {jsonResponse?.Length ?? 0}");
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Response Body: {jsonResponse}");
 
                     if (response.IsSuccessStatusCode)
                     {
-                        string jsonResponse = await response.Content.ReadAsStringAsync();
-                        System.Diagnostics.Debug.WriteLine($"[LOGIN] Response: {jsonResponse}");
-
                         // Check if response has data (successful login)
                         if (!string.IsNullOrWhiteSpace(jsonResponse) && jsonResponse.Length > 10)
                         {
+                            System.Diagnostics.Debug.WriteLine($"[LOGIN] ✓ Login SUCCESSFUL");
+                            System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
                             return true;
                         }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[LOGIN] ✗ Login FAILED - Empty or invalid response");
+                            System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[LOGIN] ✗ Login FAILED - HTTP {response.StatusCode}");
+                        System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
                     }
 
                     return false;
@@ -350,7 +372,10 @@ namespace WMSApp
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Validation error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] ✗ EXCEPTION: {ex.GetType().Name}");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Message: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Stack: {ex.StackTrace}");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
                 throw;
             }
         }
