@@ -82,6 +82,7 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'addToTrip':
             case 'printOrder':
             case 'searchTransaction':
+            case 'printTrip':
             case 'autoSchedule':
             case 'optimizeRoute':
                 // For other actions, show in chat
@@ -133,6 +134,39 @@ document.addEventListener('DOMContentLoaded', function() {
                             // Focus on input
                             setTimeout(() => {
                                 document.getElementById('copilot-transaction-number-input')?.focus();
+                            }, 100);
+                        }, 100);
+                    } else if (action === 'printTrip') {
+                        response = '📄 Please enter the Trip ID:';
+
+                        // Add input field for trip ID
+                        setTimeout(() => {
+                            const chatMessages = document.getElementById('copilot-chat-messages');
+                            const inputDiv = document.createElement('div');
+                            inputDiv.className = 'copilot-message copilot-message-assistant';
+                            inputDiv.innerHTML = `
+                                <div class="copilot-message-avatar">
+                                    <i class="fas fa-robot"></i>
+                                </div>
+                                <div class="copilot-message-bubble">
+                                    <div style="margin-bottom: 0.5rem; font-weight: 600;">Enter Trip ID:</div>
+                                    <input type="text" id="copilot-print-trip-id-input"
+                                           placeholder="e.g., 1719"
+                                           style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; margin-bottom: 0.75rem;"
+                                           onkeypress="if(event.key==='Enter') handlePrintTripSubmit()">
+                                    <button onclick="handlePrintTripSubmit()"
+                                            style="width: 100%; padding: 0.6rem 1rem; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;"
+                                            onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                                        <i class="fas fa-truck"></i> View Trip Details
+                                    </button>
+                                </div>
+                            `;
+                            chatMessages.appendChild(inputDiv);
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                            // Focus on input
+                            setTimeout(() => {
+                                document.getElementById('copilot-print-trip-id-input')?.focus();
                             }, 100);
                         }, 100);
                     } else if (action === 'autoSchedule') {
@@ -762,7 +796,291 @@ window.handleTransactionSearch = function(type) {
 };
 
 // ============================================================================
-// SHOW TRIP DETAILS DIALOG
+// HANDLE PRINT TRIP SUBMIT FROM CO-PILOT
+// ============================================================================
+
+window.handlePrintTripSubmit = async function() {
+    const tripIdInput = document.getElementById('copilot-print-trip-id-input');
+    const tripId = tripIdInput?.value.trim();
+
+    if (!tripId) {
+        alert('Please enter a Trip ID');
+        return;
+    }
+
+    console.log('[Co-Pilot] Fetching trip details for ID:', tripId);
+
+    // Add loading message
+    addChatMessage('user', `View trip details for Trip ID: ${tripId}`);
+    addChatMessage('assistant', '🔍 Loading trip details...');
+
+    try {
+        // Call API to get trip details
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || 'PROD';
+        const apiUrl = `/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${currentInstance}`;
+
+        const response = await callApexAPINew(apiUrl, 'GET', null, currentInstance);
+
+        console.log('[Co-Pilot] Trip details response:', response);
+
+        if (response && response.items && response.items.length > 0) {
+            const tripData = response.items[0];
+            console.log('[Co-Pilot] Trip data received:', tripData);
+
+            // Show success message
+            const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
+            if (lastMessage) {
+                lastMessage.textContent = `✅ Trip found! Opening Trip Details dialog...`;
+            }
+
+            // Close copilot panel
+            toggleCopilot();
+
+            // Open trip details in dialog - using the Trip Details Page content
+            setTimeout(() => {
+                showTripDetailsPageDialog(tripData);
+            }, 300);
+        } else {
+            const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
+            if (lastMessage) {
+                lastMessage.textContent = `❌ Trip ID ${tripId} not found. Please check the ID and try again.`;
+            }
+        }
+    } catch (error) {
+        console.error('[Co-Pilot] Error fetching trip details:', error);
+        const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
+        if (lastMessage) {
+            lastMessage.textContent = `❌ Error loading trip details: ${error.message}`;
+        }
+    }
+};
+
+// ============================================================================
+// SHOW TRIP DETAILS PAGE AS DIALOG
+// ============================================================================
+
+window.showTripDetailsPageDialog = function(tripData) {
+    console.log('[Co-Pilot] Showing Trip Details Page as dialog for:', tripData);
+
+    // Create dialog overlay
+    const dialogOverlay = document.createElement('div');
+    dialogOverlay.id = 'trip-details-page-dialog-overlay';
+    dialogOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 20000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+
+    // Get the original Trip Details Page HTML
+    const originalTripDetailsPage = document.getElementById('trip-details-management');
+    if (!originalTripDetailsPage) {
+        alert('Trip Details Page not found');
+        return;
+    }
+
+    // Clone the trip details page content
+    const clonedContent = originalTripDetailsPage.cloneNode(true);
+    clonedContent.id = 'trip-details-dialog-content';
+    clonedContent.style.display = 'block';
+    clonedContent.style.width = '100%';
+    clonedContent.style.height = '100%';
+
+    // Create dialog container
+    const dialogContainer = document.createElement('div');
+    dialogContainer.style.cssText = `
+        background: white;
+        width: 95%;
+        max-width: 1600px;
+        height: 95%;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        position: relative;
+    `;
+
+    // Add close button
+    const closeButton = document.createElement('button');
+    closeButton.innerHTML = '×';
+    closeButton.style.cssText = `
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        background: rgba(220, 53, 69, 0.9);
+        border: none;
+        font-size: 32px;
+        cursor: pointer;
+        color: white;
+        width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    `;
+    closeButton.onclick = closeTripDetailsPageDialog;
+
+    // Assemble dialog
+    dialogContainer.appendChild(closeButton);
+    dialogContainer.appendChild(clonedContent);
+    dialogOverlay.appendChild(dialogContainer);
+    document.body.appendChild(dialogOverlay);
+
+    // Populate the cloned content with trip data
+    setTimeout(() => {
+        populateTripDetailsDialog(tripData, clonedContent);
+    }, 100);
+};
+
+// Close trip details page dialog
+window.closeTripDetailsPageDialog = function() {
+    const overlay = document.getElementById('trip-details-page-dialog-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+};
+
+// Populate trip details in dialog
+function populateTripDetailsDialog(tripData, container) {
+    try {
+        console.log('[Co-Pilot] Populating trip details dialog:', tripData);
+
+        // Update trip header
+        const tripDetailId = container.querySelector('#trip-detail-id');
+        if (tripDetailId) tripDetailId.textContent = tripData.trip_id || tripData.TRIP_ID || '-';
+
+        const tripDetailDate = container.querySelector('#trip-detail-date');
+        if (tripDetailDate) tripDetailDate.textContent = tripData.trip_date || tripData.TRIP_DATE || '-';
+
+        const tripDetailVehicle = container.querySelector('#trip-detail-vehicle');
+        if (tripDetailVehicle) tripDetailVehicle.textContent = tripData.trip_lorry || tripData.TRIP_LORRY || '-';
+
+        const tripDetailLoadingBay = container.querySelector('#trip-detail-loading-bay');
+        if (tripDetailLoadingBay) tripDetailLoadingBay.textContent = tripData.trip_loading_bay || tripData.TRIP_LOADING_BAY || '-';
+
+        const tripDetailPriority = container.querySelector('#trip-detail-priority');
+        if (tripDetailPriority) tripDetailPriority.textContent = tripData.trip_priority || tripData.TRIP_PRIORITY || '-';
+
+        // Initialize the grid in the dialog
+        const gridContainer = container.querySelector('#trip-orders-grid');
+        if (gridContainer) {
+            // Give it a unique ID for the dialog
+            gridContainer.id = 'trip-orders-grid-dialog';
+
+            // Load trip orders
+            const tripId = tripData.trip_id || tripData.TRIP_ID;
+            const currentInstance = sessionStorage.getItem('loggedInInstance') || 'PROD';
+
+            callApexAPINew(`/trip/orders/${tripId}`, 'GET', null, currentInstance)
+                .then(response => {
+                    const orders = response.items || [];
+                    console.log('[Trip Details Dialog] Orders:', orders);
+
+                    // Initialize DevExpress grid
+                    $('#trip-orders-grid-dialog').dxDataGrid({
+                        dataSource: orders,
+                        showBorders: true,
+                        showRowLines: true,
+                        showColumnLines: true,
+                        rowAlternationEnabled: true,
+                        columnAutoWidth: true,
+                        allowColumnReordering: true,
+                        allowColumnResizing: true,
+                        hoverStateEnabled: true,
+                        filterRow: {
+                            visible: true,
+                            applyFilter: 'auto'
+                        },
+                        searchPanel: {
+                            visible: true,
+                            width: 240,
+                            placeholder: 'Search orders...'
+                        },
+                        paging: {
+                            pageSize: 20
+                        },
+                        columns: [
+                            {
+                                dataField: 'source_order_number',
+                                caption: 'Order Number',
+                                width: 130,
+                                cssClass: 'small-font-grid'
+                            },
+                            {
+                                dataField: 'account_number',
+                                caption: 'Account',
+                                width: 100,
+                                cssClass: 'small-font-grid'
+                            },
+                            {
+                                dataField: 'account_name',
+                                caption: 'Customer',
+                                width: 200,
+                                cssClass: 'small-font-grid'
+                            },
+                            {
+                                dataField: 'order_date',
+                                caption: 'Order Date',
+                                width: 110,
+                                dataType: 'date',
+                                format: 'yyyy-MM-dd',
+                                cssClass: 'small-font-grid'
+                            },
+                            {
+                                dataField: 'order_type_code',
+                                caption: 'Order Type',
+                                width: 90,
+                                cssClass: 'small-font-grid'
+                            },
+                            {
+                                dataField: 'pick_confirm_st',
+                                caption: 'Pick Status',
+                                width: 80,
+                                alignment: 'center',
+                                calculateCellValue: function(rowData) {
+                                    return rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
+                                }
+                            },
+                            {
+                                dataField: 'ship_confirm_st',
+                                caption: 'Ship Status',
+                                width: 80,
+                                alignment: 'center',
+                                calculateCellValue: function(rowData) {
+                                    return rowData.SHIP_CONFIRM_ST || rowData.ship_confirm_st || '';
+                                }
+                            }
+                        ]
+                    }).dxDataGrid('instance');
+
+                    // Update order count
+                    const orderCountEl = container.querySelector('#trip-orders-count');
+                    if (orderCountEl) {
+                        orderCountEl.textContent = `${orders.length} orders`;
+                    }
+                })
+                .catch(error => {
+                    console.error('[Trip Details Dialog] Error loading orders:', error);
+                });
+        }
+
+    } catch (error) {
+        console.error('[Trip Details Dialog] Error populating:', error);
+    }
+}
+
+// ============================================================================
+// SHOW TRIP DETAILS DIALOG (OLD VERSION - KEPT FOR BACKWARD COMPATIBILITY)
 // ============================================================================
 
 window.showTripDetailsDialog = function(tripData) {
