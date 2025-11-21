@@ -518,22 +518,10 @@ function startAutoProcessing() {
     document.getElementById('auto-process-status').textContent = 'ENABLED';
     document.getElementById('auto-process-status').style.color = '#10b981';
 
-    addLogEntry('System', 'Auto processing ENABLED', 'success');
+    addLogEntry('System', 'Auto processing ENABLED - Starting sequential processing...', 'success');
 
-    // Get refresh interval
-    const intervalSeconds = parseInt(document.getElementById('auto-refresh-interval').value);
-
-    // Start background processing
+    // Start sequential processing (no auto-refresh)
     processNextBatch();
-
-    // Setup interval for automatic refresh and processing
-    autoProcessingInterval = setInterval(() => {
-        addLogEntry('System', 'Auto-refresh triggered - fetching latest data...', 'info');
-        // Note: fetchAutoInventoryData uses callbacks, processNextBatch will be called on next interval
-        fetchAutoInventoryData();
-        // Process any pending transactions from current data
-        setTimeout(() => processNextBatch(), 2000);
-    }, intervalSeconds * 1000);
 }
 
 // Stop auto processing
@@ -617,12 +605,7 @@ async function processTransaction(transaction) {
         displayGroupedTrips();
         updateStatistics();
 
-        // Auto retry after 5 seconds
-        setTimeout(() => {
-            if (autoProcessingEnabled) {
-                retryTransactionById(transaction.transaction_id);
-            }
-        }, 5000);
+        // Note: No auto-retry, user must use Retry button
     }
 }
 
