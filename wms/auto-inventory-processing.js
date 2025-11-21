@@ -229,69 +229,146 @@ function displayGroupedTrips() {
     container.innerHTML = html;
 }
 
-// Render trip transactions table
+// Render trip transactions grouped by order
 function renderTripTransactions(transactions, tripIndex) {
-    let html = `
-        <div style="overflow-x: auto;">
-            <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden;">
-                <thead>
-                    <tr style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
-                        <th style="padding: 0.75rem; text-align: left; font-size: 12px; font-weight: 700;">#</th>
-                        <th style="padding: 0.75rem; text-align: left; font-size: 12px; font-weight: 700;">TRX NUMBER</th>
-                        <th style="padding: 0.75rem; text-align: left; font-size: 12px; font-weight: 700;">ITEM CODE</th>
-                        <th style="padding: 0.75rem; text-align: left; font-size: 12px; font-weight: 700;">ITEM DESCRIPTION</th>
-                        <th style="padding: 0.75rem; text-align: center; font-size: 12px; font-weight: 700;">PICKED QTY</th>
-                        <th style="padding: 0.75rem; text-align: left; font-size: 12px; font-weight: 700;">SOURCE SUB INV</th>
-                        <th style="padding: 0.75rem; text-align: left; font-size: 12px; font-weight: 700;">DEST SUB INV</th>
-                        <th style="padding: 0.75rem; text-align: center; font-size: 12px; font-weight: 700;">STATUS</th>
-                        <th style="padding: 0.75rem; text-align: center; font-size: 12px; font-weight: 700;">ACTION</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
+    // Group transactions by TRX_NUMBER
+    const orderGroups = {};
 
     transactions.forEach((trx, idx) => {
-        const statusColor = trx.transaction_status === 'SUCCESS' ? '#10b981' :
-                           trx.transaction_status === 'FAILED' || trx.transaction_status === 'ERROR' ? '#ef4444' :
+        const orderNum = trx.trx_number;
+        if (!orderGroups[orderNum]) {
+            orderGroups[orderNum] = {
+                trx_number: orderNum,
+                trx_type: trx.trx_type,
+                source_sub_inv: trx.source_sub_inv,
+                dest_sub_inv: trx.dest_sub_inv,
+                items: [],
+                totalQty: 0,
+                overallStatus: trx.transaction_status
+            };
+        }
+        orderGroups[orderNum].items.push({ ...trx, originalIndex: idx });
+        orderGroups[orderNum].totalQty += trx.picked_qty || 0;
+    });
+
+    const orders = Object.values(orderGroups);
+
+    let html = '<div style="display: flex; flex-direction: column; gap: 1rem;">';
+
+    orders.forEach((order, orderIdx) => {
+        const orderStatus = order.items.every(i => i.transaction_status === 'SUCCESS') ? 'SUCCESS' :
+                           order.items.some(i => i.transaction_status === 'FAILED' || i.transaction_status === 'ERROR') ? 'FAILED' :
+                           'PENDING';
+
+        const statusColor = orderStatus === 'SUCCESS' ? '#10b981' :
+                           orderStatus === 'FAILED' ? '#ef4444' :
                            '#3b82f6';
 
-        const statusIcon = trx.transaction_status === 'SUCCESS' ? 'check-circle' :
-                          trx.transaction_status === 'FAILED' || trx.transaction_status === 'ERROR' ? 'times-circle' :
+        const statusIcon = orderStatus === 'SUCCESS' ? 'check-circle' :
+                          orderStatus === 'FAILED' ? 'times-circle' :
                           'clock';
 
+        const orderId = `trip-${tripIndex}-order-${orderIdx}`;
+
         html += `
-            <tr style="border-bottom: 1px solid #e2e8f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
-                <td style="padding: 0.75rem; font-size: 13px; color: #64748b; font-weight: 600;">${idx + 1}</td>
-                <td style="padding: 0.75rem; font-size: 13px; font-weight: 600; color: #1e293b;">${trx.trx_number}</td>
-                <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${trx.item_code}</td>
-                <td style="padding: 0.75rem; font-size: 12px; color: #475569; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${trx.item_desc}">${trx.item_desc}</td>
-                <td style="padding: 0.75rem; text-align: center; font-size: 14px; font-weight: 700; color: #1e293b;">${trx.picked_qty}</td>
-                <td style="padding: 0.75rem; font-size: 12px; color: #475569;">${trx.source_sub_inv}</td>
-                <td style="padding: 0.75rem; font-size: 12px; color: #475569;">${trx.dest_sub_inv}</td>
-                <td style="padding: 0.75rem; text-align: center;">
-                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${statusColor}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;">
-                        <i class="fas fa-${statusIcon}"></i> ${trx.transaction_status || 'PENDING'}
-                    </span>
-                </td>
-                <td style="padding: 0.75rem; text-align: center;">
-                    ${(trx.transaction_status === 'FAILED' || trx.transaction_status === 'ERROR') ? `
-                        <button onclick="retryTransaction(${tripIndex}, ${idx})" style="background: #f59e0b; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
-                            <i class="fas fa-redo"></i> Retry
-                        </button>
-                    ` : `
-                        <span style="color: #94a3b8; font-size: 11px;">-</span>
-                    `}
-                </td>
-            </tr>
+            <div style="background: white; border: 2px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+                <!-- Order Header -->
+                <div onclick="toggleOrderDetails('${orderId}')" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
+                    <div style="display: flex; gap: 1.5rem; align-items: center; flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-box" style="color: #667eea; font-size: 16px;"></i>
+                            <div>
+                                <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Order</div>
+                                <div style="font-size: 14px; font-weight: 700; color: #1e293b;">${order.trx_number}</div>
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Type</div>
+                            <div style="font-size: 11px; font-weight: 600; color: #475569;">${order.trx_type || 'N/A'}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Items</div>
+                            <div style="font-size: 13px; font-weight: 700; color: #667eea;">${order.items.length}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Qty</div>
+                            <div style="font-size: 13px; font-weight: 700; color: #1e293b;">${order.totalQty}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">From → To</div>
+                            <div style="font-size: 11px; font-weight: 600; color: #475569;">${order.source_sub_inv} → ${order.dest_sub_inv}</div>
+                        </div>
+                        <div>
+                            <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${statusColor}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: 700;">
+                                <i class="fas fa-${statusIcon}"></i> ${orderStatus}
+                            </span>
+                        </div>
+                    </div>
+                    <i class="fas fa-chevron-down" id="order-chevron-${orderId}" style="color: #667eea; transition: transform 0.3s; font-size: 12px;"></i>
+                </div>
+
+                <!-- Order Items (Collapsible) -->
+                <div id="order-details-${orderId}" style="display: none;">
+                    <div style="overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f8f9fa; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Qty</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Lot Number</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Status</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+        `;
+
+        order.items.forEach((item, itemIdx) => {
+            const itemStatusColor = item.transaction_status === 'SUCCESS' ? '#10b981' :
+                                   item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR' ? '#ef4444' :
+                                   '#3b82f6';
+
+            const itemStatusIcon = item.transaction_status === 'SUCCESS' ? 'check-circle' :
+                                  item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR' ? 'times-circle' :
+                                  'clock';
+
+            html += `
+                <tr style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #94a3b8; font-weight: 600;">${itemIdx + 1}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.item_code}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.item_desc}">${item.item_desc}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.picked_qty}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.lot_number || 'N/A'}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${itemStatusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+                            <i class="fas fa-${itemStatusIcon}"></i> ${item.transaction_status || 'PENDING'}
+                        </span>
+                    </td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                        ${(item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR') ? `
+                            <button onclick="retryTransaction(${tripIndex}, ${item.originalIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                                <i class="fas fa-redo"></i> Retry
+                            </button>
+                        ` : `
+                            <span style="color: #cbd5e1; font-size: 10px;">-</span>
+                        `}
+                    </td>
+                </tr>
+            `;
+        });
+
+        html += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         `;
     });
 
-    html += `
-                </tbody>
-            </table>
-        </div>
-    `;
-
+    html += '</div>';
     return html;
 }
 
@@ -299,6 +376,20 @@ function renderTripTransactions(transactions, tripIndex) {
 function toggleTripDetails(index) {
     const details = document.getElementById(`trip-details-${index}`);
     const chevron = document.getElementById(`trip-chevron-${index}`);
+
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        chevron.style.transform = 'rotate(180deg)';
+    } else {
+        details.style.display = 'none';
+        chevron.style.transform = 'rotate(0deg)';
+    }
+}
+
+// Toggle order details
+function toggleOrderDetails(orderId) {
+    const details = document.getElementById(`order-details-${orderId}`);
+    const chevron = document.getElementById(`order-chevron-${orderId}`);
 
     if (details.style.display === 'none') {
         details.style.display = 'block';
@@ -526,6 +617,7 @@ function addLogEntry(type, message, level = 'info') {
 // Make functions globally accessible
 window.fetchAutoInventoryData = fetchAutoInventoryData;
 window.toggleTripDetails = toggleTripDetails;
+window.toggleOrderDetails = toggleOrderDetails;
 window.retryTransaction = retryTransaction;
 window.switchAutoTab = switchAutoTab;
 
