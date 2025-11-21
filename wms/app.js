@@ -2562,24 +2562,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 } else if (key === 'PICK_CONFIRM_ST' || key === 'pick_confirm_st' || key === 'SHIP_CONFIRM_ST' || key === 'ship_confirm_st') {
                     col.alignment = 'center';
                     col.caption = key.includes('PICK') || key.includes('pick') ? 'Pick Status' : 'Ship Status';
-                    col.cellTemplate = (container, options) => {
-                        const value = options.value;
-                        const wrapper = document.createElement('div');
-                        wrapper.style.textAlign = 'center';
-                        const icon = document.createElement('i');
-                        icon.style.fontSize = '0.85rem';
-                        if (value === 'Y' || value === 'Yes' || value === 'YES') {
-                            icon.className = 'fas fa-check-circle';
-                            icon.style.color = '#10b981';
-                            icon.title = 'Yes';
-                        } else {
-                            icon.className = 'fas fa-times-circle';
-                            icon.style.color = '#ef4444';
-                            icon.title = 'No';
-                        }
-                        wrapper.appendChild(icon);
-                        $(container).empty().append(wrapper);
-                    };
+                    // Show raw data value without icons
                 } else if (key.endsWith('_WEIGHT')) {
                     col.format = { type: 'fixedPoint', precision: 2 };
                     col.alignment = 'right';
