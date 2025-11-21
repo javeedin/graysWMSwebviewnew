@@ -115,6 +115,19 @@ namespace WMSApp
             }
         }
 
+        private void HandleLogout()
+        {
+            System.Diagnostics.Debug.WriteLine("[LOGOUT] Clearing user session...");
+
+            // Clear session variables
+            _isLoggedIn = false;
+            _loggedInUsername = null;
+            _loggedInInstance = null;
+            _loggedInDateTime = null;
+
+            System.Diagnostics.Debug.WriteLine("[LOGOUT] User session cleared successfully");
+        }
+
         private void SetupUI()
         {
             // Initialize ToolTip
@@ -1170,6 +1183,10 @@ namespace WMSApp
 
                                 case "loadLocalFile":
                                     await HandleLoadLocalFile(wv, messageJson, requestId);
+                                    break;
+
+                                case "logout":
+                                    HandleLogout();
                                     break;
 
                                 default:
