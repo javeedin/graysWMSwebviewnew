@@ -659,7 +659,7 @@ namespace WMSApp
             navPanel.Controls.Add(wmsDevButton);
             navPanel.Controls.Add(wmsProdButton);
             navPanel.Controls.Add(modulesButton);
-            navPanel.Controls.Add(urlPanel);
+            // navPanel.Controls.Add(urlPanel); // HIDDEN: Address bar removed per user request
             navPanel.Controls.Add(profileButton);
             navPanel.Controls.Add(settingsButton);
 
