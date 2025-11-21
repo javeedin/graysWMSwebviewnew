@@ -904,6 +904,17 @@ window.handlePrintTripSubmit = async function() {
 window.showTripDetailsPageDialog = function(tripId, tripData) {
     console.log('[Co-Pilot] Showing Trip Details Page as dialog for trip:', tripId, 'with', tripData.length, 'records');
 
+    // Calculate KPI statistics (same as openTripDetailsWithData in app.js)
+    const firstRecord = tripData[0];
+    const totalOrders = tripData.length;
+    const uniqueCustomers = new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
+    const uniqueProducts = new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
+    const totalQuantity = tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
+    const totalWeight = tripData.reduce((sum, t) => sum + (parseFloat(t.WEIGHT || t.weight || 0)), 0);
+    const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+    const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '-';
+    const lorryNumber = firstRecord.TRIP_LORRY || firstRecord.trip_lorry || '-';
+
     // Create dialog overlay
     const dialogOverlay = document.createElement('div');
     dialogOverlay.id = 'trip-details-page-dialog-overlay';
@@ -920,21 +931,7 @@ window.showTripDetailsPageDialog = function(tripId, tripData) {
         justify-content: center;
     `;
 
-    // Get the original Trip Details Page HTML
-    const originalTripDetailsPage = document.getElementById('trip-details-management');
-    if (!originalTripDetailsPage) {
-        alert('Trip Details Page not found');
-        return;
-    }
-
-    // Clone the trip details page content
-    const clonedContent = originalTripDetailsPage.cloneNode(true);
-    clonedContent.id = 'trip-details-dialog-content';
-    clonedContent.style.display = 'block';
-    clonedContent.style.width = '100%';
-    clonedContent.style.height = '100%';
-
-    // Create dialog container
+    // Create dialog container with the EXACT SAME layout as the tab version
     const dialogContainer = document.createElement('div');
     dialogContainer.style.cssText = `
         background: white;
@@ -972,15 +969,141 @@ window.showTripDetailsPageDialog = function(tripId, tripData) {
     `;
     closeButton.onclick = closeTripDetailsPageDialog;
 
+    // Build the EXACT SAME HTML as the tab version
+    const contentWrapper = document.createElement('div');
+    contentWrapper.style.cssText = 'padding: 1rem; overflow-y: auto; height: 100%;';
+    contentWrapper.innerHTML = `
+        <!-- Trip Summary Section -->
+        <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden;">
+            <div onclick="toggleTripSummaryDialog()" style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                        <i class="fas fa-route" style="color: white; font-size: 1.2rem;"></i>
+                    </div>
+                    <div>
+                        <h2 style="font-size: 1.1rem; font-weight: 700; color: white; margin: 0;">Trip: ${tripId}</h2>
+                        <p style="color: rgba(255,255,255,0.9); font-size: 0.75rem; margin: 0.2rem 0 0 0;">Trip Summary & Statistics</p>
+                    </div>
+                </div>
+                <i class="fas fa-chevron-down" id="summary-icon-dialog" style="color: white; font-size: 1rem; transition: transform 0.3s ease;"></i>
+            </div>
+
+            <div id="trip-summary-dialog" style="padding: 0.75rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem;">
+                    <!-- Trip Date Card -->
+                    <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(99, 102, 241, 0.1); border-left: 3px solid #6366f1;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #6366f1, #4f46e5); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-calendar-alt" style="color: white; font-size: 0.7rem;"></i>
+                            </div>
+                            <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Trip Date</div>
+                        </div>
+                        <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${tripDate}</div>
+                    </div>
+
+                    <!-- Lorry Number Card -->
+                    <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-truck" style="color: white; font-size: 0.7rem;"></i>
+                            </div>
+                            <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
+                        </div>
+                        <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${lorryNumber}</div>
+                    </div>
+
+                    <!-- Total Orders Card -->
+                    <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.1); border-left: 3px solid #f59e0b;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-box" style="color: white; font-size: 0.7rem;"></i>
+                            </div>
+                            <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
+                        </div>
+                        <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalOrders}</div>
+                    </div>
+
+                    <!-- Customers Card -->
+                    <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-users" style="color: white; font-size: 0.7rem;"></i>
+                            </div>
+                            <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Customers</div>
+                        </div>
+                        <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
+                    </div>
+
+                    <!-- Total Quantity Card -->
+                    <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(139, 92, 246, 0.1); border-left: 3px solid #8b5cf6;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-cubes" style="color: white; font-size: 0.7rem;"></i>
+                            </div>
+                            <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Quantity</div>
+                        </div>
+                        <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
+                    </div>
+
+                    <!-- Total Weight Card -->
+                    <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(236, 72, 153, 0.1); border-left: 3px solid #ec4899;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #ec4899, #db2777); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-weight" style="color: white; font-size: 0.7rem;"></i>
+                            </div>
+                            <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Weight</div>
+                        </div>
+                        <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalWeight.toFixed(2)} kg</div>
+                    </div>
+
+                    <!-- Products Card -->
+                    <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(20, 184, 166, 0.1); border-left: 3px solid #14b8a6;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #14b8a6, #0d9488); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-boxes" style="color: white; font-size: 0.7rem;"></i>
+                            </div>
+                            <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Products</div>
+                        </div>
+                        <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueProducts}</div>
+                    </div>
+
+                    <!-- Priority Card -->
+                    <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1); border-left: 3px solid ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'};">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, ${priority.toLowerCase().includes('high') ? '#ef4444, #dc2626' : priority.toLowerCase().includes('low') ? '#22c55e, #16a34a' : '#f59e0b, #d97706'}); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-flag" style="color: white; font-size: 0.7rem;"></i>
+                            </div>
+                            <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Priority</div>
+                        </div>
+                        <div style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orders Section -->
+        <div style="background: white; padding: 0.75rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+            <div style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="font-size: 0.85rem; font-weight: 600; margin: 0; color: var(--gray-800);">
+                    <i class="fas fa-table" style="font-size: 0.75rem;"></i> Order Details
+                </h3>
+                <div style="color: var(--gray-600); font-size: 0.7rem;">
+                    <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
+                </div>
+            </div>
+            <div id="trip-dialog-grid" style="height: 500px;"></div>
+        </div>
+    `;
+
     // Assemble dialog
     dialogContainer.appendChild(closeButton);
-    dialogContainer.appendChild(clonedContent);
+    dialogContainer.appendChild(contentWrapper);
     dialogOverlay.appendChild(dialogContainer);
     document.body.appendChild(dialogOverlay);
 
-    // Populate the cloned content with trip data
+    // Initialize grid after DOM is ready
     setTimeout(() => {
-        populateTripDetailsDialog(tripId, tripData, clonedContent);
+        initializeTripDialogGrid(tripData);
     }, 100);
 };
 
@@ -992,126 +1115,145 @@ window.closeTripDetailsPageDialog = function() {
     }
 };
 
-// Populate trip details in dialog
-function populateTripDetailsDialog(tripId, tripData, container) {
+// Toggle trip summary section in dialog
+window.toggleTripSummaryDialog = function() {
+    const summaryDiv = document.getElementById('trip-summary-dialog');
+    const icon = document.getElementById('summary-icon-dialog');
+
+    if (summaryDiv && icon) {
+        if (summaryDiv.style.display === 'none') {
+            summaryDiv.style.display = 'block';
+            icon.style.transform = 'rotate(0deg)';
+        } else {
+            summaryDiv.style.display = 'none';
+            icon.style.transform = 'rotate(-90deg)';
+        }
+    }
+};
+
+// Initialize trip dialog grid with data (matching app.js grid structure)
+function initializeTripDialogGrid(tripData) {
     try {
-        console.log('[Co-Pilot] Populating trip details dialog for trip:', tripId, 'with', tripData.length, 'records');
+        console.log('[Co-Pilot] Initializing trip dialog grid with', tripData.length, 'records');
 
-        // tripData is an array - first item has the header info
-        const headerData = tripData[0] || {};
-        console.log('[Co-Pilot] Header data:', headerData);
-
-        // Update trip header
-        const tripDetailId = container.querySelector('#trip-detail-id');
-        if (tripDetailId) tripDetailId.textContent = headerData.trip_id || headerData.TRIP_ID || tripId || '-';
-
-        const tripDetailDate = container.querySelector('#trip-detail-date');
-        if (tripDetailDate) tripDetailDate.textContent = headerData.trip_date || headerData.TRIP_DATE || '-';
-
-        const tripDetailVehicle = container.querySelector('#trip-detail-vehicle');
-        if (tripDetailVehicle) tripDetailVehicle.textContent = headerData.trip_lorry || headerData.TRIP_LORRY || '-';
-
-        const tripDetailLoadingBay = container.querySelector('#trip-detail-loading-bay');
-        if (tripDetailLoadingBay) tripDetailLoadingBay.textContent = headerData.trip_loading_bay || headerData.TRIP_LOADING_BAY || '-';
-
-        const tripDetailPriority = container.querySelector('#trip-detail-priority');
-        if (tripDetailPriority) tripDetailPriority.textContent = headerData.trip_priority || headerData.TRIP_PRIORITY || '-';
-
-        // Initialize the grid in the dialog
-        const gridContainer = container.querySelector('#trip-orders-grid');
-        if (gridContainer) {
-            // Give it a unique ID for the dialog
-            gridContainer.id = 'trip-orders-grid-dialog';
-
-            // Use the tripData directly (it already contains all the trip order records)
-            console.log('[Co-Pilot] Initializing grid with', tripData.length, 'records');
-
-            // Initialize DevExpress grid with tripData
-            $('#trip-orders-grid-dialog').dxDataGrid({
-                dataSource: tripData,
-                showBorders: true,
-                showRowLines: true,
-                showColumnLines: true,
-                rowAlternationEnabled: true,
-                columnAutoWidth: true,
-                allowColumnReordering: true,
-                allowColumnResizing: true,
-                hoverStateEnabled: true,
-                filterRow: {
-                    visible: true,
-                    applyFilter: 'auto'
-                },
-                searchPanel: {
-                    visible: true,
-                    width: 240,
-                    placeholder: 'Search orders...'
-                },
-                paging: {
-                    pageSize: 20
-                },
-                columns: [
-                    {
-                        dataField: 'source_order_number',
-                        caption: 'Order Number',
-                        width: 130,
-                        cssClass: 'small-font-grid'
-                    },
-                    {
-                        dataField: 'account_number',
-                        caption: 'Account',
-                        width: 100,
-                        cssClass: 'small-font-grid'
-                    },
-                    {
-                        dataField: 'account_name',
-                        caption: 'Customer',
-                        width: 200,
-                        cssClass: 'small-font-grid'
-                    },
-                    {
-                        dataField: 'order_date',
-                        caption: 'Order Date',
-                        width: 110,
-                        dataType: 'date',
-                        format: 'yyyy-MM-dd',
-                        cssClass: 'small-font-grid'
-                    },
-                    {
-                        dataField: 'order_type_code',
-                        caption: 'Order Type',
-                        width: 90,
-                        cssClass: 'small-font-grid'
-                    },
-                    {
-                        dataField: 'pick_confirm_st',
-                        caption: 'Pick Status',
-                        width: 80,
-                        alignment: 'center',
-                        calculateCellValue: function(rowData) {
-                            return rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
-                        }
-                    },
-                    {
-                        dataField: 'ship_confirm_st',
-                        caption: 'Ship Status',
-                        width: 80,
-                        alignment: 'center',
-                        calculateCellValue: function(rowData) {
-                            return rowData.SHIP_CONFIRM_ST || rowData.ship_confirm_st || '';
-                        }
-                    }
-                ]
-            }).dxDataGrid('instance');
-
-            // Update order count
-            const orderCountEl = container.querySelector('#trip-orders-count');
-            if (orderCountEl) {
-                orderCountEl.textContent = `${tripData.length} orders`;
-            }
+        const gridContainer = $('#trip-dialog-grid');
+        if (!gridContainer || gridContainer.length === 0) {
+            console.error('[Co-Pilot] Grid container not found: #trip-dialog-grid');
+            return;
         }
 
+        if (tripData.length === 0) {
+            gridContainer.html('<div style="padding:2rem;text-align:center;color:#64748b;">No data found</div>');
+            return;
+        }
+
+        // Build columns dynamically from first record (same as app.js)
+        const first = tripData[0];
+        const columns = Object.keys(first).map(key => {
+            let col = { dataField: key, caption: key.replace(/_/g, ' ') };
+
+            if (key === 'LINE_STATUS') {
+                col.cellTemplate = (container, options) => {
+                    const val = options.value || 'Unknown';
+                    const safeClass = String(val).toLowerCase()
+                        .replace(/,/g, ' ')
+                        .replace(/\s+/g, '-')
+                        .replace(/[^a-z0-9-]/g, '')
+                        .replace(/-+/g, '-')
+                        .replace(/^-|-$/g, '') || 'unknown';
+                    $(container).html(`<span class="status-badge status-${safeClass}">${val}</span>`);
+                };
+            } else if (key === 'PICK_CONFIRM_ST' || key === 'pick_confirm_st' || key === 'SHIP_CONFIRM_ST' || key === 'ship_confirm_st') {
+                col.alignment = 'center';
+                col.caption = key.includes('PICK') || key.includes('pick') ? 'Pick Status' : 'Ship Status';
+                // Show raw data value without icons
+            } else if (key.endsWith('_WEIGHT')) {
+                col.format = { type: 'fixedPoint', precision: 2 };
+                col.alignment = 'right';
+            } else if (key.endsWith('_ITEMS') || !isNaN(Number(first[key]))) {
+                col.format = { type: 'fixedPoint', precision: 0 };
+                col.alignment = 'right';
+            }
+            return col;
+        });
+
+        // Add Actions column at the beginning (same as app.js)
+        columns.unshift({
+            caption: 'Actions',
+            width: 180,
+            alignment: 'center',
+            allowFiltering: false,
+            allowSorting: false,
+            cellTemplate: function(container, options) {
+                const rowData = options.data;
+                const instanceName = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
+                const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
+
+                $(container).html(`
+                    <div style="display: flex; gap: 0.25rem; justify-content: center;">
+                        <button class="btn btn-sm btn-info" onclick='openStoreTransactionsDialog(${JSON.stringify(rowData).replace(/'/g, "&apos;")})' title="Edit">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                    </div>
+                `);
+            }
+        });
+
+        // Initialize DevExpress grid (same configuration as app.js)
+        gridContainer.dxDataGrid({
+            dataSource: tripData,
+            showBorders: true,
+            showRowLines: true,
+            showColumnLines: true,
+            rowAlternationEnabled: true,
+            columnAutoWidth: true,
+            allowColumnReordering: true,
+            allowColumnResizing: true,
+            hoverStateEnabled: true,
+            filterRow: {
+                visible: true,
+                applyFilter: 'auto'
+            },
+            headerFilter: {
+                visible: true
+            },
+            searchPanel: {
+                visible: true,
+                width: 240,
+                placeholder: 'Search...'
+            },
+            paging: {
+                pageSize: 20
+            },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [10, 20, 50, 100],
+                showInfo: true
+            },
+            export: {
+                enabled: true,
+                fileName: 'trip-details'
+            },
+            columns: columns,
+            onToolbarPreparing: function(e) {
+                e.toolbarOptions.items.unshift({
+                    location: 'after',
+                    widget: 'dxButton',
+                    options: {
+                        icon: 'refresh',
+                        onClick: function() {
+                            e.component.refresh();
+                        }
+                    }
+                });
+            }
+        });
+
+        console.log('[Co-Pilot] Trip dialog grid initialized successfully');
+
     } catch (error) {
-        console.error('[Trip Details Dialog] Error populating:', error);
+        console.error('[Co-Pilot] Error initializing trip dialog grid:', error);
     }
 }
 
