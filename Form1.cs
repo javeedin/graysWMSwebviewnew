@@ -3002,7 +3002,7 @@ namespace WMSApp
             UpdateSecurityIcon(GetCurrentWebView());
         }
 
-        private void CoreWebView2_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        private async void CoreWebView2_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
         {
             var wv = sender as CoreWebView2;
             if (wv != null)
