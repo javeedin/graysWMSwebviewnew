@@ -96,7 +96,37 @@ document.addEventListener('DOMContentLoaded', function() {
                     } else if (action === 'printOrder') {
                         response = '🖨️ I can help you print orders. Please specify:\n\n• Order numbers\n• Printer to use\n\n(Full implementation coming soon)';
                     } else if (action === 'printTrip') {
-                        response = '📄 I can print trip documents. Please provide:\n\n• Trip ID\n• Document type (Trip Sheet / Delivery Notes / All)\n\n(Full implementation coming soon)';
+                        response = '📄 Please enter the Trip ID to view trip details:';
+
+                        // Add input field for trip ID
+                        setTimeout(() => {
+                            const chatMessages = document.getElementById('copilot-chat-messages');
+                            const inputDiv = document.createElement('div');
+                            inputDiv.className = 'copilot-message copilot-message-assistant';
+                            inputDiv.innerHTML = `
+                                <div class="copilot-message-avatar">
+                                    <i class="fas fa-robot"></i>
+                                </div>
+                                <div class="copilot-message-bubble">
+                                    <div style="margin-bottom: 0.5rem;">Enter Trip ID:</div>
+                                    <input type="text" id="copilot-trip-id-input"
+                                           placeholder="e.g., 12345"
+                                           style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
+                                           onkeypress="if(event.key==='Enter') handleTripIdSubmit()">
+                                    <button onclick="handleTripIdSubmit()"
+                                            style="margin-top: 0.5rem; padding: 0.5rem 1rem; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">
+                                        <i class="fas fa-search"></i> View Trip Details
+                                    </button>
+                                </div>
+                            `;
+                            chatMessages.appendChild(inputDiv);
+                            chatMessages.scrollTop = chatMessages.scrollHeight;
+
+                            // Focus on input
+                            setTimeout(() => {
+                                document.getElementById('copilot-trip-id-input')?.focus();
+                            }, 100);
+                        }, 100);
                     } else if (action === 'autoSchedule') {
                         response = '🤖 Auto-scheduling feature will:\n\n• Analyze pending orders\n• Optimize routes\n• Assign to available lorries\n• Consider delivery priorities\n\n(Full implementation coming soon)';
                     } else if (action === 'optimizeRoute') {
@@ -615,5 +645,295 @@ window.createNewTrip = async function() {
         alert('Error creating trip:\n' + error.message);
     }
 };
+
+// ============================================================================
+// HANDLE TRIP ID SUBMIT FROM CO-PILOT
+// ============================================================================
+
+window.handleTripIdSubmit = async function() {
+    const tripIdInput = document.getElementById('copilot-trip-id-input');
+    const tripId = tripIdInput?.value.trim();
+
+    if (!tripId) {
+        alert('Please enter a Trip ID');
+        return;
+    }
+
+    console.log('[Co-Pilot] Fetching trip details for ID:', tripId);
+
+    // Add loading message
+    addChatMessage('user', `View trip details for Trip ID: ${tripId}`);
+    addChatMessage('assistant', '🔍 Loading trip details...');
+
+    try {
+        // Call API to get trip details
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || 'PROD';
+        const apiUrl = `/trip/s2vdetails/${tripId}`;
+
+        const response = await callApexAPINew(apiUrl, 'GET', null, currentInstance);
+
+        if (response && response.items && response.items.length > 0) {
+            const tripData = response.items[0];
+            console.log('[Co-Pilot] Trip data received:', tripData);
+
+            // Show success message
+            const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
+            if (lastMessage) {
+                lastMessage.textContent = `✅ Trip found! Opening Trip Details dialog...`;
+            }
+
+            // Close copilot panel
+            toggleCopilot();
+
+            // Open trip details in dialog
+            setTimeout(() => {
+                showTripDetailsDialog(tripData);
+            }, 300);
+        } else {
+            const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
+            if (lastMessage) {
+                lastMessage.textContent = `❌ Trip ID ${tripId} not found. Please check the ID and try again.`;
+            }
+        }
+    } catch (error) {
+        console.error('[Co-Pilot] Error fetching trip details:', error);
+        const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
+        if (lastMessage) {
+            lastMessage.textContent = `❌ Error loading trip details: ${error.message}`;
+        }
+    }
+};
+
+// ============================================================================
+// SHOW TRIP DETAILS DIALOG
+// ============================================================================
+
+window.showTripDetailsDialog = function(tripData) {
+    console.log('[Co-Pilot] Showing trip details dialog for:', tripData);
+
+    // Create dialog overlay
+    const dialogOverlay = document.createElement('div');
+    dialogOverlay.id = 'trip-details-dialog-overlay';
+    dialogOverlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        z-index: 20000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    `;
+
+    // Create dialog container
+    const dialogContainer = document.createElement('div');
+    dialogContainer.style.cssText = `
+        background: white;
+        width: 95%;
+        max-width: 1400px;
+        height: 90%;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    `;
+
+    // Dialog header
+    const dialogHeader = document.createElement('div');
+    dialogHeader.style.cssText = `
+        padding: 1.5rem;
+        border-bottom: 2px solid #f0f0f0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    `;
+    dialogHeader.innerHTML = `
+        <h3 style="margin: 0; font-size: 20px; color: white; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="fas fa-truck"></i>
+            Trip Details - Trip #${tripData.trip_id || tripData.TRIP_ID || '-'}
+        </h3>
+        <button onclick="closeTripDetailsDialog()" style="background: rgba(255,255,255,0.2); border: none; font-size: 28px; cursor: pointer; color: white; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">×</button>
+    `;
+
+    // Dialog body
+    const dialogBody = document.createElement('div');
+    dialogBody.style.cssText = `
+        flex: 1;
+        overflow-y: auto;
+        padding: 1.5rem;
+    `;
+
+    // Add trip header info
+    dialogBody.innerHTML = `
+        <div style="background: white; border-radius: 8px; margin-bottom: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 4px solid #667eea;">
+            <div style="padding: 1rem 1.5rem; background: #f9fafb;">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 40px; height: 40px; background: #dbeafe; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <i class="fas fa-calendar" style="color: #2563eb; font-size: 16px;"></i>
+                        </div>
+                        <div>
+                            <div style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">Trip Date</div>
+                            <div style="font-size: 15px; font-weight: 600; color: #1f2937;">${tripData.trip_date || tripData.TRIP_DATE || '-'}</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 40px; height: 40px; background: #fef3c7; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <i class="fas fa-truck" style="color: #d97706; font-size: 16px;"></i>
+                        </div>
+                        <div>
+                            <div style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">Vehicle</div>
+                            <div style="font-size: 15px; font-weight: 600; color: #1f2937;">${tripData.trip_lorry || tripData.TRIP_LORRY || '-'}</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 40px; height: 40px; background: #dcfce7; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <i class="fas fa-warehouse" style="color: #16a34a; font-size: 16px;"></i>
+                        </div>
+                        <div>
+                            <div style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">Loading Bay</div>
+                            <div style="font-size: 15px; font-weight: 600; color: #1f2937;">${tripData.trip_loading_bay || tripData.TRIP_LOADING_BAY || '-'}</div>
+                        </div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 40px; height: 40px; background: #fce7f3; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                            <i class="fas fa-flag" style="color: #db2777; font-size: 16px;"></i>
+                        </div>
+                        <div>
+                            <div style="font-size: 11px; color: #6b7280; margin-bottom: 2px;">Priority</div>
+                            <div style="font-size: 15px; font-weight: 600; color: #1f2937;">${tripData.trip_priority || tripData.TRIP_PRIORITY || '-'}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Orders Grid -->
+        <div class="grid-container">
+            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0;">
+                <div class="grid-title">Trip Orders</div>
+            </div>
+            <div id="trip-details-dialog-grid" style="height: 450px;"></div>
+        </div>
+    `;
+
+    // Assemble dialog
+    dialogContainer.appendChild(dialogHeader);
+    dialogContainer.appendChild(dialogBody);
+    dialogOverlay.appendChild(dialogContainer);
+    document.body.appendChild(dialogOverlay);
+
+    // Initialize grid with trip orders
+    initializeTripDetailsDialogGrid(tripData);
+};
+
+// Close trip details dialog
+window.closeTripDetailsDialog = function() {
+    const overlay = document.getElementById('trip-details-dialog-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+};
+
+// Initialize grid in dialog
+function initializeTripDetailsDialogGrid(tripData) {
+    try {
+        // Fetch orders for this trip
+        const tripId = tripData.trip_id || tripData.TRIP_ID;
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || 'PROD';
+
+        callApexAPINew(`/trip/orders/${tripId}`, 'GET', null, currentInstance)
+            .then(response => {
+                const orders = response.items || [];
+                console.log('[Trip Details Dialog] Orders:', orders);
+
+                $('#trip-details-dialog-grid').dxDataGrid({
+                    dataSource: orders,
+                    showBorders: true,
+                    showRowLines: true,
+                    showColumnLines: true,
+                    rowAlternationEnabled: true,
+                    columnAutoWidth: true,
+                    allowColumnReordering: true,
+                    allowColumnResizing: true,
+                    hoverStateEnabled: true,
+                    filterRow: {
+                        visible: true,
+                        applyFilter: 'auto'
+                    },
+                    searchPanel: {
+                        visible: true,
+                        width: 240,
+                        placeholder: 'Search orders...'
+                    },
+                    paging: {
+                        pageSize: 20
+                    },
+                    columns: [
+                        {
+                            dataField: 'source_order_number',
+                            caption: 'Order Number',
+                            width: 130,
+                            cssClass: 'small-font-grid'
+                        },
+                        {
+                            dataField: 'account_number',
+                            caption: 'Account',
+                            width: 100,
+                            cssClass: 'small-font-grid'
+                        },
+                        {
+                            dataField: 'account_name',
+                            caption: 'Customer',
+                            width: 200,
+                            cssClass: 'small-font-grid'
+                        },
+                        {
+                            dataField: 'order_date',
+                            caption: 'Order Date',
+                            width: 110,
+                            dataType: 'date',
+                            format: 'yyyy-MM-dd',
+                            cssClass: 'small-font-grid'
+                        },
+                        {
+                            dataField: 'order_type_code',
+                            caption: 'Order Type',
+                            width: 90,
+                            cssClass: 'small-font-grid'
+                        },
+                        {
+                            dataField: 'pick_confirm_st',
+                            caption: 'Pick Status',
+                            width: 80,
+                            alignment: 'center',
+                            calculateCellValue: function(rowData) {
+                                return rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
+                            }
+                        },
+                        {
+                            dataField: 'ship_confirm_st',
+                            caption: 'Ship Status',
+                            width: 80,
+                            alignment: 'center',
+                            calculateCellValue: function(rowData) {
+                                return rowData.SHIP_CONFIRM_ST || rowData.ship_confirm_st || '';
+                            }
+                        }
+                    ]
+                }).dxDataGrid('instance');
+            })
+            .catch(error => {
+                console.error('[Trip Details Dialog] Error loading orders:', error);
+                alert('Error loading trip orders: ' + error.message);
+            });
+    } catch (error) {
+        console.error('[Trip Details Dialog] Error initializing grid:', error);
+    }
+}
 
 console.log('[Co-Pilot] ✅ New Trip functions loaded');
