@@ -557,13 +557,24 @@ function stopAutoProcessing() {
 async function processNextBatch() {
     if (!autoProcessingEnabled) return;
 
-    // Find pending transactions
-    const pendingTransactions = autoProcessingData.filter(t =>
-        !t.transaction_status || t.transaction_status === 'PENDING' || t.transaction_status === ''
-    );
+    // Log total records
+    addLogEntry('Debug', `Total records in data: ${autoProcessingData.length}`, 'info');
+
+    // Find pending transactions (case-insensitive check)
+    const pendingTransactions = autoProcessingData.filter(t => {
+        const status = (t.transaction_status || '').toUpperCase();
+        return !t.transaction_status || status === '' || status === 'PENDING';
+    });
+
+    addLogEntry('Debug', `Filtered pending records: ${pendingTransactions.length}`, 'info');
 
     if (pendingTransactions.length === 0) {
-        addLogEntry('Processing', 'No pending transactions found', 'info');
+        addLogEntry('Processing', 'No pending transactions found. All records may already be processed.', 'warning');
+        // Log first few statuses to debug
+        if (autoProcessingData.length > 0) {
+            const statuses = autoProcessingData.slice(0, 5).map(t => t.transaction_status || 'null').join(', ');
+            addLogEntry('Debug', `Sample statuses: ${statuses}`, 'info');
+        }
         return;
     }
 
@@ -586,7 +597,7 @@ async function processNextBatch() {
 
 // Process a single transaction
 async function processTransaction(transaction) {
-    addLogEntry('Processing', `Processing ${transaction.trx_number} - Item: ${transaction.item_code}...`, 'info');
+    addLogEntry('Processing', `Processing Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} | Qty: ${transaction.picked_qty}`, 'info');
 
     // Set status to PROCESSING
     transaction.transaction_status = 'PROCESSING';
@@ -603,7 +614,7 @@ async function processTransaction(transaction) {
         // Update transaction status
         transaction.transaction_status = 'SUCCESS';
 
-        addLogEntry('Success', `${transaction.trx_number} - ${transaction.item_code} processed successfully ✓`, 'success');
+        addLogEntry('Success', `✓ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - SUCCESS`, 'success');
 
         // Update display
         displayGroupedTrips();
@@ -614,7 +625,7 @@ async function processTransaction(transaction) {
         transaction.transaction_status = 'FAILED';
         transaction.error_message = error.message;
 
-        addLogEntry('Error', `${transaction.trx_number} - ${transaction.item_code} failed: ${error.message} ✗`, 'error');
+        addLogEntry('Error', `✗ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - FAILED: ${error.message}`, 'error');
 
         // Update display
         displayGroupedTrips();
