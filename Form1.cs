@@ -57,6 +57,11 @@ namespace WMSApp
         private PrinterService _printerService;
         private RestApiClient _restApiClient;
 
+        // User Session Fields
+        private string _loggedInUsername;
+        private string _loggedInInstance;
+        private bool _isLoggedIn = false;
+
         public Form1()
         {
             InitializeComponent();
@@ -67,6 +72,14 @@ namespace WMSApp
             System.Diagnostics.Debug.WriteLine("🚀 APPLICATION STARTED - TESTING DEBUG OUTPUT");
             System.Diagnostics.Debug.WriteLine("========================================");
 
+            // Show login form before SetupUI
+            if (!ShowLoginForm())
+            {
+                // User cancelled login, close the application
+                System.Diagnostics.Debug.WriteLine("[LOGIN] User cancelled login, closing application");
+                Application.Exit();
+                return;
+            }
 
             SetupUI();
 
@@ -92,6 +105,22 @@ namespace WMSApp
             this.BackColor = Color.FromArgb(240, 240, 240);
         }
 
+        private bool ShowLoginForm()
+        {
+            using (LoginForm loginForm = new LoginForm())
+            {
+                if (loginForm.ShowDialog() == DialogResult.OK && loginForm.LoginSuccessful)
+                {
+                    _loggedInUsername = loginForm.Username;
+                    _loggedInInstance = loginForm.InstanceName;
+                    _isLoggedIn = true;
+
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Success - User: {_loggedInUsername}, Instance: {_loggedInInstance}");
+                    return true;
+                }
+                return false;
+            }
+        }
 
         private void SetupUI()
         {
@@ -269,6 +298,17 @@ namespace WMSApp
             wmsDevButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 240, 180);
             wmsDevButton.Click += (s, e) =>
             {
+                // Check if user is logged in
+                if (!_isLoggedIn)
+                {
+                    MessageBox.Show(
+                        "Please restart the application and login first.",
+                        "Login Required",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Warning);
+                    return;
+                }
+
                 // Load local development version from repository root
                 // Navigate from bin/debug/net8.0 up to repository root
                 string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
@@ -279,6 +319,7 @@ namespace WMSApp
                     System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
                     Navigate(fileUrl);
+                    // Send user session after navigation completes (handled in NavigationCompleted event)
                 }
                 else
                 {
@@ -2961,6 +3002,34 @@ namespace WMSApp
 
                 UpdateNavigationButtons(GetCurrentWebView());
                 UpdateSecurityIcon(GetCurrentWebView());
+
+                // Send user session to WMS pages after navigation completes
+                if (_isLoggedIn && wv.Source.Contains("/wms/index.html"))
+                {
+                    SendUserSessionToWebView(wv);
+                }
+            }
+        }
+
+        private async void SendUserSessionToWebView(CoreWebView2 wv)
+        {
+            try
+            {
+                var sessionData = new
+                {
+                    action = "setUserSession",
+                    username = _loggedInUsername,
+                    instance = _loggedInInstance
+                };
+
+                string jsonMessage = JsonSerializer.Serialize(sessionData);
+                await wv.ExecuteScriptAsync($"window.postMessage({jsonMessage}, '*');");
+
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Sent user session to WebView: {_loggedInUsername} ({_loggedInInstance})");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Error sending user session: {ex.Message}");
             }
         }
 

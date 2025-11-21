@@ -50,7 +50,7 @@
         </div>
         <div class="user-info">
             <i class="fas fa-user-circle"></i>
-            <span>Admin</span>
+            <span id="logged-in-username">Admin</span>
         </div>
         <div id="instance-selector" style="margin-left: 1rem; display: flex; align-items: center; gap: 0.5rem; background: #f8f9fa; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; border: 2px solid #dee2e6; transition: all 0.2s;" onclick="toggleInstanceMenu()">
             <i class="fas fa-server" style="color: #667eea;"></i>
@@ -1770,6 +1770,57 @@
         document.write('<script src="vehicles.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="pickers.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="trip-details.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
+
+    <!-- Login Session Handler -->
+    <script>
+        // Function to set logged-in username
+        window.setLoggedInUser = function(username, instance) {
+            console.log('[LOGIN] Setting logged-in user:', username, 'Instance:', instance);
+
+            // Update username display
+            const usernameElement = document.getElementById('logged-in-username');
+            if (usernameElement) {
+                usernameElement.textContent = username;
+                console.log('[LOGIN] Username updated in UI');
+            }
+
+            // Update instance display
+            const instanceElement = document.getElementById('current-instance-display');
+            if (instanceElement) {
+                instanceElement.textContent = instance;
+                console.log('[LOGIN] Instance updated in UI');
+            }
+
+            // Store in session storage
+            sessionStorage.setItem('loggedInUsername', username);
+            sessionStorage.setItem('loggedInInstance', instance);
+        };
+
+        // Listen for messages from C# WebView2
+        if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
+            window.chrome.webview.addEventListener('message', function(event) {
+                console.log('[LOGIN] Received WebView message:', event.data);
+
+                if (event.data && event.data.action === 'setUserSession') {
+                    setLoggedInUser(event.data.username, event.data.instance);
+                }
+            });
+            console.log('[LOGIN] WebView2 message listener registered');
+        }
+
+        // On page load, restore from session storage if available
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedUsername = sessionStorage.getItem('loggedInUsername');
+            const savedInstance = sessionStorage.getItem('loggedInInstance');
+
+            if (savedUsername && savedInstance) {
+                console.log('[LOGIN] Restoring session:', savedUsername, savedInstance);
+                setLoggedInUser(savedUsername, savedInstance);
+            }
+        });
+
+        console.log('[LOGIN] Session handler initialized');
     </script>
 </body>
 </html>
