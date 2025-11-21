@@ -244,16 +244,37 @@ function renderTripTransactions(transactions, tripIndex) {
                 dest_sub_inv: trx.dest_sub_inv,
                 items: [],
                 totalQty: 0,
+                totalLines: 0,
+                processedLines: 0,
+                notProcessedLines: 0,
                 overallStatus: trx.transaction_status
             };
         }
         orderGroups[orderNum].items.push({ ...trx, originalIndex: idx });
         orderGroups[orderNum].totalQty += trx.picked_qty || 0;
+        orderGroups[orderNum].totalLines += 1;
+
+        // Count processed vs not processed
+        if (trx.transaction_status === 'SUCCESS') {
+            orderGroups[orderNum].processedLines += 1;
+        } else {
+            orderGroups[orderNum].notProcessedLines += 1;
+        }
     });
 
     const orders = Object.values(orderGroups);
 
-    let html = '<div style="display: flex; flex-direction: column; gap: 1rem;">';
+    let html = `
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem; gap: 0.5rem;">
+            <button onclick="expandAllOrders(${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                <i class="fas fa-expand-alt"></i> Expand All
+            </button>
+            <button onclick="collapseAllOrders(${tripIndex})" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                <i class="fas fa-compress-alt"></i> Collapse All
+            </button>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 1rem;">
+    `;
 
     orders.forEach((order, orderIdx) => {
         const orderStatus = order.items.every(i => i.transaction_status === 'SUCCESS') ? 'SUCCESS' :
@@ -271,10 +292,10 @@ function renderTripTransactions(transactions, tripIndex) {
         const orderId = `trip-${tripIndex}-order-${orderIdx}`;
 
         html += `
-            <div style="background: white; border: 2px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+            <div style="background: white; border: 2px solid #e2e8f0; border-radius: 8px; overflow: hidden;" data-order-container="${tripIndex}">
                 <!-- Order Header -->
                 <div onclick="toggleOrderDetails('${orderId}')" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
-                    <div style="display: flex; gap: 1.5rem; align-items: center; flex: 1;">
+                    <div style="display: flex; gap: 1.25rem; align-items: center; flex: 1;">
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fas fa-box" style="color: #667eea; font-size: 16px;"></i>
                             <div>
@@ -287,12 +308,20 @@ function renderTripTransactions(transactions, tripIndex) {
                             <div style="font-size: 11px; font-weight: 600; color: #475569;">${order.trx_type || 'N/A'}</div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Items</div>
-                            <div style="font-size: 13px; font-weight: 700; color: #667eea;">${order.items.length}</div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Lines</div>
+                            <div style="font-size: 13px; font-weight: 700; color: #1e293b;">${order.totalLines}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Processed</div>
+                            <div style="font-size: 13px; font-weight: 700; color: #10b981;">${order.processedLines}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Not Processed</div>
+                            <div style="font-size: 13px; font-weight: 700; color: ${order.notProcessedLines > 0 ? '#ef4444' : '#cbd5e1'};">${order.notProcessedLines}</div>
                         </div>
                         <div>
                             <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Qty</div>
-                            <div style="font-size: 13px; font-weight: 700; color: #1e293b;">${order.totalQty}</div>
+                            <div style="font-size: 13px; font-weight: 700; color: #667eea;">${order.totalQty}</div>
                         </div>
                         <div>
                             <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">From → To</div>
@@ -328,10 +357,12 @@ function renderTripTransactions(transactions, tripIndex) {
         order.items.forEach((item, itemIdx) => {
             const itemStatusColor = item.transaction_status === 'SUCCESS' ? '#10b981' :
                                    item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR' ? '#ef4444' :
+                                   item.transaction_status === 'PROCESSING' ? '#f59e0b' :
                                    '#3b82f6';
 
             const itemStatusIcon = item.transaction_status === 'SUCCESS' ? 'check-circle' :
                                   item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR' ? 'times-circle' :
+                                  item.transaction_status === 'PROCESSING' ? 'spinner fa-spin' :
                                   'clock';
 
             html += `
@@ -351,6 +382,8 @@ function renderTripTransactions(transactions, tripIndex) {
                             <button onclick="retryTransaction(${tripIndex}, ${item.originalIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
                                 <i class="fas fa-redo"></i> Retry
                             </button>
+                        ` : item.transaction_status === 'PROCESSING' ? `
+                            <span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
                         ` : `
                             <span style="color: #cbd5e1; font-size: 10px;">-</span>
                         `}
@@ -398,6 +431,38 @@ function toggleOrderDetails(orderId) {
         details.style.display = 'none';
         chevron.style.transform = 'rotate(0deg)';
     }
+}
+
+// Expand all orders in a trip
+function expandAllOrders(tripIndex) {
+    const containers = document.querySelectorAll(`[data-order-container="${tripIndex}"]`);
+    containers.forEach((container) => {
+        const orderId = container.querySelector('[id^="order-details-"]').id.replace('order-details-', '');
+        const details = document.getElementById(`order-details-${orderId}`);
+        const chevron = document.getElementById(`order-chevron-${orderId}`);
+
+        if (details && chevron) {
+            details.style.display = 'block';
+            chevron.style.transform = 'rotate(180deg)';
+        }
+    });
+    addLogEntry('UI', `Expanded all orders in trip ${tripIndex}`, 'info');
+}
+
+// Collapse all orders in a trip
+function collapseAllOrders(tripIndex) {
+    const containers = document.querySelectorAll(`[data-order-container="${tripIndex}"]`);
+    containers.forEach((container) => {
+        const orderId = container.querySelector('[id^="order-details-"]').id.replace('order-details-', '');
+        const details = document.getElementById(`order-details-${orderId}`);
+        const chevron = document.getElementById(`order-chevron-${orderId}`);
+
+        if (details && chevron) {
+            details.style.display = 'none';
+            chevron.style.transform = 'rotate(0deg)';
+        }
+    });
+    addLogEntry('UI', `Collapsed all orders in trip ${tripIndex}`, 'info');
 }
 
 // Update statistics
@@ -479,13 +544,31 @@ async function processNextBatch() {
 
     addLogEntry('Processing', `Found ${pendingTransactions.length} pending transactions. Starting processing...`, 'info');
 
-    // Process first pending transaction
-    await processTransaction(pendingTransactions[0]);
+    // Process transactions one by one
+    for (const transaction of pendingTransactions) {
+        if (!autoProcessingEnabled) break; // Stop if disabled
+
+        await processTransaction(transaction);
+
+        // Small delay between transactions
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    if (autoProcessingEnabled) {
+        addLogEntry('Processing', 'All pending transactions processed!', 'success');
+    }
 }
 
 // Process a single transaction
 async function processTransaction(transaction) {
-    addLogEntry('Processing', `Processing transaction ${transaction.trx_number}...`, 'info');
+    addLogEntry('Processing', `Processing ${transaction.trx_number} - Item: ${transaction.item_code}...`, 'info');
+
+    // Set status to PROCESSING
+    transaction.transaction_status = 'PROCESSING';
+
+    // Update display to show processing state
+    displayGroupedTrips();
+    updateStatistics();
 
     try {
         // TODO: Call actual web service API to process transaction
@@ -495,7 +578,7 @@ async function processTransaction(transaction) {
         // Update transaction status
         transaction.transaction_status = 'SUCCESS';
 
-        addLogEntry('Success', `Transaction ${transaction.trx_number} processed successfully`, 'success');
+        addLogEntry('Success', `${transaction.trx_number} - ${transaction.item_code} processed successfully ✓`, 'success');
 
         // Update display
         displayGroupedTrips();
@@ -506,7 +589,7 @@ async function processTransaction(transaction) {
         transaction.transaction_status = 'FAILED';
         transaction.error_message = error.message;
 
-        addLogEntry('Error', `Transaction ${transaction.trx_number} failed: ${error.message}`, 'error');
+        addLogEntry('Error', `${transaction.trx_number} - ${transaction.item_code} failed: ${error.message} ✗`, 'error');
 
         // Update display
         displayGroupedTrips();
@@ -524,6 +607,9 @@ async function processTransaction(transaction) {
 // Simulate processing (replace with actual API call)
 function simulateProcessing(transaction) {
     return new Promise((resolve, reject) => {
+        // Simulate processing time 1-3 seconds
+        const processingTime = 1000 + Math.random() * 2000;
+
         setTimeout(() => {
             // Simulate 80% success rate
             if (Math.random() > 0.2) {
@@ -531,7 +617,7 @@ function simulateProcessing(transaction) {
             } else {
                 reject(new Error('Processing failed (simulated)'));
             }
-        }, 2000);
+        }, processingTime);
     });
 }
 
@@ -618,6 +704,8 @@ function addLogEntry(type, message, level = 'info') {
 window.fetchAutoInventoryData = fetchAutoInventoryData;
 window.toggleTripDetails = toggleTripDetails;
 window.toggleOrderDetails = toggleOrderDetails;
+window.expandAllOrders = expandAllOrders;
+window.collapseAllOrders = collapseAllOrders;
 window.retryTransaction = retryTransaction;
 window.switchAutoTab = switchAutoTab;
 
