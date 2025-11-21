@@ -155,6 +155,14 @@ function displayGroupedTrips() {
     const container = document.getElementById('auto-trips-container');
     const groupedTrips = groupTransactionsByTrip();
 
+    // Store currently expanded states before re-rendering
+    const expandedStates = {};
+    document.querySelectorAll('[id^="order-details-"]').forEach(element => {
+        if (element.style.display === 'block') {
+            expandedStates[element.id] = true;
+        }
+    });
+
     if (groupedTrips.length === 0) {
         container.innerHTML = `
             <div style="text-align: center; padding: 3rem; color: #94a3b8;">
@@ -175,7 +183,8 @@ function displayGroupedTrips() {
         // Calculate status counts
         const successCount = trip.transactions.filter(t => t.transaction_status === 'SUCCESS').length;
         const failedCount = trip.transactions.filter(t => t.transaction_status === 'FAILED' || t.transaction_status === 'ERROR').length;
-        const pendingCount = trip.transactions.length - successCount - failedCount;
+        const processingCount = trip.transactions.filter(t => t.transaction_status === 'PROCESSING').length;
+        const pendingCount = trip.transactions.length - successCount - failedCount - processingCount;
 
         html += `
             <div style="background: white; border: 2px solid #e2e8f0; border-radius: 8px; margin-bottom: 1rem; overflow: hidden; transition: all 0.3s;">
@@ -211,6 +220,7 @@ function displayGroupedTrips() {
                         </div>
                         <div style="display: flex; gap: 0.5rem;">
                             ${successCount > 0 ? `<span style="background: #10b981; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${successCount} ✓</span>` : ''}
+                            ${processingCount > 0 ? `<span style="background: #f59e0b; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
                             ${pendingCount > 0 ? `<span style="background: #3b82f6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
                             ${failedCount > 0 ? `<span style="background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
@@ -227,6 +237,18 @@ function displayGroupedTrips() {
     });
 
     container.innerHTML = html;
+
+    // Restore expanded states after re-rendering
+    Object.keys(expandedStates).forEach(elementId => {
+        const element = document.getElementById(elementId);
+        const chevronId = elementId.replace('order-details-', 'order-chevron-');
+        const chevron = document.getElementById(chevronId);
+
+        if (element && chevron) {
+            element.style.display = 'block';
+            chevron.style.transform = 'rotate(180deg)';
+        }
+    });
 }
 
 // Render trip transactions grouped by order
@@ -474,7 +496,7 @@ function updateStatistics() {
     autoProcessingStats.totalOrders = autoProcessingData.length;
     autoProcessingStats.success = autoProcessingData.filter(t => t.transaction_status === 'SUCCESS').length;
     autoProcessingStats.failed = autoProcessingData.filter(t => t.transaction_status === 'FAILED' || t.transaction_status === 'ERROR').length;
-    autoProcessingStats.processing = 0; // Will be updated during processing
+    autoProcessingStats.processing = autoProcessingData.filter(t => t.transaction_status === 'PROCESSING').length;
 
     // Update UI
     document.getElementById('auto-stat-trips').textContent = autoProcessingStats.totalTrips;
