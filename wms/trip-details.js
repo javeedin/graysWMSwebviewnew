@@ -187,7 +187,7 @@ function initializeTripOrdersGrid() {
                 {
                     dataField: 'pick_confirm_st',
                     caption: 'Pick Status',
-                    width: 80,
+                    width: 100,
                     alignment: 'center',
                     calculateCellValue: function(rowData) {
                         return rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
@@ -195,7 +195,10 @@ function initializeTripOrdersGrid() {
                     cellTemplate: function(container, options) {
                         const value = options.value;
                         const wrapper = document.createElement('div');
-                        wrapper.style.textAlign = 'center';
+                        wrapper.style.display = 'flex';
+                        wrapper.style.alignItems = 'center';
+                        wrapper.style.justifyContent = 'center';
+                        wrapper.style.gap = '0.3rem';
 
                         const icon = document.createElement('i');
                         icon.style.fontSize = '0.85rem';
@@ -203,21 +206,24 @@ function initializeTripOrdersGrid() {
                         if (value === 'Y' || value === 'Yes' || value === 'YES') {
                             icon.className = 'fas fa-check-circle';
                             icon.style.color = '#10b981';
-                            icon.title = 'Yes';
                         } else {
                             icon.className = 'fas fa-times-circle';
                             icon.style.color = '#ef4444';
-                            icon.title = 'No';
                         }
 
+                        const text = document.createElement('span');
+                        text.textContent = value || 'N';
+                        text.style.fontSize = '0.85rem';
+
                         wrapper.appendChild(icon);
+                        wrapper.appendChild(text);
                         $(container).empty().append(wrapper);
                     }
                 },
                 {
                     dataField: 'ship_confirm_st',
                     caption: 'Ship Status',
-                    width: 80,
+                    width: 100,
                     alignment: 'center',
                     calculateCellValue: function(rowData) {
                         return rowData.SHIP_CONFIRM_ST || rowData.ship_confirm_st || '';
@@ -225,7 +231,10 @@ function initializeTripOrdersGrid() {
                     cellTemplate: function(container, options) {
                         const value = options.value;
                         const wrapper = document.createElement('div');
-                        wrapper.style.textAlign = 'center';
+                        wrapper.style.display = 'flex';
+                        wrapper.style.alignItems = 'center';
+                        wrapper.style.justifyContent = 'center';
+                        wrapper.style.gap = '0.3rem';
 
                         const icon = document.createElement('i');
                         icon.style.fontSize = '0.85rem';
@@ -233,14 +242,17 @@ function initializeTripOrdersGrid() {
                         if (value === 'Y' || value === 'Yes' || value === 'YES') {
                             icon.className = 'fas fa-check-circle';
                             icon.style.color = '#10b981';
-                            icon.title = 'Yes';
                         } else {
                             icon.className = 'fas fa-times-circle';
                             icon.style.color = '#ef4444';
-                            icon.title = 'No';
                         }
 
+                        const text = document.createElement('span');
+                        text.textContent = value || 'N';
+                        text.style.fontSize = '0.85rem';
+
                         wrapper.appendChild(icon);
+                        wrapper.appendChild(text);
                         $(container).empty().append(wrapper);
                     }
                 },
