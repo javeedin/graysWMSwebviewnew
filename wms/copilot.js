@@ -815,17 +815,59 @@ window.handlePrintTripSubmit = async function() {
     addChatMessage('assistant', '🔍 Loading trip details...');
 
     try {
-        // Call API to get trip details
+        // Call API to get trip details - SAME AS VIEW DETAILS BUTTON
         const currentInstance = sessionStorage.getItem('loggedInInstance') || 'PROD';
-        const apiUrl = `/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${currentInstance}`;
+        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${currentInstance}`;
 
-        const response = await callApexAPINew(apiUrl, 'GET', null, currentInstance);
+        console.log('[Co-Pilot] ============================================');
+        console.log('[Co-Pilot] Calling GETTRIPDETAILS API:', GET_TRIP_DETAILS_API);
+        console.log('[Co-Pilot] Trip ID:', tripId);
+        console.log('[Co-Pilot] Instance:', currentInstance);
+        console.log('[Co-Pilot] ============================================');
 
-        console.log('[Co-Pilot] Trip details response:', response);
+        // Use the same method as View Details button - sendMessageToCSharp
+        const response = await new Promise((resolve, reject) => {
+            if (window.chrome && window.chrome.webview) {
+                // WebView2 environment - use C# backend (same as View Details button)
+                sendMessageToCSharp({
+                    action: 'executeGet',
+                    fullUrl: GET_TRIP_DETAILS_API
+                }, function(error, data) {
+                    if (error) {
+                        console.error('[Co-Pilot] Error from C#:', error);
+                        reject(new Error(error));
+                    } else {
+                        try {
+                            const result = typeof data === 'string' ? JSON.parse(data) : data;
+                            console.log('[Co-Pilot] Trip details response:', result);
+                            resolve(result);
+                        } catch (parseError) {
+                            console.error('[Co-Pilot] Parse error:', parseError);
+                            reject(parseError);
+                        }
+                    }
+                });
+            } else {
+                // Fallback for browser testing
+                fetch(GET_TRIP_DETAILS_API)
+                    .then(response => response.json())
+                    .then(result => {
+                        console.log('[Co-Pilot] Trip details response (fetch):', result);
+                        resolve(result);
+                    })
+                    .catch(error => {
+                        console.error('[Co-Pilot] Fetch error:', error);
+                        reject(error);
+                    });
+            }
+        });
+
+        console.log('[Co-Pilot] Final response object:', response);
 
         if (response && response.items && response.items.length > 0) {
-            const tripData = response.items[0];
-            console.log('[Co-Pilot] Trip data received:', tripData);
+            // Pass the entire items array, just like View Details button does
+            const tripData = response.items;
+            console.log('[Co-Pilot] Trip data received (', tripData.length, 'records):', tripData);
 
             // Show success message
             const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
@@ -838,7 +880,7 @@ window.handlePrintTripSubmit = async function() {
 
             // Open trip details in dialog - using the Trip Details Page content
             setTimeout(() => {
-                showTripDetailsPageDialog(tripData);
+                showTripDetailsPageDialog(tripId, tripData);
             }, 300);
         } else {
             const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
@@ -859,8 +901,8 @@ window.handlePrintTripSubmit = async function() {
 // SHOW TRIP DETAILS PAGE AS DIALOG
 // ============================================================================
 
-window.showTripDetailsPageDialog = function(tripData) {
-    console.log('[Co-Pilot] Showing Trip Details Page as dialog for:', tripData);
+window.showTripDetailsPageDialog = function(tripId, tripData) {
+    console.log('[Co-Pilot] Showing Trip Details Page as dialog for trip:', tripId, 'with', tripData.length, 'records');
 
     // Create dialog overlay
     const dialogOverlay = document.createElement('div');
@@ -938,7 +980,7 @@ window.showTripDetailsPageDialog = function(tripData) {
 
     // Populate the cloned content with trip data
     setTimeout(() => {
-        populateTripDetailsDialog(tripData, clonedContent);
+        populateTripDetailsDialog(tripId, tripData, clonedContent);
     }, 100);
 };
 
@@ -951,25 +993,29 @@ window.closeTripDetailsPageDialog = function() {
 };
 
 // Populate trip details in dialog
-function populateTripDetailsDialog(tripData, container) {
+function populateTripDetailsDialog(tripId, tripData, container) {
     try {
-        console.log('[Co-Pilot] Populating trip details dialog:', tripData);
+        console.log('[Co-Pilot] Populating trip details dialog for trip:', tripId, 'with', tripData.length, 'records');
+
+        // tripData is an array - first item has the header info
+        const headerData = tripData[0] || {};
+        console.log('[Co-Pilot] Header data:', headerData);
 
         // Update trip header
         const tripDetailId = container.querySelector('#trip-detail-id');
-        if (tripDetailId) tripDetailId.textContent = tripData.trip_id || tripData.TRIP_ID || '-';
+        if (tripDetailId) tripDetailId.textContent = headerData.trip_id || headerData.TRIP_ID || tripId || '-';
 
         const tripDetailDate = container.querySelector('#trip-detail-date');
-        if (tripDetailDate) tripDetailDate.textContent = tripData.trip_date || tripData.TRIP_DATE || '-';
+        if (tripDetailDate) tripDetailDate.textContent = headerData.trip_date || headerData.TRIP_DATE || '-';
 
         const tripDetailVehicle = container.querySelector('#trip-detail-vehicle');
-        if (tripDetailVehicle) tripDetailVehicle.textContent = tripData.trip_lorry || tripData.TRIP_LORRY || '-';
+        if (tripDetailVehicle) tripDetailVehicle.textContent = headerData.trip_lorry || headerData.TRIP_LORRY || '-';
 
         const tripDetailLoadingBay = container.querySelector('#trip-detail-loading-bay');
-        if (tripDetailLoadingBay) tripDetailLoadingBay.textContent = tripData.trip_loading_bay || tripData.TRIP_LOADING_BAY || '-';
+        if (tripDetailLoadingBay) tripDetailLoadingBay.textContent = headerData.trip_loading_bay || headerData.TRIP_LOADING_BAY || '-';
 
         const tripDetailPriority = container.querySelector('#trip-detail-priority');
-        if (tripDetailPriority) tripDetailPriority.textContent = tripData.trip_priority || tripData.TRIP_PRIORITY || '-';
+        if (tripDetailPriority) tripDetailPriority.textContent = headerData.trip_priority || headerData.TRIP_PRIORITY || '-';
 
         // Initialize the grid in the dialog
         const gridContainer = container.querySelector('#trip-orders-grid');
@@ -977,101 +1023,91 @@ function populateTripDetailsDialog(tripData, container) {
             // Give it a unique ID for the dialog
             gridContainer.id = 'trip-orders-grid-dialog';
 
-            // Load trip orders
-            const tripId = tripData.trip_id || tripData.TRIP_ID;
-            const currentInstance = sessionStorage.getItem('loggedInInstance') || 'PROD';
+            // Use the tripData directly (it already contains all the trip order records)
+            console.log('[Co-Pilot] Initializing grid with', tripData.length, 'records');
 
-            callApexAPINew(`/trip/orders/${tripId}`, 'GET', null, currentInstance)
-                .then(response => {
-                    const orders = response.items || [];
-                    console.log('[Trip Details Dialog] Orders:', orders);
-
-                    // Initialize DevExpress grid
-                    $('#trip-orders-grid-dialog').dxDataGrid({
-                        dataSource: orders,
-                        showBorders: true,
-                        showRowLines: true,
-                        showColumnLines: true,
-                        rowAlternationEnabled: true,
-                        columnAutoWidth: true,
-                        allowColumnReordering: true,
-                        allowColumnResizing: true,
-                        hoverStateEnabled: true,
-                        filterRow: {
-                            visible: true,
-                            applyFilter: 'auto'
-                        },
-                        searchPanel: {
-                            visible: true,
-                            width: 240,
-                            placeholder: 'Search orders...'
-                        },
-                        paging: {
-                            pageSize: 20
-                        },
-                        columns: [
-                            {
-                                dataField: 'source_order_number',
-                                caption: 'Order Number',
-                                width: 130,
-                                cssClass: 'small-font-grid'
-                            },
-                            {
-                                dataField: 'account_number',
-                                caption: 'Account',
-                                width: 100,
-                                cssClass: 'small-font-grid'
-                            },
-                            {
-                                dataField: 'account_name',
-                                caption: 'Customer',
-                                width: 200,
-                                cssClass: 'small-font-grid'
-                            },
-                            {
-                                dataField: 'order_date',
-                                caption: 'Order Date',
-                                width: 110,
-                                dataType: 'date',
-                                format: 'yyyy-MM-dd',
-                                cssClass: 'small-font-grid'
-                            },
-                            {
-                                dataField: 'order_type_code',
-                                caption: 'Order Type',
-                                width: 90,
-                                cssClass: 'small-font-grid'
-                            },
-                            {
-                                dataField: 'pick_confirm_st',
-                                caption: 'Pick Status',
-                                width: 80,
-                                alignment: 'center',
-                                calculateCellValue: function(rowData) {
-                                    return rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
-                                }
-                            },
-                            {
-                                dataField: 'ship_confirm_st',
-                                caption: 'Ship Status',
-                                width: 80,
-                                alignment: 'center',
-                                calculateCellValue: function(rowData) {
-                                    return rowData.SHIP_CONFIRM_ST || rowData.ship_confirm_st || '';
-                                }
-                            }
-                        ]
-                    }).dxDataGrid('instance');
-
-                    // Update order count
-                    const orderCountEl = container.querySelector('#trip-orders-count');
-                    if (orderCountEl) {
-                        orderCountEl.textContent = `${orders.length} orders`;
+            // Initialize DevExpress grid with tripData
+            $('#trip-orders-grid-dialog').dxDataGrid({
+                dataSource: tripData,
+                showBorders: true,
+                showRowLines: true,
+                showColumnLines: true,
+                rowAlternationEnabled: true,
+                columnAutoWidth: true,
+                allowColumnReordering: true,
+                allowColumnResizing: true,
+                hoverStateEnabled: true,
+                filterRow: {
+                    visible: true,
+                    applyFilter: 'auto'
+                },
+                searchPanel: {
+                    visible: true,
+                    width: 240,
+                    placeholder: 'Search orders...'
+                },
+                paging: {
+                    pageSize: 20
+                },
+                columns: [
+                    {
+                        dataField: 'source_order_number',
+                        caption: 'Order Number',
+                        width: 130,
+                        cssClass: 'small-font-grid'
+                    },
+                    {
+                        dataField: 'account_number',
+                        caption: 'Account',
+                        width: 100,
+                        cssClass: 'small-font-grid'
+                    },
+                    {
+                        dataField: 'account_name',
+                        caption: 'Customer',
+                        width: 200,
+                        cssClass: 'small-font-grid'
+                    },
+                    {
+                        dataField: 'order_date',
+                        caption: 'Order Date',
+                        width: 110,
+                        dataType: 'date',
+                        format: 'yyyy-MM-dd',
+                        cssClass: 'small-font-grid'
+                    },
+                    {
+                        dataField: 'order_type_code',
+                        caption: 'Order Type',
+                        width: 90,
+                        cssClass: 'small-font-grid'
+                    },
+                    {
+                        dataField: 'pick_confirm_st',
+                        caption: 'Pick Status',
+                        width: 80,
+                        alignment: 'center',
+                        calculateCellValue: function(rowData) {
+                            return rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
+                        }
+                    },
+                    {
+                        dataField: 'ship_confirm_st',
+                        caption: 'Ship Status',
+                        width: 80,
+                        alignment: 'center',
+                        calculateCellValue: function(rowData) {
+                            return rowData.SHIP_CONFIRM_ST || rowData.ship_confirm_st || '';
+                        }
                     }
-                })
-                .catch(error => {
-                    console.error('[Trip Details Dialog] Error loading orders:', error);
-                });
+                ]
+            }).dxDataGrid('instance');
+
+            // Update order count
+            const orderCountEl = container.querySelector('#trip-orders-count');
+            if (orderCountEl) {
+                orderCountEl.textContent = `${tripData.length} orders`;
+            }
         }
 
     } catch (error) {
