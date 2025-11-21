@@ -176,7 +176,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Add message to chat
-    function addChatMessage(role, content) {
+    window.addChatMessage = function(role, content) {
         const chatMessages = document.getElementById('copilot-chat-messages');
         if (!chatMessages) return;
 
@@ -200,7 +200,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Store in history
         CopilotState.chatHistory.push({ role, content, timestamp: new Date() });
-    }
+    };
 
     // Generate response (placeholder - will be replaced with AI integration)
     function generateResponse(message) {
