@@ -84,7 +84,18 @@ namespace WMSApp
 
         private void InitializeComponent1()
         {
-            this.Text = "Fusion Client Browser";
+            // Get WebView2 version
+            string webViewVersion = "Unknown";
+            try
+            {
+                webViewVersion = Microsoft.Web.WebView2.Core.CoreWebView2Environment.GetAvailableBrowserVersionString();
+            }
+            catch
+            {
+                webViewVersion = "Not Available";
+            }
+
+            this.Text = $"Fusion Client Browser - WebView2 v{webViewVersion}";
             this.Size = new Size(1200, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(240, 240, 240);
@@ -444,7 +455,8 @@ namespace WMSApp
                 Height = 18,
                 BorderStyle = BorderStyle.None,
                 Font = new Font("Segoe UI", 9),
-                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Visible = false  // Hidden per user request
             };
             urlTextBox.Width = urlPanel.Width - 150;
             urlTextBox.KeyDown += UrlTextBox_KeyDown;
@@ -528,7 +540,8 @@ namespace WMSApp
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
                 BackColor = Color.FromArgb(245, 235, 220),
-                Tag = "His"
+                Tag = "His",
+                Visible = false  // Hidden per user request
             };
             historyButton.Left = profileButton.Right + 5;
             historyButton.FlatAppearance.BorderColor = Color.LightGray;
@@ -1016,7 +1029,7 @@ namespace WMSApp
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    httpClient.Timeout = TimeSpan.FromSeconds(300);  // 5 minutes timeout
                     var response = await httpClient.GetAsync(message.FullUrl);
                     string responseContent = await response.Content.ReadAsStringAsync();
 
@@ -1063,7 +1076,7 @@ namespace WMSApp
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(30);
+                    httpClient.Timeout = TimeSpan.FromSeconds(300);  // 5 minutes timeout
 
                     var content = new StringContent(
                         message.Body ?? "{}",

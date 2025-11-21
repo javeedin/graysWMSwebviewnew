@@ -150,50 +150,23 @@
             </div>
             
             <div id="vehicles" class="page-content" style="display: none;">
-                <div class="grid-container" style="margin-top: 20px;">
-                    <div class="grid-header" style="padding: 0;">
-                        <div id="vehicles-tab-header" class="tab-header" style="width: 100%;">
-                            <div class="tab-item active" data-tab="summary">
-                                <span>Summary</span>
-                            </div>
-                            <div class="tab-item" data-tab="debug">
-                                <span>Debug Data</span>
-                            </div>
+                <div class="grid-container">
+                    <div class="grid-header">
+                        <div class="grid-title">
+                            <i class="fas fa-truck"></i>
+                            <h2>Vehicles Management</h2>
+                            <span class="count-badge" id="vehicles-count-display">Loading...</span>
+                        </div>
+                        <div class="grid-actions">
+                            <button class="btn btn-primary" onclick="showAddVehicleModal()">
+                                <i class="fas fa-plus"></i> Add Vehicle
+                            </button>
+                            <button class="btn" onclick="loadVehicles()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
                         </div>
                     </div>
-                    <div id="vehicles-tab-content" class="tab-content">
-                        <div id="vehicles-summary-tab" class="tab-pane active">
-                            <div class="summary-panel" style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin: 1rem;">
-                                <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
-                                    <label>Vehicle</label>
-                                    <select id="vehicles-vehicle-filter" class="form-control">
-                                        <option value="">All Vehicles</option>
-                                    </select>
-                                </div>
-                                <div style="flex: 1; min-width: 300px;">
-                                    <label class="date-filter-label" style="display: block; margin-bottom: 0.5rem;">Filter by Date:</label>
-                                    <div id="vehicles-date-filters" style="display: flex; flex-wrap: wrap; gap: 0.5rem;"></div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 1.5rem;">
-                                    <input type="checkbox" id="merge-dates-checkbox" style="width: 18px; height: 18px; cursor: pointer;">
-                                    <label for="merge-dates-checkbox" style="cursor: pointer; font-weight: 600; color: var(--gray-700); margin: 0;">Merge Dates</label>
-                                </div>
-                            </div>
-                            <div id="vehicles-cards-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 15px; padding: 15px;">
-                                <div class="loading"><i class="fas fa-circle-notch"></i><p>Loading vehicles...</p></div>
-                            </div>
-                        </div>
-                        <div id="vehicles-debug-tab" class="tab-pane">
-                            <div class="summary-panel">
-                                <strong>Debug Information:</strong><br>
-                                Total Records: <span id="debug-record-count">0</span><br>
-                                Vehicle Count: <span id="debug-vehicle-count">0</span>
-                            </div>
-                            <div id="debug-data-container" style="padding: 15px;">
-                                <div class="loading">Loading debug data...</div>
-                            </div>
-                        </div>
-                    </div>
+                    <div id="vehicles-grid"></div>
                 </div>
             </div>
             
@@ -207,11 +180,22 @@
             
             <div id="picker-management" class="page-content" style="display: none;">
                 <div class="grid-container">
-                    <div class="empty-state">
-                        <i class="fas fa-user-tie"></i>
-                        <h3>Picker Management</h3>
-                        <p>This feature will be implemented soon</p>
+                    <div class="grid-header">
+                        <div class="grid-title">
+                            <i class="fas fa-users"></i>
+                            <h2>Pickers Management</h2>
+                            <span class="count-badge" id="pickers-count-display">Loading...</span>
+                        </div>
+                        <div class="grid-actions">
+                            <button class="btn btn-primary" onclick="showAddPickerModal()">
+                                <i class="fas fa-plus"></i> Add Picker
+                            </button>
+                            <button class="btn" onclick="loadPickers()">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                        </div>
                     </div>
+                    <div id="pickers-grid"></div>
                 </div>
             </div>
             
@@ -770,10 +754,111 @@
     <!-- Co-Pilot Overlay (backdrop) -->
     <div id="copilot-overlay" class="copilot-overlay" onclick="toggleCopilot()"></div>
 
+    <!-- Vehicle Modal -->
+    <div id="vehicle-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 id="vehicle-modal-title">Add New Vehicle</h3>
+                <button class="modal-close" onclick="closeVehicleModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-vehicle-id">
+
+                <div class="form-group">
+                    <label for="modal-lorry-number">Lorry Number *</label>
+                    <input type="text" id="modal-lorry-number" class="form-control" placeholder="Enter lorry number" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-assigned-route">Assigned Route</label>
+                    <input type="text" id="modal-assigned-route" class="form-control" placeholder="Enter assigned route">
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-delivery-officer">Delivery Officer</label>
+                    <input type="text" id="modal-delivery-officer" class="form-control" placeholder="Enter delivery officer name">
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-capacity">Capacity</label>
+                    <input type="number" id="modal-capacity" class="form-control" placeholder="Enter capacity">
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-vehicle-status">Status</label>
+                    <select id="modal-vehicle-status" class="form-control">
+                        <option value="">Select status</option>
+                        <option value="Active">Active</option>
+                        <option value="Inactive">Inactive</option>
+                        <option value="Maintenance">Maintenance</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closeVehicleModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveVehicle()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Picker Modal -->
+    <div id="picker-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-container">
+            <div class="modal-header">
+                <h3 id="picker-modal-title">Add New Picker</h3>
+                <button class="modal-close" onclick="closePickerModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-picker-id">
+
+                <div class="form-group">
+                    <label for="modal-picker-name">Name *</label>
+                    <input type="text" id="modal-picker-name" class="form-control" placeholder="Enter picker name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-picker-type">Type *</label>
+                    <select id="modal-picker-type" class="form-control" required>
+                        <option value="">Select type</option>
+                        <option value="Bulk">Bulk</option>
+                        <option value="Individual">Individual</option>
+                        <option value="Both">Both</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-picker-contact">Contact</label>
+                    <input type="text" id="modal-picker-contact" class="form-control" placeholder="Enter contact number">
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-picker-assigned-area">Assigned Area</label>
+                    <input type="text" id="modal-picker-assigned-area" class="form-control" placeholder="Enter assigned area">
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-picker-profit-center">Profit Center</label>
+                    <input type="text" id="modal-picker-profit-center" class="form-control" placeholder="Enter profit center">
+                </div>
+
+                <div class="form-group">
+                    <label for="modal-picker-category">Category</label>
+                    <input type="text" id="modal-picker-category" class="form-control" placeholder="Enter category">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn" onclick="closePickerModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="savePicker()">Save</button>
+            </div>
+        </div>
+    </div>
+
     <script src="app.js"></script>
     <script src="printer-management.js"></script>
     <script src="printer-management-new.js"></script>
     <script src="monitor-printing.js"></script>
     <script src="copilot.js"></script>
+    <script src="vehicles.js"></script>
+    <script src="pickers.js"></script>
 </body>
 </html>
