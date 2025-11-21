@@ -3407,7 +3407,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         const loadingDiv = document.createElement('div');
         loadingDiv.id = 'print-loading-indicator';
-        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;';
         loadingDiv.innerHTML = `
             <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
                 <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #8b5cf6; margin-bottom: 1rem;"></i>
@@ -3541,7 +3541,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Create modal overlay
         const modal = document.createElement('div');
         modal.id = 'pdf-viewer-modal';
-        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 10003; display: flex; align-items: center; justify-content: center; padding: 2rem;';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 30000; display: flex; align-items: center; justify-content: center; padding: 2rem;';
 
         modal.innerHTML = `
             <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 100%; max-width: 1200px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
