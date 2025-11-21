@@ -1216,6 +1216,16 @@ function initializeTripDialogGrid(tripId, tripData) {
             cellTemplate: function(container, options) {
                 const rowData = options.data;
 
+                // Debug: Log all instance-related fields in rowData
+                console.log('[Co-Pilot Grid] Instance fields in rowData:', {
+                    'instance_name': rowData.instance_name,
+                    'INSTANCE_NAME': rowData.INSTANCE_NAME,
+                    'instance': rowData.instance,
+                    'INSTANCE': rowData.INSTANCE,
+                    'sessionStorage': sessionStorage.getItem('loggedInInstance'),
+                    'localStorage': localStorage.getItem('fusionInstance')
+                });
+
                 // Get instance - try rowData first, then sessionStorage, then localStorage, finally fallback to TEST
                 const instanceName = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE
                     || sessionStorage.getItem('loggedInInstance')
@@ -1226,7 +1236,7 @@ function initializeTripDialogGrid(tripId, tripData) {
                 const tripIdFromRow = rowData.TRIP_ID || rowData.trip_id || '';
                 const tripDateFromRow = rowData.TRIP_DATE || rowData.trip_date || '';
 
-                console.log('[Co-Pilot Grid] Print button data:', {
+                console.log('[Co-Pilot Grid] Final Print button data:', {
                     orderNumber: rowData.ORDER_NUMBER || rowData.order_number,
                     instanceName: instanceName,
                     orderType: orderType,

@@ -2583,6 +2583,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 cellTemplate: function(container, options) {
                     const rowData = options.data;
 
+                    // Debug: Log all instance-related fields in rowData
+                    console.log('[Trip Details Grid] Instance fields in rowData:', {
+                        'instance_name': rowData.instance_name,
+                        'INSTANCE_NAME': rowData.INSTANCE_NAME,
+                        'instance': rowData.instance,
+                        'INSTANCE': rowData.INSTANCE,
+                        'sessionStorage': sessionStorage.getItem('loggedInInstance'),
+                        'localStorage': localStorage.getItem('fusionInstance')
+                    });
+
                     // Get instance - try rowData first, then sessionStorage, then localStorage, finally fallback to TEST
                     const instanceName = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE
                         || sessionStorage.getItem('loggedInInstance')
@@ -2593,7 +2603,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     const tripIdFromRow = rowData.TRIP_ID || rowData.trip_id || '';
                     const tripDateFromRow = rowData.TRIP_DATE || rowData.trip_date || '';
 
-                    console.log('[Trip Details Grid] Print button data:', {
+                    console.log('[Trip Details Grid] Final Print button data:', {
                         orderNumber: rowData.ORDER_NUMBER || rowData.order_number,
                         instanceName: instanceName,
                         orderType: orderType,
@@ -3356,12 +3366,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Determine report based on order type
         let reportPath, parameterName, reportName;
 
-        // Simple logic: Check if ORDER_TYPE is exactly "Store to Van" or "Van to Store"
-        if (orderType === 'STORE TO VAN' || orderType === 'VAN TO STORE') {
-            // Store to Van / Van to Store - use Store Transaction report
+        // Check if ORDER_TYPE is Store to Van or Van to Store (including S2V, V2S abbreviations)
+        if (orderType === 'STORE TO VAN' || orderType === 'VAN TO STORE' || orderType === 'S2V' || orderType === 'V2S') {
+            // Store to Van / Van to Store - use Store Transaction report (Inventory Report)
             reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
             parameterName = 'SOURCE_CODE';
-            reportName = 'Store Transaction Report';
+            reportName = 'Store Transaction Report (Inventory)';
         } else {
             // All other order types - use Sales Order report
             reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
