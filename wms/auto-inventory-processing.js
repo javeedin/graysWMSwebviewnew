@@ -592,7 +592,7 @@ async function processNextBatch() {
             }
 
             // Process transaction (no UI update inside)
-            await processTransaction(transaction);
+            await processAutoTransaction(transaction);
             processedCount++;
 
             // Update UI every 5 transactions or on last transaction
@@ -620,8 +620,8 @@ async function processNextBatch() {
     }
 }
 
-// Process a single transaction (background processing - no UI updates)
-async function processTransaction(transaction) {
+// Process a single auto transaction (background processing - no UI updates)
+async function processAutoTransaction(transaction) {
     // Set status to PROCESSING
     transaction.transaction_status = 'PROCESSING';
 
@@ -673,7 +673,7 @@ async function retryTransaction(tripIndex, transactionIndex) {
 
     addLogEntry('Retry', `Retrying Order: ${transaction.trx_number} | Line: ${transaction.line_number}...`, 'warning');
 
-    await processTransaction(transaction);
+    await processAutoTransaction(transaction);
 
     // Update UI after retry
     displayGroupedTrips();
@@ -684,7 +684,7 @@ async function retryTransaction(tripIndex, transactionIndex) {
 async function retryTransactionById(transactionId) {
     const transaction = autoProcessingData.find(t => t.transaction_id === transactionId);
     if (transaction) {
-        await processTransaction(transaction);
+        await processAutoTransaction(transaction);
     }
 }
 
