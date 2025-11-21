@@ -72,15 +72,6 @@ namespace WMSApp
             System.Diagnostics.Debug.WriteLine("🚀 APPLICATION STARTED - TESTING DEBUG OUTPUT");
             System.Diagnostics.Debug.WriteLine("========================================");
 
-            // Show login form before SetupUI
-            if (!ShowLoginForm())
-            {
-                // User cancelled login, close the application
-                System.Diagnostics.Debug.WriteLine("[LOGIN] User cancelled login, closing application");
-                Application.Exit();
-                return;
-            }
-
             SetupUI();
 
             // Initialize the APEX downloader
@@ -298,15 +289,15 @@ namespace WMSApp
             wmsDevButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 240, 180);
             wmsDevButton.Click += (s, e) =>
             {
-                // Check if user is logged in
+                // Check if user is logged in for WMS, if not show login form
                 if (!_isLoggedIn)
                 {
-                    MessageBox.Show(
-                        "Please restart the application and login first.",
-                        "Login Required",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
-                    return;
+                    if (!ShowLoginForm())
+                    {
+                        // User cancelled login
+                        System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
+                        return;
+                    }
                 }
 
                 // Load local development version from repository root
@@ -353,6 +344,17 @@ namespace WMSApp
             wmsProdButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
             wmsProdButton.Click += (s, e) =>
             {
+                // Check if user is logged in for WMS, if not show login form
+                if (!_isLoggedIn)
+                {
+                    if (!ShowLoginForm())
+                    {
+                        // User cancelled login
+                        System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
+                        return;
+                    }
+                }
+
                 // Check if distribution folder exists
                 string distributionFolder = "C:\\fusion\\fusionclientweb\\wms";
                 string indexPath = Path.Combine(distributionFolder, "index.html");

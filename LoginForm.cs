@@ -42,7 +42,7 @@ namespace WMSApp
         private void InitializeComponent()
         {
             this.Text = "WMS Login";
-            this.Size = new Size(450, 550);
+            this.Size = new Size(600, 550);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -72,7 +72,7 @@ namespace WMSApp
             Panel contentPanel = new Panel
             {
                 Location = new Point(40, 120),
-                Size = new Size(370, 350),
+                Size = new Size(520, 350),
                 BackColor = Color.White,
                 Padding = new Padding(20)
             };
@@ -91,7 +91,7 @@ namespace WMSApp
             {
                 Text = "Username:",
                 Location = new Point(20, yPosition),
-                Size = new Size(330, 20),
+                Size = new Size(480, 20),
                 Font = new Font("Segoe UI", 9, FontStyle.Bold),
                 ForeColor = Color.FromArgb(60, 60, 60)
             };
@@ -100,7 +100,7 @@ namespace WMSApp
             txtUsername = new TextBox
             {
                 Location = new Point(20, yPosition + 22),
-                Size = new Size(330, 30),
+                Size = new Size(480, 30),
                 Font = new Font("Segoe UI", 10),
                 BorderStyle = BorderStyle.FixedSingle
             };
@@ -112,7 +112,7 @@ namespace WMSApp
             {
                 Text = "Password:",
                 Location = new Point(20, yPosition),
-                Size = new Size(330, 20),
+                Size = new Size(480, 20),
                 Font = new Font("Segoe UI", 9, FontStyle.Bold),
                 ForeColor = Color.FromArgb(60, 60, 60)
             };
@@ -121,7 +121,7 @@ namespace WMSApp
             txtPassword = new TextBox
             {
                 Location = new Point(20, yPosition + 22),
-                Size = new Size(330, 30),
+                Size = new Size(480, 30),
                 Font = new Font("Segoe UI", 10),
                 UseSystemPasswordChar = true,
                 BorderStyle = BorderStyle.FixedSingle
@@ -134,7 +134,7 @@ namespace WMSApp
             {
                 Text = "Instance:",
                 Location = new Point(20, yPosition),
-                Size = new Size(330, 20),
+                Size = new Size(480, 20),
                 Font = new Font("Segoe UI", 9, FontStyle.Bold),
                 ForeColor = Color.FromArgb(60, 60, 60)
             };
@@ -143,7 +143,7 @@ namespace WMSApp
             cboInstance = new ComboBox
             {
                 Location = new Point(20, yPosition + 22),
-                Size = new Size(330, 30),
+                Size = new Size(480, 30),
                 Font = new Font("Segoe UI", 10),
                 DropDownStyle = ComboBoxStyle.DropDownList
             };
@@ -157,7 +157,7 @@ namespace WMSApp
             {
                 Text = "Business Unit: (Coming Soon)",
                 Location = new Point(20, yPosition),
-                Size = new Size(330, 20),
+                Size = new Size(480, 20),
                 Font = new Font("Segoe UI", 9, FontStyle.Bold),
                 ForeColor = Color.FromArgb(150, 150, 150)
             };
@@ -166,7 +166,7 @@ namespace WMSApp
             cboBusinessUnit = new ComboBox
             {
                 Location = new Point(20, yPosition + 22),
-                Size = new Size(330, 30),
+                Size = new Size(480, 30),
                 Font = new Font("Segoe UI", 10),
                 DropDownStyle = ComboBoxStyle.DropDownList,
                 Enabled = false
@@ -192,7 +192,7 @@ namespace WMSApp
             lblError = new Label
             {
                 Location = new Point(20, yPosition),
-                Size = new Size(330, 40),
+                Size = new Size(480, 40),
                 Font = new Font("Segoe UI", 9),
                 ForeColor = Color.Red,
                 TextAlign = ContentAlignment.MiddleCenter,
@@ -204,14 +204,14 @@ namespace WMSApp
             Panel buttonPanel = new Panel
             {
                 Location = new Point(40, 475),
-                Size = new Size(370, 50),
+                Size = new Size(520, 50),
                 BackColor = Color.Transparent
             };
 
             btnCancel = new Button
             {
                 Text = "Cancel",
-                Location = new Point(20, 10),
+                Location = new Point(100, 10),
                 Size = new Size(160, 40),
                 Font = new Font("Segoe UI", 10, FontStyle.Bold),
                 BackColor = Color.FromArgb(220, 220, 220),
@@ -226,7 +226,7 @@ namespace WMSApp
             btnLogin = new Button
             {
                 Text = "🔐 Login",
-                Location = new Point(190, 10),
+                Location = new Point(270, 10),
                 Size = new Size(160, 40),
                 Font = new Font("Segoe UI", 10, FontStyle.Bold),
                 BackColor = Color.FromArgb(102, 126, 234),
