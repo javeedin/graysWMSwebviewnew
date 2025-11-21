@@ -4497,10 +4497,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         },
                         onContentReady: function(e) {
                             console.log('[Store Transactions] Allocated Lots Grid loaded, row count:', e.component.totalCount());
-                            // Force grid to recalculate dimensions and refresh display
-                            setTimeout(() => {
-                                e.component.repaint();
-                            }, 100);
+                            // Force grid to recalculate dimensions on first load only
+                            if (!this._firstLoadComplete) {
+                                this._firstLoadComplete = true;
+                                setTimeout(() => {
+                                    e.component.repaint();
+                                }, 100);
+                            }
                         }
                     }).dxDataGrid('instance');
                 } else {
@@ -4650,10 +4653,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         },
                         onContentReady: function(e) {
                             console.log('[Store Transactions] QOH Details Grid loaded, row count:', e.component.totalCount());
-                            // Force grid to recalculate dimensions and refresh display
-                            setTimeout(() => {
-                                e.component.repaint();
-                            }, 100);
+                            // Force grid to recalculate dimensions on first load only
+                            if (!this._firstLoadComplete) {
+                                this._firstLoadComplete = true;
+                                setTimeout(() => {
+                                    e.component.repaint();
+                                }, 100);
+                            }
                         }
                     }).dxDataGrid('instance');
                 } else {
