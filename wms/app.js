@@ -2758,16 +2758,24 @@ document.addEventListener('DOMContentLoaded', function() {
     window.assignPickerToTrip = function(tripId) {
         console.log('[Assign Picker] Trip ID:', tripId);
 
-        // Get the grid instance - use correct tabId pattern
+        // Get the grid instance - check both tab and dialog grids
         const tabId = `trip-detail-${tripId}`;
-        const gridId = `grid-${tabId}`;
-        console.log('[Assign Picker] Looking for grid:', gridId);
+        const tabGridId = `grid-${tabId}`;
+        const dialogGridId = 'trip-dialog-grid';
 
-        const gridContainer = $(`#${gridId}`);
+        console.log('[Assign Picker] Looking for grid:', tabGridId, 'or', dialogGridId);
+
+        // Try tab grid first, then dialog grid
+        let gridContainer = $(`#${tabGridId}`);
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Assign Picker] Tab grid not found, trying dialog grid...');
+            gridContainer = $(`#${dialogGridId}`);
+        }
+
         console.log('[Assign Picker] Grid container found:', gridContainer.length);
 
         if (!gridContainer || gridContainer.length === 0) {
-            console.error('[Assign Picker] ❌ Grid not found:', gridId);
+            console.error('[Assign Picker] ❌ Grid not found');
             alert('Grid not found. Please try again.');
             return;
         }
@@ -3116,13 +3124,29 @@ document.addEventListener('DOMContentLoaded', function() {
     window.allocateLotsForS2V = function(tripId) {
         console.log('[Allocate Lots S2V] Processing trip:', tripId);
 
-        // Get the grid instance
+        // Get the grid instance - check both tab and dialog grids
         const tabId = `trip-detail-${tripId}`;
-        const gridId = `grid-${tabId}`;
-        const gridInstance = $(`#${gridId}`).dxDataGrid('instance');
+        const tabGridId = `grid-${tabId}`;
+        const dialogGridId = 'trip-dialog-grid';
 
-        if (!gridInstance) {
+        console.log('[Allocate Lots S2V] Looking for grid:', tabGridId, 'or', dialogGridId);
+
+        // Try tab grid first, then dialog grid
+        let gridContainer = $(`#${tabGridId}`);
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Allocate Lots S2V] Tab grid not found, trying dialog grid...');
+            gridContainer = $(`#${dialogGridId}`);
+        }
+
+        if (!gridContainer || gridContainer.length === 0) {
+            console.error('[Allocate Lots S2V] ❌ Grid not found');
             alert('Grid not found. Please refresh the page.');
+            return;
+        }
+
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        if (!gridInstance) {
+            alert('Grid instance not found. Please refresh the page.');
             return;
         }
 
@@ -3572,10 +3596,16 @@ document.addEventListener('DOMContentLoaded', function() {
         // Get instance - try from trip data first, then fall back to toolbar
         let instance = localStorage.getItem('fusionInstance') || 'TEST';
 
-        // Check if we have trip data with instance
+        // Check if we have trip data with instance - check both tab and dialog grids
         const tabId = `trip-detail-${tripId}`;
-        const gridId = `grid-${tabId}`;
-        const gridContainer = $(`#${gridId}`);
+        const tabGridId = `grid-${tabId}`;
+        const dialogGridId = 'trip-dialog-grid';
+
+        // Try tab grid first, then dialog grid
+        let gridContainer = $(`#${tabGridId}`);
+        if (!gridContainer || gridContainer.length === 0) {
+            gridContainer = $(`#${dialogGridId}`);
+        }
 
         if (gridContainer && gridContainer.length > 0) {
             const gridInstance = gridContainer.dxDataGrid('instance');
@@ -3619,16 +3649,20 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log('[Refresh Trip] Data received:', result);
 
                         if (result && result.items && result.items.length > 0) {
-                            // Update grid with new data
-                            const gridContainer = $(`#${gridId}`);
-                            if (gridContainer && gridContainer.length > 0) {
-                                const gridInstance = gridContainer.dxDataGrid('instance');
+                            // Update grid with new data - reuse gridContainer from earlier
+                            let updateGridContainer = $(`#${tabGridId}`);
+                            if (!updateGridContainer || updateGridContainer.length === 0) {
+                                updateGridContainer = $(`#${dialogGridId}`);
+                            }
+
+                            if (updateGridContainer && updateGridContainer.length > 0) {
+                                const gridInstance = updateGridContainer.dxDataGrid('instance');
                                 if (gridInstance) {
                                     gridInstance.option('dataSource', result.items);
                                     gridInstance.refresh();
 
-                                    // Update order count
-                                    const orderCountDiv = gridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                    // Update order count (for tab version)
+                                    const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
                                     if (orderCountDiv.length > 0) {
                                         orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
                                     }
