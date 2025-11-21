@@ -4107,14 +4107,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         showRowLines: true,
                         showColumnLines: true,
                         rowAlternationEnabled: true,
-                        columnAutoWidth: true,
+                        columnAutoWidth: false,
                         allowColumnReordering: true,
                         allowColumnResizing: true,
                         wordWrapEnabled: false,
                         hoverStateEnabled: true,
                         scrolling: {
-                            mode: 'virtual',
-                            rowRenderingMode: 'virtual'
+                            mode: 'standard',
+                            columnRenderingMode: 'virtual',
+                            useNative: true
+                        },
+                        columnFixing: {
+                            enabled: true
                         },
                         columns: columns,
                         paging: {
@@ -4397,14 +4401,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         showRowLines: true,
                         showColumnLines: true,
                         rowAlternationEnabled: true,
-                        columnAutoWidth: true,
+                        columnAutoWidth: false,
                         allowColumnReordering: true,
                         allowColumnResizing: true,
                         wordWrapEnabled: false,
                         hoverStateEnabled: true,
                         scrolling: {
-                            mode: 'virtual',
-                            rowRenderingMode: 'virtual'
+                            mode: 'standard',
+                            columnRenderingMode: 'virtual',
+                            useNative: true
+                        },
+                        columnFixing: {
+                            enabled: true
                         },
                         selection: {
                             mode: 'multiple',
@@ -4547,14 +4555,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         showRowLines: true,
                         showColumnLines: true,
                         rowAlternationEnabled: true,
-                        columnAutoWidth: true,
+                        columnAutoWidth: false,
                         allowColumnReordering: true,
                         allowColumnResizing: true,
                         wordWrapEnabled: false,
                         hoverStateEnabled: true,
                         scrolling: {
-                            mode: 'virtual',
-                            rowRenderingMode: 'virtual'
+                            mode: 'standard',
+                            columnRenderingMode: 'virtual',
+                            useNative: true
+                        },
+                        columnFixing: {
+                            enabled: true
                         },
                         columns: columns,
                         paging: {
