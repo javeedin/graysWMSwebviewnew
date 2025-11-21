@@ -578,43 +578,52 @@ async function processNextBatch() {
         return;
     }
 
-    addLogEntry('Processing', `Found ${pendingTransactions.length} pending transactions. Starting processing...`, 'info');
+    addLogEntry('Processing', `Found ${pendingTransactions.length} pending transactions. Starting background processing...`, 'info');
 
-    // Process transactions one by one
+    // Process transactions one by one in background
+    let processedCount = 0;
     try {
-        for (const transaction of pendingTransactions) {
+        for (let i = 0; i < pendingTransactions.length; i++) {
+            const transaction = pendingTransactions[i];
+
             if (!autoProcessingEnabled) {
                 addLogEntry('Processing', 'Auto processing was disabled. Stopping...', 'warning');
                 break;
             }
 
-            addLogEntry('Debug', `Starting transaction ${transaction.trx_number} line ${transaction.line_number}...`, 'info');
+            // Process transaction (no UI update inside)
             await processTransaction(transaction);
-            addLogEntry('Debug', `Completed transaction ${transaction.trx_number} line ${transaction.line_number}`, 'info');
+            processedCount++;
 
-            // Small delay between transactions
-            await new Promise(resolve => setTimeout(resolve, 300));
+            // Update UI every 5 transactions or on last transaction
+            if (processedCount % 5 === 0 || i === pendingTransactions.length - 1) {
+                addLogEntry('Progress', `Processed ${processedCount} of ${pendingTransactions.length} transactions`, 'info');
+                displayGroupedTrips();
+                updateStatistics();
+                // Small delay to allow UI to update
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
         }
 
         if (autoProcessingEnabled) {
-            addLogEntry('Processing', 'All pending transactions processed!', 'success');
+            addLogEntry('Processing', `All ${processedCount} pending transactions processed!`, 'success');
+            // Final UI update
+            displayGroupedTrips();
+            updateStatistics();
         }
     } catch (error) {
         addLogEntry('Error', `Batch processing error: ${error.message}`, 'error');
         console.error('[Auto Processing] Batch error:', error);
+        // Update UI on error
+        displayGroupedTrips();
+        updateStatistics();
     }
 }
 
-// Process a single transaction
+// Process a single transaction (background processing - no UI updates)
 async function processTransaction(transaction) {
-    addLogEntry('Processing', `Processing Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} | Qty: ${transaction.picked_qty}`, 'info');
-
     // Set status to PROCESSING
     transaction.transaction_status = 'PROCESSING';
-
-    // Update display to show processing state
-    displayGroupedTrips();
-    updateStatistics();
 
     try {
         // TODO: Call actual web service API to process transaction
@@ -626,22 +635,12 @@ async function processTransaction(transaction) {
 
         addLogEntry('Success', `✓ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - SUCCESS`, 'success');
 
-        // Update display
-        displayGroupedTrips();
-        updateStatistics();
-
     } catch (error) {
         console.error('[Auto Processing] Error processing transaction:', error);
-        console.error('[Auto Processing] Error stack:', error.stack);
         transaction.transaction_status = 'FAILED';
         transaction.error_message = error.message;
 
         addLogEntry('Error', `✗ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - FAILED: ${error.message}`, 'error');
-        addLogEntry('Debug', `Error type: ${error.name} | Stack: ${error.stack?.substring(0, 100)}`, 'error');
-
-        // Update display
-        displayGroupedTrips();
-        updateStatistics();
 
         // Note: No auto-retry, user must use Retry button
     }
@@ -650,22 +649,17 @@ async function processTransaction(transaction) {
 // Simulate processing (replace with actual API call)
 function simulateProcessing(transaction) {
     return new Promise((resolve, reject) => {
-        // Simulate processing time 0.5-1.5 seconds (faster for testing)
-        const processingTime = 500 + Math.random() * 1000;
-
-        addLogEntry('Debug', `Simulating ${transaction.trx_number} line ${transaction.line_number} for ${Math.round(processingTime)}ms`, 'info');
+        // Simulate processing time 0.2-0.8 seconds (fast for testing)
+        const processingTime = 200 + Math.random() * 600;
 
         setTimeout(() => {
             // Simulate 90% success rate (10% failure for testing)
             const randomValue = Math.random();
-            addLogEntry('Debug', `Random value: ${randomValue.toFixed(3)} (threshold: 0.1)`, 'info');
 
             if (randomValue > 0.1) {
-                addLogEntry('Debug', `Simulation SUCCESS for ${transaction.trx_number} line ${transaction.line_number}`, 'success');
                 resolve();
             } else {
-                const errorMsg = `SIMULATED RANDOM FAILURE - Order: ${transaction.trx_number}, Line: ${transaction.line_number}`;
-                addLogEntry('Debug', errorMsg, 'error');
+                const errorMsg = `SIMULATED RANDOM FAILURE`;
                 reject(new Error(errorMsg));
             }
         }, processingTime);
@@ -677,13 +671,13 @@ async function retryTransaction(tripIndex, transactionIndex) {
     const groupedTrips = groupTransactionsByTrip();
     const transaction = groupedTrips[tripIndex].transactions[transactionIndex];
 
-    addLogEntry('Retry', `Retrying transaction ${transaction.trx_number}...`, 'warning');
-
-    transaction.transaction_status = 'PROCESSING';
-    displayGroupedTrips();
-    updateStatistics();
+    addLogEntry('Retry', `Retrying Order: ${transaction.trx_number} | Line: ${transaction.line_number}...`, 'warning');
 
     await processTransaction(transaction);
+
+    // Update UI after retry
+    displayGroupedTrips();
+    updateStatistics();
 }
 
 // Retry transaction by ID
