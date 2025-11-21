@@ -581,17 +581,27 @@ async function processNextBatch() {
     addLogEntry('Processing', `Found ${pendingTransactions.length} pending transactions. Starting processing...`, 'info');
 
     // Process transactions one by one
-    for (const transaction of pendingTransactions) {
-        if (!autoProcessingEnabled) break; // Stop if disabled
+    try {
+        for (const transaction of pendingTransactions) {
+            if (!autoProcessingEnabled) {
+                addLogEntry('Processing', 'Auto processing was disabled. Stopping...', 'warning');
+                break;
+            }
 
-        await processTransaction(transaction);
+            addLogEntry('Debug', `Starting transaction ${transaction.trx_number} line ${transaction.line_number}...`, 'info');
+            await processTransaction(transaction);
+            addLogEntry('Debug', `Completed transaction ${transaction.trx_number} line ${transaction.line_number}`, 'info');
 
-        // Small delay between transactions
-        await new Promise(resolve => setTimeout(resolve, 500));
-    }
+            // Small delay between transactions
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
 
-    if (autoProcessingEnabled) {
-        addLogEntry('Processing', 'All pending transactions processed!', 'success');
+        if (autoProcessingEnabled) {
+            addLogEntry('Processing', 'All pending transactions processed!', 'success');
+        }
+    } catch (error) {
+        addLogEntry('Error', `Batch processing error: ${error.message}`, 'error');
+        console.error('[Auto Processing] Batch error:', error);
     }
 }
 
@@ -622,10 +632,12 @@ async function processTransaction(transaction) {
 
     } catch (error) {
         console.error('[Auto Processing] Error processing transaction:', error);
+        console.error('[Auto Processing] Error stack:', error.stack);
         transaction.transaction_status = 'FAILED';
         transaction.error_message = error.message;
 
         addLogEntry('Error', `✗ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - FAILED: ${error.message}`, 'error');
+        addLogEntry('Debug', `Error type: ${error.name} | Stack: ${error.stack?.substring(0, 100)}`, 'error');
 
         // Update display
         displayGroupedTrips();
@@ -638,15 +650,23 @@ async function processTransaction(transaction) {
 // Simulate processing (replace with actual API call)
 function simulateProcessing(transaction) {
     return new Promise((resolve, reject) => {
-        // Simulate processing time 1-3 seconds
-        const processingTime = 1000 + Math.random() * 2000;
+        // Simulate processing time 0.5-1.5 seconds (faster for testing)
+        const processingTime = 500 + Math.random() * 1000;
+
+        addLogEntry('Debug', `Simulating ${transaction.trx_number} line ${transaction.line_number} for ${Math.round(processingTime)}ms`, 'info');
 
         setTimeout(() => {
-            // Simulate 80% success rate
-            if (Math.random() > 0.2) {
+            // Simulate 90% success rate (10% failure for testing)
+            const randomValue = Math.random();
+            addLogEntry('Debug', `Random value: ${randomValue.toFixed(3)} (threshold: 0.1)`, 'info');
+
+            if (randomValue > 0.1) {
+                addLogEntry('Debug', `Simulation SUCCESS for ${transaction.trx_number} line ${transaction.line_number}`, 'success');
                 resolve();
             } else {
-                reject(new Error('Processing failed (simulated)'));
+                const errorMsg = `SIMULATED RANDOM FAILURE - Order: ${transaction.trx_number}, Line: ${transaction.line_number}`;
+                addLogEntry('Debug', errorMsg, 'error');
+                reject(new Error(errorMsg));
             }
         }, processingTime);
     });
