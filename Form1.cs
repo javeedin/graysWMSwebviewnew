@@ -3025,8 +3025,11 @@ namespace WMSApp
                 UpdateSecurityIcon(GetCurrentWebView());
 
                 // Send user session to WMS pages after navigation completes
-                if (_isLoggedIn && wv.Source.Contains("/wms/index.html"))
+                string source = wv.Source.ToLower();
+                if (_isLoggedIn && (source.Contains("/wms/index.html") || source.Contains("\\wms\\index.html")))
                 {
+                    // Add a small delay to ensure JavaScript is fully loaded
+                    await System.Threading.Tasks.Task.Delay(500);
                     SendUserSessionToWebView(wv);
                 }
             }
@@ -3036,18 +3039,16 @@ namespace WMSApp
         {
             try
             {
-                var sessionData = new
-                {
-                    action = "setUserSession",
-                    username = _loggedInUsername,
-                    instance = _loggedInInstance,
-                    loginDateTime = "Logged in: " + _loggedInDateTime
-                };
+                // Escape strings for JavaScript
+                string username = _loggedInUsername?.Replace("'", "\\'") ?? "";
+                string instance = _loggedInInstance?.Replace("'", "\\'") ?? "";
+                string loginDateTime = ("Logged in: " + _loggedInDateTime)?.Replace("'", "\\'") ?? "";
 
-                string jsonMessage = JsonSerializer.Serialize(sessionData);
-                await wv.ExecuteScriptAsync($"window.postMessage({jsonMessage}, '*');");
+                // Call the JavaScript function directly
+                string script = $"if (typeof setLoggedInUser === 'function') {{ setLoggedInUser('{username}', '{instance}', '{loginDateTime}'); }}";
+                await wv.ExecuteScriptAsync(script);
 
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Sent user session to WebView: {_loggedInUsername} ({_loggedInInstance}) - {_loggedInDateTime}");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Sent user session to WebView: {username} ({instance}) - {loginDateTime}");
             }
             catch (Exception ex)
             {

@@ -74,7 +74,7 @@ namespace WMSApp
             Panel contentPanel = new Panel
             {
                 Location = new Point(40, 120),
-                Size = new Size(520, 350),
+                Size = new Size(520, 420),
                 BackColor = Color.White,
                 Padding = new Padding(20)
             };
@@ -205,7 +205,7 @@ namespace WMSApp
             // Buttons Panel
             Panel buttonPanel = new Panel
             {
-                Location = new Point(40, 620),
+                Location = new Point(40, 555),
                 Size = new Size(520, 50),
                 BackColor = Color.Transparent
             };
