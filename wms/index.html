@@ -48,26 +48,33 @@
         <div class="module-buttons">
             <!-- Module buttons hidden - navigation handled by C# Form -->
         </div>
-        <!-- User Info Panel with Logout -->
-        <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem; background: #f8f9fa; padding: 0.75rem 1.25rem; border-radius: 10px; border: 2px solid #dee2e6;">
-            <i class="fas fa-user-circle" style="font-size: 32px; color: #667eea;"></i>
-            <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span id="logged-in-username" style="font-weight: 700; font-size: 15px; color: #2d3748;"></span>
-                    <span style="font-size: 11px; background: #667eea; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 600;" id="current-instance-display-mini"></span>
+
+        <!-- Right Side: User Info & Instance Selector -->
+        <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
+            <!-- User Info Panel with Logout -->
+            <div style="display: flex; align-items: center; gap: 0.75rem; background: #f8f9fa; padding: 0.6rem 1rem; border-radius: 8px; border: 2px solid #dee2e6;">
+                <i class="fas fa-user-circle" style="font-size: 24px; color: #667eea;"></i>
+                <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span id="logged-in-username" style="font-weight: 700; font-size: 13px; color: #2d3748;"></span>
+                        <span style="font-size: 10px; background: #667eea; color: white; padding: 2px 5px; border-radius: 3px; font-weight: 600;" id="current-instance-display-mini"></span>
+                    </div>
+                    <span id="login-datetime" style="font-size: 10px; color: #888; margin-top: 1px;">Not logged in</span>
                 </div>
-                <span id="login-datetime" style="font-size: 11px; color: #888; margin-top: 2px;">Not logged in</span>
+                <button onclick="handleLogout()" style="background: #dc3545; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 11px; transition: background 0.2s;" onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
+                    <i class="fas fa-sign-out-alt"></i> Logout
+                </button>
             </div>
-            <button onclick="handleLogout()" style="background: #dc3545; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 12px; transition: background 0.2s;" onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
-                <i class="fas fa-sign-out-alt"></i> Logout
-            </button>
+
+            <!-- Instance Selector -->
+            <div id="instance-selector" style="display: flex; align-items: center; gap: 0.5rem; background: #f8f9fa; padding: 0.6rem 1rem; border-radius: 8px; cursor: pointer; border: 2px solid #dee2e6; transition: all 0.2s;" onclick="toggleInstanceMenu()">
+                <i class="fas fa-server" style="color: #667eea;"></i>
+                <span style="font-weight: 600; color: #2d3748; font-size: 13px;">Instance:</span>
+                <span id="current-instance-display" style="font-weight: 700; color: #667eea; font-size: 13px;">PROD</span>
+                <i class="fas fa-chevron-down" style="color: #667eea; font-size: 11px;"></i>
+            </div>
         </div>
-        <div id="instance-selector" style="margin-left: 1rem; display: flex; align-items: center; gap: 0.5rem; background: #f8f9fa; padding: 0.5rem 1rem; border-radius: 8px; cursor: pointer; border: 2px solid #dee2e6; transition: all 0.2s;" onclick="toggleInstanceMenu()">
-            <i class="fas fa-server" style="color: #667eea;"></i>
-            <span style="font-weight: 600; color: #2d3748; font-size: 14px;">Instance:</span>
-            <span id="current-instance-display" style="font-weight: 700; color: #667eea; font-size: 14px;">PROD</span>
-            <i class="fas fa-chevron-down" style="color: #667eea; font-size: 12px;"></i>
-        </div>
+
         <!-- Instance Dropdown Menu -->
         <div id="instance-dropdown-menu" style="display: none; position: absolute; top: 60px; right: 20px; background: white; border: 2px solid #dee2e6; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10000; min-width: 150px;">
             <div class="instance-menu-item" data-instance="PROD" style="padding: 0.75rem 1rem; cursor: pointer; border-bottom: 1px solid #f0f0f0; transition: background 0.2s; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'" onclick="selectInstance('PROD')">
