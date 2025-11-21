@@ -189,6 +189,9 @@ function initializeTripOrdersGrid() {
                     caption: 'Pick Status',
                     width: 80,
                     alignment: 'center',
+                    calculateCellValue: function(rowData) {
+                        return rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
+                    },
                     cellTemplate: function(container, options) {
                         const value = options.value;
                         const wrapper = document.createElement('div');
@@ -216,6 +219,9 @@ function initializeTripOrdersGrid() {
                     caption: 'Ship Status',
                     width: 80,
                     alignment: 'center',
+                    calculateCellValue: function(rowData) {
+                        return rowData.SHIP_CONFIRM_ST || rowData.ship_confirm_st || '';
+                    },
                     cellTemplate: function(container, options) {
                         const value = options.value;
                         const wrapper = document.createElement('div');
