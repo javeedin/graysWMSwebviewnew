@@ -1087,8 +1087,25 @@ window.showTripDetailsPageDialog = function(tripId, tripData) {
                 <h3 style="font-size: 0.85rem; font-weight: 600; margin: 0; color: var(--gray-800);">
                     <i class="fas fa-table" style="font-size: 0.75rem;"></i> Order Details
                 </h3>
-                <div style="color: var(--gray-600); font-size: 0.7rem;">
-                    <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div style="color: var(--gray-600); font-size: 0.7rem;">
+                        <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
+                    </div>
+                    <button class="btn btn-info" onclick="refreshTripDetails('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                        <i class="fas fa-user-check"></i> Assign Picker
+                    </button>
+                    <button class="btn btn-success" onclick="allocateLotsForS2V('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                        <i class="fas fa-boxes"></i> Allocate Lots for S2V
+                    </button>
+                    <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                        <i class="fas fa-truck-loading"></i> Pick Release All
+                    </button>
+                    <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                        <i class="fas fa-plus"></i> Add Orders
+                    </button>
                 </div>
             </div>
             <div id="trip-dialog-grid" style="height: 500px;"></div>
@@ -1103,7 +1120,7 @@ window.showTripDetailsPageDialog = function(tripId, tripData) {
 
     // Initialize grid after DOM is ready
     setTimeout(() => {
-        initializeTripDialogGrid(tripData);
+        initializeTripDialogGrid(tripId, tripData);
     }, 100);
 };
 
@@ -1132,9 +1149,9 @@ window.toggleTripSummaryDialog = function() {
 };
 
 // Initialize trip dialog grid with data (matching app.js grid structure)
-function initializeTripDialogGrid(tripData) {
+function initializeTripDialogGrid(tripId, tripData) {
     try {
-        console.log('[Co-Pilot] Initializing trip dialog grid with', tripData.length, 'records');
+        console.log('[Co-Pilot] Initializing trip dialog grid for trip:', tripId, 'with', tripData.length, 'records');
 
         const gridContainer = $('#trip-dialog-grid');
         if (!gridContainer || gridContainer.length === 0) {
@@ -1177,7 +1194,7 @@ function initializeTripDialogGrid(tripData) {
             return col;
         });
 
-        // Add Actions column at the beginning (same as app.js)
+        // Add Actions column at the beginning (EXACT SAME as app.js)
         columns.unshift({
             caption: 'Actions',
             width: 180,
@@ -1188,66 +1205,57 @@ function initializeTripDialogGrid(tripData) {
                 const rowData = options.data;
                 const instanceName = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
                 const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
+                const tripIdFromRow = rowData.TRIP_ID || rowData.trip_id || '';
+                const tripDateFromRow = rowData.TRIP_DATE || rowData.trip_date || '';
 
                 $(container).html(`
-                    <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                        <button class="btn btn-sm btn-info" onclick='openStoreTransactionsDialog(${JSON.stringify(rowData).replace(/'/g, "&apos;")})' title="Edit">
-                            <i class="fas fa-edit"></i>
+                    <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                        <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
+                            <i class="fas fa-print" style="color: #8b5cf6;"></i>
+                        </button>
+                        <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
+                            <i class="fas fa-user-times" style="color: #ef4444;"></i>
+                        </button>
+                        <button class="icon-btn" onclick="pickRelease('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Pick Release">
+                            <i class="fas fa-check-circle" style="color: #10b981;"></i>
+                        </button>
+                        <button class="icon-btn" onclick='editTripOrder(${JSON.stringify(rowData)})' title="Edit">
+                            <i class="fas fa-edit" style="color: #3b82f6;"></i>
+                        </button>
+                        <button class="icon-btn" onclick="deleteTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Delete">
+                            <i class="fas fa-trash" style="color: #f59e0b;"></i>
                         </button>
                     </div>
                 `);
             }
         });
 
-        // Initialize DevExpress grid (same configuration as app.js)
+        // Initialize DevExpress grid (EXACT SAME configuration as app.js)
         gridContainer.dxDataGrid({
             dataSource: tripData,
+            columns: columns,
             showBorders: true,
-            showRowLines: true,
-            showColumnLines: true,
-            rowAlternationEnabled: true,
             columnAutoWidth: true,
+            scrolling: { useNative: true, showScrollbar: 'always' },
+            filterRow: { visible: true },
+            headerFilter: { visible: true },
+            searchPanel: { visible: true, placeholder: "Search..." },
+            paging: { pageSize: 20 },
+            pager: { showPageSizeSelector: true, allowedPageSizes: [10, 20, 50, 'all'] },
             allowColumnReordering: true,
             allowColumnResizing: true,
-            hoverStateEnabled: true,
-            filterRow: {
-                visible: true,
-                applyFilter: 'auto'
-            },
-            headerFilter: {
-                visible: true
-            },
-            searchPanel: {
-                visible: true,
-                width: 240,
-                placeholder: 'Search...'
-            },
-            paging: {
-                pageSize: 20
-            },
-            pager: {
-                visible: true,
-                showPageSizeSelector: true,
-                allowedPageSizes: [10, 20, 50, 100],
-                showInfo: true
+            columnResizingMode: 'widget',
+            rowAlternationEnabled: true,
+            selection: {
+                mode: 'multiple',
+                showCheckBoxesMode: 'always'
             },
             export: {
                 enabled: true,
-                fileName: 'trip-details'
+                allowExportSelectedData: true,
+                fileName: `Trip_${tripId}`
             },
-            columns: columns,
-            onToolbarPreparing: function(e) {
-                e.toolbarOptions.items.unshift({
-                    location: 'after',
-                    widget: 'dxButton',
-                    options: {
-                        icon: 'refresh',
-                        onClick: function() {
-                            e.component.refresh();
-                        }
-                    }
-                });
-            }
+            height: '100%'
         });
 
         console.log('[Co-Pilot] Trip dialog grid initialized successfully');
