@@ -44,7 +44,7 @@ namespace WMSApp
         private void InitializeComponent()
         {
             this.Text = "WMS Login";
-            this.Size = new Size(600, 600);
+            this.Size = new Size(600, 700);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -205,7 +205,7 @@ namespace WMSApp
             // Buttons Panel
             Panel buttonPanel = new Panel
             {
-                Location = new Point(40, 520),
+                Location = new Point(40, 620),
                 Size = new Size(520, 50),
                 BackColor = Color.Transparent
             };

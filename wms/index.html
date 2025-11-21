@@ -53,8 +53,8 @@
             <i class="fas fa-user-circle" style="font-size: 32px; color: #667eea;"></i>
             <div style="display: flex; flex-direction: column; align-items: flex-start;">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span id="logged-in-username" style="font-weight: 700; font-size: 15px; color: #2d3748;">Admin</span>
-                    <span style="font-size: 11px; background: #667eea; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 600;" id="current-instance-display-mini">PROD</span>
+                    <span id="logged-in-username" style="font-weight: 700; font-size: 15px; color: #2d3748;"></span>
+                    <span style="font-size: 11px; background: #667eea; color: white; padding: 2px 6px; border-radius: 4px; font-weight: 600;" id="current-instance-display-mini"></span>
                 </div>
                 <span id="login-datetime" style="font-size: 11px; color: #888; margin-top: 2px;">Not logged in</span>
             </div>
@@ -1795,12 +1795,21 @@
                 console.log('[LOGIN] Username updated in UI');
             }
 
-            // Update instance display
+            // Update instance display in both places
             const instanceElement = document.getElementById('current-instance-display');
             if (instanceElement) {
                 instanceElement.textContent = instance;
-                console.log('[LOGIN] Instance updated in UI');
+                console.log('[LOGIN] Instance dropdown updated in UI');
             }
+
+            const instanceElementMini = document.getElementById('current-instance-display-mini');
+            if (instanceElementMini) {
+                instanceElementMini.textContent = instance;
+                console.log('[LOGIN] Instance badge updated in UI');
+            }
+
+            // Update instance checkmarks
+            updateInstanceCheckmarks(instance);
 
             // Update login date/time display
             const loginDateTimeElement = document.getElementById('login-datetime');
@@ -1822,6 +1831,61 @@
             sessionStorage.setItem('loggedInDateTime', loginDateTime || new Date().toISOString());
         };
 
+        // Toggle instance dropdown menu
+        window.toggleInstanceMenu = function() {
+            const dropdown = document.getElementById('instance-dropdown-menu');
+            if (dropdown) {
+                dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+            }
+        };
+
+        // Update instance checkmarks in dropdown
+        window.updateInstanceCheckmarks = function(instance) {
+            // Hide all checkmarks
+            const checkProd = document.getElementById('check-PROD');
+            const checkTest = document.getElementById('check-TEST');
+
+            if (checkProd) checkProd.style.visibility = 'hidden';
+            if (checkTest) checkTest.style.visibility = 'hidden';
+
+            // Show checkmark for selected instance
+            const checkElement = document.getElementById('check-' + instance);
+            if (checkElement) {
+                checkElement.style.visibility = 'visible';
+            }
+        };
+
+        // Handle instance selection from dropdown
+        window.selectInstance = function(instance) {
+            console.log('[INSTANCE] Switching to:', instance);
+
+            // Update both instance displays
+            const instanceElement = document.getElementById('current-instance-display');
+            if (instanceElement) {
+                instanceElement.textContent = instance;
+            }
+
+            const instanceElementMini = document.getElementById('current-instance-display-mini');
+            if (instanceElementMini) {
+                instanceElementMini.textContent = instance;
+            }
+
+            // Update checkmarks
+            updateInstanceCheckmarks(instance);
+
+            // Save to session
+            sessionStorage.setItem('loggedInInstance', instance);
+
+            // Close dropdown
+            const dropdown = document.getElementById('instance-dropdown-menu');
+            if (dropdown) {
+                dropdown.style.display = 'none';
+            }
+
+            // Show success message
+            showMessage('Switched to ' + instance + ' instance', 'success');
+        };
+
         // Handle logout
         window.handleLogout = function() {
             console.log('[LOGOUT] User logging out...');
@@ -1834,7 +1898,7 @@
             // Reset UI to default state
             const usernameElement = document.getElementById('logged-in-username');
             if (usernameElement) {
-                usernameElement.textContent = 'Admin';
+                usernameElement.textContent = '';
             }
 
             const loginDateTimeElement = document.getElementById('login-datetime');
@@ -1842,10 +1906,18 @@
                 loginDateTimeElement.textContent = 'Not logged in';
             }
 
-            const instanceElement = document.getElementById('current-instance-display-mini');
+            const instanceElement = document.getElementById('current-instance-display');
             if (instanceElement) {
                 instanceElement.textContent = 'PROD';
             }
+
+            const instanceElementMini = document.getElementById('current-instance-display-mini');
+            if (instanceElementMini) {
+                instanceElementMini.textContent = '';
+            }
+
+            // Reset checkmarks to PROD
+            updateInstanceCheckmarks('PROD');
 
             // Notify C# WebView to clear session
             if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
