@@ -2371,28 +2371,24 @@ window.showPrinterQueue = async function() {
     status.style.color = '#ffc107';
 
     try {
-        // Check if WebView2 API is available
-        if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
-            // Request printer queue from C# backend
-            window.chrome.webview.postMessage({
-                action: 'getPrinterQueue'
-            });
+        // Use existing APEX API to get printer list
+        const data = await callApexAPINew('/printers/all', 'GET');
 
-            // Listen for response
-            window.chrome.webview.addEventListener('message', function(event) {
-                if (event.data && event.data.type === 'printerQueue') {
-                    displayPrinterQueueModal(event.data.queue);
-                }
-            });
+        if (data && data.printers && Array.isArray(data.printers)) {
+            // Transform the data to include queue information
+            const printerQueue = data.printers.map(printer => ({
+                name: printer.printer_name || printer.name || 'Unknown',
+                status: printer.is_active ? 'Ready' : 'Inactive',
+                jobCount: 0, // This would need to come from Windows API
+                location: printer.fusion_instance || 'N/A',
+                paperSize: printer.paper_size || 'N/A',
+                orientation: printer.orientation || 'N/A'
+            }));
+
+            displayPrinterQueueModal(printerQueue);
         } else {
-            // Fallback: Try to get printer list from printer management
-            const response = await fetch('/api/printers');
-            if (response.ok) {
-                const printers = await response.json();
-                displayPrinterQueueModal(printers);
-            } else {
-                throw new Error('Unable to retrieve printer information');
-            }
+            // If no printers found, show empty state
+            displayPrinterQueueModal([]);
         }
     } catch (error) {
         console.error('[Printer Queue] Error:', error);
