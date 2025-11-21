@@ -388,18 +388,18 @@ function renderTripTransactions(transactions, tripIndex) {
                                   'clock';
 
             html += `
-                <tr style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                <tr id="transaction-row-${tripIndex}-${item.originalIndex}" style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #94a3b8; font-weight: 600;">${itemIdx + 1}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.item_code}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.item_desc}">${item.item_desc}</td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.picked_qty}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.lot_number || 'N/A'}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;" id="status-cell-${tripIndex}-${item.originalIndex}">
                         <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${itemStatusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
                             <i class="fas fa-${itemStatusIcon}"></i> ${item.transaction_status || 'PENDING'}
                         </span>
                     </td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;" id="action-cell-${tripIndex}-${item.originalIndex}">
                         ${(item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR') ? `
                             <button onclick="retryTransaction(${tripIndex}, ${item.originalIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
                                 <i class="fas fa-redo"></i> Retry
@@ -553,6 +553,44 @@ function stopAutoProcessing() {
     addLogEntry('System', 'Auto processing DISABLED', 'warning');
 }
 
+// Update single transaction status in DOM (without re-rendering)
+function updateTransactionStatusInDOM(tripIndex, transactionIndex, status) {
+    const statusCell = document.getElementById(`status-cell-${tripIndex}-${transactionIndex}`);
+    const actionCell = document.getElementById(`action-cell-${tripIndex}-${transactionIndex}`);
+
+    if (!statusCell || !actionCell) return;
+
+    // Update status badge
+    const statusColor = status === 'SUCCESS' ? '#10b981' :
+                       status === 'FAILED' || status === 'ERROR' ? '#ef4444' :
+                       status === 'PROCESSING' ? '#f59e0b' :
+                       '#3b82f6';
+
+    const statusIcon = status === 'SUCCESS' ? 'check-circle' :
+                      status === 'FAILED' || status === 'ERROR' ? 'times-circle' :
+                      status === 'PROCESSING' ? 'spinner fa-spin' :
+                      'clock';
+
+    statusCell.innerHTML = `
+        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+            <i class="fas fa-${statusIcon}"></i> ${status}
+        </span>
+    `;
+
+    // Update action button
+    if (status === 'FAILED' || status === 'ERROR') {
+        actionCell.innerHTML = `
+            <button onclick="retryTransaction(${tripIndex}, ${transactionIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                <i class="fas fa-redo"></i> Retry
+            </button>
+        `;
+    } else if (status === 'PROCESSING') {
+        actionCell.innerHTML = `<span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>`;
+    } else {
+        actionCell.innerHTML = `<span style="color: #cbd5e1; font-size: 10px;">-</span>`;
+    }
+}
+
 // Process next batch of transactions
 async function processNextBatch() {
     if (!autoProcessingEnabled) return;
@@ -591,39 +629,51 @@ async function processNextBatch() {
                 break;
             }
 
-            // Process transaction (no UI update inside)
-            await processAutoTransaction(transaction);
+            // Find the trip and transaction index for DOM update
+            const tripIndex = autoProcessingData.findIndex(t => t === transaction);
+            const groupedTrips = groupTransactionsByTrip();
+            let actualTripIndex = -1;
+            let actualTransactionIndex = -1;
+
+            groupedTrips.forEach((trip, tIdx) => {
+                const idx = trip.transactions.findIndex(t => t === transaction);
+                if (idx !== -1) {
+                    actualTripIndex = tIdx;
+                    actualTransactionIndex = idx;
+                }
+            });
+
+            // Process transaction and update status in DOM
+            await processAutoTransaction(transaction, actualTripIndex, actualTransactionIndex);
             processedCount++;
 
-            // Update UI every 5 transactions or on last transaction
+            // Update statistics every 5 transactions
             if (processedCount % 5 === 0 || i === pendingTransactions.length - 1) {
                 addLogEntry('Progress', `Processed ${processedCount} of ${pendingTransactions.length} transactions`, 'info');
-                displayGroupedTrips();
                 updateStatistics();
-                // Small delay to allow UI to update
-                await new Promise(resolve => setTimeout(resolve, 100));
             }
         }
 
         if (autoProcessingEnabled) {
             addLogEntry('Processing', `All ${processedCount} pending transactions processed!`, 'success');
-            // Final UI update
-            displayGroupedTrips();
             updateStatistics();
         }
     } catch (error) {
         addLogEntry('Error', `Batch processing error: ${error.message}`, 'error');
         console.error('[Auto Processing] Batch error:', error);
-        // Update UI on error
-        displayGroupedTrips();
         updateStatistics();
     }
 }
 
 // Process a single auto transaction (background processing - no UI updates)
-async function processAutoTransaction(transaction) {
+async function processAutoTransaction(transaction, tripIndex, transactionIndex) {
     // Set status to PROCESSING
     transaction.transaction_status = 'PROCESSING';
+
+    // Update DOM to show PROCESSING status
+    if (tripIndex !== -1 && transactionIndex !== -1) {
+        updateTransactionStatusInDOM(tripIndex, transactionIndex, 'PROCESSING');
+    }
 
     try {
         // TODO: Call actual web service API to process transaction
@@ -633,12 +683,22 @@ async function processAutoTransaction(transaction) {
         // Update transaction status
         transaction.transaction_status = 'SUCCESS';
 
+        // Update DOM to show SUCCESS status
+        if (tripIndex !== -1 && transactionIndex !== -1) {
+            updateTransactionStatusInDOM(tripIndex, transactionIndex, 'SUCCESS');
+        }
+
         addLogEntry('Success', `✓ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - SUCCESS`, 'success');
 
     } catch (error) {
         console.error('[Auto Processing] Error processing transaction:', error);
         transaction.transaction_status = 'FAILED';
         transaction.error_message = error.message;
+
+        // Update DOM to show FAILED status
+        if (tripIndex !== -1 && transactionIndex !== -1) {
+            updateTransactionStatusInDOM(tripIndex, transactionIndex, 'FAILED');
+        }
 
         addLogEntry('Error', `✗ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - FAILED: ${error.message}`, 'error');
 
@@ -673,10 +733,9 @@ async function retryTransaction(tripIndex, transactionIndex) {
 
     addLogEntry('Retry', `Retrying Order: ${transaction.trx_number} | Line: ${transaction.line_number}...`, 'warning');
 
-    await processAutoTransaction(transaction);
+    await processAutoTransaction(transaction, tripIndex, transactionIndex);
 
-    // Update UI after retry
-    displayGroupedTrips();
+    // Update statistics after retry
     updateStatistics();
 }
 
