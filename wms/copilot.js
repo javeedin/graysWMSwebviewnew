@@ -81,7 +81,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 break;
             case 'addToTrip':
             case 'printOrder':
-            case 'printTrip':
+            case 'searchTransaction':
             case 'autoSchedule':
             case 'optimizeRoute':
                 // For other actions, show in chat
@@ -95,10 +95,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         response = '📦 To add orders to an existing trip, I need:\n\n• Trip ID\n• Order numbers to add\n\n(Full implementation coming soon)';
                     } else if (action === 'printOrder') {
                         response = '🖨️ I can help you print orders. Please specify:\n\n• Order numbers\n• Printer to use\n\n(Full implementation coming soon)';
-                    } else if (action === 'printTrip') {
-                        response = '📄 Please enter the Trip ID to view trip details:';
+                    } else if (action === 'searchTransaction') {
+                        response = '🔍 Please enter the Transaction Number:';
 
-                        // Add input field for trip ID
+                        // Add input field for transaction number with type options
                         setTimeout(() => {
                             const chatMessages = document.getElementById('copilot-chat-messages');
                             const inputDiv = document.createElement('div');
@@ -108,15 +108,23 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <i class="fas fa-robot"></i>
                                 </div>
                                 <div class="copilot-message-bubble">
-                                    <div style="margin-bottom: 0.5rem;">Enter Trip ID:</div>
-                                    <input type="text" id="copilot-trip-id-input"
+                                    <div style="margin-bottom: 0.5rem; font-weight: 600;">Enter Transaction Number:</div>
+                                    <input type="text" id="copilot-transaction-number-input"
                                            placeholder="e.g., 12345"
-                                           style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;"
-                                           onkeypress="if(event.key==='Enter') handleTripIdSubmit()">
-                                    <button onclick="handleTripIdSubmit()"
-                                            style="margin-top: 0.5rem; padding: 0.5rem 1rem; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600;">
-                                        <i class="fas fa-search"></i> View Trip Details
-                                    </button>
+                                           style="width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; margin-bottom: 0.75rem;">
+                                    <div style="margin-bottom: 0.5rem; font-weight: 600;">Select Transaction Type:</div>
+                                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                        <button onclick="handleTransactionSearch('S2V')"
+                                                style="flex: 1; padding: 0.6rem 1rem; background: #10b981; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;"
+                                                onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                            <i class="fas fa-truck"></i> Search S2V
+                                        </button>
+                                        <button onclick="handleTransactionSearch('Order')"
+                                                style="flex: 1; padding: 0.6rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;"
+                                                onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                                            <i class="fas fa-box"></i> Search Order
+                                        </button>
+                                    </div>
                                 </div>
                             `;
                             chatMessages.appendChild(inputDiv);
@@ -124,7 +132,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                             // Focus on input
                             setTimeout(() => {
-                                document.getElementById('copilot-trip-id-input')?.focus();
+                                document.getElementById('copilot-transaction-number-input')?.focus();
                             }, 100);
                         }, 100);
                     } else if (action === 'autoSchedule') {
@@ -701,6 +709,55 @@ window.handleTripIdSubmit = async function() {
         if (lastMessage) {
             lastMessage.textContent = `❌ Error loading trip details: ${error.message}`;
         }
+    }
+};
+
+// ============================================================================
+// HANDLE TRANSACTION SEARCH FROM CO-PILOT
+// ============================================================================
+
+window.handleTransactionSearch = function(type) {
+    const transactionInput = document.getElementById('copilot-transaction-number-input');
+    const transactionNumber = transactionInput?.value.trim();
+
+    if (!transactionNumber) {
+        alert('Please enter a Transaction Number');
+        return;
+    }
+
+    console.log('[Co-Pilot] Searching transaction:', transactionNumber, 'Type:', type);
+
+    // Add user message
+    addChatMessage('user', `Search ${type}: ${transactionNumber}`);
+
+    if (type === 'S2V') {
+        // For S2V (Store to Van), open Store Transactions dialog
+        addChatMessage('assistant', `✅ Opening Store Transactions for: ${transactionNumber}`);
+
+        // Close copilot panel
+        toggleCopilot();
+
+        // Open Store Transactions dialog with the transaction number
+        setTimeout(() => {
+            // Create a rowData object with the transaction number
+            const rowData = {
+                ORDER_NUMBER: transactionNumber,
+                order_number: transactionNumber,
+                ORDER_TYPE: 'S2V',
+                order_type: 'S2V'
+            };
+
+            // Call the existing openStoreTransactionsDialog function from app.js
+            if (typeof window.openStoreTransactionsDialog === 'function') {
+                window.openStoreTransactionsDialog(rowData);
+            } else {
+                alert('Store Transactions dialog function not found. Please ensure app.js is loaded.');
+            }
+        }, 300);
+
+    } else if (type === 'Order') {
+        // For regular Order search
+        addChatMessage('assistant', `🔍 Order search for: ${transactionNumber}\n\n(Implementation coming soon)`);
     }
 };
 

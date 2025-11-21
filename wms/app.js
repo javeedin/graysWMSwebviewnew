@@ -3713,7 +3713,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    function openStoreTransactionsDialog(rowData) {
+    window.openStoreTransactionsDialog = function(rowData) {
         console.log('[Store Transactions] Opening dialog for order:', rowData);
 
         const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || '';
@@ -3883,7 +3883,7 @@ document.addEventListener('DOMContentLoaded', function() {
             refreshQOHDetails(orderNumber);
             refreshAllocatedLots(orderNumber);
         }, 100);
-    }
+    };
 
     window.closeStoreTransactionsModal = function() {
         const modal = document.getElementById('store-transactions-modal');
