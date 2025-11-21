@@ -773,12 +773,27 @@ window.handleTransactionSearch = function(type) {
 
         // Open Store Transactions dialog with the transaction number
         setTimeout(() => {
-            // Create a rowData object with the transaction number
+            // Get instance from header dropdown (sessionStorage) or fallback to UI element or localStorage
+            const instanceName = sessionStorage.getItem('loggedInInstance')
+                || document.getElementById('current-instance-display')?.textContent
+                || localStorage.getItem('fusionInstance')
+                || 'PROD';  // Default to PROD instead of TEST
+
+            console.log('[Co-Pilot Search Transaction] Instance detection:', {
+                'sessionStorage': sessionStorage.getItem('loggedInInstance'),
+                'UI element': document.getElementById('current-instance-display')?.textContent,
+                'localStorage': localStorage.getItem('fusionInstance'),
+                'Final instanceName': instanceName
+            });
+
+            // Create a rowData object with the transaction number and instance
             const rowData = {
                 ORDER_NUMBER: transactionNumber,
                 order_number: transactionNumber,
                 ORDER_TYPE: 'S2V',
-                order_type: 'S2V'
+                order_type: 'S2V',
+                instance_name: instanceName,
+                INSTANCE_NAME: instanceName
             };
 
             // Call the existing openStoreTransactionsDialog function from app.js
