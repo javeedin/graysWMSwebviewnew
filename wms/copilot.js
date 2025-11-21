@@ -865,22 +865,34 @@ window.handlePrintTripSubmit = async function() {
         console.log('[Co-Pilot] Final response object:', response);
 
         if (response && response.items && response.items.length > 0) {
-            // Pass the entire items array, just like View Details button does
+            // Get trip data
             const tripData = response.items;
-            console.log('[Co-Pilot] Trip data received (', tripData.length, 'records):', tripData);
+            const firstRecord = tripData[0];
+
+            // Extract trip details from first record
+            const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '';
+            const lorryNumber = firstRecord.TRIP_LORRY || firstRecord.trip_lorry || '';
+
+            console.log('[Co-Pilot] Trip data received (', tripData.length, 'records)');
+            console.log('[Co-Pilot] Trip Date:', tripDate, 'Lorry:', lorryNumber);
 
             // Show success message
             const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
             if (lastMessage) {
-                lastMessage.textContent = `✅ Trip found! Opening Trip Details dialog...`;
+                lastMessage.textContent = `✅ Trip found! Opening Trip Details page...`;
             }
 
             // Close copilot panel
             toggleCopilot();
 
-            // Open trip details in dialog - using the Trip Details Page content
+            // Open trip details as a PAGE (not dialog) - using the existing function
             setTimeout(() => {
-                showTripDetailsPageDialog(tripId, tripData);
+                if (typeof openTripDetailsWithData === 'function') {
+                    openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
+                } else {
+                    console.error('[Co-Pilot] openTripDetailsWithData function not found');
+                    alert('Error: Trip details function not available');
+                }
             }, 300);
         } else {
             const lastMessage = document.querySelector('.copilot-message-assistant:last-child .copilot-message-bubble');
