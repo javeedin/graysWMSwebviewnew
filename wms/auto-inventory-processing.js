@@ -45,8 +45,8 @@ function initializeAutoProcessing() {
     addLogEntry('System', 'Auto Inventory Processing initialized', 'success');
 }
 
-// Fetch auto inventory data from API
-async function fetchAutoInventoryData() {
+// Fetch auto inventory data from API using WebView REST handler
+function fetchAutoInventoryData() {
     const fromDate = document.getElementById('auto-from-date').value;
     const toDate = document.getElementById('auto-to-date').value;
 
@@ -61,45 +61,68 @@ async function fetchAutoInventoryData() {
 
     addLogEntry('API', `Fetching data from ${fromDate} to ${toDate}...`, 'info');
 
-    try {
-        // Get instance from sessionStorage or header
-        const instance = sessionStorage.getItem('loggedInInstance')
-            || document.getElementById('current-instance-display')?.textContent
-            || 'PROD';
+    // Get instance from sessionStorage or header
+    const instance = sessionStorage.getItem('loggedInInstance')
+        || document.getElementById('current-instance-display')?.textContent
+        || 'PROD';
 
-        // Build API URL
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/transactionforautopr?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}`;
+    // Build API URL
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/transactionforautopr?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}`;
 
-        console.log('[Auto Processing] Fetching from:', apiUrl);
+    console.log('[Auto Processing] Fetching from:', apiUrl);
 
-        const response = await fetch(apiUrl);
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const data = await response.json();
-
-        // Store the data
-        autoProcessingData = data.items || [];
-
-        console.log('[Auto Processing] Fetched', autoProcessingData.length, 'records');
-        addLogEntry('API', `Fetched ${autoProcessingData.length} transaction records`, 'success');
-
-        // Group and display data
-        displayGroupedTrips();
-
-        // Update statistics
-        updateStatistics();
-
-    } catch (error) {
-        console.error('[Auto Processing] Fetch error:', error);
-        addLogEntry('Error', `Failed to fetch data: ${error.message}`, 'error');
-        alert('Failed to fetch data: ' + error.message);
-    } finally {
+    // Use WebView REST handler
+    sendMessageToCSharp({
+        action: "executeGet",
+        fullUrl: apiUrl
+    }, function(error, data) {
         fetchBtn.disabled = false;
         fetchBtn.innerHTML = '<i class="fas fa-sync-alt"></i> Fetch Data';
-    }
+
+        if (error) {
+            console.error('[Auto Processing] Fetch error:', error);
+            addLogEntry('Error', `Failed to fetch data: ${error}`, 'error');
+
+            const container = document.getElementById('auto-trips-container');
+            container.innerHTML = `
+                <div style="text-align: center; padding: 3rem; color: #ef4444;">
+                    <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 1rem;"></i>
+                    <h3>Error Loading Data</h3>
+                    <p style="color: #64748b;">${error}</p>
+                </div>
+            `;
+        } else {
+            try {
+                // Parse response
+                let response = JSON.parse(data);
+
+                // Store the data
+                autoProcessingData = response.items || [];
+
+                console.log('[Auto Processing] Fetched', autoProcessingData.length, 'records');
+                addLogEntry('API', `Fetched ${autoProcessingData.length} transaction records`, 'success');
+
+                // Group and display data
+                displayGroupedTrips();
+
+                // Update statistics
+                updateStatistics();
+
+            } catch (e) {
+                console.error('[Auto Processing] Parse error:', e);
+                addLogEntry('Error', `Failed to parse data: ${e.message}`, 'error');
+
+                const container = document.getElementById('auto-trips-container');
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 3rem; color: #ef4444;">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 1rem;"></i>
+                        <h3>Invalid JSON Response</h3>
+                        <p style="color: #64748b;">${e.message}</p>
+                    </div>
+                `;
+            }
+        }
+    });
 }
 
 // Group transactions by trip
@@ -327,9 +350,11 @@ function startAutoProcessing() {
 
     // Setup interval for automatic refresh and processing
     autoProcessingInterval = setInterval(() => {
-        fetchAutoInventoryData().then(() => {
-            processNextBatch();
-        });
+        addLogEntry('System', 'Auto-refresh triggered - fetching latest data...', 'info');
+        // Note: fetchAutoInventoryData uses callbacks, processNextBatch will be called on next interval
+        fetchAutoInventoryData();
+        // Process any pending transactions from current data
+        setTimeout(() => processNextBatch(), 2000);
     }, intervalSeconds * 1000);
 }
 
