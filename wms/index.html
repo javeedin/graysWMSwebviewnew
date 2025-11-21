@@ -1829,6 +1829,12 @@
             sessionStorage.setItem('loggedInUsername', username);
             sessionStorage.setItem('loggedInInstance', instance);
             sessionStorage.setItem('loggedInDateTime', loginDateTime || new Date().toISOString());
+
+            // Update URL query parameter with instance
+            const url = new URL(window.location.href);
+            url.searchParams.set('instance', instance);
+            window.history.pushState({}, '', url);
+            console.log('[LOGIN] Updated URL with instance:', instance);
         };
 
         // Toggle instance dropdown menu
@@ -1875,6 +1881,12 @@
 
             // Save to session
             sessionStorage.setItem('loggedInInstance', instance);
+
+            // Update URL query parameter
+            const url = new URL(window.location.href);
+            url.searchParams.set('instance', instance);
+            window.history.pushState({}, '', url);
+            console.log('[INSTANCE] Updated URL with instance:', instance);
 
             // Close dropdown
             const dropdown = document.getElementById('instance-dropdown-menu');
@@ -1945,21 +1957,53 @@
             console.log('[LOGIN] WebView2 message listener registered');
         }
 
-        // On page load, restore from session storage if available
+        // On page load, restore from session storage or URL parameter
         document.addEventListener('DOMContentLoaded', function() {
+            // Check URL query parameter for instance first
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlInstance = urlParams.get('instance');
+
             const savedUsername = sessionStorage.getItem('loggedInUsername');
             const savedInstance = sessionStorage.getItem('loggedInInstance');
             const savedDateTime = sessionStorage.getItem('loggedInDateTime');
 
-            if (savedUsername && savedInstance) {
-                console.log('[LOGIN] Restoring session:', savedUsername, savedInstance, savedDateTime);
+            // Use URL instance if available, otherwise use saved instance
+            const instanceToUse = urlInstance || savedInstance;
+
+            if (instanceToUse) {
+                // Update instance displays
+                const instanceElement = document.getElementById('current-instance-display');
+                if (instanceElement) {
+                    instanceElement.textContent = instanceToUse;
+                }
+
+                const instanceElementMini = document.getElementById('current-instance-display-mini');
+                if (instanceElementMini && savedUsername) {
+                    instanceElementMini.textContent = instanceToUse;
+                }
+
+                // Update checkmarks
+                updateInstanceCheckmarks(instanceToUse);
+
+                // Update session storage if URL had instance
+                if (urlInstance) {
+                    sessionStorage.setItem('loggedInInstance', urlInstance);
+                    console.log('[INSTANCE] Loaded from URL:', urlInstance);
+                }
+            }
+
+            if (savedUsername && instanceToUse) {
+                console.log('[LOGIN] Restoring session:', savedUsername, instanceToUse, savedDateTime);
                 // Format saved date/time for display
                 let formattedDateTime = 'Not logged in';
                 if (savedDateTime) {
                     const loginDate = new Date(savedDateTime);
                     formattedDateTime = 'Logged in: ' + loginDate.toLocaleDateString() + ' ' + loginDate.toLocaleTimeString();
                 }
-                setLoggedInUser(savedUsername, savedInstance, formattedDateTime);
+                setLoggedInUser(savedUsername, instanceToUse, formattedDateTime);
+            } else if (instanceToUse) {
+                // No user logged in, but instance in URL - just update displays
+                console.log('[INSTANCE] Setting instance from URL (no user logged in):', instanceToUse);
             }
         });
 
