@@ -3725,7 +3725,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (orderType === 'Store to Van' || orderType === 'Van to Store') {
             openStoreTransactionsDialog(rowData);
         } else {
-            alert('Store Transactions dialog is only available for "Store to Van" or "Van to Store" order types.');
+            // For other order types, open Order Transactions dialog
+            openOrderTransactionsDialog(rowData);
         }
     };
 
@@ -3905,6 +3906,273 @@ document.addEventListener('DOMContentLoaded', function() {
         const modal = document.getElementById('store-transactions-modal');
         if (modal) {
             modal.remove();
+        }
+    };
+
+    // ============================================================================
+    // ORDER TRANSACTIONS DIALOG (Non-S2V/V2S Orders)
+    // ============================================================================
+
+    function openOrderTransactionsDialog(rowData) {
+        console.log('[Order Transactions] Opening dialog for order:', rowData);
+
+        const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || '';
+        const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
+        const orderDate = rowData.ORDER_DATE || rowData.order_date || '';
+        const tripId = rowData.TRIP_ID || rowData.trip_id || '';
+        const tripDate = rowData.TRIP_DATE || rowData.trip_date || '';
+        const accountNumber = rowData.ACCOUNT_NUMBER || rowData.account_number || '';
+        const accountName = rowData.ACCOUNT_NAME || rowData.account_name || rowData.CUSTOMER_NAME || rowData.customer_name || '';
+        const picker = rowData.PICKER || rowData.picker || '';
+        const lorry = rowData.LORRY_NUMBER || rowData.lorry_number || '';
+        const priority = rowData.PRIORITY || rowData.priority || '';
+        const lineStatus = rowData.LINE_STATUS || rowData.line_status || '';
+        const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
+
+        console.log('[Order Transactions] ORDER_NUMBER:', orderNumber, 'ORDER_TYPE:', orderType);
+
+        // Create modal HTML
+        const modalHtml = `
+            <div id="order-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Modal Header -->
+                    <div style="padding: 0.75rem 1rem; border-bottom: 2px solid #e2e8f0; background: whitesmoke;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <h2 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
+                                    <i class="fas fa-file-invoice" style="color: #667eea;"></i> Order Transactions
+                                </h2>
+                                <button id="order-trans-header-toggle" onclick="toggleOrderTransHeader()" style="background: transparent; border: none; cursor: pointer; color: #667eea; padding: 0.2rem 0.4rem; transition: all 0.2s;" title="Toggle Details">
+                                    <i class="fas fa-chevron-down" style="font-size: 0.9rem; transition: transform 0.3s;"></i>
+                                </button>
+                            </div>
+                            <button onclick="closeOrderTransactionsModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #64748b; transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px;" onmouseover="this.style.background='#fee2e2'; this.style.color='#dc2626';" onmouseout="this.style.background='none'; this.style.color='#64748b';">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <!-- Collapsible Header Details (Default: Collapsed) -->
+                        <div id="order-trans-header-details" style="display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.4rem; padding: 0.5rem; background: white; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 0.5rem; transition: all 0.3s;">
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Date:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderDate}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Type:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderType}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Name:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountName}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip ID:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripId}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip Date:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripDate}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Picker:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${picker}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Status:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lineStatus}</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Header -->
+                    <div style="display: flex; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #f8f9fc; border-bottom: 2px solid #e2e8f0; overflow-x: auto;">
+                        <button class="order-trans-tab active" data-tab="pick-release" onclick="switchOrderTransTab('pick-release')" style="padding: 0.5rem 1.2rem; border: none; background: white; border-radius: 6px; cursor: pointer; font-weight: 600; color: #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-box-open"></i> Pick Release Details
+                        </button>
+                        <button class="order-trans-tab" data-tab="sales-order-lines" onclick="switchOrderTransTab('sales-order-lines')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-shopping-cart"></i> Sales Order Lines
+                        </button>
+                        <button class="order-trans-tab" data-tab="lot-details" onclick="switchOrderTransTab('lot-details')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-barcode"></i> Lot Details
+                        </button>
+                        <button class="order-trans-tab" data-tab="shipment-details" onclick="switchOrderTransTab('shipment-details')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-shipping-fast"></i> Shipment Details
+                        </button>
+                        <button class="order-trans-tab" data-tab="pick-confirm-responses" onclick="switchOrderTransTab('pick-confirm-responses')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-check-double"></i> Pick Confirm Responses
+                        </button>
+                        <button class="order-trans-tab" data-tab="ship-confirm-responses" onclick="switchOrderTransTab('ship-confirm-responses')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-truck-loading"></i> Ship Confirm Responses
+                        </button>
+                    </div>
+
+                    <!-- Tab Content -->
+                    <div style="flex: 1; overflow: hidden; position: relative;">
+                        <!-- Tab 1: Pick Release Details -->
+                        <div id="order-trans-pick-release" class="order-trans-tab-content active" style="height: 100%; overflow: auto; padding: 1rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshPickReleaseDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="pick-release-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="pick-release-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: Sales Order Lines -->
+                        <div id="order-trans-sales-order-lines" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshSalesOrderLines('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="sales-order-lines-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="sales-order-lines-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 3: Lot Details -->
+                        <div id="order-trans-lot-details" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshLotDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="lot-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="lot-details-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 4: Shipment Details -->
+                        <div id="order-trans-shipment-details" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshShipmentDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="shipment-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="shipment-details-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 5: Pick Confirmation Responses -->
+                        <div id="order-trans-pick-confirm-responses" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshPickConfirmResponses('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="pick-confirm-responses-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="pick-confirm-responses-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 6: Shipment Confirmation Responses -->
+                        <div id="order-trans-ship-confirm-responses" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshShipConfirmResponses('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="ship-confirm-responses-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="ship-confirm-responses-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal to body
+        const existingModal = document.getElementById('order-transactions-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Auto-load first tab data
+        console.log('[Order Transactions] Auto-loading Pick Release Details for order:', orderNumber);
+        setTimeout(() => {
+            refreshPickReleaseDetails(orderNumber);
+        }, 100);
+    }
+
+    window.closeOrderTransactionsModal = function() {
+        const modal = document.getElementById('order-transactions-modal');
+        if (modal) {
+            modal.remove();
+        }
+    };
+
+    // Toggle Order Transactions Header Details
+    window.toggleOrderTransHeader = function() {
+        const details = document.getElementById('order-trans-header-details');
+        const toggleBtn = document.getElementById('order-trans-header-toggle');
+        const icon = toggleBtn.querySelector('i');
+
+        if (details.style.display === 'none' || details.style.display === '') {
+            details.style.display = 'grid';
+            icon.style.transform = 'rotate(180deg)';
+        } else {
+            details.style.display = 'none';
+            icon.style.transform = 'rotate(0deg)';
+        }
+    };
+
+    window.switchOrderTransTab = function(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.order-trans-tab').forEach(tab => {
+            if (tab.dataset.tab === tabName) {
+                tab.style.background = 'white';
+                tab.style.color = '#667eea';
+                tab.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            } else {
+                tab.style.background = 'transparent';
+                tab.style.color = '#64748b';
+                tab.style.boxShadow = 'none';
+            }
+        });
+
+        // Update tab content
+        document.querySelectorAll('.order-trans-tab-content').forEach(content => {
+            content.style.display = 'none';
+        });
+        const activeContent = document.getElementById(`order-trans-${tabName}`);
+        if (activeContent) {
+            activeContent.style.display = 'block';
+        }
+    };
+
+    // Placeholder refresh functions for Order Transactions tabs
+    window.refreshPickReleaseDetails = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Pick Release Details for:', orderNumber);
+        const gridContainer = document.getElementById('pick-release-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Pick Release Details will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshSalesOrderLines = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Sales Order Lines for:', orderNumber);
+        const gridContainer = document.getElementById('sales-order-lines-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Sales Order Lines will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshLotDetails = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Lot Details for:', orderNumber);
+        const gridContainer = document.getElementById('lot-details-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Lot Details will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshShipmentDetails = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Shipment Details for:', orderNumber);
+        const gridContainer = document.getElementById('shipment-details-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Shipment Details will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshPickConfirmResponses = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Pick Confirmation Responses for:', orderNumber);
+        const gridContainer = document.getElementById('pick-confirm-responses-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Pick Confirmation Responses will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshShipConfirmResponses = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Shipment Confirmation Responses for:', orderNumber);
+        const gridContainer = document.getElementById('ship-confirm-responses-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Shipment Confirmation Responses will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
         }
     };
 
