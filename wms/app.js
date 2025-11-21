@@ -2338,7 +2338,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Helper function to open trip details with data
-    function openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber) {
+    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber) {
         console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId);
         
         // Create unique tab ID
