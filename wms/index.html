@@ -134,6 +134,10 @@
                 <i class="fas fa-print"></i>
                 <span>Monitor Printing</span>
             </div>
+            <div class="menu-item" data-page="auto-inventory-processing">
+                <i class="fas fa-robot"></i>
+                <span>Auto Inventory Processing</span>
+            </div>
             <div class="menu-item" data-page="printer-setup-new">
                 <i class="fas fa-print"></i>
                 <span>Printer Setups</span>
@@ -1343,6 +1347,123 @@
                 </div>
             </div>
 
+            <!-- Auto Inventory Processing Page -->
+            <div id="auto-inventory-processing" class="page-content" style="display: none;">
+                <div class="grid-container">
+                    <!-- Page Header -->
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 2rem; border-radius: 12px; margin-bottom: 1.5rem; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
+                        <h2 style="margin: 0 0 0.5rem 0; color: white; font-size: 1.8rem; display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas fa-robot"></i>
+                            Automate Inventory Processing
+                        </h2>
+                        <p style="margin: 0; color: rgba(255,255,255,0.9); font-size: 0.95rem;">Real-time automated transaction processing with intelligent retry mechanism</p>
+                    </div>
+
+                    <!-- Control Panel -->
+                    <div style="background: white; padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                            <!-- Enable/Disable Toggle -->
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; background: #f8f9fa; padding: 0.75rem 1.25rem; border-radius: 8px; border: 2px solid #dee2e6;">
+                                    <span style="font-weight: 600; color: #2d3748; font-size: 14px;">Auto Processing:</span>
+                                    <label class="switch" style="position: relative; display: inline-block; width: 50px; height: 26px;">
+                                        <input type="checkbox" id="auto-process-toggle" style="opacity: 0; width: 0; height: 0;">
+                                        <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 26px;"></span>
+                                    </label>
+                                    <span id="auto-process-status" style="font-weight: 700; color: #dc3545;">DISABLED</span>
+                                </div>
+
+                                <!-- Date Range -->
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <div>
+                                        <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px;">From Date</label>
+                                        <input type="date" id="auto-from-date" class="form-control" style="padding: 0.5rem; font-size: 13px; width: 150px;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px;">To Date</label>
+                                        <input type="date" id="auto-to-date" class="form-control" style="padding: 0.5rem; font-size: 13px; width: 150px;">
+                                    </div>
+                                </div>
+
+                                <!-- Refresh Interval -->
+                                <div>
+                                    <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px;">Refresh Interval</label>
+                                    <select id="auto-refresh-interval" class="form-control" style="padding: 0.5rem; font-size: 13px; width: 130px;">
+                                        <option value="10">10 seconds</option>
+                                        <option value="30" selected>30 seconds</option>
+                                        <option value="60">1 minute</option>
+                                        <option value="300">5 minutes</option>
+                                    </select>
+                                </div>
+
+                                <!-- Fetch Button -->
+                                <button id="auto-fetch-btn" onclick="fetchAutoInventoryData()" style="background: #667eea; color: white; border: none; padding: 0.65rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; margin-top: 18px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);">
+                                    <i class="fas fa-sync-alt"></i> Fetch Data
+                                </button>
+                            </div>
+
+                            <!-- Stats Mini Cards -->
+                            <div style="display: flex; gap: 0.75rem;">
+                                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-stat-trips">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">TRIPS</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-stat-orders">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">ORDERS</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-stat-processing">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">PROCESSING</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-stat-success">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">SUCCESS</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #f44336 0%, #c62828 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-stat-failed">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">FAILED</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main Content Area with Tabs -->
+                    <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden;">
+                        <!-- Tabs -->
+                        <div style="display: flex; gap: 0; border-bottom: 2px solid #e2e8f0; background: #f8f9fc;">
+                            <button class="auto-tab-btn active" data-tab="trips-view" onclick="switchAutoTab('trips-view')" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #667eea; border-bottom: 3px solid #667eea; transition: all 0.3s;">
+                                <i class="fas fa-list"></i> Trip Summary
+                            </button>
+                            <button class="auto-tab-btn" data-tab="processing-log" onclick="switchAutoTab('processing-log')" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 3px solid transparent; transition: all 0.3s;">
+                                <i class="fas fa-terminal"></i> Processing Log
+                            </button>
+                        </div>
+
+                        <!-- Tab Content -->
+                        <div style="padding: 1.5rem;">
+                            <!-- Trips View Tab -->
+                            <div id="auto-trips-view" class="auto-tab-content">
+                                <div id="auto-trips-container">
+                                    <div style="text-align: center; padding: 3rem; color: #94a3b8;">
+                                        <i class="fas fa-inbox" style="font-size: 48px; margin-bottom: 1rem;"></i>
+                                        <p style="font-size: 16px; margin: 0;">No data loaded. Click "Fetch Data" to begin.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Processing Log Tab -->
+                            <div id="auto-processing-log" class="auto-tab-content" style="display: none;">
+                                <div style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 500px; overflow-y: auto;" id="auto-log-container">
+                                    <div style="color: #10b981;">[System] Auto Inventory Processing initialized.</div>
+                                    <div style="color: #94a3b8;">[Info] Waiting for data fetch...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Settings & Updates Page -->
             <div id="settings" class="page-content" style="display: none;">
                 <div class="grid-container" style="max-width: 800px; margin: 0 auto;">
@@ -2012,6 +2133,11 @@
         });
 
         console.log('[LOGIN] Session handler initialized');
+    </script>
+
+    <!-- Auto Inventory Processing Script -->
+    <script>
+        document.write('<script src="auto-inventory-processing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </body>
 </html>
