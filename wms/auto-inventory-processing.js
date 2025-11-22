@@ -1734,14 +1734,35 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
         };
     });
 
-    // Build table HTML
-    let tableRows = '';
+    // Build Fusion Data table (showing raw XML data from Fusion)
+    let fusionTableRows = '';
+    fusionData.forEach((record, index) => {
+        const lid = record.LID || record.lid || record.LOAD_REQUEST_NUMBER || 'N/A';
+        const itemCode = record.ITEM_CODE || record.item_code || record.ITEM || 'N/A';
+        const qty = record.TRANSACTION_QUANTITY || record.transaction_quantity || record.QUANTITY || '0';
+        const transactionType = record.TRANSACTION_TYPE || record.transaction_type || 'N/A';
+        const transactionDate = record.TRANSACTION_DATE || record.transaction_date || 'N/A';
+
+        fusionTableRows += `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
+                <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${lid}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${itemCode}</td>
+                <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: #1e293b;">${qty}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #64748b;">${transactionType}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #64748b;">${transactionDate}</td>
+            </tr>
+        `;
+    });
+
+    // Build Order Lines table (with matching)
+    let orderLinesRows = '';
     enhancedTransactions.forEach((txn, index) => {
         const statusColor = txn.fusionStatus === 'Matched' ? '#10b981' : '#ef4444';
         const qtyMatch = String(txn.txn_qty) === String(txn.fusionQty);
         const qtyColor = qtyMatch ? '#10b981' : '#f59e0b';
 
-        tableRows += `
+        orderLinesRows += `
             <tr style="border-bottom: 1px solid #e2e8f0;">
                 <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
                 <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${txn.lid || 'N/A'}</td>
@@ -1766,7 +1787,7 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
     popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
 
     popup.innerHTML = `
-        <div style="background: white; border-radius: 12px; padding: 0; min-width: 900px; max-width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+        <div style="background: white; border-radius: 12px; padding: 0; min-width: 1100px; max-width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
             <!-- Header -->
             <div style="padding: 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
                 <h3 style="margin: 0; color: white; font-size: 18px; display: flex; align-items: center; gap: 0.5rem;">
@@ -1774,28 +1795,70 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
                     Fusion Verification - Order ${orderNumber}
                 </h3>
                 <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 13px;">
-                    Matched: ${matchedCount} | Not Found: ${notFoundCount} | Total: ${enhancedTransactions.length}
+                    Fusion Records: ${fusionData.length} | Local Lines: ${enhancedTransactions.length} | Matched: ${matchedCount} | Not Found: ${notFoundCount}
                 </p>
+            </div>
+
+            <!-- Tab Navigation -->
+            <div style="display: flex; border-bottom: 2px solid #e2e8f0; background: #f8f9fa;">
+                <button onclick="switchVerifyTab('fusion-data')" class="verify-tab-btn" data-tab="fusion-data" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #667eea; border-bottom: 3px solid #667eea; transition: all 0.3s;">
+                    <i class="fas fa-cloud"></i> Fusion Data (${fusionData.length})
+                </button>
+                <button onclick="switchVerifyTab('order-lines')" class="verify-tab-btn" data-tab="order-lines" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 3px solid transparent; transition: all 0.3s;">
+                    <i class="fas fa-list"></i> Order Lines (Matched)
+                </button>
             </div>
 
             <!-- Content -->
             <div style="flex: 1; overflow-y: auto; padding: 1.5rem;">
-                <table style="width: 100%; border-collapse: collapse;">
-                    <thead>
-                        <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
-                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
-                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
-                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
-                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
-                            <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Local Qty</th>
-                            <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Qty</th>
-                            <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${tableRows}
-                    </tbody>
-                </table>
+                <!-- Fusion Data Tab -->
+                <div id="verify-fusion-data-tab" class="verify-tab-content">
+                    <div style="margin-bottom: 1rem; padding: 0.75rem; background: #e0e7ff; border-radius: 6px; border-left: 4px solid #667eea;">
+                        <p style="margin: 0; font-size: 13px; color: #1e293b;">
+                            <i class="fas fa-info-circle"></i> <strong>Raw data from Oracle Fusion Cloud</strong> - This shows the actual transaction records retrieved from the Fusion SOAP report.
+                        </p>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
+                                <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Quantity</th>
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Transaction Type</th>
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Transaction Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${fusionTableRows}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Order Lines Tab -->
+                <div id="verify-order-lines-tab" class="verify-tab-content" style="display: none;">
+                    <div style="margin-bottom: 1rem; padding: 0.75rem; background: #e0e7ff; border-radius: 6px; border-left: 4px solid #667eea;">
+                        <p style="margin: 0; font-size: 13px; color: #1e293b;">
+                            <i class="fas fa-info-circle"></i> <strong>Local order lines with Fusion matching</strong> - Green indicates matched records, Orange indicates quantity mismatch, Red indicates not found in Fusion.
+                        </p>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
+                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
+                                <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Local Qty</th>
+                                <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Qty</th>
+                                <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${orderLinesRows}
+                        </tbody>
+                    </table>
+                </div>
             </div>
 
             <!-- Footer -->
@@ -1810,6 +1873,34 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
     document.body.appendChild(popup);
 
     addLogEntry('Verify', `Comparison complete: ${matchedCount} matched, ${notFoundCount} not found`, matchedCount === enhancedTransactions.length ? 'success' : 'warning');
+}
+
+// Switch verify popup tabs
+function switchVerifyTab(tabName) {
+    // Hide all tab contents
+    document.querySelectorAll('.verify-tab-content').forEach(tab => {
+        tab.style.display = 'none';
+    });
+
+    // Remove active class from all buttons
+    document.querySelectorAll('.verify-tab-btn').forEach(btn => {
+        btn.style.color = '#64748b';
+        btn.style.borderBottom = '3px solid transparent';
+    });
+
+    // Show selected tab
+    if (tabName === 'fusion-data') {
+        document.getElementById('verify-fusion-data-tab').style.display = 'block';
+    } else if (tabName === 'order-lines') {
+        document.getElementById('verify-order-lines-tab').style.display = 'block';
+    }
+
+    // Add active class to clicked button
+    const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+    if (activeBtn) {
+        activeBtn.style.color = '#667eea';
+        activeBtn.style.borderBottom = '3px solid #667eea';
+    }
 }
 
 // Print order button handler - using C# Fusion PDF handler (Store Transaction Report)
