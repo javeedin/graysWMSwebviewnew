@@ -2525,20 +2525,21 @@ namespace WMSApp
                         return;
                     }
 
-                    // Download report using Generic method (returns Base64 PDF data)
+                    // Download report as XML data (not PDF) for verification
                     var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
-                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Calling FusionPdfDownloader.DownloadGenericReportPdfAsync...");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Calling DownloadGenericReportDataAsync with XML format...");
 
-                    var result = await downloader.DownloadGenericReportPdfAsync(
+                    var result = await downloader.DownloadGenericReportDataAsync(
                         reportPath,
                         parameterName,
                         parameterValue,
                         instance,
                         username,
-                        password
+                        password,
+                        "xml"  // Request XML format instead of PDF
                     );
 
-                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] FusionPdfDownloader returned - Success: {result.Success}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] DownloadGenericReportDataAsync returned - Success: {result.Success}");
 
                     if (!result.Success)
                     {

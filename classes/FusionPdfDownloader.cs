@@ -319,6 +319,142 @@ namespace WMSApp.PrintManagement
         }
 
         /// <summary>
+        /// Downloads report as XML/CSV data (not PDF) for data verification
+        /// </summary>
+        /// <param name="reportPath">Full report path (e.g., /Custom/DEXPRESS/...)</param>
+        /// <param name="parameterName">Parameter name (e.g., SOURCE_CODE)</param>
+        /// <param name="parameterValue">Parameter value (e.g., order number)</param>
+        /// <param name="instance">Instance name (TEST or PROD)</param>
+        /// <param name="username">Fusion username</param>
+        /// <param name="password">Fusion password</param>
+        /// <param name="outputFormat">Output format: xml, csv, excel (default: xml)</param>
+        /// <returns>FusionPdfResult with Base64 encoded data (XML/CSV/Excel)</returns>
+        public async Task<FusionPdfResult> DownloadGenericReportDataAsync(
+            string reportPath,
+            string parameterName,
+            string parameterValue,
+            string instance,
+            string username,
+            string password,
+            string outputFormat = "xml")
+        {
+            try
+            {
+                // Determine URL based on instance
+                string serviceUrl = instance.ToUpper() == "PROD" ? PROD_URL : TEST_URL;
+
+                // Build SOAP request with specific output format
+                string soapRequest = BuildGenericReportDataSoapRequest(
+                    parameterValue, username, password, reportPath, parameterName, outputFormat);
+
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Requesting DATA report: {reportPath}");
+                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Parameter: {parameterName}={parameterValue}");
+                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Output Format: {outputFormat.ToUpper()}");
+                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Instance: {instance} ({serviceUrl})");
+                System.Diagnostics.Debug.WriteLine("====================================");
+
+                // Make HTTP POST request
+                var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
+                content.Headers.Add("SOAPAction", "\"runReport\"");
+
+                var response = await _httpClient.PostAsync(serviceUrl, content);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] ❌ HTTP Error: {response.StatusCode}");
+                    return new FusionPdfResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"HTTP Error: {response.StatusCode} - {response.ReasonPhrase}"
+                    };
+                }
+
+                // Read response
+                string responseContent = await response.Content.ReadAsStringAsync();
+                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Response received, length: {responseContent.Length}");
+
+                // Parse SOAP response
+                var base64Data = ExtractBase64FromSoapResponse(responseContent);
+
+                if (string.IsNullOrEmpty(base64Data))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] ❌ No <reportBytes> found in SOAP response");
+                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Response preview: {responseContent.Substring(0, Math.Min(500, responseContent.Length))}");
+                    return new FusionPdfResult
+                    {
+                        Success = false,
+                        ErrorMessage = "No <reportBytes> found in SOAP response"
+                    };
+                }
+
+                // Clean up base64 string
+                base64Data = CleanBase64String(base64Data);
+
+                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] ✅ Data download successful, base64 length: {base64Data.Length}");
+
+                // Decode base64 to see what we got (for debugging)
+                try
+                {
+                    byte[] decodedBytes = Convert.FromBase64String(base64Data);
+                    string decodedPreview = Encoding.UTF8.GetString(decodedBytes, 0, Math.Min(500, decodedBytes.Length));
+                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Decoded data preview (first 500 chars):");
+                    System.Diagnostics.Debug.WriteLine(decodedPreview);
+                }
+                catch (Exception decodeEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Could not decode preview: {decodeEx.Message}");
+                }
+
+                return new FusionPdfResult
+                {
+                    Success = true,
+                    Base64Content = base64Data
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] ❌ ERROR: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Stack trace: {ex.StackTrace}");
+                return new FusionPdfResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        /// <summary>
+        /// Builds SOAP request for data report with specific output format
+        /// </summary>
+        private string BuildGenericReportDataSoapRequest(
+            string parameterValue, string username, string password,
+            string reportPath, string parameterName, string outputFormat)
+        {
+            return $@"<?xml version=""1.0"" encoding=""utf-8""?>
+<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/"" xmlns:v2=""http://xmlns.oracle.com/oxp/service/v2"">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>{reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+           <v2:listOfParamNameValues>
+            <v2:item><v2:name>{parameterName}</v2:name><v2:values><v2:item>{parameterValue}</v2:item></v2:values></v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:reportOutputFormat>{outputFormat}</v2:reportOutputFormat>
+        <v2:reportData/>
+        <v2:reportOutputPath/>
+      </v2:reportRequest>
+      <v2:userID>{username}</v2:userID>
+      <v2:password>{password}</v2:password>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>";
+        }
+
+        /// <summary>
         /// Builds SOAP request for any Fusion report (Generic)
         /// </summary>
         /// <param name="parameterValue">The value for the parameter</param>
