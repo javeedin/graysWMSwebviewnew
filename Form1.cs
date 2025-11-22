@@ -1172,6 +1172,11 @@ namespace WMSApp
                                     await HandlePrintStoreTransaction(wv, messageJson, requestId);
                                     break;
 
+                                // 🔧 NEW: Run SOAP Report (Generic handler for any Oracle BI Publisher report)
+                                case "runSoapReport":
+                                    await HandleRunSoapReport(wv, messageJson, requestId);
+                                    break;
+
                                 // Distribution System Cases
                                 case "check-distribution-folder":
                                     await HandleCheckDistributionFolder(wv, messageJson, requestId);
@@ -2487,6 +2492,84 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Print Store Transaction failed: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
                 SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // 🔧 NEW: Generic SOAP Report Handler - Runs any Oracle BI Publisher report and returns Base64 data
+        private async Task HandleRunSoapReport(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string reportPath = root.GetProperty("reportPath").GetString();
+                    string parameterName = root.GetProperty("parameterName").GetString();
+                    string parameterValue = root.GetProperty("parameterValue").GetString();
+                    string instance = root.GetProperty("instance").GetString();
+                    string username = root.GetProperty("username").GetString();
+                    string password = root.GetProperty("password").GetString();
+
+                    System.Diagnostics.Debug.WriteLine("====================================");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] HandleRunSoapReport STARTED");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Report Path: {reportPath}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Parameter: {parameterName} = {parameterValue}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Instance: {instance}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Username: {username}");
+                    System.Diagnostics.Debug.WriteLine("====================================");
+
+                    if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# SOAP] ❌ ERROR: Credentials are missing");
+                        SendErrorResponse(wv, requestId, "Fusion credentials not provided");
+                        return;
+                    }
+
+                    // Download report using Generic method (returns Base64 PDF data)
+                    var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Calling FusionPdfDownloader.DownloadGenericReportPdfAsync...");
+
+                    var result = await downloader.DownloadGenericReportPdfAsync(
+                        reportPath,
+                        parameterName,
+                        parameterValue,
+                        instance,
+                        username,
+                        password
+                    );
+
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] FusionPdfDownloader returned - Success: {result.Success}");
+
+                    if (!result.Success)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# SOAP] ❌ ERROR: {result.ErrorMessage}");
+                        SendErrorResponse(wv, requestId, $"Failed to run SOAP report: {result.ErrorMessage}");
+                        return;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] ✅ SUCCESS - Base64 data length: {result.Base64Content?.Length ?? 0}");
+
+                    // Return Base64 data directly (don't save to file like print does)
+                    var response = new
+                    {
+                        action = "runSoapReportResponse",
+                        requestId = requestId,
+                        success = true,
+                        base64Data = result.Base64Content,
+                        message = "SOAP report executed successfully"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Sending response to JavaScript...");
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] ✅ Response sent successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# SOAP] ❌ EXCEPTION: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# SOAP] Stack trace: {ex.StackTrace}");
+                SendErrorResponse(wv, requestId, $"SOAP report error: {ex.Message}");
             }
         }
 
