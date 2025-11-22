@@ -632,56 +632,88 @@ async function processNextBatch() {
         return;
     }
 
-    addLogEntry('Processing', `Found ${pendingTransactions.length} pending transactions. Starting background processing...`, 'info');
+    // Group pending transactions by trx_number (order number)
+    const transactionsByOrder = {};
+    pendingTransactions.forEach(t => {
+        const orderNum = t.trx_number;
+        if (!transactionsByOrder[orderNum]) {
+            transactionsByOrder[orderNum] = [];
+        }
+        transactionsByOrder[orderNum].push(t);
+    });
 
-    // Process transactions one by one in background
+    const orderNumbers = Object.keys(transactionsByOrder);
+    addLogEntry('Processing', `Found ${orderNumbers.length} orders with ${pendingTransactions.length} pending transactions. Starting background processing...`, 'info');
+
+    // Process transactions order by order
     let processedCount = 0;
     let stoppedDueToFailure = false;
+    let processedOrders = 0;
 
     try {
-        for (let i = 0; i < pendingTransactions.length; i++) {
-            const transaction = pendingTransactions[i];
+        for (let orderIdx = 0; orderIdx < orderNumbers.length; orderIdx++) {
+            const orderNumber = orderNumbers[orderIdx];
+            const orderTransactions = transactionsByOrder[orderNumber];
 
             if (!autoProcessingEnabled) {
                 addLogEntry('Processing', 'Auto processing was disabled. Stopping...', 'warning');
                 break;
             }
 
-            // Find the trip and transaction index for DOM update
-            const tripIndex = autoProcessingData.findIndex(t => t === transaction);
-            const groupedTrips = groupTransactionsByTrip();
-            let actualTripIndex = -1;
-            let actualTransactionIndex = -1;
+            addLogEntry('Order', `Processing Order: ${orderNumber} (${orderTransactions.length} lines)`, 'info');
 
-            groupedTrips.forEach((trip, tIdx) => {
-                const idx = trip.transactions.findIndex(t => t === transaction);
-                if (idx !== -1) {
-                    actualTripIndex = tIdx;
-                    actualTransactionIndex = idx;
+            // Process all lines in this order
+            for (let i = 0; i < orderTransactions.length; i++) {
+                const transaction = orderTransactions[i];
+
+                if (!autoProcessingEnabled) {
+                    addLogEntry('Processing', 'Auto processing was disabled. Stopping...', 'warning');
+                    break;
                 }
-            });
 
-            try {
-                // Process transaction and update status in DOM
-                await processAutoTransaction(transaction, actualTripIndex, actualTransactionIndex);
-                processedCount++;
+                // Find the trip and transaction index for DOM update
+                const tripIndex = autoProcessingData.findIndex(t => t === transaction);
+                const groupedTrips = groupTransactionsByTrip();
+                let actualTripIndex = -1;
+                let actualTransactionIndex = -1;
 
-                // Update statistics every 5 transactions
-                if (processedCount % 5 === 0 || i === pendingTransactions.length - 1) {
-                    addLogEntry('Progress', `Processed ${processedCount} of ${pendingTransactions.length} transactions`, 'info');
+                groupedTrips.forEach((trip, tIdx) => {
+                    const idx = trip.transactions.findIndex(t => t === transaction);
+                    if (idx !== -1) {
+                        actualTripIndex = tIdx;
+                        actualTransactionIndex = idx;
+                    }
+                });
+
+                try {
+                    // Process transaction and update status in DOM
+                    await processAutoTransaction(transaction, actualTripIndex, actualTransactionIndex);
+                    processedCount++;
+
+                    // Update statistics every 5 transactions
+                    if (processedCount % 5 === 0 || (orderIdx === orderNumbers.length - 1 && i === orderTransactions.length - 1)) {
+                        addLogEntry('Progress', `Processed ${processedCount} of ${pendingTransactions.length} transactions (${processedOrders + 1} of ${orderNumbers.length} orders)`, 'info');
+                        updateStatistics();
+                    }
+                } catch (error) {
+                    // Transaction failed - stop processing
+                    stoppedDueToFailure = true;
+                    addLogEntry('Error', `Processing stopped due to failure in Order ${orderNumber}. Processed ${processedCount} of ${pendingTransactions.length} transactions (${processedOrders} complete orders) before stopping.`, 'error');
                     updateStatistics();
+                    break;
                 }
-            } catch (error) {
-                // Transaction failed - stop processing
-                stoppedDueToFailure = true;
-                addLogEntry('Error', `Processing stopped due to failure. Processed ${processedCount} of ${pendingTransactions.length} transactions before stopping.`, 'error');
-                updateStatistics();
-                break;
             }
+
+            if (stoppedDueToFailure) {
+                break; // Stop processing remaining orders
+            }
+
+            processedOrders++;
+            addLogEntry('Order', `✓ Order ${orderNumber} completed (${orderTransactions.length} lines processed)`, 'success');
         }
 
         if (autoProcessingEnabled && !stoppedDueToFailure) {
-            addLogEntry('Processing', `All ${processedCount} pending transactions processed successfully!`, 'success');
+            addLogEntry('Processing', `All ${processedOrders} orders (${processedCount} transactions) processed successfully!`, 'success');
             updateStatistics();
         }
     } catch (error) {
