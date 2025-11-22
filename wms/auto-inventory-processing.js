@@ -1575,14 +1575,15 @@ function printOrder(orderNumber, tripIndex) {
     document.body.appendChild(loadingDiv);
 
     // Call C# handler to generate PDF from Oracle Fusion Cloud
+    // Ensure all values are strings
     sendMessageToCSharp({
         action: 'printStoreTransaction',
-        orderNumber: orderNumber,
-        instance: instance,
-        reportPath: reportPath,
-        parameterName: parameterName,
-        tripId: tripId,
-        tripDate: tripDate
+        orderNumber: String(orderNumber),
+        instance: String(instance),
+        reportPath: String(reportPath),
+        parameterName: String(parameterName),
+        tripId: String(tripId),
+        tripDate: String(tripDate)
     }, function(error, data) {
         // Remove loading indicator
         const loading = document.getElementById('print-loading-indicator');
