@@ -1006,6 +1006,7 @@ async function showErrorDetails(tripIndex, transactionIndex) {
     currentErrorTransaction = transaction;
 
     addLogEntry('Error Details', `Fetching error details for LID: ${transaction.lid}`, 'info');
+    addLogEntry('Debug', `Instance Name: ${transaction.instance_name || 'PROD'}`, 'info');
 
     // Determine API endpoint based on instance_name
     const instanceName = transaction.instance_name || 'PROD';
@@ -1017,30 +1018,69 @@ async function showErrorDetails(tripIndex, transactionIndex) {
         apiUrl = 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
     }
 
+    addLogEntry('Debug', `API URL: ${apiUrl}`, 'info');
+
     // Show loading popup
     showErrorPopupLoading();
 
     // Fetch error data
+    console.log('[Error Details] Calling WebView REST handler with:', { action: 'executeGet', fullUrl: apiUrl });
+
     sendMessageToCSharp({
         action: "executeGet",
         fullUrl: apiUrl
     }, function(error, data) {
+        console.log('[Error Details] Callback received - Error:', error, 'Data type:', typeof data, 'Data length:', data ? data.length : 0);
+
+        addLogEntry('Debug', `Callback received - Error: ${error || 'null'}, Data type: ${typeof data}, Data length: ${data ? data.length : 0}`, 'info');
+
         if (error) {
+            console.error('[Error Details] Error parameter:', error);
+            addLogEntry('Debug', `Error parameter value: ${JSON.stringify(error)}`, 'error');
             showErrorPopupError(error);
             addLogEntry('Error', `Failed to fetch error details: ${error}`, 'error');
             return;
         }
 
+        if (!data) {
+            console.error('[Error Details] Data is null or undefined');
+            addLogEntry('Debug', 'Data parameter is null or undefined', 'error');
+            showErrorPopupError('No data returned from API');
+            return;
+        }
+
+        if (typeof data !== 'string') {
+            console.error('[Error Details] Data is not a string, type:', typeof data);
+            addLogEntry('Debug', `Data is not a string, actual type: ${typeof data}`, 'error');
+            showErrorPopupError('Invalid data type returned from API');
+            return;
+        }
+
+        console.log('[Error Details] Raw data received (first 200 chars):', data.substring(0, 200));
+        addLogEntry('Debug', `Raw data preview: ${data.substring(0, 100)}...`, 'info');
+
         try {
             const response = JSON.parse(data);
+            console.log('[Error Details] Parsed response:', response);
+            addLogEntry('Debug', `Parsed successfully, checking for items array`, 'info');
+
             currentErrorData = response.items || [];
 
+            console.log('[Error Details] Items found:', currentErrorData.length);
             addLogEntry('Error Details', `Found ${currentErrorData.length} staged transactions`, 'info');
 
             // Display error data in popup
             displayErrorPopup(currentErrorData, instanceName);
         } catch (parseError) {
-            showErrorPopupError('Failed to parse error data: ' + parseError.message);
+            console.error('[Error Details] Parse error:', parseError);
+            console.error('[Error Details] Parse error stack:', parseError.stack);
+            console.error('[Error Details] Data that failed to parse:', data);
+
+            addLogEntry('Debug', `Parse error: ${parseError.message}`, 'error');
+            addLogEntry('Debug', `Parse error stack: ${parseError.stack}`, 'error');
+            addLogEntry('Debug', `Failed data: ${data}`, 'error');
+
+            showErrorPopupError('Failed to parse error data: ' + parseError.message + ' - Check Processing Log for details');
             addLogEntry('Error', `Parse error: ${parseError.message}`, 'error');
         }
     });
