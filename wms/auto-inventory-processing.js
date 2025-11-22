@@ -1566,23 +1566,16 @@ function verifyWithFusion(orderNumber, tripIndex) {
             const response = typeof data === 'string' ? JSON.parse(data) : data;
             console.log('[Verify Fusion] Parsed response:', response);
 
-            if (response.success && response.base64Data) {
-                console.log('[Verify Fusion] Base64 data length:', response.base64Data.length);
-                addLogEntry('Verify', `Received Base64 data from Fusion (${response.base64Data.length} chars)`, 'info');
+            if (response.success && response.dataRecords) {
+                console.log('[Verify Fusion] Data records count:', response.dataRecords.length);
+                addLogEntry('Verify', `Received ${response.dataRecords.length} records from Fusion (parsed by C#)`, 'info');
 
-                // Decode Base64 to get the actual data
-                const decodedData = atob(response.base64Data);
-                console.log('[Verify Fusion] Decoded data length:', decodedData.length);
-                console.log('[Verify Fusion] Decoded data preview:', decodedData.substring(0, 500));
+                // Data already parsed by C# into data table
+                const fusionData = response.dataRecords;
+                console.log('[Verify Fusion] Fusion data:', fusionData);
+                console.log('[Verify Fusion] First record:', fusionData[0]);
 
-                addLogEntry('Verify', `Decoded data (${decodedData.length} chars)`, 'info');
-
-                // Parse the decoded data (could be XML, CSV, or JSON)
-                const fusionData = parseFusionReportData(decodedData);
-                console.log('[Verify Fusion] Parsed fusion data:', fusionData);
-                console.log('[Verify Fusion] Fusion records count:', fusionData.length);
-
-                addLogEntry('Verify', `Parsed ${fusionData.length} records from Fusion report`, 'info');
+                addLogEntry('Verify', `Processing ${fusionData.length} Fusion records`, 'info');
 
                 // Match with local data and display
                 displayVerifyComparisonPopup(orderNumber, orderTransactions, fusionData);

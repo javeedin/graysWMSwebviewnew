@@ -2525,21 +2525,21 @@ namespace WMSApp
                         return;
                     }
 
-                    // Download report as XML data (not PDF) for verification
+                    // Download report and parse data (forPrint=false extracts data table)
                     var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
-                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Calling DownloadGenericReportDataAsync with XML format...");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Calling DownloadGenericReportAsync (forPrint=false)...");
 
-                    var result = await downloader.DownloadGenericReportDataAsync(
+                    var result = await downloader.DownloadGenericReportAsync(
                         reportPath,
                         parameterName,
                         parameterValue,
                         instance,
                         username,
                         password,
-                        "xml"  // Request XML format instead of PDF
+                        forPrint: false  // Extract data, not PDF
                     );
 
-                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] DownloadGenericReportDataAsync returned - Success: {result.Success}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] DownloadGenericReportAsync returned - Success: {result.Success}");
 
                     if (!result.Success)
                     {
@@ -2548,20 +2548,21 @@ namespace WMSApp
                         return;
                     }
 
-                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] ✅ SUCCESS - Base64 data length: {result.Base64Content?.Length ?? 0}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] ✅ SUCCESS - Data records count: {result.DataRecords?.Count ?? 0}");
 
-                    // Return Base64 data directly (don't save to file like print does)
+                    // Return data records as JSON array (not Base64)
                     var response = new
                     {
                         action = "runSoapReportResponse",
                         requestId = requestId,
                         success = true,
-                        base64Data = result.Base64Content,
-                        message = "SOAP report executed successfully"
+                        dataRecords = result.DataRecords,  // Send parsed data directly
+                        recordCount = result.DataRecords?.Count ?? 0,
+                        message = "SOAP report data extracted successfully"
                     };
 
                     string responseJson = JsonSerializer.Serialize(response);
-                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Sending response to JavaScript...");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Sending {result.DataRecords?.Count ?? 0} records to JavaScript...");
                     wv.CoreWebView2.PostWebMessageAsJson(responseJson);
                     System.Diagnostics.Debug.WriteLine($"[C# SOAP] ✅ Response sent successfully");
                 }

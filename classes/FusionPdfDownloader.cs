@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -319,7 +320,7 @@ namespace WMSApp.PrintManagement
         }
 
         /// <summary>
-        /// Downloads report as XML/CSV data (not PDF) for data verification
+        /// Downloads report data and parses into data table (for verification)
         /// </summary>
         /// <param name="reportPath">Full report path (e.g., /Custom/DEXPRESS/...)</param>
         /// <param name="parameterName">Parameter name (e.g., SOURCE_CODE)</param>
@@ -327,31 +328,31 @@ namespace WMSApp.PrintManagement
         /// <param name="instance">Instance name (TEST or PROD)</param>
         /// <param name="username">Fusion username</param>
         /// <param name="password">Fusion password</param>
-        /// <param name="outputFormat">Output format: xml, csv, excel (default: xml)</param>
-        /// <returns>FusionPdfResult with Base64 encoded data (XML/CSV/Excel)</returns>
-        public async Task<FusionPdfResult> DownloadGenericReportDataAsync(
+        /// <param name="forPrint">True for PDF download, False for data extraction</param>
+        /// <returns>FusionDataResult with data table or PDF</returns>
+        public async Task<FusionDataResult> DownloadGenericReportAsync(
             string reportPath,
             string parameterName,
             string parameterValue,
             string instance,
             string username,
             string password,
-            string outputFormat = "xml")
+            bool forPrint = false)
         {
             try
             {
                 // Determine URL based on instance
                 string serviceUrl = instance.ToUpper() == "PROD" ? PROD_URL : TEST_URL;
 
-                // Build SOAP request with specific output format
-                string soapRequest = BuildGenericReportDataSoapRequest(
-                    parameterValue, username, password, reportPath, parameterName, outputFormat);
+                // Build SOAP request (original format, no format specification)
+                string soapRequest = BuildGenericReportSoapRequest(
+                    parameterValue, username, password, reportPath, parameterName);
 
                 System.Diagnostics.Debug.WriteLine("====================================");
-                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Requesting DATA report: {reportPath}");
-                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Parameter: {parameterName}={parameterValue}");
-                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Output Format: {outputFormat.ToUpper()}");
-                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Instance: {instance} ({serviceUrl})");
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Mode: {(forPrint ? "PRINT (PDF)" : "VERIFY (DATA)")}");
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Report: {reportPath}");
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Parameter: {parameterName}={parameterValue}");
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Instance: {instance} ({serviceUrl})");
                 System.Diagnostics.Debug.WriteLine("====================================");
 
                 // Make HTTP POST request
@@ -362,8 +363,8 @@ namespace WMSApp.PrintManagement
 
                 if (!response.IsSuccessStatusCode)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] ❌ HTTP Error: {response.StatusCode}");
-                    return new FusionPdfResult
+                    System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] ❌ HTTP Error: {response.StatusCode}");
+                    return new FusionDataResult
                     {
                         Success = false,
                         ErrorMessage = $"HTTP Error: {response.StatusCode} - {response.ReasonPhrase}"
@@ -372,16 +373,15 @@ namespace WMSApp.PrintManagement
 
                 // Read response
                 string responseContent = await response.Content.ReadAsStringAsync();
-                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Response received, length: {responseContent.Length}");
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Response length: {responseContent.Length}");
 
-                // Parse SOAP response
-                var base64Data = ExtractBase64FromSoapResponse(responseContent);
+                // Parse SOAP response to get base64 content
+                var base64Content = ExtractBase64FromSoapResponse(responseContent);
 
-                if (string.IsNullOrEmpty(base64Data))
+                if (string.IsNullOrEmpty(base64Content))
                 {
-                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] ❌ No <reportBytes> found in SOAP response");
-                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Response preview: {responseContent.Substring(0, Math.Min(500, responseContent.Length))}");
-                    return new FusionPdfResult
+                    System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] ❌ No <reportBytes> found");
+                    return new FusionDataResult
                     {
                         Success = false,
                         ErrorMessage = "No <reportBytes> found in SOAP response"
@@ -389,39 +389,104 @@ namespace WMSApp.PrintManagement
                 }
 
                 // Clean up base64 string
-                base64Data = CleanBase64String(base64Data);
+                base64Content = CleanBase64String(base64Content);
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Base64 content length: {base64Content.Length}");
 
-                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] ✅ Data download successful, base64 length: {base64Data.Length}");
-
-                // Decode base64 to see what we got (for debugging)
-                try
+                // If for print, return PDF as-is
+                if (forPrint)
                 {
-                    byte[] decodedBytes = Convert.FromBase64String(base64Data);
-                    string decodedPreview = Encoding.UTF8.GetString(decodedBytes, 0, Math.Min(500, decodedBytes.Length));
-                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Decoded data preview (first 500 chars):");
-                    System.Diagnostics.Debug.WriteLine(decodedPreview);
-                }
-                catch (Exception decodeEx)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Could not decode preview: {decodeEx.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] ✅ Returning PDF for print");
+                    return new FusionDataResult
+                    {
+                        Success = true,
+                        Base64Content = base64Content,
+                        IsPdf = true
+                    };
                 }
 
-                return new FusionPdfResult
+                // For verification, decode and parse the XML data
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Decoding Base64 to extract data...");
+                byte[] decodedBytes = Convert.FromBase64String(base64Content);
+                string decodedContent = Encoding.UTF8.GetString(decodedBytes);
+
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Decoded content length: {decodedContent.Length}");
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Content preview (first 500 chars):");
+                System.Diagnostics.Debug.WriteLine(decodedContent.Substring(0, Math.Min(500, decodedContent.Length)));
+
+                // Parse XML to extract data records
+                var dataRecords = ParseXmlDataToTable(decodedContent);
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] ✅ Extracted {dataRecords.Count} data records");
+
+                return new FusionDataResult
                 {
                     Success = true,
-                    Base64Content = base64Data
+                    DataRecords = dataRecords,
+                    IsPdf = false
                 };
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] ❌ ERROR: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"[FusionDataDownloader] Stack trace: {ex.StackTrace}");
-                return new FusionPdfResult
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] ❌ ERROR: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Stack trace: {ex.StackTrace}");
+                return new FusionDataResult
                 {
                     Success = false,
                     ErrorMessage = ex.Message
                 };
             }
+        }
+
+        /// <summary>
+        /// Parses XML data into a list of records (data table)
+        /// </summary>
+        private System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>> ParseXmlDataToTable(string xmlContent)
+        {
+            var records = new System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>>();
+
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Starting XML parsing...");
+
+                // Parse XML
+                XDocument doc = XDocument.Parse(xmlContent);
+
+                // Look for common row elements (ROW, row, G_1, DATA_ROW, etc.)
+                var rowElements = doc.Descendants()
+                    .Where(e => e.Name.LocalName.Equals("ROW", StringComparison.OrdinalIgnoreCase) ||
+                               e.Name.LocalName.Equals("G_1", StringComparison.OrdinalIgnoreCase) ||
+                               e.Name.LocalName.Equals("DATA_ROW", StringComparison.OrdinalIgnoreCase) ||
+                               e.Name.LocalName.Contains("ROW"))
+                    .ToList();
+
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Found {rowElements.Count} row elements");
+
+                foreach (var row in rowElements)
+                {
+                    var record = new System.Collections.Generic.Dictionary<string, string>();
+
+                    // Extract all child elements as columns
+                    foreach (var element in row.Elements())
+                    {
+                        string columnName = element.Name.LocalName;
+                        string columnValue = element.Value;
+                        record[columnName] = columnValue;
+                    }
+
+                    if (record.Count > 0)
+                    {
+                        records.Add(record);
+                        System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Record {records.Count}: {record.Count} columns");
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] ✅ Parsed {records.Count} records total");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] ❌ Parse error: {ex.Message}");
+            }
+
+            return records;
         }
 
         /// <summary>
@@ -498,6 +563,18 @@ namespace WMSApp.PrintManagement
         public bool Success { get; set; }
         public string Base64Content { get; set; }
         public string FilePath { get; set; }
+        public string ErrorMessage { get; set; }
+    }
+
+    /// <summary>
+    /// Result of report download with data table support
+    /// </summary>
+    public class FusionDataResult
+    {
+        public bool Success { get; set; }
+        public string Base64Content { get; set; }  // For PDF mode
+        public System.Collections.Generic.List<System.Collections.Generic.Dictionary<string, string>> DataRecords { get; set; }  // For data mode
+        public bool IsPdf { get; set; }  // True if PDF, False if data
         public string ErrorMessage { get; set; }
     }
 }
