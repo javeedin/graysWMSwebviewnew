@@ -8,6 +8,12 @@
 let autoProcessingEnabled = false;
 let autoProcessingInterval = null;
 let autoProcessingData = [];
+let autoProcessingFilters = {
+    itemDesc: '',
+    lid: '',
+    trxNumber: '',
+    status: ''
+};
 let autoProcessingStats = {
     totalTrips: 0,
     totalOrders: 0,
@@ -364,6 +370,9 @@ function renderTripTransactions(transactions, tripIndex) {
                         <table style="width: 100%; border-collapse: collapse;">
                             <thead>
                                 <tr style="background: #f8f9fa; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">
+                                        <input type="checkbox" id="select-all-${orderId}" onchange="toggleSelectAllOrder('${orderId}')" title="Select/Deselect All">
+                                    </th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
@@ -389,7 +398,10 @@ function renderTripTransactions(transactions, tripIndex) {
                                   'clock';
 
             html += `
-                <tr id="transaction-row-${tripIndex}-${item.originalIndex}" style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                <tr id="transaction-row-${tripIndex}-${item.originalIndex}" class="order-row-${orderId}" style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                        <input type="checkbox" class="bypass-checkbox bypass-checkbox-${orderId}" id="bypass-${tripIndex}-${item.originalIndex}" onchange="toggleBypassTransaction(${tripIndex}, ${item.originalIndex})" ${item.bypassed ? 'checked' : ''}>
+                    </td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #94a3b8; font-weight: 600;">${itemIdx + 1}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.lid || 'N/A'}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.item_code}</td>
@@ -600,10 +612,12 @@ async function processNextBatch() {
     // Log total records
     addLogEntry('Debug', `Total records in data: ${autoProcessingData.length}`, 'info');
 
-    // Find pending transactions (case-insensitive check)
+    // Find pending transactions (case-insensitive check) and not bypassed
     const pendingTransactions = autoProcessingData.filter(t => {
         const status = (t.transaction_status || '').toUpperCase();
-        return !t.transaction_status || status === '' || status === 'PENDING';
+        const isPending = !t.transaction_status || status === '' || status === 'PENDING';
+        const isNotBypassed = !t.bypassed; // Skip bypassed transactions
+        return isPending && isNotBypassed;
     });
 
     addLogEntry('Debug', `Filtered pending records: ${pendingTransactions.length}`, 'info');
@@ -845,6 +859,99 @@ function addLogEntry(type, message, level = 'info') {
     }
 }
 
+// Toggle bypass for a single transaction
+function toggleBypassTransaction(tripIndex, transactionIndex) {
+    const groupedTrips = groupTransactionsByTrip();
+    const transaction = groupedTrips[tripIndex].transactions[transactionIndex];
+
+    transaction.bypassed = !transaction.bypassed;
+
+    addLogEntry('Bypass', `Transaction LID ${transaction.lid} ${transaction.bypassed ? 'bypassed' : 'unbypassed'}`, 'info');
+}
+
+// Toggle select all for an order
+function toggleSelectAllOrder(orderId) {
+    const checkbox = document.getElementById(`select-all-${orderId}`);
+    const checkboxes = document.querySelectorAll(`.bypass-checkbox-${orderId}`);
+
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        cb.dispatchEvent(new Event('change'));
+    });
+}
+
+// Apply filters
+function applyFilters() {
+    // Get filter values
+    autoProcessingFilters.itemDesc = document.getElementById('filter-item-desc').value.toLowerCase();
+    autoProcessingFilters.lid = document.getElementById('filter-lid').value.toLowerCase();
+    autoProcessingFilters.trxNumber = document.getElementById('filter-trx-number').value.toLowerCase();
+    autoProcessingFilters.status = document.getElementById('filter-status').value.toUpperCase();
+
+    // Apply filters by hiding/showing rows
+    const groupedTrips = groupTransactionsByTrip();
+
+    groupedTrips.forEach((trip, tripIdx) => {
+        trip.transactions.forEach((item, itemIdx) => {
+            const row = document.getElementById(`transaction-row-${tripIdx}-${itemIdx}`);
+            if (!row) return;
+
+            let showRow = true;
+
+            // Filter by item description
+            if (autoProcessingFilters.itemDesc &&
+                !item.item_desc.toLowerCase().includes(autoProcessingFilters.itemDesc)) {
+                showRow = false;
+            }
+
+            // Filter by LID
+            if (autoProcessingFilters.lid &&
+                !String(item.lid || '').toLowerCase().includes(autoProcessingFilters.lid)) {
+                showRow = false;
+            }
+
+            // Filter by transaction number
+            if (autoProcessingFilters.trxNumber &&
+                !String(item.trx_number || '').toLowerCase().includes(autoProcessingFilters.trxNumber)) {
+                showRow = false;
+            }
+
+            // Filter by status
+            if (autoProcessingFilters.status &&
+                (item.transaction_status || 'PENDING').toUpperCase() !== autoProcessingFilters.status) {
+                showRow = false;
+            }
+
+            row.style.display = showRow ? '' : 'none';
+        });
+    });
+
+    addLogEntry('Filter', 'Filters applied', 'info');
+}
+
+// Clear all filters
+function clearFilters() {
+    document.getElementById('filter-item-desc').value = '';
+    document.getElementById('filter-lid').value = '';
+    document.getElementById('filter-trx-number').value = '';
+    document.getElementById('filter-status').value = '';
+
+    autoProcessingFilters = {
+        itemDesc: '',
+        lid: '',
+        trxNumber: '',
+        status: ''
+    };
+
+    // Show all rows
+    const allRows = document.querySelectorAll('[id^="transaction-row-"]');
+    allRows.forEach(row => {
+        row.style.display = '';
+    });
+
+    addLogEntry('Filter', 'Filters cleared', 'info');
+}
+
 // Make functions globally accessible
 window.fetchAutoInventoryData = fetchAutoInventoryData;
 window.runSimulation = runSimulation;
@@ -854,5 +961,9 @@ window.expandAllOrders = expandAllOrders;
 window.collapseAllOrders = collapseAllOrders;
 window.retryTransaction = retryTransaction;
 window.switchAutoTab = switchAutoTab;
+window.toggleBypassTransaction = toggleBypassTransaction;
+window.toggleSelectAllOrder = toggleSelectAllOrder;
+window.applyFilters = applyFilters;
+window.clearFilters = clearFilters;
 
 console.log('[Auto Processing] Script loaded successfully');
