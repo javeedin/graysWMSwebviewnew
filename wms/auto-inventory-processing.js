@@ -22,9 +22,14 @@ let autoProcessingStats = {
     failed: 0
 };
 
+// Oracle Fusion Cloud credentials
+let fusionCloudUsername = '';
+let fusionCloudPassword = '';
+
 // Initialize auto processing on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeAutoProcessing();
+    fetchFusionCloudCredentials();
 });
 
 // Initialize auto processing
@@ -49,6 +54,42 @@ function initializeAutoProcessing() {
     }
 
     addLogEntry('System', 'Auto Inventory Processing initialized', 'success');
+}
+
+// Fetch Oracle Fusion Cloud credentials
+function fetchFusionCloudCredentials() {
+    const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
+
+    console.log('[Auto Processing] Fetching Fusion Cloud credentials...');
+    addLogEntry('System', 'Fetching Oracle Fusion Cloud credentials...', 'info');
+
+    sendMessageToCSharp({
+        action: "executeGet",
+        fullUrl: credentialsUrl
+    }, function(error, data) {
+        if (error) {
+            console.error('[Auto Processing] Failed to fetch credentials:', error);
+            addLogEntry('Error', `Failed to fetch Fusion Cloud credentials: ${error}`, 'error');
+            return;
+        }
+
+        try {
+            const response = JSON.parse(data);
+            if (response.items && response.items.length > 0) {
+                fusionCloudUsername = response.items[0].user_name || '';
+                fusionCloudPassword = response.items[0].passwordd || '';
+
+                console.log('[Auto Processing] Fusion Cloud credentials loaded:', fusionCloudUsername);
+                addLogEntry('System', `Fusion Cloud credentials loaded for user: ${fusionCloudUsername}`, 'success');
+            } else {
+                console.error('[Auto Processing] No credentials found in response');
+                addLogEntry('Error', 'No Fusion Cloud credentials found in API response', 'error');
+            }
+        } catch (parseError) {
+            console.error('[Auto Processing] Failed to parse credentials:', parseError);
+            addLogEntry('Error', `Failed to parse Fusion Cloud credentials: ${parseError.message}`, 'error');
+        }
+    });
 }
 
 // Fetch auto inventory data from API using WebView REST handler
@@ -1023,12 +1064,22 @@ async function showErrorDetails(tripIndex, transactionIndex) {
     // Show loading popup
     showErrorPopupLoading();
 
+    // Check if credentials are loaded
+    if (!fusionCloudUsername || !fusionCloudPassword) {
+        showErrorPopupError('Oracle Fusion Cloud credentials not loaded. Please refresh the page.');
+        addLogEntry('Error', 'Fusion Cloud credentials not available', 'error');
+        return;
+    }
+
     // Fetch error data
-    console.log('[Error Details] Calling WebView REST handler with:', { action: 'executeGet', fullUrl: apiUrl });
+    console.log('[Error Details] Calling WebView REST handler with:', { action: 'executeGet', fullUrl: apiUrl, username: fusionCloudUsername });
+    addLogEntry('Debug', `Using credentials: ${fusionCloudUsername}`, 'info');
 
     sendMessageToCSharp({
         action: "executeGet",
-        fullUrl: apiUrl
+        fullUrl: apiUrl,
+        username: fusionCloudUsername,
+        password: fusionCloudPassword
     }, function(error, data) {
         console.log('[Error Details] Callback received - Error:', error, 'Data type:', typeof data, 'Data length:', data ? data.length : 0);
 
