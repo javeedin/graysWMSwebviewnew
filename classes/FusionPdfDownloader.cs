@@ -438,14 +438,12 @@ namespace WMSApp.PrintManagement
     <v2:runReport>
       <v2:reportRequest>
         <v2:reportAbsolutePath>{reportPath}</v2:reportAbsolutePath>
+        <v2:attributeFormat>{outputFormat}</v2:attributeFormat>
         <v2:parameterNameValues>
            <v2:listOfParamNameValues>
             <v2:item><v2:name>{parameterName}</v2:name><v2:values><v2:item>{parameterValue}</v2:item></v2:values></v2:item>
           </v2:listOfParamNameValues>
         </v2:parameterNameValues>
-        <v2:reportOutputFormat>{outputFormat}</v2:reportOutputFormat>
-        <v2:reportData/>
-        <v2:reportOutputPath/>
       </v2:reportRequest>
       <v2:userID>{username}</v2:userID>
       <v2:password>{password}</v2:password>
