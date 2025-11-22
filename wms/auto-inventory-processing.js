@@ -415,9 +415,14 @@ function renderTripTransactions(transactions, tripIndex) {
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="action-cell-${tripIndex}-${item.originalIndex}">
                         ${(item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR') ? `
-                            <button onclick="retryTransaction(${tripIndex}, ${item.originalIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
-                                <i class="fas fa-redo"></i> Retry
-                            </button>
+                            <div style="display: flex; gap: 0.25rem; justify-content: center;">
+                                <button onclick="retryTransaction(${tripIndex}, ${item.originalIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                                    <i class="fas fa-redo"></i> Retry
+                                </button>
+                                <button onclick="showErrorDetails(${tripIndex}, ${item.originalIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                                    <i class="fas fa-exclamation-circle"></i> Show Errors
+                                </button>
+                            </div>
                         ` : item.transaction_status === 'PROCESSING' ? `
                             <span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
                         ` : `
@@ -594,9 +599,14 @@ function updateTransactionStatusInDOM(tripIndex, transactionIndex, status) {
     // Update action button
     if (status === 'FAILED' || status === 'ERROR') {
         actionCell.innerHTML = `
-            <button onclick="retryTransaction(${tripIndex}, ${transactionIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
-                <i class="fas fa-redo"></i> Retry
-            </button>
+            <div style="display: flex; gap: 0.25rem; justify-content: center;">
+                <button onclick="retryTransaction(${tripIndex}, ${transactionIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                    <i class="fas fa-redo"></i> Retry
+                </button>
+                <button onclick="showErrorDetails(${tripIndex}, ${transactionIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                    <i class="fas fa-exclamation-circle"></i> Show Errors
+                </button>
+            </div>
         `;
     } else if (status === 'PROCESSING') {
         actionCell.innerHTML = `<span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>`;
@@ -984,6 +994,280 @@ function clearFilters() {
     addLogEntry('Filter', 'Filters cleared', 'info');
 }
 
+// Global variable to store current error data
+let currentErrorData = [];
+let currentErrorTransaction = null;
+
+// Show error details popup
+async function showErrorDetails(tripIndex, transactionIndex) {
+    const groupedTrips = groupTransactionsByTrip();
+    const transaction = groupedTrips[tripIndex].transactions[transactionIndex];
+
+    currentErrorTransaction = transaction;
+
+    addLogEntry('Error Details', `Fetching error details for LID: ${transaction.lid}`, 'info');
+
+    // Determine API endpoint based on instance_name
+    const instanceName = transaction.instance_name || 'PROD';
+    let apiUrl;
+
+    if (instanceName === 'TEST') {
+        apiUrl = 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
+    } else {
+        apiUrl = 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
+    }
+
+    // Show loading popup
+    showErrorPopupLoading();
+
+    // Fetch error data
+    sendMessageToCSharp({
+        action: "executeGet",
+        fullUrl: apiUrl
+    }, function(error, data) {
+        if (error) {
+            showErrorPopupError(error);
+            addLogEntry('Error', `Failed to fetch error details: ${error}`, 'error');
+            return;
+        }
+
+        try {
+            const response = JSON.parse(data);
+            currentErrorData = response.items || [];
+
+            addLogEntry('Error Details', `Found ${currentErrorData.length} staged transactions`, 'info');
+
+            // Display error data in popup
+            displayErrorPopup(currentErrorData, instanceName);
+        } catch (parseError) {
+            showErrorPopupError('Failed to parse error data: ' + parseError.message);
+            addLogEntry('Error', `Parse error: ${parseError.message}`, 'error');
+        }
+    });
+}
+
+// Show loading popup
+function showErrorPopupLoading() {
+    const existingPopup = document.getElementById('error-details-popup');
+    if (existingPopup) {
+        existingPopup.remove();
+    }
+
+    const popup = document.createElement('div');
+    popup.id = 'error-details-popup';
+    popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+
+    popup.innerHTML = `
+        <div style="background: white; border-radius: 12px; padding: 2rem; min-width: 400px; text-align: center;">
+            <i class="fas fa-spinner fa-spin" style="font-size: 48px; color: #667eea; margin-bottom: 1rem;"></i>
+            <div style="font-size: 16px; font-weight: 600; color: #1e293b;">Loading Error Details...</div>
+        </div>
+    `;
+
+    document.body.appendChild(popup);
+}
+
+// Show error in popup
+function showErrorPopupError(errorMessage) {
+    const popup = document.getElementById('error-details-popup');
+    if (!popup) return;
+
+    popup.innerHTML = `
+        <div style="background: white; border-radius: 12px; padding: 2rem; min-width: 400px; max-width: 600px;">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem;">
+                <i class="fas fa-exclamation-triangle" style="font-size: 36px; color: #ef4444;"></i>
+                <div>
+                    <h3 style="margin: 0 0 0.5rem 0; color: #ef4444; font-size: 18px;">Error Loading Details</h3>
+                    <p style="margin: 0; color: #64748b; font-size: 14px;">${errorMessage}</p>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+                <button onclick="closeErrorPopup()" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    Close
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// Display error popup with data
+function displayErrorPopup(errorData, instanceName) {
+    const popup = document.getElementById('error-details-popup');
+    if (!popup) return;
+
+    let tableRows = '';
+
+    if (errorData.length === 0) {
+        tableRows = `
+            <tr>
+                <td colspan="6" style="padding: 2rem; text-align: center; color: #94a3b8;">
+                    <i class="fas fa-inbox" style="font-size: 36px; margin-bottom: 0.5rem; display: block;"></i>
+                    No staged transactions found
+                </td>
+            </tr>
+        `;
+    } else {
+        errorData.forEach((item, index) => {
+            tableRows += `
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
+                    <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${item.TransactionInterfaceId || 'N/A'}</td>
+                    <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${item.TransactionTypeName || 'N/A'}</td>
+                    <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${item.ItemNumber || 'N/A'}</td>
+                    <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${item.TransactionQuantity || 0}</td>
+                    <td style="padding: 0.75rem; font-size: 11px; color: #ef4444; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.ErrorExplanation || ''}">${item.ErrorExplanation || 'No error message'}</td>
+                </tr>
+            `;
+        });
+    }
+
+    popup.innerHTML = `
+        <div style="background: white; border-radius: 12px; padding: 0; min-width: 900px; max-width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+            <!-- Header -->
+            <div style="padding: 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <h3 style="margin: 0; color: white; font-size: 18px; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-exclamation-circle"></i>
+                    Staged Transaction Errors (${instanceName})
+                </h3>
+                <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 13px;">
+                    Found ${errorData.length} staged transaction(s)
+                </p>
+            </div>
+
+            <!-- Content -->
+            <div style="flex: 1; overflow-y: auto; padding: 1.5rem;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Interface ID</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Type</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Qty</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Error</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Footer -->
+            <div style="padding: 1.5rem; border-top: 2px solid #e2e8f0; background: #f8f9fa; display: flex; justify-content: space-between; gap: 0.5rem;">
+                <div style="display: flex; gap: 0.5rem;">
+                    <button onclick="refreshErrorData()" style="background: #3b82f6; color: white; border: none; padding: 0.75rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    ${errorData.length > 0 ? `
+                        <button onclick="deleteAllStagedTransactions()" style="background: #ef4444; color: white; border: none; padding: 0.75rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px; transition: all 0.2s;">
+                            <i class="fas fa-trash"></i> Delete All
+                        </button>
+                    ` : ''}
+                </div>
+                <button onclick="closeErrorPopup()" style="background: #94a3b8; color: white; border: none; padding: 0.75rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+            </div>
+        </div>
+    `;
+}
+
+// Close error popup
+function closeErrorPopup() {
+    const popup = document.getElementById('error-details-popup');
+    if (popup) {
+        popup.remove();
+    }
+    currentErrorData = [];
+    currentErrorTransaction = null;
+}
+
+// Refresh error data
+function refreshErrorData() {
+    if (!currentErrorTransaction) return;
+
+    // Find the transaction indices
+    const groupedTrips = groupTransactionsByTrip();
+    let tripIndex = -1;
+    let transactionIndex = -1;
+
+    groupedTrips.forEach((trip, tIdx) => {
+        const idx = trip.transactions.findIndex(t => t === currentErrorTransaction);
+        if (idx !== -1) {
+            tripIndex = tIdx;
+            transactionIndex = idx;
+        }
+    });
+
+    if (tripIndex !== -1 && transactionIndex !== -1) {
+        showErrorDetails(tripIndex, transactionIndex);
+    }
+}
+
+// Delete all staged transactions
+async function deleteAllStagedTransactions() {
+    if (currentErrorData.length === 0) {
+        alert('No transactions to delete');
+        return;
+    }
+
+    if (!confirm(`Are you sure you want to delete all ${currentErrorData.length} staged transaction(s)?`)) {
+        return;
+    }
+
+    const instanceName = currentErrorTransaction.instance_name || 'PROD';
+    let baseUrl;
+
+    if (instanceName === 'TEST') {
+        baseUrl = 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/';
+    } else {
+        baseUrl = 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/';
+    }
+
+    addLogEntry('Delete', `Starting deletion of ${currentErrorData.length} staged transactions...`, 'warning');
+
+    // Show progress
+    showErrorPopupLoading();
+
+    let deletedCount = 0;
+    let failedCount = 0;
+
+    for (const item of currentErrorData) {
+        const transactionInterfaceId = item.TransactionInterfaceId;
+
+        if (!transactionInterfaceId) {
+            failedCount++;
+            continue;
+        }
+
+        const deleteUrl = baseUrl + transactionInterfaceId;
+
+        await new Promise((resolve) => {
+            sendMessageToCSharp({
+                action: "executeDelete",
+                fullUrl: deleteUrl
+            }, function(error, data) {
+                if (error) {
+                    addLogEntry('Delete', `Failed to delete ${transactionInterfaceId}: ${error}`, 'error');
+                    failedCount++;
+                } else {
+                    addLogEntry('Delete', `Deleted transaction ${transactionInterfaceId}`, 'success');
+                    deletedCount++;
+                }
+                resolve();
+            });
+        });
+    }
+
+    addLogEntry('Delete', `Deletion complete: ${deletedCount} deleted, ${failedCount} failed`, deletedCount > 0 ? 'success' : 'error');
+
+    // Refresh the error data
+    setTimeout(() => {
+        refreshErrorData();
+    }, 1000);
+}
+
 // Make functions globally accessible
 window.fetchAutoInventoryData = fetchAutoInventoryData;
 window.runSimulation = runSimulation;
@@ -997,5 +1281,9 @@ window.toggleBypassTransaction = toggleBypassTransaction;
 window.toggleSelectAllOrder = toggleSelectAllOrder;
 window.applyFilters = applyFilters;
 window.clearFilters = clearFilters;
+window.showErrorDetails = showErrorDetails;
+window.closeErrorPopup = closeErrorPopup;
+window.refreshErrorData = refreshErrorData;
+window.deleteAllStagedTransactions = deleteAllStagedTransactions;
 
 console.log('[Auto Processing] Script loaded successfully');
