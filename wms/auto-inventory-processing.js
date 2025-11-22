@@ -1073,7 +1073,9 @@ async function showErrorDetails(tripIndex, transactionIndex) {
 
     // Fetch error data
     console.log('[Error Details] Calling WebView REST handler with:', { action: 'executeGet', fullUrl: apiUrl, username: fusionCloudUsername });
-    addLogEntry('Debug', `Using credentials: ${fusionCloudUsername}`, 'info');
+    addLogEntry('Debug', `Calling WebView REST handler - Action: executeGet`, 'info');
+    addLogEntry('Debug', `API URL: ${apiUrl}`, 'info');
+    addLogEntry('Debug', `Using credentials - Username: ${fusionCloudUsername}, Password: ${fusionCloudPassword ? '****' : 'NOT SET'}`, 'info');
 
     sendMessageToCSharp({
         action: "executeGet",
