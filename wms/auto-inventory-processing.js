@@ -375,7 +375,10 @@ function renderTripTransactions(transactions, tripIndex) {
                             <i class="fas fa-box" style="color: #667eea; font-size: 16px;"></i>
                             <div>
                                 <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Order</div>
-                                <div style="font-size: 14px; font-weight: 700; color: #1e293b;">${order.trx_number}</div>
+                                <div style="font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                                    ${order.trx_number}
+                                    <i class="fas fa-spinner fa-spin" id="order-processing-${orderId}" style="color: #667eea; font-size: 12px; display: none;"></i>
+                                </div>
                             </div>
                         </div>
                         <div>
@@ -406,6 +409,14 @@ function renderTripTransactions(transactions, tripIndex) {
                             <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${statusColor}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: 700;">
                                 <i class="fas fa-${statusIcon}"></i> ${orderStatus}
                             </span>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; margin-left: auto;">
+                            <button onclick="event.stopPropagation(); verifyWithFusion('${order.trx_number}', ${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                                <i class="fas fa-cloud-upload-alt"></i> Verify with Fusion
+                            </button>
+                            <button onclick="event.stopPropagation(); printOrder('${order.trx_number}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                <i class="fas fa-print"></i> Print
+                            </button>
                         </div>
                     </div>
                     <i class="fas fa-chevron-down" id="order-chevron-${orderId}" style="color: #667eea; transition: transform 0.3s; font-size: 12px;"></i>
@@ -752,6 +763,9 @@ async function processNextBatch() {
 
             addLogEntry('Order', `Processing Order: ${orderNumber} (${orderTransactions.length} lines)`, 'info');
 
+            // Show processing spinner for this order
+            showOrderProcessingSpinner(orderNumber, true);
+
             // Process all lines in this order
             for (let i = 0; i < orderTransactions.length; i++) {
                 const transaction = orderTransactions[i];
@@ -790,9 +804,14 @@ async function processNextBatch() {
                     stoppedDueToFailure = true;
                     addLogEntry('Error', `Processing stopped due to failure in Order ${orderNumber}. Processed ${processedCount} of ${pendingTransactions.length} transactions (${processedOrders} complete orders) before stopping.`, 'error');
                     updateStatistics();
+                    // Hide processing spinner for this order
+                    showOrderProcessingSpinner(orderNumber, false);
                     break;
                 }
             }
+
+            // Hide processing spinner for this order
+            showOrderProcessingSpinner(orderNumber, false);
 
             if (stoppedDueToFailure) {
                 break; // Stop processing remaining orders
@@ -1407,6 +1426,193 @@ async function deleteAllStagedTransactions() {
     }
 }
 
+// Show/hide order processing spinner
+function showOrderProcessingSpinner(orderNumber, show) {
+    // Find all order IDs that match this order number
+    const allOrderElements = document.querySelectorAll('[id^="order-processing-"]');
+
+    allOrderElements.forEach(element => {
+        // Check if this element belongs to the current order number
+        const parentDiv = element.closest('[data-order-container]');
+        if (parentDiv) {
+            const orderNumberElement = parentDiv.querySelector('[style*="font-size: 14px"]');
+            if (orderNumberElement && orderNumberElement.textContent.trim().includes(orderNumber.toString())) {
+                element.style.display = show ? 'inline-block' : 'none';
+            }
+        }
+    });
+
+    if (show) {
+        addLogEntry('UI', `Showing processing indicator for Order ${orderNumber}`, 'info');
+    }
+}
+
+// Verify with Fusion button handler
+function verifyWithFusion(orderNumber, tripIndex) {
+    addLogEntry('Verify', `Verifying Order ${orderNumber} with Oracle Fusion Cloud...`, 'info');
+
+    const groupedTrips = groupTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        alert('Trip not found');
+        return;
+    }
+
+    // Get instance name from the first transaction
+    const instanceName = trip.transactions[0]?.instance_name || 'PROD';
+
+    // Get all transactions for this order
+    const orderTransactions = trip.transactions.filter(t => t.trx_number === orderNumber);
+
+    if (orderTransactions.length === 0) {
+        alert('No transactions found for this order');
+        return;
+    }
+
+    // Build fusion cloud URL
+    let fusionUrl;
+    if (instanceName === 'TEST') {
+        fusionUrl = 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
+    } else {
+        fusionUrl = 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
+    }
+
+    addLogEntry('Verify', `Checking ${orderTransactions.length} transactions against Fusion Cloud (${instanceName})`, 'info');
+
+    // Check if credentials are loaded
+    if (!fusionCloudUsername || !fusionCloudPassword) {
+        alert('Oracle Fusion Cloud credentials not loaded. Please refresh the page.');
+        addLogEntry('Error', 'Fusion Cloud credentials not available', 'error');
+        return;
+    }
+
+    // Fetch from Fusion Cloud
+    sendMessageToCSharp({
+        action: "executeGet",
+        fullUrl: fusionUrl,
+        username: fusionCloudUsername,
+        password: fusionCloudPassword
+    }, function(error, data) {
+        if (error) {
+            alert(`Failed to verify with Fusion: ${error}`);
+            addLogEntry('Error', `Fusion verification failed: ${error}`, 'error');
+            return;
+        }
+
+        try {
+            const response = JSON.parse(data);
+            const stagedTransactions = response.items || [];
+
+            addLogEntry('Verify', `Found ${stagedTransactions.length} staged transactions in Fusion Cloud`, 'info');
+
+            if (stagedTransactions.length === 0) {
+                alert(`✓ Order ${orderNumber} verified: No staged transactions found in Fusion Cloud. All transactions processed successfully!`);
+                addLogEntry('Verify', `Order ${orderNumber}: Clean - no staged transactions`, 'success');
+            } else {
+                alert(`⚠ Order ${orderNumber}: Found ${stagedTransactions.length} staged transaction(s) in Fusion Cloud. Click "Show Errors" for details.`);
+                addLogEntry('Verify', `Order ${orderNumber}: ${stagedTransactions.length} staged transactions found`, 'warning');
+            }
+        } catch (parseError) {
+            alert('Failed to parse Fusion Cloud response');
+            addLogEntry('Error', `Parse error: ${parseError.message}`, 'error');
+        }
+    });
+}
+
+// Print order button handler
+function printOrder(orderNumber, tripIndex) {
+    addLogEntry('Print', `Printing Order ${orderNumber}...`, 'info');
+
+    const groupedTrips = groupTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        alert('Trip not found');
+        return;
+    }
+
+    // Get all transactions for this order
+    const orderTransactions = trip.transactions.filter(t => t.trx_number === orderNumber);
+
+    if (orderTransactions.length === 0) {
+        alert('No transactions found for this order');
+        return;
+    }
+
+    // Create print content
+    let printContent = `
+        <html>
+        <head>
+            <title>Order ${orderNumber} - Inventory Transfer</title>
+            <style>
+                body { font-family: Arial, sans-serif; padding: 20px; }
+                h1 { color: #1e293b; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
+                th { background: #f1f5f9; font-weight: 600; }
+                .header { margin-bottom: 20px; }
+                .header div { margin: 5px 0; }
+            </style>
+        </head>
+        <body>
+            <h1>Inventory Transfer Order</h1>
+            <div class="header">
+                <div><strong>Order Number:</strong> ${orderNumber}</div>
+                <div><strong>Transaction Type:</strong> ${orderTransactions[0].trx_type || 'N/A'}</div>
+                <div><strong>From:</strong> ${orderTransactions[0].source_sub_inv || 'N/A'} → <strong>To:</strong> ${orderTransactions[0].dest_sub_inv || 'N/A'}</div>
+                <div><strong>Total Lines:</strong> ${orderTransactions.length}</div>
+                <div><strong>Printed:</strong> ${new Date().toLocaleString()}</div>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>LID</th>
+                        <th>Item Code</th>
+                        <th>Description</th>
+                        <th>Qty</th>
+                        <th>Lot Number</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    orderTransactions.forEach((item, index) => {
+        printContent += `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${item.lid || 'N/A'}</td>
+                <td>${item.item_code || 'N/A'}</td>
+                <td>${item.item_desc || 'N/A'}</td>
+                <td>${item.txn_qty || 0}</td>
+                <td>${item.lot_number || 'N/A'}</td>
+                <td>${item.transaction_status || 'PENDING'}</td>
+            </tr>
+        `;
+    });
+
+    printContent += `
+                </tbody>
+            </table>
+        </body>
+        </html>
+    `;
+
+    // Open print window
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(printContent);
+    printWindow.document.close();
+    printWindow.focus();
+
+    // Trigger print after a short delay to ensure content is loaded
+    setTimeout(() => {
+        printWindow.print();
+        addLogEntry('Print', `Print dialog opened for Order ${orderNumber}`, 'success');
+    }, 250);
+}
+
 // Make functions globally accessible
 window.fetchAutoInventoryData = fetchAutoInventoryData;
 window.runSimulation = runSimulation;
@@ -1425,5 +1631,8 @@ window.closeErrorPopup = closeErrorPopup;
 window.refreshErrorData = refreshErrorData;
 window.deleteAllStagedTransactions = deleteAllStagedTransactions;
 window.toggleExpandCollapseAll = toggleExpandCollapseAll;
+window.showOrderProcessingSpinner = showOrderProcessingSpinner;
+window.verifyWithFusion = verifyWithFusion;
+window.printOrder = printOrder;
 
 console.log('[Auto Processing] Script loaded successfully');
