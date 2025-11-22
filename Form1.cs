@@ -1227,12 +1227,34 @@ namespace WMSApp
 
                 System.Diagnostics.Debug.WriteLine($"[C#] Processing executeGet request: {message.FullUrl}");
 
+                // Check if credentials are provided
+                bool hasCredentials = !string.IsNullOrEmpty(message.Username) && !string.IsNullOrEmpty(message.Password);
+                if (hasCredentials)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using Basic Authentication for user: {message.Username}");
+                }
+
                 using (var httpClient = new HttpClient())
                 {
                     httpClient.Timeout = TimeSpan.FromSeconds(1060);
+
+                    // Create request message instead of using GetAsync directly
+                    var request = new HttpRequestMessage(HttpMethod.Get, message.FullUrl);
+
+                    // Add Basic Authentication header if credentials are provided
+                    if (hasCredentials)
+                    {
+                        string credentials = Convert.ToBase64String(
+                            System.Text.Encoding.ASCII.GetBytes($"{message.Username}:{message.Password}")
+                        );
+                        request.Headers.Add("Authorization", $"Basic {credentials}");
+                        System.Diagnostics.Debug.WriteLine($"[C#] Added Authorization header with Basic authentication");
+                    }
+
                     System.Diagnostics.Debug.WriteLine($"[C#] Making GET request to: {message.FullUrl}");
 
-                    var response = await httpClient.GetAsync(message.FullUrl);
+                    // Use SendAsync instead of GetAsync to support custom headers
+                    var response = await httpClient.SendAsync(request);
                     string responseContent = await response.Content.ReadAsStringAsync();
 
                     System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}, Length: {responseContent.Length}");
@@ -3238,6 +3260,12 @@ namespace WMSApp
 
         [JsonPropertyName("fullUrl")]
         public string FullUrl { get; set; }
+
+        [JsonPropertyName("username")]
+        public string Username { get; set; }
+
+        [JsonPropertyName("password")]
+        public string Password { get; set; }
     }
 
     public class RestApiPostWebMessage
