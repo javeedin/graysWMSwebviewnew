@@ -365,6 +365,7 @@ function renderTripTransactions(transactions, tripIndex) {
                             <thead>
                                 <tr style="background: #f8f9fa; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Qty</th>
@@ -390,6 +391,7 @@ function renderTripTransactions(transactions, tripIndex) {
             html += `
                 <tr id="transaction-row-${tripIndex}-${item.originalIndex}" style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #94a3b8; font-weight: 600;">${itemIdx + 1}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.lid || 'N/A'}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.item_code}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.item_desc}">${item.item_desc}</td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.picked_qty}</td>
@@ -620,6 +622,8 @@ async function processNextBatch() {
 
     // Process transactions one by one in background
     let processedCount = 0;
+    let stoppedDueToFailure = false;
+
     try {
         for (let i = 0; i < pendingTransactions.length; i++) {
             const transaction = pendingTransactions[i];
@@ -643,23 +647,31 @@ async function processNextBatch() {
                 }
             });
 
-            // Process transaction and update status in DOM
-            await processAutoTransaction(transaction, actualTripIndex, actualTransactionIndex);
-            processedCount++;
+            try {
+                // Process transaction and update status in DOM
+                await processAutoTransaction(transaction, actualTripIndex, actualTransactionIndex);
+                processedCount++;
 
-            // Update statistics every 5 transactions
-            if (processedCount % 5 === 0 || i === pendingTransactions.length - 1) {
-                addLogEntry('Progress', `Processed ${processedCount} of ${pendingTransactions.length} transactions`, 'info');
+                // Update statistics every 5 transactions
+                if (processedCount % 5 === 0 || i === pendingTransactions.length - 1) {
+                    addLogEntry('Progress', `Processed ${processedCount} of ${pendingTransactions.length} transactions`, 'info');
+                    updateStatistics();
+                }
+            } catch (error) {
+                // Transaction failed - stop processing
+                stoppedDueToFailure = true;
+                addLogEntry('Error', `Processing stopped due to failure. Processed ${processedCount} of ${pendingTransactions.length} transactions before stopping.`, 'error');
                 updateStatistics();
+                break;
             }
         }
 
-        if (autoProcessingEnabled) {
-            addLogEntry('Processing', `All ${processedCount} pending transactions processed!`, 'success');
+        if (autoProcessingEnabled && !stoppedDueToFailure) {
+            addLogEntry('Processing', `All ${processedCount} pending transactions processed successfully!`, 'success');
             updateStatistics();
         }
     } catch (error) {
-        addLogEntry('Error', `Batch processing error: ${error.message}`, 'error');
+        addLogEntry('Error', `Unexpected batch processing error: ${error.message}`, 'error');
         console.error('[Auto Processing] Batch error:', error);
         updateStatistics();
     }
@@ -676,9 +688,8 @@ async function processAutoTransaction(transaction, tripIndex, transactionIndex) 
     }
 
     try {
-        // TODO: Call actual web service API to process transaction
-        // For now, simulate processing
-        await simulateProcessing(transaction);
+        // Call actual web service API to process transaction
+        const response = await processTransactionAPI(transaction);
 
         // Update transaction status
         transaction.transaction_status = 'SUCCESS';
@@ -688,7 +699,9 @@ async function processAutoTransaction(transaction, tripIndex, transactionIndex) 
             updateTransactionStatusInDOM(tripIndex, transactionIndex, 'SUCCESS');
         }
 
-        addLogEntry('Success', `✓ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - SUCCESS`, 'success');
+        addLogEntry('Success', `✓ LID: ${transaction.lid} | Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - SUCCESS`, 'success');
+
+        return { success: true, response };
 
     } catch (error) {
         console.error('[Auto Processing] Error processing transaction:', error);
@@ -700,29 +713,57 @@ async function processAutoTransaction(transaction, tripIndex, transactionIndex) 
             updateTransactionStatusInDOM(tripIndex, transactionIndex, 'FAILED');
         }
 
-        addLogEntry('Error', `✗ Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - FAILED: ${error.message}`, 'error');
+        addLogEntry('Error', `✗ LID: ${transaction.lid} | Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - FAILED: ${error.message}`, 'error');
 
-        // Note: No auto-retry, user must use Retry button
+        // Throw error to stop batch processing
+        throw error;
     }
 }
 
-// Simulate processing (replace with actual API call)
-function simulateProcessing(transaction) {
+// Process transaction via API (replaces simulation)
+function processTransactionAPI(transaction) {
     return new Promise((resolve, reject) => {
-        // Simulate processing time 0.2-0.8 seconds (fast for testing)
-        const processingTime = 200 + Math.random() * 600;
+        const lid = transaction.lid;
 
-        setTimeout(() => {
-            // Simulate 90% success rate (10% failure for testing)
-            const randomValue = Math.random();
+        if (!lid) {
+            reject(new Error('LID is missing'));
+            return;
+        }
 
-            if (randomValue > 0.1) {
-                resolve();
-            } else {
-                const errorMsg = `SIMULATED RANDOM FAILURE`;
-                reject(new Error(errorMsg));
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/processs2vauto/${lid}`;
+
+        console.log('[Auto Processing] Calling API for LID:', lid, apiUrl);
+
+        // Call API using WebView REST handler
+        sendMessageToCSharp({
+            action: "executePost",
+            fullUrl: apiUrl,
+            body: JSON.stringify({})
+        }, function(error, data) {
+            if (error) {
+                console.error('[Auto Processing] API error for LID', lid, ':', error);
+                reject(new Error(error));
+                return;
             }
-        }, processingTime);
+
+            try {
+                const response = JSON.parse(data);
+                console.log('[Auto Processing] API response for LID', lid, ':', response);
+
+                // Check result field
+                if (response.result === "0" || response.result === 0) {
+                    // Success
+                    resolve(response);
+                } else {
+                    // Failed - result is not 0
+                    const errorMsg = response.message || `Processing failed with result: ${response.result}`;
+                    reject(new Error(errorMsg));
+                }
+            } catch (parseError) {
+                console.error('[Auto Processing] Failed to parse API response:', parseError);
+                reject(new Error('Invalid API response format'));
+            }
+        });
     });
 }
 
