@@ -1424,5 +1424,6 @@ window.showErrorDetails = showErrorDetails;
 window.closeErrorPopup = closeErrorPopup;
 window.refreshErrorData = refreshErrorData;
 window.deleteAllStagedTransactions = deleteAllStagedTransactions;
+window.toggleExpandCollapseAll = toggleExpandCollapseAll;
 
 console.log('[Auto Processing] Script loaded successfully');
