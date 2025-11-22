@@ -1503,6 +1503,37 @@ function verifyWithFusion(orderNumber, tripIndex) {
     // Show loading popup
     showVerifyLoadingPopup(orderNumber);
 
+    // Add timeout to prevent infinite stuck state (30 seconds)
+    let responseReceived = false;
+    const timeoutId = setTimeout(() => {
+        if (!responseReceived) {
+            console.error('[Verify Fusion] TIMEOUT - No response from C# after 30 seconds');
+            closeVerifyLoadingPopup();
+
+            const errorMsg = 'Request timed out after 30 seconds.\n\n' +
+                           'Possible causes:\n' +
+                           '1. C# handler "HandleRunSoapReport" not added to Form1.cs\n' +
+                           '2. Case statement for "runSoapReport" not added\n' +
+                           '3. Application needs to be rebuilt\n' +
+                           '4. Network/SOAP endpoint issue\n\n' +
+                           'Please check Debug output window for C# errors.';
+
+            alert(errorMsg);
+            addLogEntry('Error', 'Verify with Fusion timed out after 30 seconds', 'error');
+            addLogEntry('Error', 'Check if C# handler was added and application rebuilt', 'error');
+        }
+    }, 30000);
+
+    console.log('[Verify Fusion] Sending message to C#...');
+    console.log('[Verify Fusion] Message data:', {
+        action: 'runSoapReport',
+        reportPath: reportPath,
+        parameterName: parameterName,
+        parameterValue: parameterValue,
+        instance: instanceName,
+        username: fusionCloudUsername ? '***' : 'MISSING'
+    });
+
     // Call C# SOAP handler to get Base64 data
     sendMessageToCSharp({
         action: 'runSoapReport',
@@ -1513,6 +1544,10 @@ function verifyWithFusion(orderNumber, tripIndex) {
         username: fusionCloudUsername,
         password: fusionCloudPassword
     }, function(error, data) {
+        // Mark response as received and clear timeout
+        responseReceived = true;
+        clearTimeout(timeoutId);
+
         console.log('[Verify Fusion] Response received');
         console.log('[Verify Fusion] Error:', error);
         console.log('[Verify Fusion] Data type:', typeof data);
