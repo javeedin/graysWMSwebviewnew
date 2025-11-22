@@ -1548,7 +1548,21 @@ function printOrder(orderNumber, tripIndex) {
     // Get instance name, trip_id, and trip_date from first transaction
     const instance = orderTransactions[0].instance_name || 'PROD';
     const tripId = orderTransactions[0].trip_id || '';
-    const tripDate = orderTransactions[0].trip_date || '';
+    let tripDate = orderTransactions[0].trip_date || '';
+
+    // Format tripDate to remove time portion (Windows path compatible)
+    // Convert "2025-11-20T00:00:00Z" to "2025-11-20"
+    if (tripDate) {
+        try {
+            const dateObj = new Date(tripDate);
+            tripDate = dateObj.toISOString().split('T')[0]; // Get only YYYY-MM-DD part
+        } catch (e) {
+            // If date parsing fails, try to extract date part
+            if (tripDate.includes('T')) {
+                tripDate = tripDate.split('T')[0];
+            }
+        }
+    }
 
     // Store Transaction reports are for Store to Van / Van to Store (Inventory Reports)
     const reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
@@ -1558,6 +1572,7 @@ function printOrder(orderNumber, tripIndex) {
     addLogEntry('Print', `Generating PDF report for Order ${orderNumber}`, 'info');
     addLogEntry('Print', `Report: ${reportName}`, 'info');
     addLogEntry('Print', `Instance: ${instance}`, 'info');
+    addLogEntry('Print', `Trip Date: ${tripDate}`, 'info');
 
     // Show loading indicator
     const loadingDiv = document.createElement('div');
