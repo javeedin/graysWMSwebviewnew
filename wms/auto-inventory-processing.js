@@ -411,6 +411,9 @@ function renderTripTransactions(transactions, tripIndex) {
                             </span>
                         </div>
                         <div style="display: flex; gap: 0.5rem; margin-left: auto;">
+                            <button onclick="event.stopPropagation(); processSingleOrder('${order.trx_number}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                                <i class="fas fa-play"></i> Process
+                            </button>
                             <button onclick="event.stopPropagation(); verifyWithFusion('${order.trx_number}', ${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
                                 <i class="fas fa-cloud-upload-alt"></i> Verify with Fusion
                             </button>
@@ -1613,6 +1616,105 @@ function printOrder(orderNumber, tripIndex) {
     }, 250);
 }
 
+// Process single order button handler
+async function processSingleOrder(orderNumber, tripIndex) {
+    addLogEntry('Process', `Starting to process Order ${orderNumber}...`, 'info');
+
+    const groupedTrips = groupTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        alert('Trip not found');
+        addLogEntry('Error', 'Trip not found', 'error');
+        return;
+    }
+
+    // Get all transactions for this order
+    let orderTransactions = trip.transactions.filter(t => t.trx_number === orderNumber);
+
+    if (orderTransactions.length === 0) {
+        alert('No transactions found for this order');
+        addLogEntry('Error', 'No transactions found for this order', 'error');
+        return;
+    }
+
+    // Filter out bypassed transactions
+    const pendingTransactions = orderTransactions.filter(t => {
+        const status = (t.transaction_status || '').toUpperCase();
+        const isPending = !t.transaction_status || status === '' || status === 'PENDING';
+        const isNotBypassed = !t.bypassed;
+        return isPending && isNotBypassed;
+    });
+
+    if (pendingTransactions.length === 0) {
+        alert(`Order ${orderNumber}: No pending transactions to process (all are either completed, bypassed, or failed)`);
+        addLogEntry('Process', `Order ${orderNumber}: No pending transactions`, 'warning');
+        return;
+    }
+
+    addLogEntry('Process', `Order ${orderNumber}: Processing ${pendingTransactions.length} pending transaction(s)...`, 'info');
+
+    // Show processing spinner
+    showOrderProcessingSpinner(orderNumber, true);
+
+    let processedCount = 0;
+    let failedCount = 0;
+    let stoppedDueToFailure = false;
+
+    try {
+        for (let i = 0; i < pendingTransactions.length; i++) {
+            const transaction = pendingTransactions[i];
+
+            // Find the actual trip and transaction index for DOM updates
+            let actualTripIndex = -1;
+            let actualTransactionIndex = -1;
+
+            groupedTrips.forEach((trip, tIdx) => {
+                const idx = trip.transactions.findIndex(t => t === transaction);
+                if (idx !== -1) {
+                    actualTripIndex = tIdx;
+                    actualTransactionIndex = idx;
+                }
+            });
+
+            try {
+                // Process transaction
+                await processAutoTransaction(transaction, actualTripIndex, actualTransactionIndex);
+                processedCount++;
+
+                addLogEntry('Process', `Order ${orderNumber}, Line ${i + 1}/${pendingTransactions.length}: Success`, 'success');
+            } catch (error) {
+                // Transaction failed - stop processing
+                failedCount++;
+                stoppedDueToFailure = true;
+                addLogEntry('Error', `Order ${orderNumber}, Line ${i + 1}/${pendingTransactions.length}: Failed - ${error.message}`, 'error');
+                break;
+            }
+        }
+
+        // Hide processing spinner
+        showOrderProcessingSpinner(orderNumber, false);
+
+        // Update statistics
+        updateStatistics();
+
+        // Show completion message
+        if (stoppedDueToFailure) {
+            alert(`Order ${orderNumber}: Processing stopped due to failure.\n\nProcessed: ${processedCount}\nFailed: ${failedCount}\n\nCheck Processing Log for details.`);
+            addLogEntry('Process', `Order ${orderNumber}: Stopped due to failure. ${processedCount} processed, ${failedCount} failed`, 'error');
+        } else {
+            alert(`Order ${orderNumber}: Processing complete!\n\nSuccessfully processed ${processedCount} transaction(s).`);
+            addLogEntry('Process', `Order ${orderNumber}: Successfully completed ${processedCount} transaction(s)`, 'success');
+        }
+
+    } catch (error) {
+        showOrderProcessingSpinner(orderNumber, false);
+        addLogEntry('Error', `Order ${orderNumber}: Unexpected error - ${error.message}`, 'error');
+        alert(`Order ${orderNumber}: An unexpected error occurred. Check Processing Log for details.`);
+        updateStatistics();
+    }
+}
+
 // Make functions globally accessible
 window.fetchAutoInventoryData = fetchAutoInventoryData;
 window.runSimulation = runSimulation;
@@ -1634,5 +1736,6 @@ window.toggleExpandCollapseAll = toggleExpandCollapseAll;
 window.showOrderProcessingSpinner = showOrderProcessingSpinner;
 window.verifyWithFusion = verifyWithFusion;
 window.printOrder = printOrder;
+window.processSingleOrder = processSingleOrder;
 
 console.log('[Auto Processing] Script loaded successfully');
