@@ -1450,77 +1450,331 @@ function showOrderProcessingSpinner(orderNumber, show) {
     }
 }
 
-// Verify with Fusion button handler
+// Verify with Fusion button handler - runs SOAP report to compare data
 function verifyWithFusion(orderNumber, tripIndex) {
+    console.log('[Verify Fusion] Starting verification for order:', orderNumber);
     addLogEntry('Verify', `Verifying Order ${orderNumber} with Oracle Fusion Cloud...`, 'info');
 
     const groupedTrips = groupTransactionsByTrip();
     const trip = groupedTrips[tripIndex];
 
     if (!trip) {
+        console.error('[Verify Fusion] Trip not found');
         alert('Trip not found');
         return;
     }
 
     // Get instance name from the first transaction
     const instanceName = trip.transactions[0]?.instance_name || 'PROD';
+    console.log('[Verify Fusion] Instance:', instanceName);
 
     // Get all transactions for this order
     const orderTransactions = trip.transactions.filter(t => t.trx_number === orderNumber);
 
     if (orderTransactions.length === 0) {
+        console.error('[Verify Fusion] No transactions found for order');
         alert('No transactions found for this order');
         return;
     }
 
-    // Build fusion cloud URL
-    let fusionUrl;
-    if (instanceName === 'TEST') {
-        fusionUrl = 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
-    } else {
-        fusionUrl = 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
-    }
-
-    addLogEntry('Verify', `Checking ${orderTransactions.length} transactions against Fusion Cloud (${instanceName})`, 'info');
+    console.log('[Verify Fusion] Found', orderTransactions.length, 'local transactions');
 
     // Check if credentials are loaded
     if (!fusionCloudUsername || !fusionCloudPassword) {
+        console.error('[Verify Fusion] Credentials not loaded');
         alert('Oracle Fusion Cloud credentials not loaded. Please refresh the page.');
         addLogEntry('Error', 'Fusion Cloud credentials not available', 'error');
         return;
     }
 
-    // Fetch from Fusion Cloud
+    console.log('[Verify Fusion] Using credentials:', fusionCloudUsername);
+
+    // SOAP Report details
+    const reportPath = '/Custom/DEXPRESS/INVENTORY/GRAYS_MTL_TRANSACTIONS_4_CHECKING_BIP.xdo';
+    const parameterName = 'SOURCE_CODE';
+    const parameterValue = String(orderNumber);
+
+    console.log('[Verify Fusion] Report path:', reportPath);
+    console.log('[Verify Fusion] Parameter:', parameterName, '=', parameterValue);
+
+    addLogEntry('Verify', `Running SOAP report: ${reportPath}`, 'info');
+    addLogEntry('Verify', `Parameter: ${parameterName} = ${parameterValue}`, 'info');
+
+    // Show loading popup
+    showVerifyLoadingPopup(orderNumber);
+
+    // Call C# SOAP handler to get Base64 data
     sendMessageToCSharp({
-        action: "executeGet",
-        fullUrl: fusionUrl,
+        action: 'runSoapReport',
+        reportPath: reportPath,
+        parameterName: parameterName,
+        parameterValue: parameterValue,
+        instance: instanceName,
         username: fusionCloudUsername,
         password: fusionCloudPassword
     }, function(error, data) {
+        console.log('[Verify Fusion] Response received');
+        console.log('[Verify Fusion] Error:', error);
+        console.log('[Verify Fusion] Data type:', typeof data);
+        console.log('[Verify Fusion] Data length:', data ? data.length : 0);
+
         if (error) {
-            alert(`Failed to verify with Fusion: ${error}`);
-            addLogEntry('Error', `Fusion verification failed: ${error}`, 'error');
+            console.error('[Verify Fusion] Error:', error);
+            closeVerifyLoadingPopup();
+            alert(`Failed to run Fusion report: ${error}`);
+            addLogEntry('Error', `Fusion report failed: ${error}`, 'error');
             return;
         }
 
         try {
-            const response = JSON.parse(data);
-            const stagedTransactions = response.items || [];
+            console.log('[Verify Fusion] Parsing response...');
+            const response = typeof data === 'string' ? JSON.parse(data) : data;
+            console.log('[Verify Fusion] Parsed response:', response);
 
-            addLogEntry('Verify', `Found ${stagedTransactions.length} staged transactions in Fusion Cloud`, 'info');
+            if (response.success && response.base64Data) {
+                console.log('[Verify Fusion] Base64 data length:', response.base64Data.length);
+                addLogEntry('Verify', `Received Base64 data from Fusion (${response.base64Data.length} chars)`, 'info');
 
-            if (stagedTransactions.length === 0) {
-                alert(`✓ Order ${orderNumber} verified: No staged transactions found in Fusion Cloud. All transactions processed successfully!`);
-                addLogEntry('Verify', `Order ${orderNumber}: Clean - no staged transactions`, 'success');
+                // Decode Base64 to get the actual data
+                const decodedData = atob(response.base64Data);
+                console.log('[Verify Fusion] Decoded data length:', decodedData.length);
+                console.log('[Verify Fusion] Decoded data preview:', decodedData.substring(0, 500));
+
+                addLogEntry('Verify', `Decoded data (${decodedData.length} chars)`, 'info');
+
+                // Parse the decoded data (could be XML, CSV, or JSON)
+                const fusionData = parseFusionReportData(decodedData);
+                console.log('[Verify Fusion] Parsed fusion data:', fusionData);
+                console.log('[Verify Fusion] Fusion records count:', fusionData.length);
+
+                addLogEntry('Verify', `Parsed ${fusionData.length} records from Fusion report`, 'info');
+
+                // Match with local data and display
+                displayVerifyComparisonPopup(orderNumber, orderTransactions, fusionData);
+
             } else {
-                alert(`⚠ Order ${orderNumber}: Found ${stagedTransactions.length} staged transaction(s) in Fusion Cloud. Click "Show Errors" for details.`);
-                addLogEntry('Verify', `Order ${orderNumber}: ${stagedTransactions.length} staged transactions found`, 'warning');
+                console.error('[Verify Fusion] Invalid response structure:', response);
+                closeVerifyLoadingPopup();
+                alert('Invalid response from Fusion report');
+                addLogEntry('Error', 'Invalid response structure from Fusion', 'error');
             }
         } catch (parseError) {
-            alert('Failed to parse Fusion Cloud response');
+            console.error('[Verify Fusion] Parse error:', parseError);
+            console.error('[Verify Fusion] Stack:', parseError.stack);
+            closeVerifyLoadingPopup();
+            alert('Failed to parse Fusion report response: ' + parseError.message);
             addLogEntry('Error', `Parse error: ${parseError.message}`, 'error');
         }
     });
+}
+
+// Parse Fusion report data (handles XML, CSV, JSON formats)
+function parseFusionReportData(decodedData) {
+    console.log('[Parse Fusion] Starting parse...');
+    console.log('[Parse Fusion] Data type:', typeof decodedData);
+    console.log('[Parse Fusion] First 200 chars:', decodedData.substring(0, 200));
+
+    const results = [];
+
+    try {
+        // Try JSON first
+        if (decodedData.trim().startsWith('{') || decodedData.trim().startsWith('[')) {
+            console.log('[Parse Fusion] Detected as JSON');
+            const jsonData = JSON.parse(decodedData);
+            return Array.isArray(jsonData) ? jsonData : [jsonData];
+        }
+
+        // Try XML parsing
+        if (decodedData.trim().startsWith('<')) {
+            console.log('[Parse Fusion] Detected as XML');
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(decodedData, 'text/xml');
+
+            // Look for common XML row elements
+            const rows = xmlDoc.querySelectorAll('ROW, row, G_1, DATA_ROW');
+            console.log('[Parse Fusion] Found XML rows:', rows.length);
+
+            rows.forEach((row, index) => {
+                const record = {};
+                // Get all child elements
+                Array.from(row.children).forEach(child => {
+                    record[child.tagName] = child.textContent;
+                });
+                if (Object.keys(record).length > 0) {
+                    results.push(record);
+                }
+            });
+
+            console.log('[Parse Fusion] Parsed XML records:', results.length);
+            return results;
+        }
+
+        // Try CSV parsing
+        if (decodedData.includes(',') || decodedData.includes('\t')) {
+            console.log('[Parse Fusion] Detected as CSV/TSV');
+            const lines = decodedData.split('\n').filter(line => line.trim());
+            console.log('[Parse Fusion] CSV lines:', lines.length);
+
+            if (lines.length === 0) return results;
+
+            // First line is header
+            const headers = lines[0].split(/[,\t]/);
+            console.log('[Parse Fusion] CSV headers:', headers);
+
+            // Parse data lines
+            for (let i = 1; i < lines.length; i++) {
+                const values = lines[i].split(/[,\t]/);
+                const record = {};
+                headers.forEach((header, idx) => {
+                    record[header.trim()] = values[idx] ? values[idx].trim() : '';
+                });
+                results.push(record);
+            }
+
+            console.log('[Parse Fusion] Parsed CSV records:', results.length);
+            return results;
+        }
+
+        console.warn('[Parse Fusion] Unknown format, returning empty array');
+        return results;
+
+    } catch (e) {
+        console.error('[Parse Fusion] Parse exception:', e);
+        console.error('[Parse Fusion] Stack:', e.stack);
+        return results;
+    }
+}
+
+// Show loading popup for verify operation
+function showVerifyLoadingPopup(orderNumber) {
+    const popup = document.createElement('div');
+    popup.id = 'verify-loading-popup';
+    popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+    popup.innerHTML = `
+        <div style="background: white; padding: 2rem; border-radius: 12px; text-align: center;">
+            <i class="fas fa-spinner fa-spin" style="font-size: 48px; color: #667eea; margin-bottom: 1rem;"></i>
+            <div style="font-size: 16px; font-weight: 600; color: #1e293b;">Verifying with Fusion Cloud...</div>
+            <div style="font-size: 14px; color: #64748b; margin-top: 0.5rem;">Order: ${orderNumber}</div>
+        </div>
+    `;
+    document.body.appendChild(popup);
+}
+
+// Close loading popup
+function closeVerifyLoadingPopup() {
+    const popup = document.getElementById('verify-loading-popup');
+    if (popup) popup.remove();
+}
+
+// Display comparison popup with Fusion data
+function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData) {
+    console.log('[Display Verify] Creating comparison popup');
+    console.log('[Display Verify] Local transactions:', localTransactions.length);
+    console.log('[Display Verify] Fusion records:', fusionData.length);
+
+    closeVerifyLoadingPopup();
+
+    // Match local transactions with Fusion data by LID
+    const enhancedTransactions = localTransactions.map(localTxn => {
+        const lid = String(localTxn.lid || '').trim();
+        console.log('[Display Verify] Matching LID:', lid);
+
+        // Find matching Fusion record
+        const fusionMatch = fusionData.find(fusionRecord => {
+            // Try different possible LID field names
+            const fusionLid = String(fusionRecord.LID || fusionRecord.lid || fusionRecord.LOAD_REQUEST_NUMBER || '').trim();
+            return fusionLid === lid;
+        });
+
+        if (fusionMatch) {
+            console.log('[Display Verify] Match found for LID', lid, ':', fusionMatch);
+        } else {
+            console.log('[Display Verify] No match for LID', lid);
+        }
+
+        return {
+            ...localTxn,
+            fusionQty: fusionMatch ? (fusionMatch.TRANSACTION_QUANTITY || fusionMatch.transaction_quantity || fusionMatch.QUANTITY || '0') : '-',
+            fusionStatus: fusionMatch ? 'Matched' : 'Not Found'
+        };
+    });
+
+    // Build table HTML
+    let tableRows = '';
+    enhancedTransactions.forEach((txn, index) => {
+        const statusColor = txn.fusionStatus === 'Matched' ? '#10b981' : '#ef4444';
+        const qtyMatch = String(txn.txn_qty) === String(txn.fusionQty);
+        const qtyColor = qtyMatch ? '#10b981' : '#f59e0b';
+
+        tableRows += `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
+                <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${txn.lid || 'N/A'}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${txn.item_code || 'N/A'}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${txn.item_desc || 'N/A'}</td>
+                <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: #1e293b;">${txn.txn_qty || 0}</td>
+                <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: ${qtyColor};">${txn.fusionQty}</td>
+                <td style="padding: 0.75rem; font-size: 11px; text-align: center;">
+                    <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; background: ${statusColor}; color: white; font-weight: 600;">
+                        ${txn.fusionStatus}
+                    </span>
+                </td>
+            </tr>
+        `;
+    });
+
+    const matchedCount = enhancedTransactions.filter(t => t.fusionStatus === 'Matched').length;
+    const notFoundCount = enhancedTransactions.filter(t => t.fusionStatus === 'Not Found').length;
+
+    const popup = document.createElement('div');
+    popup.id = 'verify-comparison-popup';
+    popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; display: flex; align-items: center; justify-content: center;';
+
+    popup.innerHTML = `
+        <div style="background: white; border-radius: 12px; padding: 0; min-width: 900px; max-width: 95%; max-height: 90vh; display: flex; flex-direction: column;">
+            <!-- Header -->
+            <div style="padding: 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                <h3 style="margin: 0; color: white; font-size: 18px; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-check-double"></i>
+                    Fusion Verification - Order ${orderNumber}
+                </h3>
+                <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 13px;">
+                    Matched: ${matchedCount} | Not Found: ${notFoundCount} | Total: ${enhancedTransactions.length}
+                </p>
+            </div>
+
+            <!-- Content -->
+            <div style="flex: 1; overflow-y: auto; padding: 1.5rem;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
+                            <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Local Qty</th>
+                            <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Qty</th>
+                            <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${tableRows}
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Footer -->
+            <div style="padding: 1.5rem; border-top: 2px solid #e2e8f0; background: #f8f9fa; display: flex; justify-content: flex-end;">
+                <button onclick="document.getElementById('verify-comparison-popup').remove()" style="background: #94a3b8; color: white; border: none; padding: 0.75rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;">
+                    <i class="fas fa-times"></i> Close
+                </button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(popup);
+
+    addLogEntry('Verify', `Comparison complete: ${matchedCount} matched, ${notFoundCount} not found`, matchedCount === enhancedTransactions.length ? 'success' : 'warning');
 }
 
 // Print order button handler - using C# Fusion PDF handler (Store Transaction Report)
