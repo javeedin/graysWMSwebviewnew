@@ -1700,6 +1700,18 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
     console.log('[Display Verify] Local transactions:', localTransactions.length);
     console.log('[Display Verify] Fusion records:', fusionData.length);
 
+    // Debug: Show first local transaction to see available fields
+    if (localTransactions.length > 0) {
+        console.log('[Display Verify] First local transaction fields:', Object.keys(localTransactions[0]));
+        console.log('[Display Verify] First local transaction:', localTransactions[0]);
+    }
+
+    // Debug: Show first Fusion record to see available fields
+    if (fusionData.length > 0) {
+        console.log('[Display Verify] First Fusion record fields:', Object.keys(fusionData[0]));
+        console.log('[Display Verify] First Fusion record:', fusionData[0]);
+    }
+
     closeVerifyLoadingPopup();
 
     // Match local transactions with Fusion data by LID
@@ -1728,40 +1740,64 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
     });
 
     // Build Fusion Data table (showing raw XML data from Fusion)
+    // Get all unique column names from all records
+    const fusionColumns = new Set();
+    fusionData.forEach(record => {
+        Object.keys(record).forEach(key => fusionColumns.add(key));
+    });
+    const fusionColumnArray = Array.from(fusionColumns);
+    console.log('[Display Verify] Fusion columns:', fusionColumnArray);
+
+    // Build header row dynamically
+    let fusionTableHeader = '<th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>';
+    fusionColumnArray.forEach(col => {
+        fusionTableHeader += `<th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">${col}</th>`;
+    });
+
+    // Build data rows dynamically
     let fusionTableRows = '';
     fusionData.forEach((record, index) => {
-        const lid = record.LID || record.lid || record.LOAD_REQUEST_NUMBER || 'N/A';
-        const itemCode = record.ITEM_CODE || record.item_code || record.ITEM || 'N/A';
-        const qty = record.TRANSACTION_QUANTITY || record.transaction_quantity || record.QUANTITY || '0';
-        const transactionType = record.TRANSACTION_TYPE || record.transaction_type || 'N/A';
-        const transactionDate = record.TRANSACTION_DATE || record.transaction_date || 'N/A';
+        let row = `<tr style="border-bottom: 1px solid #e2e8f0;">
+            <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>`;
 
-        fusionTableRows += `
-            <tr style="border-bottom: 1px solid #e2e8f0;">
-                <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
-                <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${lid}</td>
-                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${itemCode}</td>
-                <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: #1e293b;">${qty}</td>
-                <td style="padding: 0.75rem; font-size: 12px; color: #64748b;">${transactionType}</td>
-                <td style="padding: 0.75rem; font-size: 12px; color: #64748b;">${transactionDate}</td>
-            </tr>
-        `;
+        fusionColumnArray.forEach(col => {
+            const value = record[col] || '';
+            // Highlight LID column
+            const isLidColumn = col.toUpperCase().includes('LID') || col.toUpperCase().includes('LOAD');
+            const style = isLidColumn
+                ? 'padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;'
+                : 'padding: 0.75rem; font-size: 12px; color: #1e293b;';
+            row += `<td style="${style}">${value}</td>`;
+        });
+
+        row += `</tr>`;
+        fusionTableRows += row;
     });
 
     // Build Order Lines table (with matching)
     let orderLinesRows = '';
     enhancedTransactions.forEach((txn, index) => {
         const statusColor = txn.fusionStatus === 'Matched' ? '#10b981' : '#ef4444';
-        const qtyMatch = String(txn.txn_qty) === String(txn.fusionQty);
+
+        // Try multiple field names for local quantity
+        const localQty = txn.txn_qty || txn.transaction_quantity || txn.quantity || txn.qty || txn.QUANTITY || txn.QTY || 0;
+        const qtyMatch = String(localQty) === String(txn.fusionQty);
         const qtyColor = qtyMatch ? '#10b981' : '#f59e0b';
+
+        // Try multiple field names for item code and description
+        const itemCode = txn.item_code || txn.ITEM_CODE || txn.item || txn.ITEM || 'N/A';
+        const itemDesc = txn.item_desc || txn.ITEM_DESC || txn.description || txn.DESCRIPTION || 'N/A';
+        const lid = txn.lid || txn.LID || txn.load_id || txn.LOAD_ID || 'N/A';
+
+        console.log(`[Display Verify] Row ${index + 1}: LID=${lid}, LocalQty=${localQty}, FusionQty=${txn.fusionQty}`);
 
         orderLinesRows += `
             <tr style="border-bottom: 1px solid #e2e8f0;">
                 <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
-                <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${txn.lid || 'N/A'}</td>
-                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${txn.item_code || 'N/A'}</td>
-                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${txn.item_desc || 'N/A'}</td>
-                <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: #1e293b;">${txn.txn_qty || 0}</td>
+                <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${lid}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${itemCode}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${itemDesc}</td>
+                <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: #1e293b;">${localQty}</td>
                 <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: ${qtyColor};">${txn.fusionQty}</td>
                 <td style="padding: 0.75rem; font-size: 11px; text-align: center;">
                     <span style="display: inline-block; padding: 4px 8px; border-radius: 4px; background: ${statusColor}; color: white; font-weight: 600;">
@@ -1814,12 +1850,7 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
                     <table style="width: 100%; border-collapse: collapse;">
                         <thead>
                             <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
-                                <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Quantity</th>
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Transaction Type</th>
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Transaction Date</th>
+                                ${fusionTableHeader}
                             </tr>
                         </thead>
                         <tbody>

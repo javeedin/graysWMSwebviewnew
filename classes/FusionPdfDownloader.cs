@@ -450,16 +450,49 @@ namespace WMSApp.PrintManagement
                 // Parse XML
                 XDocument doc = XDocument.Parse(xmlContent);
 
-                // Look for common row elements (ROW, row, G_1, DATA_ROW, etc.)
-                var rowElements = doc.Descendants()
+                // Get root element to understand structure
+                var rootElement = doc.Root;
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Root element: {rootElement?.Name.LocalName}");
+
+                // Log all unique element names to help identify row structure
+                var allElements = doc.Descendants().Select(e => e.Name.LocalName).Distinct().ToList();
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] All element names found: {string.Join(", ", allElements)}");
+
+                // Try multiple strategies to find row elements
+                System.Collections.Generic.List<XElement> rowElements = new System.Collections.Generic.List<XElement>();
+
+                // Strategy 1: Look for common row element names
+                rowElements = doc.Descendants()
                     .Where(e => e.Name.LocalName.Equals("ROW", StringComparison.OrdinalIgnoreCase) ||
                                e.Name.LocalName.Equals("G_1", StringComparison.OrdinalIgnoreCase) ||
                                e.Name.LocalName.Equals("DATA_ROW", StringComparison.OrdinalIgnoreCase) ||
-                               e.Name.LocalName.Contains("ROW"))
+                               e.Name.LocalName.Equals("G_2", StringComparison.OrdinalIgnoreCase) ||
+                               e.Name.LocalName.Equals("G_3", StringComparison.OrdinalIgnoreCase) ||
+                               e.Name.LocalName.StartsWith("G_", StringComparison.OrdinalIgnoreCase))
                     .ToList();
 
-                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Found {rowElements.Count} row elements");
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Strategy 1 (Named elements): Found {rowElements.Count} elements");
 
+                // Strategy 2: If no rows found, look for repeating elements with children
+                if (rowElements.Count == 0)
+                {
+                    var elementGroups = doc.Descendants()
+                        .Where(e => e.HasElements)
+                        .GroupBy(e => e.Name.LocalName)
+                        .Where(g => g.Count() > 1)  // Repeating elements
+                        .OrderByDescending(g => g.Count())
+                        .FirstOrDefault();
+
+                    if (elementGroups != null)
+                    {
+                        rowElements = elementGroups.ToList();
+                        System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Strategy 2 (Repeating elements): Found {rowElements.Count} '{elementGroups.Key}' elements");
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Total row elements to process: {rowElements.Count}");
+
+                int recordIndex = 0;
                 foreach (var row in rowElements)
                 {
                     var record = new System.Collections.Generic.Dictionary<string, string>();
@@ -468,14 +501,27 @@ namespace WMSApp.PrintManagement
                     foreach (var element in row.Elements())
                     {
                         string columnName = element.Name.LocalName;
-                        string columnValue = element.Value;
+                        string columnValue = element.Value?.Trim() ?? "";
                         record[columnName] = columnValue;
                     }
 
                     if (record.Count > 0)
                     {
                         records.Add(record);
-                        System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Record {records.Count}: {record.Count} columns");
+                        recordIndex++;
+
+                        // Log first record's fields for debugging
+                        if (recordIndex == 1)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[ParseXmlData] First record fields: {string.Join(", ", record.Keys)}");
+                            System.Diagnostics.Debug.WriteLine($"[ParseXmlData] First record values:");
+                            foreach (var kvp in record)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[ParseXmlData]   {kvp.Key} = {kvp.Value}");
+                            }
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Record {recordIndex}: {record.Count} columns");
                     }
                 }
 
@@ -484,6 +530,7 @@ namespace WMSApp.PrintManagement
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[ParseXmlData] ❌ Parse error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[ParseXmlData] Stack trace: {ex.StackTrace}");
             }
 
             return records;
