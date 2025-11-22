@@ -1378,7 +1378,9 @@ async function deleteAllStagedTransactions() {
         await new Promise((resolve) => {
             sendMessageToCSharp({
                 action: "executeDelete",
-                fullUrl: deleteUrl
+                fullUrl: deleteUrl,
+                username: fusionCloudUsername,
+                password: fusionCloudPassword
             }, function(error, data) {
                 if (error) {
                     addLogEntry('Delete', `Failed to delete ${transactionInterfaceId}: ${error}`, 'error');
@@ -1394,10 +1396,15 @@ async function deleteAllStagedTransactions() {
 
     addLogEntry('Delete', `Deletion complete: ${deletedCount} deleted, ${failedCount} failed`, deletedCount > 0 ? 'success' : 'error');
 
-    // Refresh the error data
-    setTimeout(() => {
-        refreshErrorData();
-    }, 1000);
+    // Close the popup after deletion (don't auto-refresh)
+    closeErrorPopup();
+
+    // Show success message
+    if (deletedCount > 0) {
+        alert(`Successfully deleted ${deletedCount} staged transaction(s)${failedCount > 0 ? `, ${failedCount} failed` : ''}`);
+    } else {
+        alert(`Failed to delete transactions. Check Processing Log for details.`);
+    }
 }
 
 // Make functions globally accessible

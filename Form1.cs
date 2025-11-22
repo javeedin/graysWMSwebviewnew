@@ -1080,6 +1080,10 @@ namespace WMSApp
                                     await HandleRestApiPostRequest(wv, messageJson, requestId);
                                     break;
 
+                                case "executeDelete":
+                                    await HandleRestApiDeleteRequest(wv, messageJson, requestId);
+                                    break;
+
                                 case "claudeApiTest":
                                     await HandleClaudeApiTest(wv, messageJson, requestId);
                                     break;
@@ -1370,6 +1374,91 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST call failed: {ex.Message}");
+
+                var errorMessage = new
+                {
+                    action = "error",
+                    requestId = requestId,
+                    data = new { message = ex.Message }
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        private async Task HandleRestApiDeleteRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing executeDelete request: {message.FullUrl}");
+
+                // Check if credentials are provided
+                bool hasCredentials = !string.IsNullOrEmpty(message.Username) && !string.IsNullOrEmpty(message.Password);
+                if (hasCredentials)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using Basic Authentication for user: {message.Username}");
+                }
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(1060);
+
+                    // Create request message
+                    var request = new HttpRequestMessage(HttpMethod.Delete, message.FullUrl);
+
+                    // Add Basic Authentication header if credentials are provided
+                    if (hasCredentials)
+                    {
+                        string credentials = Convert.ToBase64String(
+                            System.Text.Encoding.ASCII.GetBytes($"{message.Username}:{message.Password}")
+                        );
+                        request.Headers.Add("Authorization", $"Basic {credentials}");
+                        System.Diagnostics.Debug.WriteLine($"[C#] Added Authorization header with Basic authentication");
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Making DELETE request to: {message.FullUrl}");
+
+                    // Use SendAsync to support custom headers
+                    var response = await httpClient.SendAsync(request);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] DELETE call completed. Status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                    // Log error responses for debugging
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] HTTP {response.StatusCode}: {response.ReasonPhrase}");
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] Response body: {responseContent.Substring(0, Math.Min(500, responseContent.Length))}");
+                    }
+
+                    // Log first 200 chars of successful responses for debugging
+                    if (response.IsSuccessStatusCode && responseContent.Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Response preview: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
+                    }
+
+                    var resultMessage = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+
+                    string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending response back to JS. RequestId: {requestId}, DataLength: {responseContent.Length}");
+                    wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ DELETE response sent successfully to WebView2");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] DELETE call failed: {ex.Message}");
 
                 var errorMessage = new
                 {
