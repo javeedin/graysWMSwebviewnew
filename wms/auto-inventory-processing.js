@@ -1610,17 +1610,49 @@ function printOrder(orderNumber, tripIndex) {
         } else {
             try {
                 const response = typeof data === 'string' ? JSON.parse(data) : data;
+                addLogEntry('Print', `Response received: ${JSON.stringify(response)}`, 'info');
 
                 if (response.success) {
-                    addLogEntry('Print', `PDF generated successfully: ${response.pdfPath}`, 'success');
-                    alert(`PDF report generated successfully!\n\nFile: ${response.pdfPath}\n\nThe PDF will now open.`);
+                    // Check for PDF path in multiple possible properties
+                    const pdfPath = response.pdfPath || response.filePath || response.path;
+
+                    if (pdfPath) {
+                        addLogEntry('Print', `PDF generated successfully: ${pdfPath}`, 'success');
+
+                        // Open PDF viewer (showPdfViewer is a global function from app.js)
+                        if (typeof window.showPdfViewer === 'function') {
+                            window.showPdfViewer(pdfPath, orderNumber, reportName);
+                        } else {
+                            // Fallback: just show success message
+                            alert(`PDF report generated successfully!\n\nFile: ${pdfPath}`);
+                        }
+                    } else {
+                        addLogEntry('Print', `PDF generated but no path in response. Response: ${JSON.stringify(response)}`, 'warning');
+                        alert('Report generated successfully!\n\nNote: PDF path not found in response.\nCheck Processing Log for details.');
+                    }
                 } else {
                     addLogEntry('Error', `PDF generation failed: ${response.message}`, 'error');
                     alert('Failed to generate PDF: ' + (response.message || 'Unknown error'));
                 }
             } catch (parseError) {
-                addLogEntry('Error', `Failed to parse response: ${parseError.message}`, 'error');
-                alert('Error processing response: ' + parseError.message);
+                // Handle non-JSON responses (sometimes C# returns just a file path string)
+                addLogEntry('Print', `Non-JSON response received: ${data}`, 'info');
+
+                // Check if data looks like a file path
+                if (data && typeof data === 'string' && (data.includes('\\') || data.includes('.pdf') || data.includes('C:') || data.includes('/'))) {
+                    const pdfPath = data.trim();
+                    addLogEntry('Print', `PDF generated successfully: ${pdfPath}`, 'success');
+
+                    // Open PDF viewer
+                    if (typeof window.showPdfViewer === 'function') {
+                        window.showPdfViewer(pdfPath, orderNumber, reportName);
+                    } else {
+                        alert(`PDF report generated successfully!\n\nFile: ${pdfPath}`);
+                    }
+                } else {
+                    addLogEntry('Error', `Failed to parse response: ${parseError.message}`, 'error');
+                    alert('Error processing response: ' + parseError.message);
+                }
             }
         }
     });
