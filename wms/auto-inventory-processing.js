@@ -1523,7 +1523,7 @@ function verifyWithFusion(orderNumber, tripIndex) {
     });
 }
 
-// Print order button handler
+// Print order button handler - using C# Fusion PDF handler (Store Transaction Report)
 function printOrder(orderNumber, tripIndex) {
     addLogEntry('Print', `Printing Order ${orderNumber}...`, 'info');
 
@@ -1532,6 +1532,7 @@ function printOrder(orderNumber, tripIndex) {
 
     if (!trip) {
         alert('Trip not found');
+        addLogEntry('Error', 'Trip not found', 'error');
         return;
     }
 
@@ -1540,80 +1541,73 @@ function printOrder(orderNumber, tripIndex) {
 
     if (orderTransactions.length === 0) {
         alert('No transactions found for this order');
+        addLogEntry('Error', 'No transactions found for this order', 'error');
         return;
     }
 
-    // Create print content
-    let printContent = `
-        <html>
-        <head>
-            <title>Order ${orderNumber} - Inventory Transfer</title>
-            <style>
-                body { font-family: Arial, sans-serif; padding: 20px; }
-                h1 { color: #1e293b; }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                th, td { border: 1px solid #cbd5e1; padding: 8px; text-align: left; font-size: 12px; }
-                th { background: #f1f5f9; font-weight: 600; }
-                .header { margin-bottom: 20px; }
-                .header div { margin: 5px 0; }
-            </style>
-        </head>
-        <body>
-            <h1>Inventory Transfer Order</h1>
-            <div class="header">
-                <div><strong>Order Number:</strong> ${orderNumber}</div>
-                <div><strong>Transaction Type:</strong> ${orderTransactions[0].trx_type || 'N/A'}</div>
-                <div><strong>From:</strong> ${orderTransactions[0].source_sub_inv || 'N/A'} → <strong>To:</strong> ${orderTransactions[0].dest_sub_inv || 'N/A'}</div>
-                <div><strong>Total Lines:</strong> ${orderTransactions.length}</div>
-                <div><strong>Printed:</strong> ${new Date().toLocaleString()}</div>
-            </div>
-            <table>
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>LID</th>
-                        <th>Item Code</th>
-                        <th>Description</th>
-                        <th>Qty</th>
-                        <th>Lot Number</th>
-                        <th>Status</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
+    // Get instance name, trip_id, and trip_date from first transaction
+    const instance = orderTransactions[0].instance_name || 'PROD';
+    const tripId = orderTransactions[0].trip_id || '';
+    const tripDate = orderTransactions[0].trip_date || '';
 
-    orderTransactions.forEach((item, index) => {
-        printContent += `
-            <tr>
-                <td>${index + 1}</td>
-                <td>${item.lid || 'N/A'}</td>
-                <td>${item.item_code || 'N/A'}</td>
-                <td>${item.item_desc || 'N/A'}</td>
-                <td>${item.txn_qty || 0}</td>
-                <td>${item.lot_number || 'N/A'}</td>
-                <td>${item.transaction_status || 'PENDING'}</td>
-            </tr>
-        `;
+    // Store Transaction reports are for Store to Van / Van to Store (Inventory Reports)
+    const reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
+    const parameterName = 'SOURCE_CODE';
+    const reportName = 'Store Transaction Report (Inventory)';
+
+    addLogEntry('Print', `Generating PDF report for Order ${orderNumber}`, 'info');
+    addLogEntry('Print', `Report: ${reportName}`, 'info');
+    addLogEntry('Print', `Instance: ${instance}`, 'info');
+
+    // Show loading indicator
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'print-loading-indicator';
+    loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;';
+    loadingDiv.innerHTML = `
+        <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+            <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #8b5cf6; margin-bottom: 1rem;"></i>
+            <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Generating PDF Report...</div>
+            <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">${reportName}</div>
+            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Order: ${orderNumber}</div>
+            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${instance}</div>
+        </div>
+    `;
+    document.body.appendChild(loadingDiv);
+
+    // Call C# handler to generate PDF from Oracle Fusion Cloud
+    sendMessageToCSharp({
+        action: 'printStoreTransaction',
+        orderNumber: orderNumber,
+        instance: instance,
+        reportPath: reportPath,
+        parameterName: parameterName,
+        tripId: tripId,
+        tripDate: tripDate
+    }, function(error, data) {
+        // Remove loading indicator
+        const loading = document.getElementById('print-loading-indicator');
+        if (loading) loading.remove();
+
+        if (error) {
+            addLogEntry('Error', `Failed to generate PDF report: ${error}`, 'error');
+            alert('Error generating report: ' + error);
+        } else {
+            try {
+                const response = typeof data === 'string' ? JSON.parse(data) : data;
+
+                if (response.success) {
+                    addLogEntry('Print', `PDF generated successfully: ${response.pdfPath}`, 'success');
+                    alert(`PDF report generated successfully!\n\nFile: ${response.pdfPath}\n\nThe PDF will now open.`);
+                } else {
+                    addLogEntry('Error', `PDF generation failed: ${response.message}`, 'error');
+                    alert('Failed to generate PDF: ' + (response.message || 'Unknown error'));
+                }
+            } catch (parseError) {
+                addLogEntry('Error', `Failed to parse response: ${parseError.message}`, 'error');
+                alert('Error processing response: ' + parseError.message);
+            }
+        }
     });
-
-    printContent += `
-                </tbody>
-            </table>
-        </body>
-        </html>
-    `;
-
-    // Open print window
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(printContent);
-    printWindow.document.close();
-    printWindow.focus();
-
-    // Trigger print after a short delay to ensure content is loaded
-    setTimeout(() => {
-        printWindow.print();
-        addLogEntry('Print', `Print dialog opened for Order ${orderNumber}`, 'success');
-    }, 250);
 }
 
 // Process single order button handler
