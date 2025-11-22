@@ -296,6 +296,12 @@ function displayGroupedTrips() {
             chevron.style.transform = 'rotate(180deg)';
         }
     });
+
+    // Show expand/collapse all button when there's data
+    const expandCollapseBtn = document.getElementById('expand-collapse-all-btn');
+    if (expandCollapseBtn) {
+        expandCollapseBtn.style.display = groupedTrips.length > 0 ? 'block' : 'none';
+    }
 }
 
 // Render trip transactions grouped by order
@@ -545,6 +551,39 @@ function collapseAllOrders(tripIndex) {
         }
     });
     addLogEntry('UI', `Collapsed all orders in trip ${tripIndex}`, 'info');
+}
+
+// Toggle expand/collapse all orders (global)
+let allOrdersExpanded = false;
+
+function toggleExpandCollapseAll() {
+    const allDetails = document.querySelectorAll('[id^="order-details-"]');
+    const allChevrons = document.querySelectorAll('[id^="order-chevron-"]');
+    const button = document.getElementById('expand-collapse-all-btn');
+
+    if (!allOrdersExpanded) {
+        // Expand all
+        allDetails.forEach(details => {
+            details.style.display = 'block';
+        });
+        allChevrons.forEach(chevron => {
+            chevron.style.transform = 'rotate(180deg)';
+        });
+        button.innerHTML = '<i class="fas fa-compress-alt"></i> Collapse All';
+        allOrdersExpanded = true;
+        addLogEntry('UI', 'Expanded all orders', 'info');
+    } else {
+        // Collapse all
+        allDetails.forEach(details => {
+            details.style.display = 'none';
+        });
+        allChevrons.forEach(chevron => {
+            chevron.style.transform = 'rotate(0deg)';
+        });
+        button.innerHTML = '<i class="fas fa-expand-alt"></i> Expand All';
+        allOrdersExpanded = false;
+        addLogEntry('UI', 'Collapsed all orders', 'info');
+    }
 }
 
 // Update statistics
