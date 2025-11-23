@@ -3202,27 +3202,30 @@ window.startTripDownload = async function() {
         updateDebugXMLForOrder(order.orderNumber);
 
         try {
-            // Download PDF via C# - pass orderType to determine which report to use
+            // Use printStoreTransaction action for Auto Inventory Processing
+            // This action expects explicit reportPath and parameterName
             const message = {
-                action: 'downloadOrderPdf',
+                action: 'printStoreTransaction',
                 orderNumber: order.orderNumber,
+                instance: order.instance,
+                reportPath: '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo',
+                parameterName: 'SOURCE_CODE',
                 tripId: order.tripId,
-                tripDate: order.tripDate,
-                orderType: order.orderType || ''
+                tripDate: order.tripDate
             };
 
             console.log('=====================================');
             console.log('[Trip Print] 📤 SENDING TO C#');
             console.log('=====================================');
             console.log('[Trip Print] Message:', JSON.stringify(message, null, 2));
-            console.log('[Trip Print] orderType value:', `"${message.orderType}"`);
-            console.log('[Trip Print] orderType length:', message.orderType.length);
+            console.log('[Trip Print] Action:', message.action);
+            console.log('[Trip Print] Report Path:', message.reportPath);
+            console.log('[Trip Print] Parameter Name:', message.parameterName);
+            console.log('[Trip Print] Order Number:', message.orderNumber);
+            console.log('[Trip Print] Instance:', message.instance);
             console.log('[Trip Print] tripId:', message.tripId);
             console.log('[Trip Print] tripDate:', message.tripDate);
             console.log('[Trip Print] Expected PDF Path:', `C:/fusion/${message.tripDate}/${message.tripId}/${message.orderNumber}.pdf`);
-            console.log('[Trip Print] Expected Report: Store Transaction Report (Inventory)');
-            console.log('[Trip Print] Expected Report Path: /Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo');
-            console.log('[Trip Print] Expected Param: SOURCE_CODE');
             console.log('=====================================');
 
             const response = await new Promise((resolve, reject) => {
@@ -3430,12 +3433,15 @@ window.retryTripOrderDownload = async function(orderIndex) {
     updateDebugXMLForOrder(order.orderNumber);
 
     try {
+        // Use printStoreTransaction action for Auto Inventory Processing
         const message = {
-            action: 'downloadOrderPdf',
+            action: 'printStoreTransaction',
             orderNumber: order.orderNumber,
+            instance: order.instance,
+            reportPath: '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo',
+            parameterName: 'SOURCE_CODE',
             tripId: order.tripId,
-            tripDate: order.tripDate,
-            orderType: order.orderType || ''
+            tripDate: order.tripDate
         };
 
         const response = await new Promise((resolve, reject) => {
