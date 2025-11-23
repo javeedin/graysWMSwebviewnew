@@ -1431,20 +1431,6 @@
                                         <div id="timer-duration" style="font-size: 13px; font-weight: 700; color: #667eea;">00:00:00</div>
                                     </div>
                                 </div>
-
-                                <!-- Current Processing Status -->
-                                <div id="current-processing-status" style="display: none; align-items: center; gap: 0.75rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.75rem 1.25rem; border-radius: 8px; margin-top: 18px; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
-                                    <i class="fas fa-spinner fa-spin" style="color: white; font-size: 16px;"></i>
-                                    <div>
-                                        <div style="font-size: 9px; color: rgba(255,255,255,0.8); font-weight: 600; text-transform: uppercase;">Current Trip</div>
-                                        <div id="current-trip" style="font-size: 13px; font-weight: 700; color: white;">-</div>
-                                    </div>
-                                    <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.3);"></div>
-                                    <div>
-                                        <div style="font-size: 9px; color: rgba(255,255,255,0.8); font-weight: 600; text-transform: uppercase;">Current Order</div>
-                                        <div id="current-order" style="font-size: 13px; font-weight: 700; color: white;">-</div>
-                                    </div>
-                                </div>
                             </div>
 
                             <!-- Stats Mini Cards -->
@@ -2236,5 +2222,37 @@
     <script>
         document.write('<script src="auto-inventory-processing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
+
+    <!-- Floating Current Processing Status Icon -->
+    <div id="current-processing-status" style="display: none; position: fixed; bottom: 20px; right: 20px; z-index: 9999; align-items: center; gap: 0.75rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem 1.25rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(102, 126, 234, 0.5); min-width: 350px;">
+        <!-- Close Button -->
+        <button onclick="closeProcessingStatusFloat()" style="position: absolute; top: 8px; right: 8px; background: rgba(255,255,255,0.2); border: none; color: white; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 14px; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+            <i class="fas fa-times"></i>
+        </button>
+
+        <!-- Content -->
+        <div style="display: flex; align-items: center; gap: 0.75rem; width: 100%; margin-top: 10px;">
+            <i class="fas fa-spinner fa-spin" style="color: white; font-size: 18px;"></i>
+            <div style="flex: 1;">
+                <div style="display: flex; gap: 0.75rem; align-items: center;">
+                    <div>
+                        <div style="font-size: 9px; color: rgba(255,255,255,0.8); font-weight: 600; text-transform: uppercase;">Trip #</div>
+                        <div id="current-trip" style="font-size: 13px; font-weight: 700; color: white;">-</div>
+                    </div>
+                    <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.3);"></div>
+                    <div>
+                        <div style="font-size: 9px; color: rgba(255,255,255,0.8); font-weight: 600; text-transform: uppercase;">Trip ID</div>
+                        <div id="current-trip-id" style="font-size: 13px; font-weight: 700; color: white;">-</div>
+                    </div>
+                    <div style="width: 1px; height: 30px; background: rgba(255,255,255,0.3);"></div>
+                    <div>
+                        <div style="font-size: 9px; color: rgba(255,255,255,0.8); font-weight: 600; text-transform: uppercase;">Order #</div>
+                        <div id="current-order" style="font-size: 13px; font-weight: 700; color: white;">-</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>

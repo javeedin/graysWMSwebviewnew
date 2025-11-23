@@ -32,6 +32,7 @@ let processingEndTime = null;
 let processingTimerInterval = null;
 let isProcessing = false;
 let currentProcessingTrip = null;
+let currentProcessingTripId = null;
 let currentProcessingOrder = null;
 
 // Initialize auto processing on page load
@@ -762,6 +763,7 @@ function runSimulation() {
 function stopProcessing() {
     isProcessing = false;
     currentProcessingTrip = null;
+    currentProcessingTripId = null;
     currentProcessingOrder = null;
 
     addLogEntry('System', 'Processing stopped by user', 'warning');
@@ -789,15 +791,29 @@ function stopProcessing() {
 // Update current processing display
 function updateCurrentProcessingDisplay() {
     const tripElement = document.getElementById('current-trip');
+    const tripIdElement = document.getElementById('current-trip-id');
     const orderElement = document.getElementById('current-order');
 
     if (tripElement && currentProcessingTrip) {
         tripElement.textContent = currentProcessingTrip;
     }
 
+    if (tripIdElement && currentProcessingTripId) {
+        tripIdElement.textContent = currentProcessingTripId;
+    }
+
     if (orderElement && currentProcessingOrder) {
         orderElement.textContent = currentProcessingOrder;
     }
+}
+
+// Close processing status floating icon
+function closeProcessingStatusFloat() {
+    const statusDisplay = document.getElementById('current-processing-status');
+    if (statusDisplay) {
+        statusDisplay.style.display = 'none';
+    }
+    console.log('[Processing Status] Floating icon closed by user');
 }
 
 // Stop auto processing
@@ -919,6 +935,7 @@ async function processNextBatch() {
             // Update current processing status
             const firstTransaction = orderTransactions[0];
             currentProcessingTrip = firstTransaction.trip_number;
+            currentProcessingTripId = firstTransaction.trip_id;
             currentProcessingOrder = orderNumber;
             updateCurrentProcessingDisplay();
 
@@ -991,6 +1008,7 @@ async function processNextBatch() {
             // Reset processing state
             isProcessing = false;
             currentProcessingTrip = null;
+            currentProcessingTripId = null;
             currentProcessingOrder = null;
 
             // Reset button to "Start Process"
@@ -1020,6 +1038,7 @@ async function processNextBatch() {
         // Reset processing state on error
         isProcessing = false;
         currentProcessingTrip = null;
+        currentProcessingTripId = null;
         currentProcessingOrder = null;
 
         // Reset button to "Start Process"
@@ -2850,5 +2869,6 @@ window.printOrder = printOrder;
 window.processSingleOrder = processSingleOrder;
 window.buildAnalytics = buildAnalytics;
 window.openStoreTransactionsFromOrder = openStoreTransactionsFromOrder;
+window.closeProcessingStatusFloat = closeProcessingStatusFloat;
 
 console.log('[Auto Processing] Script loaded successfully');
