@@ -30,6 +30,9 @@ let fusionCloudPassword = '';
 let processingStartTime = null;
 let processingEndTime = null;
 let processingTimerInterval = null;
+let isProcessing = false;
+let currentProcessingTrip = null;
+let currentProcessingOrder = null;
 
 // Initialize auto processing on page load
 document.addEventListener('DOMContentLoaded', function() {
@@ -712,6 +715,13 @@ function stopProcessingTimer() {
 }
 
 function runSimulation() {
+    // If already processing, stop it
+    if (isProcessing) {
+        stopProcessing();
+        return;
+    }
+
+    // Otherwise, start processing
     if (!autoProcessingEnabled) {
         alert('Please enable Auto Processing first');
         return;
@@ -724,11 +734,70 @@ function runSimulation() {
 
     addLogEntry('System', 'Starting process - Processing all pending transactions...', 'info');
 
+    // Set processing flag
+    isProcessing = true;
+
+    // Update button to show "Stop Processing"
+    const button = document.getElementById('auto-run-simulation-btn');
+    if (button) {
+        button.innerHTML = '<i class="fas fa-stop"></i> Stop Processing';
+        button.style.background = '#ef4444';
+        button.style.boxShadow = '0 2px 4px rgba(239, 68, 68, 0.3)';
+    }
+
+    // Show current processing status
+    const statusDisplay = document.getElementById('current-processing-status');
+    if (statusDisplay) {
+        statusDisplay.style.display = 'flex';
+    }
+
     // Start timer
     startProcessingTimer();
 
     // Start sequential processing
     processNextBatch();
+}
+
+// Stop processing
+function stopProcessing() {
+    isProcessing = false;
+    currentProcessingTrip = null;
+    currentProcessingOrder = null;
+
+    addLogEntry('System', 'Processing stopped by user', 'warning');
+
+    // Update button back to "Start Process"
+    const button = document.getElementById('auto-run-simulation-btn');
+    if (button) {
+        button.innerHTML = '<i class="fas fa-play"></i> Start Process';
+        button.style.background = '#10b981';
+        button.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
+    }
+
+    // Stop timer
+    if (processingStartTime && !processingEndTime) {
+        stopProcessingTimer();
+    }
+
+    // Hide current processing status
+    const statusDisplay = document.getElementById('current-processing-status');
+    if (statusDisplay) {
+        statusDisplay.style.display = 'none';
+    }
+}
+
+// Update current processing display
+function updateCurrentProcessingDisplay() {
+    const tripElement = document.getElementById('current-trip');
+    const orderElement = document.getElementById('current-order');
+
+    if (tripElement && currentProcessingTrip) {
+        tripElement.textContent = currentProcessingTrip;
+    }
+
+    if (orderElement && currentProcessingOrder) {
+        orderElement.textContent = currentProcessingOrder;
+    }
 }
 
 // Stop auto processing
@@ -841,10 +910,17 @@ async function processNextBatch() {
             const orderNumber = orderNumbers[orderIdx];
             const orderTransactions = transactionsByOrder[orderNumber];
 
-            if (!autoProcessingEnabled) {
-                addLogEntry('Processing', 'Auto processing was disabled. Stopping...', 'warning');
+            // Check if processing was stopped by user
+            if (!isProcessing || !autoProcessingEnabled) {
+                addLogEntry('Processing', 'Processing was stopped. Stopping...', 'warning');
                 break;
             }
+
+            // Update current processing status
+            const firstTransaction = orderTransactions[0];
+            currentProcessingTrip = firstTransaction.trip_number;
+            currentProcessingOrder = orderNumber;
+            updateCurrentProcessingDisplay();
 
             addLogEntry('Order', `Processing Order: ${orderNumber} (${orderTransactions.length} lines)`, 'info');
 
@@ -855,8 +931,9 @@ async function processNextBatch() {
             for (let i = 0; i < orderTransactions.length; i++) {
                 const transaction = orderTransactions[i];
 
-                if (!autoProcessingEnabled) {
-                    addLogEntry('Processing', 'Auto processing was disabled. Stopping...', 'warning');
+                // Check if processing was stopped
+                if (!isProcessing || !autoProcessingEnabled) {
+                    addLogEntry('Processing', 'Processing was stopped. Stopping...', 'warning');
                     break;
                 }
 
@@ -900,7 +977,7 @@ async function processNextBatch() {
             addLogEntry('Order', `✓ Order ${orderNumber} completed (${orderTransactions.length} lines processed)`, 'success');
         }
 
-        if (autoProcessingEnabled) {
+        if (autoProcessingEnabled || isProcessing) {
             if (failedCount === 0) {
                 addLogEntry('Processing', `All ${processedOrders} orders (${processedCount} transactions) processed successfully!`, 'success');
             } else {
@@ -910,6 +987,25 @@ async function processNextBatch() {
 
             // Stop processing timer
             stopProcessingTimer();
+
+            // Reset processing state
+            isProcessing = false;
+            currentProcessingTrip = null;
+            currentProcessingOrder = null;
+
+            // Reset button to "Start Process"
+            const button = document.getElementById('auto-run-simulation-btn');
+            if (button) {
+                button.innerHTML = '<i class="fas fa-play"></i> Start Process';
+                button.style.background = '#10b981';
+                button.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
+            }
+
+            // Hide current processing status
+            const statusDisplay = document.getElementById('current-processing-status');
+            if (statusDisplay) {
+                statusDisplay.style.display = 'none';
+            }
         }
     } catch (error) {
         addLogEntry('Error', `Unexpected batch processing error: ${error.message}`, 'error');
@@ -919,6 +1015,25 @@ async function processNextBatch() {
         // Stop timer on error too
         if (processingStartTime && !processingEndTime) {
             stopProcessingTimer();
+        }
+
+        // Reset processing state on error
+        isProcessing = false;
+        currentProcessingTrip = null;
+        currentProcessingOrder = null;
+
+        // Reset button to "Start Process"
+        const button = document.getElementById('auto-run-simulation-btn');
+        if (button) {
+            button.innerHTML = '<i class="fas fa-play"></i> Start Process';
+            button.style.background = '#10b981';
+            button.style.boxShadow = '0 2px 4px rgba(16, 185, 129, 0.3)';
+        }
+
+        // Hide current processing status
+        const statusDisplay = document.getElementById('current-processing-status');
+        if (statusDisplay) {
+            statusDisplay.style.display = 'none';
         }
     }
 }
