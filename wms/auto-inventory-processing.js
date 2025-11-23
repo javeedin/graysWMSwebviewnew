@@ -377,6 +377,9 @@ function renderTripTransactions(transactions, tripIndex) {
                                 <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Order</div>
                                 <div style="font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
                                     ${order.trx_number}
+                                    <button onclick="event.stopPropagation(); openStoreTransactionsFromOrder('${order.trx_number}', '${order.instance_name || 'PROD'}')" style="background: transparent; border: 1px solid #667eea; color: #667eea; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#667eea'; this.style.color='white'" onmouseout="this.style.background='transparent'; this.style.color='#667eea'" title="Edit Transaction">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
                                     <i class="fas fa-spinner fa-spin" id="order-processing-${orderId}" style="color: #667eea; font-size: 12px; display: none;"></i>
                                 </div>
                             </div>
@@ -2599,6 +2602,31 @@ function buildAnalytics() {
     console.log('[Analytics] Analytics view built successfully');
 }
 
+// Open Store Transactions dialog for an order
+function openStoreTransactionsFromOrder(orderNumber, instanceName) {
+    console.log('[Auto Processing] Opening Store Transactions for order:', orderNumber, 'Instance:', instanceName);
+
+    // Create rowData object compatible with openStoreTransactionsDialog
+    const rowData = {
+        ORDER_NUMBER: orderNumber,
+        order_number: orderNumber,
+        source_order_number: orderNumber,
+        SOURCE_ORDER_NUMBER: orderNumber,
+        ORDER_TYPE: 'S2V',
+        order_type: 'S2V',
+        instance_name: instanceName || 'PROD',
+        INSTANCE_NAME: instanceName || 'PROD'
+    };
+
+    // Call the existing openStoreTransactionsDialog function from app.js
+    if (typeof window.openStoreTransactionsDialog === 'function') {
+        window.openStoreTransactionsDialog(rowData);
+    } else {
+        alert('Store Transactions dialog function not found. Please ensure app.js is loaded.');
+        console.error('[Auto Processing] openStoreTransactionsDialog function not found on window object');
+    }
+}
+
 // Make functions globally accessible
 window.fetchAutoInventoryData = fetchAutoInventoryData;
 window.runSimulation = runSimulation;
@@ -2622,5 +2650,6 @@ window.verifyWithFusion = verifyWithFusion;
 window.printOrder = printOrder;
 window.processSingleOrder = processSingleOrder;
 window.buildAnalytics = buildAnalytics;
+window.openStoreTransactionsFromOrder = openStoreTransactionsFromOrder;
 
 console.log('[Auto Processing] Script loaded successfully');

@@ -1418,10 +1418,15 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
             const pageId = this.getAttribute('data-page');
             document.getElementById(pageId).style.display = 'block';
-            
+
             const pageTitle = this.textContent.trim();
             document.title = `WMS - ${pageTitle}`;
-            
+
+            // Collapse sidebar when navigating to Auto Inventory Processing
+            if (pageId === 'auto-inventory-processing') {
+                document.getElementById('sidebar').classList.add('collapsed');
+            }
+
             if (pageId === 'vehicles' && currentFullData.length > 0) {
                 initVehiclesPage();
             } else if (pageId === 'monitor-printing') {
