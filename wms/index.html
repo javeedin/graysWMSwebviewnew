@@ -1450,6 +1450,9 @@
                             <button class="auto-tab-btn" data-tab="processing-log" onclick="switchAutoTab('processing-log')" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 3px solid transparent; transition: all 0.3s;">
                                 <i class="fas fa-terminal"></i> Processing Log
                             </button>
+                            <button class="auto-tab-btn" data-tab="analytics" onclick="switchAutoTab('analytics')" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 3px solid transparent; transition: all 0.3s;">
+                                <i class="fas fa-chart-bar"></i> Analytics
+                            </button>
                         </div>
 
                         <!-- Tab Content -->
@@ -1507,6 +1510,17 @@
                                 <div style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 500px; overflow-y: auto;" id="auto-log-container">
                                     <div style="color: #10b981;">[System] Auto Inventory Processing initialized.</div>
                                     <div style="color: #94a3b8;">[Info] Waiting for data fetch...</div>
+                                </div>
+                            </div>
+
+                            <!-- Analytics Tab -->
+                            <div id="auto-analytics" class="auto-tab-content" style="display: none;">
+                                <div id="analytics-container">
+                                    <!-- Analytics content will be populated by JavaScript -->
+                                    <div style="text-align: center; padding: 3rem; color: #94a3b8;">
+                                        <i class="fas fa-chart-bar" style="font-size: 48px; margin-bottom: 1rem;"></i>
+                                        <p style="font-size: 16px; margin: 0;">No analytics data available. Fetch data to view analytics.</p>
+                                    </div>
                                 </div>
                             </div>
                         </div>

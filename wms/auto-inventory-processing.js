@@ -1090,6 +1090,10 @@ function switchAutoTab(tabName) {
         document.getElementById('auto-trips-view').style.display = 'block';
     } else if (tabName === 'processing-log') {
         document.getElementById('auto-processing-log').style.display = 'block';
+    } else if (tabName === 'analytics') {
+        document.getElementById('auto-analytics').style.display = 'block';
+        // Rebuild analytics when tab is shown
+        buildAnalytics();
     }
 
     // Add active class to clicked button
@@ -2364,6 +2368,237 @@ async function processSingleOrder(orderNumber, tripIndex) {
     }
 }
 
+// Build Analytics View
+function buildAnalytics() {
+    console.log('[Analytics] Building analytics view...');
+
+    if (!autoProcessingData || autoProcessingData.length === 0) {
+        document.getElementById('analytics-container').innerHTML = `
+            <div style="text-align: center; padding: 3rem; color: #94a3b8;">
+                <i class="fas fa-chart-bar" style="font-size: 48px; margin-bottom: 1rem;"></i>
+                <p style="font-size: 16px; margin: 0;">No analytics data available. Fetch data to view analytics.</p>
+            </div>
+        `;
+        return;
+    }
+
+    // Calculate analytics
+    const stats = {
+        byStatus: {},
+        byItem: {},
+        byOrder: {},
+        byTrip: {},
+        total: autoProcessingData.length
+    };
+
+    // Aggregate data
+    autoProcessingData.forEach(txn => {
+        // By Status
+        const status = txn.transaction_status || 'UNKNOWN';
+        stats.byStatus[status] = (stats.byStatus[status] || 0) + 1;
+
+        // By Item
+        const itemCode = txn.item_code || 'Unknown Item';
+        if (!stats.byItem[itemCode]) {
+            stats.byItem[itemCode] = {
+                count: 0,
+                desc: txn.item_desc || 'N/A',
+                success: 0,
+                failed: 0,
+                pending: 0,
+                totalQty: 0
+            };
+        }
+        stats.byItem[itemCode].count++;
+        stats.byItem[itemCode].totalQty += parseFloat(txn.picked_qty || txn.txn_qty || 0);
+        if (status === 'SUCCESS') stats.byItem[itemCode].success++;
+        if (status === 'FAILED') stats.byItem[itemCode].failed++;
+        if (status === 'PENDING') stats.byItem[itemCode].pending++;
+
+        // By Order
+        const orderNum = txn.trx_number || 'Unknown Order';
+        if (!stats.byOrder[orderNum]) {
+            stats.byOrder[orderNum] = {
+                count: 0,
+                success: 0,
+                failed: 0,
+                pending: 0
+            };
+        }
+        stats.byOrder[orderNum].count++;
+        if (status === 'SUCCESS') stats.byOrder[orderNum].success++;
+        if (status === 'FAILED') stats.byOrder[orderNum].failed++;
+        if (status === 'PENDING') stats.byOrder[orderNum].pending++;
+
+        // By Trip
+        const tripNum = txn.trip_number || 'Unknown Trip';
+        stats.byTrip[tripNum] = (stats.byTrip[tripNum] || 0) + 1;
+    });
+
+    // Sort items by count (top items)
+    const topItems = Object.entries(stats.byItem)
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 10);
+
+    // Sort orders by count
+    const topOrders = Object.entries(stats.byOrder)
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 10);
+
+    // Build HTML
+    let html = '<div style="display: grid; gap: 1.5rem;">';
+
+    // Summary Cards
+    html += '<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">';
+
+    const totalSuccess = stats.byStatus['SUCCESS'] || 0;
+    const totalFailed = stats.byStatus['FAILED'] || 0;
+    const totalPending = stats.byStatus['PENDING'] || 0;
+    const totalProcessing = stats.byStatus['PROCESSING'] || 0;
+    const successRate = stats.total > 0 ? ((totalSuccess / stats.total) * 100).toFixed(1) : 0;
+
+    html += `
+        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1.5rem; border-radius: 12px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 0.5rem;">Total Transactions</div>
+            <div style="font-size: 32px; font-weight: 700;">${stats.total}</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 1.5rem; border-radius: 12px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 0.5rem;">Success</div>
+            <div style="font-size: 32px; font-weight: 700;">${totalSuccess}</div>
+            <div style="font-size: 12px; opacity: 0.8; margin-top: 0.25rem;">${successRate}% success rate</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); padding: 1.5rem; border-radius: 12px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 0.5rem;">Failed</div>
+            <div style="font-size: 32px; font-weight: 700;">${totalFailed}</div>
+        </div>
+        <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); padding: 1.5rem; border-radius: 12px; color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
+            <div style="font-size: 14px; opacity: 0.9; margin-bottom: 0.5rem;">Pending</div>
+            <div style="font-size: 32px; font-weight: 700;">${totalPending}</div>
+        </div>
+    `;
+    html += '</div>';
+
+    // Top Items Section
+    html += `
+        <div style="background: white; padding: 1.5rem; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <h3 style="margin: 0 0 1rem 0; color: #1e293b; font-size: 18px; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-box" style="color: #667eea;"></i> Top Items by Transaction Count
+            </h3>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f8f9fc; border-bottom: 2px solid #e2e8f0;">
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Transactions</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Total Qty</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Success</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Failed</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Pending</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    `;
+
+    topItems.forEach(([ itemCode, data], index) => {
+        const successPct = data.count > 0 ? ((data.success / data.count) * 100).toFixed(0) : 0;
+        html += `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
+                <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${itemCode}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #1e293b; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${data.desc}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; font-weight: 600; color: #1e293b;">${data.count}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; color: #1e293b;">${data.totalQty.toFixed(2)}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; color: #10b981; font-weight: 600;">${data.success}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; color: #ef4444; font-weight: 600;">${data.failed}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; color: #f59e0b; font-weight: 600;">${data.pending}</td>
+            </tr>
+        `;
+    });
+
+    html += `
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // Top Orders Section
+    html += `
+        <div style="background: white; padding: 1.5rem; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <h3 style="margin: 0 0 1rem 0; color: #1e293b; font-size: 18px; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-file-alt" style="color: #667eea;"></i> Top Orders by Transaction Count
+            </h3>
+            <div style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse;">
+                    <thead>
+                        <tr style="background: #f8f9fc; border-bottom: 2px solid #e2e8f0;">
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                            <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Order Number</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Total Lines</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Success</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Failed</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Pending</th>
+                            <th style="padding: 0.75rem; text-align: right; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+    `;
+
+    topOrders.forEach(([orderNum, data], index) => {
+        const statusColor = data.failed > 0 ? '#ef4444' : data.pending > 0 ? '#f59e0b' : '#10b981';
+        const statusText = data.failed > 0 ? 'Has Failures' : data.pending > 0 ? 'In Progress' : 'Completed';
+        html += `
+            <tr style="border-bottom: 1px solid #e2e8f0;">
+                <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
+                <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${orderNum}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; font-weight: 600; color: #1e293b;">${data.count}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; color: #10b981; font-weight: 600;">${data.success}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; color: #ef4444; font-weight: 600;">${data.failed}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; color: #f59e0b; font-weight: 600;">${data.pending}</td>
+                <td style="padding: 0.75rem; text-align: right; font-size: 12px; color: ${statusColor}; font-weight: 600;">${statusText}</td>
+            </tr>
+        `;
+    });
+
+    html += `
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // Trip Distribution
+    html += `
+        <div style="background: white; padding: 1.5rem; border-radius: 12px; border: 1px solid #e2e8f0;">
+            <h3 style="margin: 0 0 1rem 0; color: #1e293b; font-size: 18px; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-truck" style="color: #667eea;"></i> Trip Distribution
+            </h3>
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1rem;">
+    `;
+
+    Object.entries(stats.byTrip).forEach(([tripNum, count]) => {
+        html += `
+            <div style="background: #f8f9fc; padding: 1rem; border-radius: 8px; border: 1px solid #e2e8f0; text-align: center;">
+                <div style="font-size: 11px; color: #64748b; margin-bottom: 0.5rem;">Trip ${tripNum}</div>
+                <div style="font-size: 24px; font-weight: 700; color: #667eea;">${count}</div>
+                <div style="font-size: 10px; color: #94a3b8; margin-top: 0.25rem;">transactions</div>
+            </div>
+        `;
+    });
+
+    html += `
+            </div>
+        </div>
+    `;
+
+    html += '</div>';
+
+    document.getElementById('analytics-container').innerHTML = html;
+    console.log('[Analytics] Analytics view built successfully');
+}
+
 // Make functions globally accessible
 window.fetchAutoInventoryData = fetchAutoInventoryData;
 window.runSimulation = runSimulation;
@@ -2386,5 +2621,6 @@ window.showOrderProcessingSpinner = showOrderProcessingSpinner;
 window.verifyWithFusion = verifyWithFusion;
 window.printOrder = printOrder;
 window.processSingleOrder = processSingleOrder;
+window.buildAnalytics = buildAnalytics;
 
 console.log('[Auto Processing] Script loaded successfully');
