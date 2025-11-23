@@ -1113,6 +1113,78 @@
     </div>
 </div>
 
+<!-- Trip Print Modal (Auto Inventory Processing) -->
+<div id="trip-print-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; justify-content: center; align-items: center;">
+    <div style="background: white; width: 95%; max-width: 900px; max-height: 90vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+        <!-- Modal Header -->
+        <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; flex-shrink: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; font-size: 18px; color: #333;">
+                    <i class="fas fa-print" style="color: #10b981;"></i> Print Trip Orders
+                </h3>
+                <button onclick="closeTripPrintModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666; line-height: 1;">×</button>
+            </div>
+            <div style="display: flex; gap: 2rem; margin-top: 1rem;">
+                <div>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 600;">TRIP ID:</span>
+                    <span id="trip-print-trip-id" style="font-weight: 700; color: #1e293b; margin-left: 0.5rem;"></span>
+                </div>
+                <div>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 600;">ORDERS:</span>
+                    <span id="trip-print-order-count" style="font-weight: 700; color: #667eea; margin-left: 0.5rem;"></span>
+                </div>
+                <div>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 600;">STATUS:</span>
+                    <span id="trip-print-status" style="font-weight: 700; margin-left: 0.5rem;">Ready</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Content (Scrollable) -->
+        <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+            <!-- Printer Selection -->
+            <div id="trip-print-printer-section" style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-print" style="color: #10b981;"></i> Select Printer <span style="color: #dc3545;">*</span>
+                </label>
+                <select id="trip-print-printer-select" class="form-control" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <option value="">-- Loading printers... --</option>
+                </select>
+            </div>
+
+            <!-- Orders List -->
+            <div style="margin-bottom: 1rem;">
+                <h4 style="font-size: 14px; font-weight: 700; color: #1e293b; margin-bottom: 0.75rem;">Orders in Trip</h4>
+                <div id="trip-print-orders-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <!-- Orders will be populated here -->
+                </div>
+            </div>
+
+            <div id="trip-print-error" style="display: none; padding: 0.75rem; background: #fee2e2; border-left: 4px solid #dc3545; border-radius: 4px; margin-top: 1rem; color: #991b1b; font-size: 14px;"></div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <div style="display: flex; gap: 0.5rem;">
+                <button id="trip-print-retry-all-btn" class="btn btn-warning" onclick="retryAllTripDownloads()" style="display: none;">
+                    <i class="fas fa-redo"></i> Retry All Failed
+                </button>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-secondary" onclick="closeTripPrintModal()">
+                    <i class="fas fa-times"></i> Close
+                </button>
+                <button id="trip-print-download-btn" class="btn btn-primary" onclick="startTripDownload()">
+                    <i class="fas fa-download"></i> Download PDFs
+                </button>
+                <button id="trip-print-print-btn" class="btn btn-success" onclick="startTripPrinting()" style="display: none;">
+                    <i class="fas fa-print"></i> Start Printing
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
             <div id="printer-setup" class="page-content" style="display: none;">
                 <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 1.5rem;">
                     <div style="display: flex; gap: 0.5rem;">

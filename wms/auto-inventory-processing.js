@@ -281,6 +281,9 @@ function displayGroupedTrips() {
                             ${failedCount > 0 ? `<span style="background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
                     </div>
+                    <button onclick="event.stopPropagation(); openTripPrintModal('${trip.trip_id}', '${trip.trip_date}', ${orderCount}, ${index})" style="background: #10b981; color: white; border: none; padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; margin-right: 1rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Print all orders in this trip">
+                        <i class="fas fa-print"></i> Print Trip
+                    </button>
                     <i class="fas fa-chevron-down" id="trip-chevron-${index}" style="color: #667eea; transition: transform 0.3s;"></i>
                 </div>
 
@@ -2854,6 +2857,574 @@ window.expandAllOrders = expandAllOrders;
 window.collapseAllOrders = collapseAllOrders;
 window.retryTransaction = retryTransaction;
 window.switchAutoTab = switchAutoTab;
+// ============================================================================
+// TRIP PRINT MODAL FUNCTIONS
+// ============================================================================
+
+let currentTripPrintData = null;
+
+// Open Trip Print Modal
+window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripIndex) {
+    console.log('[Trip Print] Opening modal for trip:', tripId);
+
+    // Get trip data
+    const groupedTrips = groupTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        alert('Trip data not found');
+        return;
+    }
+
+    // Get unique orders from trip
+    const uniqueOrders = [...new Set(trip.transactions.map(t => t.trx_number))];
+    const orders = uniqueOrders.map(orderNum => {
+        const orderTransactions = trip.transactions.filter(t => t.trx_number === orderNum);
+        return {
+            orderNumber: orderNum,
+            tripId: tripId,
+            tripDate: tripDate,
+            instance: orderTransactions[0].instance_name || 'PROD',
+            downloadStatus: 'PENDING',
+            printStatus: 'PENDING',
+            pdfPath: null,
+            error: null
+        };
+    });
+
+    // Store current trip print data
+    currentTripPrintData = {
+        tripId: tripId,
+        tripDate: tripDate,
+        orderCount: orders.length,
+        orders: orders,
+        tripIndex: tripIndex
+    };
+
+    // Populate modal
+    document.getElementById('trip-print-trip-id').textContent = tripId;
+    document.getElementById('trip-print-order-count').textContent = orders.length;
+    document.getElementById('trip-print-status').textContent = 'Ready';
+    document.getElementById('trip-print-status').style.color = '#10b981';
+
+    // Render orders list
+    renderTripPrintOrders();
+
+    // Load printers
+    await loadPrintersForTripPrint();
+
+    // Show modal
+    document.getElementById('trip-print-modal').style.display = 'flex';
+
+    // Reset buttons
+    document.getElementById('trip-print-download-btn').style.display = 'inline-flex';
+    document.getElementById('trip-print-print-btn').style.display = 'none';
+    document.getElementById('trip-print-retry-all-btn').style.display = 'none';
+    document.getElementById('trip-print-error').style.display = 'none';
+};
+
+// Close Trip Print Modal
+window.closeTripPrintModal = function() {
+    console.log('[Trip Print] Closing modal');
+    document.getElementById('trip-print-modal').style.display = 'none';
+    currentTripPrintData = null;
+};
+
+// Render orders list in modal
+function renderTripPrintOrders() {
+    if (!currentTripPrintData) return;
+
+    const container = document.getElementById('trip-print-orders-list');
+    let html = '';
+
+    currentTripPrintData.orders.forEach((order, index) => {
+        const downloadStatusColor =
+            order.downloadStatus === 'DOWNLOADED' ? '#10b981' :
+            order.downloadStatus === 'DOWNLOADING' ? '#f59e0b' :
+            order.downloadStatus === 'FAILED' ? '#ef4444' :
+            '#94a3b8';
+
+        const downloadStatusIcon =
+            order.downloadStatus === 'DOWNLOADED' ? 'check-circle' :
+            order.downloadStatus === 'DOWNLOADING' ? 'spinner fa-spin' :
+            order.downloadStatus === 'FAILED' ? 'times-circle' :
+            'clock';
+
+        const printStatusColor =
+            order.printStatus === 'PRINTED' ? '#10b981' :
+            order.printStatus === 'PRINTING' ? '#f59e0b' :
+            order.printStatus === 'FAILED' ? '#ef4444' :
+            '#94a3b8';
+
+        const printStatusIcon =
+            order.printStatus === 'PRINTED' ? 'check-circle' :
+            order.printStatus === 'PRINTING' ? 'spinner fa-spin' :
+            order.printStatus === 'FAILED' ? 'times-circle' :
+            'clock';
+
+        html += `
+            <div style="background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; gap: 1.5rem; align-items: center; flex: 1;">
+                    <div style="min-width: 100px;">
+                        <div style="font-size: 10px; color: #64748b; font-weight: 600;">ORDER</div>
+                        <div style="font-size: 13px; font-weight: 700; color: #1e293b;">${order.orderNumber}</div>
+                    </div>
+                    <div>
+                        <div style="font-size: 10px; color: #64748b; font-weight: 600;">DOWNLOAD</div>
+                        <div style="font-size: 12px; font-weight: 600; color: ${downloadStatusColor}; display: flex; align-items: center; gap: 0.25rem;">
+                            <i class="fas fa-${downloadStatusIcon}"></i> ${order.downloadStatus}
+                        </div>
+                    </div>
+                    <div>
+                        <div style="font-size: 10px; color: #64748b; font-weight: 600;">PRINT</div>
+                        <div style="font-size: 12px; font-weight: 600; color: ${printStatusColor}; display: flex; align-items: center; gap: 0.25rem;">
+                            <i class="fas fa-${printStatusIcon}"></i> ${order.printStatus}
+                        </div>
+                    </div>
+                    ${order.error ? `
+                        <div style="flex: 1;">
+                            <div style="font-size: 11px; color: #ef4444; font-style: italic;">${order.error}</div>
+                        </div>
+                    ` : ''}
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    ${order.downloadStatus === 'DOWNLOADED' && order.pdfPath ? `
+                        <button onclick="viewTripOrderPDF(${index})" class="btn btn-sm" style="padding: 0.35rem 0.6rem; font-size: 11px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            <i class="fas fa-eye"></i> View
+                        </button>
+                    ` : ''}
+                    ${order.downloadStatus === 'FAILED' ? `
+                        <button onclick="retryTripOrderDownload(${index})" class="btn btn-sm" style="padding: 0.35rem 0.6rem; font-size: 11px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            <i class="fas fa-redo"></i> Retry
+                        </button>
+                    ` : ''}
+                    ${order.printStatus === 'FAILED' ? `
+                        <button onclick="retryTripOrderPrint(${index})" class="btn btn-sm" style="padding: 0.35rem 0.6rem; font-size: 11px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            <i class="fas fa-redo"></i> Retry Print
+                        </button>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+// Load printers for trip print
+async function loadPrintersForTripPrint() {
+    const select = document.getElementById('trip-print-printer-select');
+
+    try {
+        console.log('[Trip Print] Loading printers...');
+        select.innerHTML = '<option value="">-- Loading printers... --</option>';
+
+        const data = await callApexAPINew('/printers/all', 'GET');
+        const printers = data.items || [];
+
+        console.log('[Trip Print] Loaded', printers.length, 'printers');
+
+        if (printers.length === 0) {
+            select.innerHTML = '<option value="">-- No printers found --</option>';
+            return;
+        }
+
+        select.innerHTML = '<option value="">-- Select a printer --</option>';
+
+        printers.forEach(printer => {
+            const option = document.createElement('option');
+            option.value = printer.printerName;
+            option.textContent = `${printer.printerName}${printer.isActive === 'Y' ? ' (Active)' : ''}`;
+            if (printer.isActive === 'Y') {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+
+    } catch (error) {
+        console.error('[Trip Print] Failed to load printers:', error);
+        select.innerHTML = '<option value="">-- Failed to load printers --</option>';
+    }
+}
+
+// Start downloading all trip orders
+window.startTripDownload = async function() {
+    if (!currentTripPrintData) return;
+
+    console.log('[Trip Print] Starting download for all orders...');
+
+    // Update status
+    document.getElementById('trip-print-status').textContent = 'Downloading...';
+    document.getElementById('trip-print-status').style.color = '#f59e0b';
+
+    // Disable download button
+    document.getElementById('trip-print-download-btn').disabled = true;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Download each order
+    for (let i = 0; i < currentTripPrintData.orders.length; i++) {
+        const order = currentTripPrintData.orders[i];
+
+        console.log(`[Trip Print] Downloading ${i + 1}/${currentTripPrintData.orders.length}: ${order.orderNumber}`);
+
+        // Update status to DOWNLOADING
+        order.downloadStatus = 'DOWNLOADING';
+        renderTripPrintOrders();
+
+        try {
+            // Download PDF via C#
+            const message = {
+                action: 'downloadOrderPdf',
+                orderNumber: order.orderNumber,
+                tripId: order.tripId,
+                tripDate: order.tripDate
+            };
+
+            const response = await new Promise((resolve, reject) => {
+                sendMessageToCSharp(message, function(error, response) {
+                    if (error) {
+                        reject(new Error(error));
+                    } else {
+                        resolve(response);
+                    }
+                });
+            });
+
+            if (response.success && response.filePath) {
+                order.downloadStatus = 'DOWNLOADED';
+                order.pdfPath = response.filePath;
+                order.error = null;
+                successCount++;
+                console.log(`[Trip Print] ✅ Downloaded: ${order.orderNumber}`);
+            } else {
+                throw new Error(response.message || 'Download failed');
+            }
+
+        } catch (error) {
+            console.error(`[Trip Print] ❌ Failed to download ${order.orderNumber}:`, error);
+            order.downloadStatus = 'FAILED';
+            order.error = error.message;
+            failCount++;
+        }
+
+        renderTripPrintOrders();
+
+        // Add delay between downloads
+        if (i < currentTripPrintData.orders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    }
+
+    // Update final status
+    if (failCount === 0) {
+        document.getElementById('trip-print-status').textContent = 'All Downloaded ✓';
+        document.getElementById('trip-print-status').style.color = '#10b981';
+        document.getElementById('trip-print-download-btn').style.display = 'none';
+        document.getElementById('trip-print-print-btn').style.display = 'inline-flex';
+    } else {
+        document.getElementById('trip-print-status').textContent = `${successCount} OK, ${failCount} Failed`;
+        document.getElementById('trip-print-status').style.color = '#ef4444';
+        document.getElementById('trip-print-retry-all-btn').style.display = 'inline-flex';
+
+        if (successCount > 0) {
+            document.getElementById('trip-print-print-btn').style.display = 'inline-flex';
+        }
+    }
+
+    document.getElementById('trip-print-download-btn').disabled = false;
+
+    console.log(`[Trip Print] Download complete: ${successCount} succeeded, ${failCount} failed`);
+};
+
+// Start printing all trip orders
+window.startTripPrinting = async function() {
+    if (!currentTripPrintData) return;
+
+    const printerName = document.getElementById('trip-print-printer-select').value;
+    const errorDiv = document.getElementById('trip-print-error');
+
+    if (!printerName) {
+        errorDiv.textContent = 'Please select a printer';
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    errorDiv.style.display = 'none';
+
+    console.log('[Trip Print] Starting printing for all orders with printer:', printerName);
+
+    // Update status
+    document.getElementById('trip-print-status').textContent = 'Printing...';
+    document.getElementById('trip-print-status').style.color = '#f59e0b';
+
+    // Disable print button
+    document.getElementById('trip-print-print-btn').disabled = true;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Print each downloaded order
+    const downloadedOrders = currentTripPrintData.orders.filter(o => o.downloadStatus === 'DOWNLOADED');
+
+    for (let i = 0; i < downloadedOrders.length; i++) {
+        const order = downloadedOrders[i];
+
+        console.log(`[Trip Print] Printing ${i + 1}/${downloadedOrders.length}: ${order.orderNumber}`);
+
+        // Update status to PRINTING
+        order.printStatus = 'PRINTING';
+        renderTripPrintOrders();
+
+        try {
+            // Print PDF via C#
+            const message = {
+                action: 'printOrder',
+                orderNumber: order.orderNumber,
+                tripId: order.tripId,
+                tripDate: order.tripDate,
+                printerName: printerName
+            };
+
+            const response = await new Promise((resolve, reject) => {
+                sendMessageToCSharp(message, function(error, response) {
+                    if (error) {
+                        reject(new Error(error));
+                    } else {
+                        resolve(response);
+                    }
+                });
+            });
+
+            if (response.success) {
+                order.printStatus = 'PRINTED';
+                order.error = null;
+                successCount++;
+                console.log(`[Trip Print] ✅ Printed: ${order.orderNumber}`);
+            } else {
+                throw new Error(response.message || 'Print failed');
+            }
+
+        } catch (error) {
+            console.error(`[Trip Print] ❌ Failed to print ${order.orderNumber}:`, error);
+            order.printStatus = 'FAILED';
+            order.error = error.message;
+            failCount++;
+        }
+
+        renderTripPrintOrders();
+
+        // Add delay between prints
+        if (i < downloadedOrders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    // Update final status
+    if (failCount === 0) {
+        document.getElementById('trip-print-status').textContent = 'All Printed ✓';
+        document.getElementById('trip-print-status').style.color = '#10b981';
+        document.getElementById('trip-print-print-btn').style.display = 'none';
+    } else {
+        document.getElementById('trip-print-status').textContent = `${successCount} Printed, ${failCount} Failed`;
+        document.getElementById('trip-print-status').style.color = '#ef4444';
+    }
+
+    document.getElementById('trip-print-print-btn').disabled = false;
+
+    console.log(`[Trip Print] Printing complete: ${successCount} succeeded, ${failCount} failed`);
+};
+
+// Retry all failed downloads
+window.retryAllTripDownloads = async function() {
+    if (!currentTripPrintData) return;
+
+    console.log('[Trip Print] Retrying all failed downloads...');
+
+    const failedOrders = currentTripPrintData.orders.filter(o => o.downloadStatus === 'FAILED');
+
+    if (failedOrders.length === 0) {
+        alert('No failed downloads to retry');
+        return;
+    }
+
+    // Reset failed orders to PENDING
+    failedOrders.forEach(order => {
+        order.downloadStatus = 'PENDING';
+        order.error = null;
+    });
+
+    renderTripPrintOrders();
+
+    // Hide retry button
+    document.getElementById('trip-print-retry-all-btn').style.display = 'none';
+
+    // Trigger download
+    await startTripDownload();
+};
+
+// Retry single order download
+window.retryTripOrderDownload = async function(orderIndex) {
+    if (!currentTripPrintData) return;
+
+    const order = currentTripPrintData.orders[orderIndex];
+
+    console.log('[Trip Print] Retrying download for:', order.orderNumber);
+
+    // Update status to DOWNLOADING
+    order.downloadStatus = 'DOWNLOADING';
+    order.error = null;
+    renderTripPrintOrders();
+
+    try {
+        const message = {
+            action: 'downloadOrderPdf',
+            orderNumber: order.orderNumber,
+            tripId: order.tripId,
+            tripDate: order.tripDate
+        };
+
+        const response = await new Promise((resolve, reject) => {
+            sendMessageToCSharp(message, function(error, response) {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
+
+        if (response.success && response.filePath) {
+            order.downloadStatus = 'DOWNLOADED';
+            order.pdfPath = response.filePath;
+            order.error = null;
+            console.log(`[Trip Print] ✅ Downloaded: ${order.orderNumber}`);
+
+            // Check if all are now downloaded
+            const allDownloaded = currentTripPrintData.orders.every(o => o.downloadStatus === 'DOWNLOADED');
+            if (allDownloaded) {
+                document.getElementById('trip-print-status').textContent = 'All Downloaded ✓';
+                document.getElementById('trip-print-status').style.color = '#10b981';
+                document.getElementById('trip-print-download-btn').style.display = 'none';
+                document.getElementById('trip-print-print-btn').style.display = 'inline-flex';
+                document.getElementById('trip-print-retry-all-btn').style.display = 'none';
+            } else {
+                // Show print button if at least one is downloaded
+                const anyDownloaded = currentTripPrintData.orders.some(o => o.downloadStatus === 'DOWNLOADED');
+                if (anyDownloaded) {
+                    document.getElementById('trip-print-print-btn').style.display = 'inline-flex';
+                }
+            }
+        } else {
+            throw new Error(response.message || 'Download failed');
+        }
+
+    } catch (error) {
+        console.error(`[Trip Print] ❌ Failed to download ${order.orderNumber}:`, error);
+        order.downloadStatus = 'FAILED';
+        order.error = error.message;
+    }
+
+    renderTripPrintOrders();
+};
+
+// Retry single order print
+window.retryTripOrderPrint = async function(orderIndex) {
+    if (!currentTripPrintData) return;
+
+    const order = currentTripPrintData.orders[orderIndex];
+    const printerName = document.getElementById('trip-print-printer-select').value;
+
+    if (!printerName) {
+        alert('Please select a printer');
+        return;
+    }
+
+    console.log('[Trip Print] Retrying print for:', order.orderNumber);
+
+    // Update status to PRINTING
+    order.printStatus = 'PRINTING';
+    order.error = null;
+    renderTripPrintOrders();
+
+    try {
+        const message = {
+            action: 'printOrder',
+            orderNumber: order.orderNumber,
+            tripId: order.tripId,
+            tripDate: order.tripDate,
+            printerName: printerName
+        };
+
+        const response = await new Promise((resolve, reject) => {
+            sendMessageToCSharp(message, function(error, response) {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
+
+        if (response.success) {
+            order.printStatus = 'PRINTED';
+            order.error = null;
+            console.log(`[Trip Print] ✅ Printed: ${order.orderNumber}`);
+        } else {
+            throw new Error(response.message || 'Print failed');
+        }
+
+    } catch (error) {
+        console.error(`[Trip Print] ❌ Failed to print ${order.orderNumber}:`, error);
+        order.printStatus = 'FAILED';
+        order.error = error.message;
+    }
+
+    renderTripPrintOrders();
+};
+
+// View order PDF
+window.viewTripOrderPDF = async function(orderIndex) {
+    if (!currentTripPrintData) return;
+
+    const order = currentTripPrintData.orders[orderIndex];
+
+    if (!order.pdfPath) {
+        alert('PDF file path not available');
+        return;
+    }
+
+    console.log('[Trip Print] Opening PDF:', order.pdfPath);
+
+    try {
+        const message = {
+            action: 'openPdfFile',
+            filePath: order.pdfPath
+        };
+
+        await new Promise((resolve, reject) => {
+            sendMessageToCSharp(message, function(error, response) {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
+
+        console.log('[Trip Print] ✅ PDF opened successfully');
+
+    } catch (error) {
+        console.error('[Trip Print] Failed to open PDF:', error);
+        alert('Failed to open PDF: ' + error.message);
+    }
+};
+
+// ============================================================================
+// END TRIP PRINT MODAL FUNCTIONS
+// ============================================================================
+
 window.toggleBypassTransaction = toggleBypassTransaction;
 window.toggleSelectAllOrder = toggleSelectAllOrder;
 window.applyFilters = applyFilters;
