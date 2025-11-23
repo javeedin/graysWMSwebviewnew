@@ -2959,6 +2959,33 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
     document.getElementById('debug-trip-date-sent').textContent = formattedTripDate || '(empty)';
     document.getElementById('debug-path-format').textContent = `C:/fusion/${formattedTripDate}/${tripId}/[orderNumber].pdf`;
 
+    // Generate and display SOAP XML that should be sent to Oracle Fusion
+    const sampleOrderNumber = orders.length > 0 ? orders[0].orderNumber : '1234567';
+    const soapXML = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+          <v2:listOfParamNameValues>
+            <v2:item>
+              <v2:name>SOURCE_CODE</v2:name>
+              <v2:values>
+                <v2:item>${sampleOrderNumber}</v2:item>
+              </v2:values>
+            </v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:sizeOfDataChunkDownload>-1</v2:sizeOfDataChunkDownload>
+      </v2:reportRequest>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+    document.getElementById('debug-soap-xml').textContent = soapXML;
+
     // Render orders list
     renderTripPrintOrders();
 
