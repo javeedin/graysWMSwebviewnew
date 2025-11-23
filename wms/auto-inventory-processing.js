@@ -2894,28 +2894,20 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
         };
     });
 
-    // Determine report name based on first order's ORDER_TYPE
-    let reportName = 'Sales Order Report'; // Default
+    // Auto Inventory Processing page is ONLY for Store to Van / Van to Store transactions
+    // So we always use Store Transaction Report (Inventory)
+    let reportName = 'Store Transaction Report (Inventory)'; // Always Store Transaction for Auto Processing
     let instanceName = 'PROD';
     let orderTypeName = '';
 
     if (orders.length > 0) {
-        const firstOrderType = orders[0].orderType.toUpperCase().trim();
         instanceName = orders[0].instance;
         orderTypeName = orders[0].orderType;
 
-        console.log('[Trip Print] First Order Type:', firstOrderType);
-        console.log('[Trip Print] Checking condition...');
-
-        // Check if it's Store to Van or Van to Store
-        if (firstOrderType === 'STORE TO VAN' || firstOrderType === 'VAN TO STORE' ||
-            firstOrderType === 'S2V' || firstOrderType === 'V2S') {
-            reportName = 'Store Transaction Report (Inventory)';
-            console.log('[Trip Print] ✅ Matched S2V/V2S - Using Store Transaction Report');
-        } else {
-            reportName = 'Sales Order Report';
-            console.log('[Trip Print] ✅ Not S2V/V2S - Using Sales Order Report');
-        }
+        console.log('[Trip Print] Opening from Auto Inventory Processing page');
+        console.log('[Trip Print] Order Type:', orderTypeName);
+        console.log('[Trip Print] Instance:', instanceName);
+        console.log('[Trip Print] Report: Store Transaction Report (Inventory)');
     }
 
     // Store current trip print data
