@@ -2870,5 +2870,6 @@ window.processSingleOrder = processSingleOrder;
 window.buildAnalytics = buildAnalytics;
 window.openStoreTransactionsFromOrder = openStoreTransactionsFromOrder;
 window.closeProcessingStatusFloat = closeProcessingStatusFloat;
+window.stopProcessing = stopProcessing;
 
 console.log('[Auto Processing] Script loaded successfully');
