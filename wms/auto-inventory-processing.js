@@ -2866,6 +2866,24 @@ let currentTripPrintData = null;
 // Open Trip Print Modal
 window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripIndex) {
     console.log('[Trip Print] Opening modal for trip:', tripId);
+    console.log('[Trip Print] Raw tripDate received:', tripDate);
+
+    // Format tripDate to remove time portion (for consistent path: c:/fusion/YYYY-MM-DD/trip/order.pdf)
+    let formattedTripDate = tripDate;
+    if (tripDate) {
+        try {
+            // If it's a date object or ISO string, extract only YYYY-MM-DD
+            const dateObj = new Date(tripDate);
+            formattedTripDate = dateObj.toISOString().split('T')[0]; // Get only YYYY-MM-DD part
+            console.log('[Trip Print] Formatted tripDate:', formattedTripDate);
+        } catch (e) {
+            // If date parsing fails, try to extract date part manually
+            if (String(tripDate).includes('T')) {
+                formattedTripDate = String(tripDate).split('T')[0];
+                console.log('[Trip Print] Manually extracted tripDate:', formattedTripDate);
+            }
+        }
+    }
 
     // Get trip data
     const groupedTrips = groupTransactionsByTrip();
@@ -2884,7 +2902,7 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
         return {
             orderNumber: orderNum,
             tripId: tripId,
-            tripDate: tripDate,
+            tripDate: formattedTripDate,  // Use formatted date
             instance: firstTrx.instance_name || firstTrx.INSTANCE_NAME || 'PROD',
             orderType: firstTrx.order_type || firstTrx.ORDER_TYPE || firstTrx.ORDER_TYPE_CODE || firstTrx.order_type_code || '',
             downloadStatus: 'PENDING',
@@ -2938,6 +2956,8 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
     document.getElementById('debug-report-path').textContent = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
     document.getElementById('debug-param-name').textContent = 'SOURCE_CODE';
     document.getElementById('debug-order-type-sent').textContent = orderTypeName || '(empty)';
+    document.getElementById('debug-trip-date-sent').textContent = formattedTripDate || '(empty)';
+    document.getElementById('debug-path-format').textContent = `C:/fusion/${formattedTripDate}/${tripId}/[orderNumber].pdf`;
 
     // Render orders list
     renderTripPrintOrders();
@@ -3123,8 +3143,11 @@ window.startTripDownload = async function() {
             console.log('[Trip Print] Message:', JSON.stringify(message, null, 2));
             console.log('[Trip Print] orderType value:', `"${message.orderType}"`);
             console.log('[Trip Print] orderType length:', message.orderType.length);
+            console.log('[Trip Print] tripId:', message.tripId);
+            console.log('[Trip Print] tripDate:', message.tripDate);
+            console.log('[Trip Print] Expected PDF Path:', `C:/fusion/${message.tripDate}/${message.tripId}/${message.orderNumber}.pdf`);
             console.log('[Trip Print] Expected Report: Store Transaction Report (Inventory)');
-            console.log('[Trip Print] Expected Path: /Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo');
+            console.log('[Trip Print] Expected Report Path: /Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo');
             console.log('[Trip Print] Expected Param: SOURCE_CODE');
             console.log('=====================================');
 
