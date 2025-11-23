@@ -1718,11 +1718,12 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
     const enhancedTransactions = localTransactions.map(localTxn => {
         const lid = String(localTxn.lid || '').trim();
         console.log('[Display Verify] Matching LID:', lid);
+        console.log('[Display Verify] Local transaction fields:', Object.keys(localTxn));
 
         // Find matching Fusion record
         const fusionMatch = fusionData.find(fusionRecord => {
             // Try different possible LID field names
-            const fusionLid = String(fusionRecord.LID || fusionRecord.lid || fusionRecord.LOAD_REQUEST_NUMBER || '').trim();
+            const fusionLid = String(fusionRecord.LID || fusionRecord.lid || fusionRecord.LOAD_REQUEST_NUMBER || fusionRecord.LOAD_ID || '').trim();
             return fusionLid === lid;
         });
 
@@ -1734,8 +1735,9 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
 
         return {
             ...localTxn,
-            fusionQty: fusionMatch ? (fusionMatch.TRANSACTION_QUANTITY || fusionMatch.transaction_quantity || fusionMatch.QUANTITY || '0') : '-',
-            fusionStatus: fusionMatch ? 'Matched' : 'Not Found'
+            fusionQty: fusionMatch ? (fusionMatch.TRANSACTION_QUANTITY || fusionMatch.transaction_quantity || fusionMatch.QUANTITY || fusionMatch.quantity || fusionMatch.QTY || '0') : '-',
+            fusionStatus: fusionMatch ? 'Matched' : 'Not Found',
+            fusionRecord: fusionMatch || null  // Store full fusion record for reference
         };
     });
 
@@ -1754,10 +1756,13 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
         fusionTableHeader += `<th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">${col}</th>`;
     });
 
-    // Build data rows dynamically
+    // Build data rows dynamically with search data attributes
     let fusionTableRows = '';
     fusionData.forEach((record, index) => {
-        let row = `<tr style="border-bottom: 1px solid #e2e8f0;">
+        // Create searchable text from all values
+        const searchText = Object.values(record).join('|').toLowerCase();
+
+        let row = `<tr class="fusion-data-row" data-search="${searchText}" style="border-bottom: 1px solid #e2e8f0;">
             <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>`;
 
         fusionColumnArray.forEach(col => {
@@ -1779,8 +1784,8 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
     enhancedTransactions.forEach((txn, index) => {
         const statusColor = txn.fusionStatus === 'Matched' ? '#10b981' : '#ef4444';
 
-        // Try multiple field names for local quantity
-        const localQty = txn.txn_qty || txn.transaction_quantity || txn.quantity || txn.qty || txn.QUANTITY || txn.QTY || 0;
+        // Use picked_qty (the correct field from main grid)
+        const localQty = txn.picked_qty || txn.txn_qty || txn.transaction_quantity || txn.quantity || txn.PICKED_QTY || txn.QUANTITY || 0;
         const qtyMatch = String(localQty) === String(txn.fusionQty);
         const qtyColor = qtyMatch ? '#10b981' : '#f59e0b';
 
@@ -1788,15 +1793,17 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
         const itemCode = txn.item_code || txn.ITEM_CODE || txn.item || txn.ITEM || 'N/A';
         const itemDesc = txn.item_desc || txn.ITEM_DESC || txn.description || txn.DESCRIPTION || 'N/A';
         const lid = txn.lid || txn.LID || txn.load_id || txn.LOAD_ID || 'N/A';
+        const lotNumber = txn.lot_number || txn.LOT_NUMBER || txn.lot || 'N/A';
 
-        console.log(`[Display Verify] Row ${index + 1}: LID=${lid}, LocalQty=${localQty}, FusionQty=${txn.fusionQty}`);
+        console.log(`[Display Verify] Row ${index + 1}: LID=${lid}, LocalQty=${localQty} (from picked_qty), FusionQty=${txn.fusionQty}, Match=${qtyMatch}`);
 
         orderLinesRows += `
-            <tr style="border-bottom: 1px solid #e2e8f0;">
+            <tr class="order-line-row" data-lid="${lid}" data-itemcode="${itemCode}" data-lotnum="${lotNumber}" style="border-bottom: 1px solid #e2e8f0;">
                 <td style="padding: 0.75rem; font-size: 12px; color: #94a3b8;">${index + 1}</td>
                 <td style="padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;">${lid}</td>
                 <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${itemCode}</td>
                 <td style="padding: 0.75rem; font-size: 12px; color: #1e293b;">${itemDesc}</td>
+                <td style="padding: 0.75rem; font-size: 12px; color: #64748b;">${lotNumber}</td>
                 <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: #1e293b;">${localQty}</td>
                 <td style="padding: 0.75rem; font-size: 12px; text-align: center; font-weight: 600; color: ${qtyColor};">${txn.fusionQty}</td>
                 <td style="padding: 0.75rem; font-size: 11px; text-align: center;">
@@ -1842,46 +1849,59 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
             <div style="flex: 1; overflow-y: auto; padding: 1.5rem;">
                 <!-- Fusion Data Tab -->
                 <div id="verify-fusion-data-tab" class="verify-tab-content">
+                    <!-- Search Box -->
+                    <div style="margin-bottom: 1rem;">
+                        <input type="text" id="fusion-search-box" placeholder="Search Fusion Data..." onkeyup="filterFusionData()" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;" />
+                    </div>
                     <div style="margin-bottom: 1rem; padding: 0.75rem; background: #e0e7ff; border-radius: 6px; border-left: 4px solid #667eea;">
                         <p style="margin: 0; font-size: 13px; color: #1e293b;">
-                            <i class="fas fa-info-circle"></i> <strong>Raw data from Oracle Fusion Cloud</strong> - This shows the actual transaction records retrieved from the Fusion SOAP report.
+                            <i class="fas fa-info-circle"></i> <strong>Raw data from Oracle Fusion Cloud</strong> - Showing all ${fusionData.length} records from SOAP report.
                         </p>
                     </div>
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
-                                ${fusionTableHeader}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${fusionTableRows}
-                        </tbody>
-                    </table>
+                    <div style="overflow-x: auto;">
+                        <table id="fusion-data-table" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
+                                    ${fusionTableHeader}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${fusionTableRows}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <!-- Order Lines Tab -->
                 <div id="verify-order-lines-tab" class="verify-tab-content" style="display: none;">
+                    <!-- Search Box -->
+                    <div style="margin-bottom: 1rem;">
+                        <input type="text" id="order-lines-search-box" placeholder="Search Order Lines (LID, Item Code, Lot Number)..." onkeyup="filterOrderLines()" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;" />
+                    </div>
                     <div style="margin-bottom: 1rem; padding: 0.75rem; background: #e0e7ff; border-radius: 6px; border-left: 4px solid #667eea;">
                         <p style="margin: 0; font-size: 13px; color: #1e293b;">
-                            <i class="fas fa-info-circle"></i> <strong>Local order lines with Fusion matching</strong> - Green indicates matched records, Orange indicates quantity mismatch, Red indicates not found in Fusion.
+                            <i class="fas fa-info-circle"></i> <strong>Local order lines with Fusion matching</strong> - 🟢 Matched | 🟠 Qty Mismatch | 🔴 Not Found
                         </p>
                     </div>
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
-                                <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
-                                <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Local Qty</th>
-                                <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Qty</th>
-                                <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${orderLinesRows}
-                        </tbody>
-                    </table>
+                    <div style="overflow-x: auto;">
+                        <table id="order-lines-table" style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f8f9fa; border-bottom: 2px solid #e2e8f0;">
+                                    <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
+                                    <th style="padding: 0.75rem; text-align: left; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Lot Number</th>
+                                    <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Local Qty</th>
+                                    <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Fusion Qty</th>
+                                    <th style="padding: 0.75rem; text-align: center; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${orderLinesRows}
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
 
@@ -1925,6 +1945,53 @@ function switchVerifyTab(tabName) {
         activeBtn.style.color = '#667eea';
         activeBtn.style.borderBottom = '3px solid #667eea';
     }
+}
+
+// Filter Fusion Data table
+function filterFusionData() {
+    const searchBox = document.getElementById('fusion-search-box');
+    if (!searchBox) return;
+
+    const filter = searchBox.value.toLowerCase();
+    const rows = document.querySelectorAll('.fusion-data-row');
+
+    let visibleCount = 0;
+    rows.forEach(row => {
+        const searchText = row.getAttribute('data-search') || '';
+        if (searchText.includes(filter)) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+
+    console.log(`[Filter Fusion] Showing ${visibleCount} of ${rows.length} records`);
+}
+
+// Filter Order Lines table
+function filterOrderLines() {
+    const searchBox = document.getElementById('order-lines-search-box');
+    if (!searchBox) return;
+
+    const filter = searchBox.value.toLowerCase();
+    const rows = document.querySelectorAll('.order-line-row');
+
+    let visibleCount = 0;
+    rows.forEach(row => {
+        const lid = (row.getAttribute('data-lid') || '').toLowerCase();
+        const itemCode = (row.getAttribute('data-itemcode') || '').toLowerCase();
+        const lotNum = (row.getAttribute('data-lotnum') || '').toLowerCase();
+
+        if (lid.includes(filter) || itemCode.includes(filter) || lotNum.includes(filter)) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+
+    console.log(`[Filter Order Lines] Showing ${visibleCount} of ${rows.length} rows`);
 }
 
 // Print order button handler - using C# Fusion PDF handler (Store Transaction Report)
