@@ -2885,8 +2885,8 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
             orderNumber: orderNum,
             tripId: tripId,
             tripDate: tripDate,
-            instance: firstTrx.instance_name || 'PROD',
-            trxType: firstTrx.trx_type || '',
+            instance: firstTrx.instance_name || firstTrx.INSTANCE_NAME || 'PROD',
+            orderType: firstTrx.order_type || firstTrx.ORDER_TYPE || firstTrx.ORDER_TYPE_CODE || firstTrx.order_type_code || '',
             downloadStatus: 'PENDING',
             printStatus: 'PENDING',
             pdfPath: null,
@@ -2894,15 +2894,27 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
         };
     });
 
-    // Determine report name based on first order's TRX_TYPE
+    // Determine report name based on first order's ORDER_TYPE
     let reportName = 'Sales Order Report'; // Default
+    let instanceName = 'PROD';
+    let orderTypeName = '';
+
     if (orders.length > 0) {
-        const firstOrderType = orders[0].trxType || '';
+        const firstOrderType = orders[0].orderType.toUpperCase().trim();
+        instanceName = orders[0].instance;
+        orderTypeName = orders[0].orderType;
+
+        console.log('[Trip Print] First Order Type:', firstOrderType);
+        console.log('[Trip Print] Checking condition...');
+
+        // Check if it's Store to Van or Van to Store
         if (firstOrderType === 'STORE TO VAN' || firstOrderType === 'VAN TO STORE' ||
             firstOrderType === 'S2V' || firstOrderType === 'V2S') {
             reportName = 'Store Transaction Report (Inventory)';
+            console.log('[Trip Print] ✅ Matched S2V/V2S - Using Store Transaction Report');
         } else {
             reportName = 'Sales Order Report';
+            console.log('[Trip Print] ✅ Not S2V/V2S - Using Sales Order Report');
         }
     }
 
@@ -2913,7 +2925,9 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
         orderCount: orders.length,
         orders: orders,
         tripIndex: tripIndex,
-        reportName: reportName
+        reportName: reportName,
+        instanceName: instanceName,
+        orderTypeName: orderTypeName
     };
 
     // Populate modal
@@ -2922,8 +2936,10 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
     document.getElementById('trip-print-status').textContent = 'Ready';
     document.getElementById('trip-print-status').style.color = '#10b981';
 
-    // Update report name in modal header
+    // Update report name, instance, and order type in modal header
     document.getElementById('trip-print-report-name').textContent = reportName;
+    document.getElementById('trip-print-instance-name').textContent = instanceName;
+    document.getElementById('trip-print-order-type').textContent = orderTypeName;
 
     // Render orders list
     renderTripPrintOrders();
@@ -3086,7 +3102,7 @@ window.startTripDownload = async function() {
         const order = currentTripPrintData.orders[i];
 
         console.log(`[Trip Print] Downloading ${i + 1}/${currentTripPrintData.orders.length}: ${order.orderNumber}`);
-        console.log(`[Trip Print] Order Type: ${order.trxType}`);
+        console.log(`[Trip Print] Order Type: ${order.orderType}`);
         console.log(`[Trip Print] Report: ${currentTripPrintData.reportName}`);
 
         // Update status to DOWNLOADING
@@ -3100,7 +3116,7 @@ window.startTripDownload = async function() {
                 orderNumber: order.orderNumber,
                 tripId: order.tripId,
                 tripDate: order.tripDate,
-                orderType: order.trxType || ''
+                orderType: order.orderType || ''
             };
             console.log('[Trip Print] Message to C#:', message);
 
@@ -3305,7 +3321,7 @@ window.retryTripOrderDownload = async function(orderIndex) {
             orderNumber: order.orderNumber,
             tripId: order.tripId,
             tripDate: order.tripDate,
-            orderType: order.trxType || ''
+            orderType: order.orderType || ''
         };
 
         const response = await new Promise((resolve, reject) => {
