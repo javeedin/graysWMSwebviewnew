@@ -2880,11 +2880,13 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
     const uniqueOrders = [...new Set(trip.transactions.map(t => t.trx_number))];
     const orders = uniqueOrders.map(orderNum => {
         const orderTransactions = trip.transactions.filter(t => t.trx_number === orderNum);
+        const firstTrx = orderTransactions[0];
         return {
             orderNumber: orderNum,
             tripId: tripId,
             tripDate: tripDate,
-            instance: orderTransactions[0].instance_name || 'PROD',
+            instance: firstTrx.instance_name || 'PROD',
+            trxType: firstTrx.trx_type || '',
             downloadStatus: 'PENDING',
             printStatus: 'PENDING',
             pdfPath: null,
@@ -2892,13 +2894,26 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
         };
     });
 
+    // Determine report name based on first order's TRX_TYPE
+    let reportName = 'Sales Order Report'; // Default
+    if (orders.length > 0) {
+        const firstOrderType = orders[0].trxType || '';
+        if (firstOrderType === 'STORE TO VAN' || firstOrderType === 'VAN TO STORE' ||
+            firstOrderType === 'S2V' || firstOrderType === 'V2S') {
+            reportName = 'Store Transaction Report (Inventory)';
+        } else {
+            reportName = 'Sales Order Report';
+        }
+    }
+
     // Store current trip print data
     currentTripPrintData = {
         tripId: tripId,
         tripDate: tripDate,
         orderCount: orders.length,
         orders: orders,
-        tripIndex: tripIndex
+        tripIndex: tripIndex,
+        reportName: reportName
     };
 
     // Populate modal
@@ -2906,6 +2921,9 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
     document.getElementById('trip-print-order-count').textContent = orders.length;
     document.getElementById('trip-print-status').textContent = 'Ready';
     document.getElementById('trip-print-status').style.color = '#10b981';
+
+    // Update report name in modal header
+    document.getElementById('trip-print-report-name').textContent = reportName;
 
     // Render orders list
     renderTripPrintOrders();
@@ -3068,19 +3086,23 @@ window.startTripDownload = async function() {
         const order = currentTripPrintData.orders[i];
 
         console.log(`[Trip Print] Downloading ${i + 1}/${currentTripPrintData.orders.length}: ${order.orderNumber}`);
+        console.log(`[Trip Print] Order Type: ${order.trxType}`);
+        console.log(`[Trip Print] Report: ${currentTripPrintData.reportName}`);
 
         // Update status to DOWNLOADING
         order.downloadStatus = 'DOWNLOADING';
         renderTripPrintOrders();
 
         try {
-            // Download PDF via C#
+            // Download PDF via C# - pass orderType to determine which report to use
             const message = {
                 action: 'downloadOrderPdf',
                 orderNumber: order.orderNumber,
                 tripId: order.tripId,
-                tripDate: order.tripDate
+                tripDate: order.tripDate,
+                orderType: order.trxType || ''
             };
+            console.log('[Trip Print] Message to C#:', message);
 
             const response = await new Promise((resolve, reject) => {
                 sendMessageToCSharp(message, function(error, response) {
@@ -3282,7 +3304,8 @@ window.retryTripOrderDownload = async function(orderIndex) {
             action: 'downloadOrderPdf',
             orderNumber: order.orderNumber,
             tripId: order.tripId,
-            tripDate: order.tripDate
+            tripDate: order.tripDate,
+            orderType: order.trxType || ''
         };
 
         const response = await new Promise((resolve, reject) => {
