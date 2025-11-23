@@ -3009,6 +3009,50 @@ window.closeTripPrintModal = function() {
     currentTripPrintData = null;
 };
 
+// Toggle debug section
+window.toggleTripPrintDebug = function() {
+    const content = document.getElementById('trip-debug-content');
+    const icon = document.getElementById('trip-debug-toggle-icon');
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        content.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+};
+
+// Update debug XML for specific order
+function updateDebugXMLForOrder(orderNumber) {
+    const soapXML = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+          <v2:listOfParamNameValues>
+            <v2:item>
+              <v2:name>SOURCE_CODE</v2:name>
+              <v2:values>
+                <v2:item>${orderNumber}</v2:item>
+              </v2:values>
+            </v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:sizeOfDataChunkDownload>-1</v2:sizeOfDataChunkDownload>
+      </v2:reportRequest>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    document.getElementById('debug-soap-xml').textContent = soapXML;
+    document.getElementById('debug-current-order').textContent = orderNumber;
+}
+
 // Render orders list in modal
 function renderTripPrintOrders() {
     if (!currentTripPrintData) return;
@@ -3153,6 +3197,9 @@ window.startTripDownload = async function() {
         // Update status to DOWNLOADING
         order.downloadStatus = 'DOWNLOADING';
         renderTripPrintOrders();
+
+        // Update debug XML to show what should be sent for this specific order
+        updateDebugXMLForOrder(order.orderNumber);
 
         try {
             // Download PDF via C# - pass orderType to determine which report to use
@@ -3378,6 +3425,9 @@ window.retryTripOrderDownload = async function(orderIndex) {
     order.downloadStatus = 'DOWNLOADING';
     order.error = null;
     renderTripPrintOrders();
+
+    // Update debug XML to show what should be sent for this specific order
+    updateDebugXMLForOrder(order.orderNumber);
 
     try {
         const message = {

@@ -1154,38 +1154,45 @@
 
             <!-- Debug Section - Show What Report Is Actually Being Used -->
             <div style="margin-top: 1rem; padding: 0.75rem; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;">
-                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                <div onclick="toggleTripPrintDebug()" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
                     <i class="fas fa-bug" style="color: #ff6b6b;"></i>
-                    <strong style="font-size: 12px; color: #856404;">DEBUG: Report Parameters Being Sent to C#</strong>
-                </div>
-                <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; font-size: 11px;">
-                    <span style="color: #856404; font-weight: 600;">Report Name:</span>
-                    <span id="debug-report-name" style="color: #333; font-family: monospace;">-</span>
-
-                    <span style="color: #856404; font-weight: 600;">Report Path:</span>
-                    <span id="debug-report-path" style="color: #333; font-family: monospace; font-size: 10px;">-</span>
-
-                    <span style="color: #856404; font-weight: 600;">Parameter Name:</span>
-                    <span id="debug-param-name" style="color: #333; font-family: monospace;">-</span>
-
-                    <span style="color: #856404; font-weight: 600;">orderType Sent:</span>
-                    <span id="debug-order-type-sent" style="color: #d63384; font-family: monospace; font-weight: 700;">-</span>
-
-                    <span style="color: #856404; font-weight: 600;">tripDate Sent:</span>
-                    <span id="debug-trip-date-sent" style="color: #0d6efd; font-family: monospace; font-weight: 700;">-</span>
-
-                    <span style="color: #856404; font-weight: 600;">Expected Path Format:</span>
-                    <span id="debug-path-format" style="color: #198754; font-family: monospace; font-size: 10px;">-</span>
+                    <strong style="font-size: 12px; color: #856404;">DEBUG: Report Parameters & SOAP XML</strong>
+                    <i id="trip-debug-toggle-icon" class="fas fa-chevron-down" style="margin-left: auto; color: #856404; font-size: 10px;"></i>
                 </div>
 
-                <!-- SOAP XML Display -->
-                <div style="margin-top: 1rem; padding-top: 1rem; border-top: 2px solid #ffc107;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-                        <i class="fas fa-code" style="color: #ff6b6b;"></i>
-                        <strong style="font-size: 12px; color: #856404;">SOAP XML that should be sent to Oracle Fusion:</strong>
+                <div id="trip-debug-content" style="display: none; margin-top: 0.75rem;">
+                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; font-size: 11px;">
+                        <span style="color: #856404; font-weight: 600;">Report Name:</span>
+                        <span id="debug-report-name" style="color: #333; font-family: monospace;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">Report Path:</span>
+                        <span id="debug-report-path" style="color: #333; font-family: monospace; font-size: 10px;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">Parameter Name:</span>
+                        <span id="debug-param-name" style="color: #333; font-family: monospace;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">orderType Sent:</span>
+                        <span id="debug-order-type-sent" style="color: #d63384; font-family: monospace; font-weight: 700;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">tripDate Sent:</span>
+                        <span id="debug-trip-date-sent" style="color: #0d6efd; font-family: monospace; font-weight: 700;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">Expected Path Format:</span>
+                        <span id="debug-path-format" style="color: #198754; font-family: monospace; font-size: 10px;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">Current Order:</span>
+                        <span id="debug-current-order" style="color: #dc3545; font-family: monospace; font-weight: 700;">-</span>
                     </div>
-                    <div style="background: #2d2d2d; padding: 0.75rem; border-radius: 4px; max-height: 300px; overflow-y: auto;">
-                        <pre id="debug-soap-xml" style="margin: 0; color: #00ff00; font-family: 'Courier New', monospace; font-size: 10px; white-space: pre-wrap; word-wrap: break-word;">-</pre>
+
+                    <!-- SOAP XML Display -->
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 2px solid #ffc107;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <i class="fas fa-code" style="color: #ff6b6b;"></i>
+                            <strong style="font-size: 12px; color: #856404;">SOAP XML being sent to Oracle Fusion:</strong>
+                        </div>
+                        <div style="background: #2d2d2d; padding: 0.75rem; border-radius: 4px; max-height: 300px; overflow-y: auto;">
+                            <pre id="debug-soap-xml" style="margin: 0; color: #00ff00; font-family: 'Courier New', monospace; font-size: 10px; white-space: pre-wrap; word-wrap: break-word;">-</pre>
+                        </div>
                     </div>
                 </div>
             </div>
