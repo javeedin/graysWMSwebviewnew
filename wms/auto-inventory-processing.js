@@ -677,11 +677,15 @@ function updateTransactionStatusInDOM(tripIndex, transactionIndex, status) {
     const statusColor = status === 'SUCCESS' ? '#10b981' :
                        status === 'FAILED' || status === 'ERROR' ? '#ef4444' :
                        status === 'PROCESSING' ? '#f59e0b' :
+                       status === 'DELETING_ERRORS' ? '#dc2626' :
+                       status === 'RETRYING' ? '#8b5cf6' :
                        '#3b82f6';
 
     const statusIcon = status === 'SUCCESS' ? 'check-circle' :
                       status === 'FAILED' || status === 'ERROR' ? 'times-circle' :
                       status === 'PROCESSING' ? 'spinner fa-spin' :
+                      status === 'DELETING_ERRORS' ? 'trash fa-spin' :
+                      status === 'RETRYING' ? 'redo fa-spin' :
                       'clock';
 
     statusCell.innerHTML = `
@@ -751,7 +755,9 @@ async function processNextBatch() {
 
     // Process transactions order by order
     let processedCount = 0;
-    let stoppedDueToFailure = false;
+    let successCount = 0;
+    let failedCount = 0;
+    let retriedCount = 0;
     let processedOrders = 0;
 
     try {
@@ -792,40 +798,41 @@ async function processNextBatch() {
                     }
                 });
 
-                try {
-                    // Process transaction and update status in DOM
-                    await processAutoTransaction(transaction, actualTripIndex, actualTransactionIndex);
-                    processedCount++;
+                // Process transaction and update status in DOM
+                // Note: processAutoTransaction now handles errors internally and never throws
+                const result = await processAutoTransaction(transaction, actualTripIndex, actualTransactionIndex);
+                processedCount++;
 
-                    // Update statistics every 5 transactions
-                    if (processedCount % 5 === 0 || (orderIdx === orderNumbers.length - 1 && i === orderTransactions.length - 1)) {
-                        addLogEntry('Progress', `Processed ${processedCount} of ${pendingTransactions.length} transactions (${processedOrders + 1} of ${orderNumbers.length} orders)`, 'info');
-                        updateStatistics();
+                // Track success/failure statistics
+                if (result.success) {
+                    successCount++;
+                    if (result.retried) {
+                        retriedCount++;
                     }
-                } catch (error) {
-                    // Transaction failed - stop processing
-                    stoppedDueToFailure = true;
-                    addLogEntry('Error', `Processing stopped due to failure in Order ${orderNumber}. Processed ${processedCount} of ${pendingTransactions.length} transactions (${processedOrders} complete orders) before stopping.`, 'error');
+                } else {
+                    failedCount++;
+                }
+
+                // Update statistics every 5 transactions
+                if (processedCount % 5 === 0 || (orderIdx === orderNumbers.length - 1 && i === orderTransactions.length - 1)) {
+                    addLogEntry('Progress', `Processed ${processedCount} of ${pendingTransactions.length} transactions (${successCount} success, ${failedCount} failed, ${retriedCount} retried) - ${processedOrders + 1} of ${orderNumbers.length} orders`, 'info');
                     updateStatistics();
-                    // Hide processing spinner for this order
-                    showOrderProcessingSpinner(orderNumber, false);
-                    break;
                 }
             }
 
             // Hide processing spinner for this order
             showOrderProcessingSpinner(orderNumber, false);
 
-            if (stoppedDueToFailure) {
-                break; // Stop processing remaining orders
-            }
-
             processedOrders++;
             addLogEntry('Order', `✓ Order ${orderNumber} completed (${orderTransactions.length} lines processed)`, 'success');
         }
 
-        if (autoProcessingEnabled && !stoppedDueToFailure) {
-            addLogEntry('Processing', `All ${processedOrders} orders (${processedCount} transactions) processed successfully!`, 'success');
+        if (autoProcessingEnabled) {
+            if (failedCount === 0) {
+                addLogEntry('Processing', `All ${processedOrders} orders (${processedCount} transactions) processed successfully!${retriedCount > 0 ? ` ${retriedCount} transaction(s) succeeded after automatic retry.` : ''}`, 'success');
+            } else {
+                addLogEntry('Processing', `Completed ${processedOrders} orders: ${successCount} succeeded, ${failedCount} failed${retriedCount > 0 ? `, ${retriedCount} succeeded after retry` : ''}`, 'warning');
+            }
             updateStatistics();
         }
     } catch (error) {
@@ -833,6 +840,111 @@ async function processNextBatch() {
         console.error('[Auto Processing] Batch error:', error);
         updateStatistics();
     }
+}
+
+// Delete inventory staged transaction errors automatically
+async function deleteInventoryErrors(transaction) {
+    return new Promise((resolve) => {
+        const instanceName = transaction.instance_name || 'PROD';
+        let apiUrl;
+
+        // Determine GET endpoint
+        if (instanceName === 'TEST') {
+            apiUrl = 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
+        } else {
+            apiUrl = 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer';
+        }
+
+        addLogEntry('Auto Cleanup', `Fetching staged transaction errors for cleanup...`, 'warning');
+
+        // Check credentials
+        if (!fusionCloudUsername || !fusionCloudPassword) {
+            addLogEntry('Error', 'Fusion Cloud credentials not available for cleanup', 'error');
+            resolve({ success: false, message: 'Credentials not available' });
+            return;
+        }
+
+        // Fetch error data
+        sendMessageToCSharp({
+            action: "executeGet",
+            fullUrl: apiUrl,
+            username: fusionCloudUsername,
+            password: fusionCloudPassword
+        }, async function(error, data) {
+            if (error) {
+                addLogEntry('Auto Cleanup', `Failed to fetch staged transactions: ${error}`, 'error');
+                resolve({ success: false, message: error });
+                return;
+            }
+
+            if (!data) {
+                addLogEntry('Auto Cleanup', 'No data returned from staged transactions API', 'error');
+                resolve({ success: false, message: 'No data returned' });
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+                const errorItems = response.items || [];
+
+                if (errorItems.length === 0) {
+                    addLogEntry('Auto Cleanup', 'No staged transaction errors found', 'info');
+                    resolve({ success: true, deletedCount: 0 });
+                    return;
+                }
+
+                addLogEntry('Auto Cleanup', `Found ${errorItems.length} staged transaction(s) to delete`, 'warning');
+
+                // Determine DELETE base URL
+                let baseUrl;
+                if (instanceName === 'TEST') {
+                    baseUrl = 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/';
+                } else {
+                    baseUrl = 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/';
+                }
+
+                let deletedCount = 0;
+                let failedCount = 0;
+
+                // Delete each staged transaction
+                for (const item of errorItems) {
+                    const transactionInterfaceId = item.TransactionInterfaceId;
+
+                    if (!transactionInterfaceId) {
+                        failedCount++;
+                        continue;
+                    }
+
+                    const deleteUrl = baseUrl + transactionInterfaceId;
+
+                    await new Promise((deleteResolve) => {
+                        sendMessageToCSharp({
+                            action: "executeDelete",
+                            fullUrl: deleteUrl,
+                            username: fusionCloudUsername,
+                            password: fusionCloudPassword
+                        }, function(deleteError, deleteData) {
+                            if (deleteError) {
+                                addLogEntry('Auto Cleanup', `Failed to delete ${transactionInterfaceId}: ${deleteError}`, 'error');
+                                failedCount++;
+                            } else {
+                                addLogEntry('Auto Cleanup', `✓ Deleted staged transaction ${transactionInterfaceId}`, 'success');
+                                deletedCount++;
+                            }
+                            deleteResolve();
+                        });
+                    });
+                }
+
+                addLogEntry('Auto Cleanup', `Cleanup complete: ${deletedCount} deleted, ${failedCount} failed`, deletedCount > 0 ? 'success' : 'warning');
+                resolve({ success: deletedCount > 0, deletedCount, failedCount });
+
+            } catch (parseError) {
+                addLogEntry('Auto Cleanup', `Failed to parse staged transactions: ${parseError.message}`, 'error');
+                resolve({ success: false, message: parseError.message });
+            }
+        });
+    });
 }
 
 // Process a single auto transaction (background processing - no UI updates)
@@ -863,18 +975,76 @@ async function processAutoTransaction(transaction, tripIndex, transactionIndex) 
 
     } catch (error) {
         console.error('[Auto Processing] Error processing transaction:', error);
-        transaction.transaction_status = 'FAILED';
-        transaction.error_message = error.message;
-
-        // Update DOM to show FAILED status
-        if (tripIndex !== -1 && transactionIndex !== -1) {
-            updateTransactionStatusInDOM(tripIndex, transactionIndex, 'FAILED');
-        }
-
         addLogEntry('Error', `✗ LID: ${transaction.lid} | Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - FAILED: ${error.message}`, 'error');
 
-        // Throw error to stop batch processing
-        throw error;
+        // AUTOMATIC ERROR CLEANUP AND RETRY
+        addLogEntry('Auto Cleanup', `Starting automatic error cleanup for LID ${transaction.lid}...`, 'warning');
+
+        // Update status to DELETING_ERRORS
+        transaction.transaction_status = 'DELETING_ERRORS';
+        if (tripIndex !== -1 && transactionIndex !== -1) {
+            updateTransactionStatusInDOM(tripIndex, transactionIndex, 'DELETING_ERRORS');
+        }
+
+        try {
+            // Delete staged transaction errors
+            const cleanupResult = await deleteInventoryErrors(transaction);
+
+            if (cleanupResult.success) {
+                addLogEntry('Auto Cleanup', `✓ Cleanup successful (${cleanupResult.deletedCount} error(s) deleted). Retrying transaction...`, 'success');
+
+                // Update status to RETRYING
+                transaction.transaction_status = 'RETRYING';
+                if (tripIndex !== -1 && transactionIndex !== -1) {
+                    updateTransactionStatusInDOM(tripIndex, transactionIndex, 'RETRYING');
+                }
+
+                // RETRY the transaction
+                try {
+                    const retryResponse = await processTransactionAPI(transaction);
+
+                    // Retry succeeded!
+                    transaction.transaction_status = 'SUCCESS';
+                    if (tripIndex !== -1 && transactionIndex !== -1) {
+                        updateTransactionStatusInDOM(tripIndex, transactionIndex, 'SUCCESS');
+                    }
+                    addLogEntry('Success', `✓ LID: ${transaction.lid} | Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - SUCCESS (after retry)`, 'success');
+
+                    return { success: true, response: retryResponse, retried: true };
+
+                } catch (retryError) {
+                    // Retry failed - mark as FAILED but don't stop processing
+                    transaction.transaction_status = 'FAILED';
+                    transaction.error_message = `Retry failed: ${retryError.message}`;
+                    if (tripIndex !== -1 && transactionIndex !== -1) {
+                        updateTransactionStatusInDOM(tripIndex, transactionIndex, 'FAILED');
+                    }
+                    addLogEntry('Error', `✗ Retry failed for LID ${transaction.lid}: ${retryError.message}. Continuing with next transaction...`, 'error');
+
+                    return { success: false, error: retryError.message, retriedButFailed: true };
+                }
+            } else {
+                // Cleanup failed - mark as FAILED but don't stop processing
+                transaction.transaction_status = 'FAILED';
+                transaction.error_message = `Cleanup failed: ${cleanupResult.message}`;
+                if (tripIndex !== -1 && transactionIndex !== -1) {
+                    updateTransactionStatusInDOM(tripIndex, transactionIndex, 'FAILED');
+                }
+                addLogEntry('Error', `✗ Cleanup failed for LID ${transaction.lid}. Continuing with next transaction...`, 'error');
+
+                return { success: false, error: error.message, cleanupFailed: true };
+            }
+        } catch (cleanupError) {
+            // Unexpected cleanup error - mark as FAILED but don't stop processing
+            transaction.transaction_status = 'FAILED';
+            transaction.error_message = `Cleanup error: ${cleanupError.message}`;
+            if (tripIndex !== -1 && transactionIndex !== -1) {
+                updateTransactionStatusInDOM(tripIndex, transactionIndex, 'FAILED');
+            }
+            addLogEntry('Error', `✗ Unexpected cleanup error for LID ${transaction.lid}: ${cleanupError.message}. Continuing with next transaction...`, 'error');
+
+            return { success: false, error: error.message, cleanupException: true };
+        }
     }
 }
 
