@@ -2933,6 +2933,12 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
     document.getElementById('trip-print-instance-name').textContent = instanceName;
     document.getElementById('trip-print-order-type').textContent = orderTypeName;
 
+    // Update DEBUG section - show what will actually be sent to C#
+    document.getElementById('debug-report-name').textContent = reportName;
+    document.getElementById('debug-report-path').textContent = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
+    document.getElementById('debug-param-name').textContent = 'SOURCE_CODE';
+    document.getElementById('debug-order-type-sent').textContent = orderTypeName || '(empty)';
+
     // Render orders list
     renderTripPrintOrders();
 
@@ -3110,7 +3116,17 @@ window.startTripDownload = async function() {
                 tripDate: order.tripDate,
                 orderType: order.orderType || ''
             };
-            console.log('[Trip Print] Message to C#:', message);
+
+            console.log('=====================================');
+            console.log('[Trip Print] 📤 SENDING TO C#');
+            console.log('=====================================');
+            console.log('[Trip Print] Message:', JSON.stringify(message, null, 2));
+            console.log('[Trip Print] orderType value:', `"${message.orderType}"`);
+            console.log('[Trip Print] orderType length:', message.orderType.length);
+            console.log('[Trip Print] Expected Report: Store Transaction Report (Inventory)');
+            console.log('[Trip Print] Expected Path: /Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo');
+            console.log('[Trip Print] Expected Param: SOURCE_CODE');
+            console.log('=====================================');
 
             const response = await new Promise((resolve, reject) => {
                 sendMessageToCSharp(message, function(error, response) {
@@ -3122,12 +3138,18 @@ window.startTripDownload = async function() {
                 });
             });
 
+            console.log('=====================================');
+            console.log('[Trip Print] 📥 RESPONSE FROM C#');
+            console.log('=====================================');
+            console.log('[Trip Print] Response:', JSON.stringify(response, null, 2));
+            console.log('=====================================');
+
             if (response.success && response.filePath) {
                 order.downloadStatus = 'DOWNLOADED';
                 order.pdfPath = response.filePath;
                 order.error = null;
                 successCount++;
-                console.log(`[Trip Print] ✅ Downloaded: ${order.orderNumber}`);
+                console.log(`[Trip Print] ✅ Downloaded: ${order.orderNumber} to ${response.filePath}`);
             } else {
                 throw new Error(response.message || 'Download failed');
             }

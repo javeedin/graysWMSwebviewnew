@@ -1151,6 +1151,27 @@
                     <span id="trip-print-status" style="font-weight: 700; margin-left: 0.5rem;">Ready</span>
                 </div>
             </div>
+
+            <!-- Debug Section - Show What Report Is Actually Being Used -->
+            <div style="margin-top: 1rem; padding: 0.75rem; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;">
+                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                    <i class="fas fa-bug" style="color: #ff6b6b;"></i>
+                    <strong style="font-size: 12px; color: #856404;">DEBUG: Report Parameters Being Sent to C#</strong>
+                </div>
+                <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; font-size: 11px;">
+                    <span style="color: #856404; font-weight: 600;">Report Name:</span>
+                    <span id="debug-report-name" style="color: #333; font-family: monospace;">-</span>
+
+                    <span style="color: #856404; font-weight: 600;">Report Path:</span>
+                    <span id="debug-report-path" style="color: #333; font-family: monospace; font-size: 10px;">-</span>
+
+                    <span style="color: #856404; font-weight: 600;">Parameter Name:</span>
+                    <span id="debug-param-name" style="color: #333; font-family: monospace;">-</span>
+
+                    <span style="color: #856404; font-weight: 600;">orderType Sent:</span>
+                    <span id="debug-order-type-sent" style="color: #d63384; font-family: monospace; font-weight: 700;">-</span>
+                </div>
+            </div>
         </div>
 
         <!-- Modal Content (Scrollable) -->
