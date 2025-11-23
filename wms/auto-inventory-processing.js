@@ -1895,9 +1895,19 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
             const value = record[col] || '';
             // Highlight LID column
             const isLidColumn = col.toUpperCase().includes('LID') || col.toUpperCase().includes('LOAD');
-            const style = isLidColumn
-                ? 'padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;'
-                : 'padding: 0.75rem; font-size: 12px; color: #1e293b;';
+            // Check if this is a description column
+            const isDescColumn = col.toUpperCase().includes('DESC') || col.toUpperCase().includes('DESCRIPTION');
+
+            let style = '';
+            if (isLidColumn) {
+                style = 'padding: 0.75rem; font-size: 12px; font-weight: 600; color: #667eea;';
+            } else if (isDescColumn) {
+                // Limit description to max 2 lines with ellipsis
+                style = 'padding: 0.75rem; font-size: 12px; color: #1e293b; max-width: 300px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4;';
+            } else {
+                style = 'padding: 0.75rem; font-size: 12px; color: #1e293b;';
+            }
+
             row += `<td style="${style}">${value}</td>`;
         });
 
