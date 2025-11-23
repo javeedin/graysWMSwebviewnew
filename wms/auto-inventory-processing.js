@@ -26,6 +26,11 @@ let autoProcessingStats = {
 let fusionCloudUsername = '';
 let fusionCloudPassword = '';
 
+// Processing Timer
+let processingStartTime = null;
+let processingEndTime = null;
+let processingTimerInterval = null;
+
 // Initialize auto processing on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeAutoProcessing();
@@ -638,6 +643,74 @@ function startAutoProcessing() {
 }
 
 // Run simulation - manually triggered
+// Format time to HH:MM:SS
+function formatTime(date) {
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+}
+
+// Calculate duration between two dates
+function calculateDuration(startDate, endDate) {
+    const diff = endDate - startDate;
+    const hours = Math.floor(diff / 3600000);
+    const minutes = Math.floor((diff % 3600000) / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+// Start processing timer
+function startProcessingTimer() {
+    processingStartTime = new Date();
+    processingEndTime = null;
+
+    // Show timer display
+    const timerDisplay = document.getElementById('processing-timer');
+    if (timerDisplay) {
+        timerDisplay.style.display = 'flex';
+    }
+
+    // Set start time
+    document.getElementById('timer-start-time').textContent = formatTime(processingStartTime);
+    document.getElementById('timer-end-time').textContent = '--:--:--';
+    document.getElementById('timer-duration').textContent = '00:00:00';
+
+    // Clear any existing interval
+    if (processingTimerInterval) {
+        clearInterval(processingTimerInterval);
+    }
+
+    // Update duration every second
+    processingTimerInterval = setInterval(() => {
+        if (processingStartTime && !processingEndTime) {
+            const now = new Date();
+            const duration = calculateDuration(processingStartTime, now);
+            document.getElementById('timer-duration').textContent = duration;
+        }
+    }, 1000);
+
+    console.log('[Timer] Processing timer started at:', formatTime(processingStartTime));
+}
+
+// Stop processing timer
+function stopProcessingTimer() {
+    processingEndTime = new Date();
+
+    // Stop interval
+    if (processingTimerInterval) {
+        clearInterval(processingTimerInterval);
+        processingTimerInterval = null;
+    }
+
+    // Set end time and final duration
+    document.getElementById('timer-end-time').textContent = formatTime(processingEndTime);
+    const finalDuration = calculateDuration(processingStartTime, processingEndTime);
+    document.getElementById('timer-duration').textContent = finalDuration;
+
+    console.log('[Timer] Processing timer stopped at:', formatTime(processingEndTime), 'Duration:', finalDuration);
+}
+
 function runSimulation() {
     if (!autoProcessingEnabled) {
         alert('Please enable Auto Processing first');
@@ -649,7 +722,10 @@ function runSimulation() {
         return;
     }
 
-    addLogEntry('System', 'Starting simulation - Processing all pending transactions...', 'info');
+    addLogEntry('System', 'Starting process - Processing all pending transactions...', 'info');
+
+    // Start timer
+    startProcessingTimer();
 
     // Start sequential processing
     processNextBatch();
@@ -831,11 +907,19 @@ async function processNextBatch() {
                 addLogEntry('Processing', `Completed ${processedOrders} orders: ${successCount} succeeded, ${failedCount} failed (errors auto-cleaned)`, 'warning');
             }
             updateStatistics();
+
+            // Stop processing timer
+            stopProcessingTimer();
         }
     } catch (error) {
         addLogEntry('Error', `Unexpected batch processing error: ${error.message}`, 'error');
         console.error('[Auto Processing] Batch error:', error);
         updateStatistics();
+
+        // Stop timer on error too
+        if (processingStartTime && !processingEndTime) {
+            stopProcessingTimer();
+        }
     }
 }
 
