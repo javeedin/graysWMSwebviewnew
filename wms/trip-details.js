@@ -204,8 +204,20 @@ function initializeTripOrdersGrid() {
                 },
                 {
                     caption: 'Actions',
-                    width: 80,
+                    width: 120,
                     cellTemplate: function(container, options) {
+                        const mraBtn = $('<button>')
+                            .addClass('grid-action-btn btn-retry')
+                            .html('<i class="fas fa-file-invoice-dollar"></i>')
+                            .attr('title', 'MRA Interface')
+                            .css({
+                                'background': '#667eea',
+                                'margin-right': '4px'
+                            })
+                            .on('click', function() {
+                                openMRAProcessingPopup(options.data.source_order_number);
+                            });
+
                         const removeBtn = $('<button>')
                             .addClass('grid-action-btn btn-retry')
                             .html('<i class="fas fa-trash"></i>')
@@ -215,6 +227,7 @@ function initializeTripOrdersGrid() {
                                 removeOrderFromTrip(options.data);
                             });
 
+                        container.append(mraBtn);
                         container.append(removeBtn);
                     },
                     allowFiltering: false,

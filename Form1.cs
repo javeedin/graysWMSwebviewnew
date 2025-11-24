@@ -1198,6 +1198,11 @@ namespace WMSApp
                                     HandleLogout();
                                     break;
 
+                                // MRA Interface Processing
+                                case "processMRAInterface":
+                                    await HandleProcessMRAInterface(wv, messageJson, requestId);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -2027,6 +2032,80 @@ namespace WMSApp
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Load local file failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // ========== MRA INTERFACE HANDLER ==========
+
+        private async Task HandleProcessMRAInterface(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing MRA Interface request...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string orderNumber = root.GetProperty("orderNumber").GetString();
+                    string fusionUsername = root.GetProperty("fusionUsername").GetString();
+                    string fusionPassword = root.GetProperty("fusionPassword").GetString();
+                    string instance = root.GetProperty("instance").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Order Number: {orderNumber}, Instance: {instance}");
+
+                    // Create MRA processor
+                    var mraProcessor = new WMSApp.MRA.MRAProcessor(
+                        fusionUsername,
+                        fusionPassword,
+                        instance
+                    );
+
+                    // Process with progress updates
+                    var result = await mraProcessor.ProcessMRAInterfaceAsync(
+                        orderNumber,
+                        (message, step) =>
+                        {
+                            // Send progress update to JavaScript
+                            var progressUpdate = new
+                            {
+                                action = "mraProcessingProgress",
+                                requestId = requestId,
+                                step = step.ToString(),
+                                message = message
+                            };
+
+                            string progressJson = JsonSerializer.Serialize(progressUpdate);
+                            wv.CoreWebView2.PostWebMessageAsJson(progressJson);
+                            System.Diagnostics.Debug.WriteLine($"[C#] MRA Progress: {step} - {message}");
+                        }
+                    );
+
+                    // Send final result
+                    var response = new
+                    {
+                        action = "processMRAInterfaceResponse",
+                        requestId = requestId,
+                        success = result.Success,
+                        message = result.Message,
+                        irnCode = result.IrnCode,
+                        qrCodeBase64 = result.QrCodeBase64,
+                        orderNumber = result.OrderNumber,
+                        headerId = result.HeaderId,
+                        currentStep = result.CurrentStep.ToString(),
+                        errorDetails = result.ErrorDetails
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ MRA Processing completed: {result.Success}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] MRA processing failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+                SendErrorResponse(wv, requestId, $"MRA processing error: {ex.Message}");
             }
         }
 
