@@ -5489,7 +5489,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    window.submitSetData = function(orderNumber, selectedItems) {
+    window.submitSetData = async function(orderNumber, selectedItems) {
         console.log('[Store Transactions] Submitting set data for:', orderNumber, selectedItems);
 
         // Get form values
@@ -5506,97 +5506,76 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Get instance from localStorage
-        const instance = localStorage.getItem('fusionInstance') || window.currentStoreTransInstance || 'TEST';
+        // Build records array for the API (always multiple records format)
+        const records = [];
 
-        // Get trip details
-        const tripId = window.currentStoreTransTripId || '';
-        const tripDate = window.currentStoreTransTripDate || '';
+        // For single selection, still send as array with one record
+        selectedItems.forEach(item => {
+            const record = {
+                lid: item.LID || item.lid || item.ID || item.id
+            };
 
-        // Prepare data for C# (similar to printStoreTransaction)
-        const setDataPayload = {
-            order_number: orderNumber,
-            selected_items: selectedItems,
-            updates: {
-                lot_number: lotNumber || null,
-                lot_expiration_date: lotExpDate || null,
-                picked_qty: pickedQty ? parseFloat(pickedQty) : null,
-                ship_confirm_status: shipConfirmStatus || null,
-                pick_confirm_status: pickConfirmStatus || null,
-                cancelled_status: cancelledStatus || null
-            }
-        };
+            // Only include fields that have values
+            if (lotNumber) record.lot_number = lotNumber;
+            if (lotExpDate) record.lot_expiration_date = lotExpDate;
+            if (pickedQty) record.picked_qty = parseFloat(pickedQty);
+            if (shipConfirmStatus) record.ship_confirm_status = shipConfirmStatus;
+            if (pickConfirmStatus) record.pick_confirm_status = pickConfirmStatus;
+            if (cancelledStatus) record.cancelled_status = cancelledStatus;
 
-        console.log('[Set Data] Payload:', setDataPayload);
-        console.log('[Set Data] Instance:', instance);
-        console.log('[Set Data] Trip ID:', tripId);
-        console.log('[Set Data] Trip Date:', tripDate);
+            records.push(record);
+        });
 
-        // Send message to C# to generate XML and get file path
-        const message = {
-            action: 'setStoreTransaction',
-            orderNumber: orderNumber,
-            instance: instance,
-            tripId: tripId,
-            tripDate: tripDate,
-            updates: setDataPayload.updates
-        };
+        const payload = { records };
 
-        console.log('[Set Data] Sending message to C#:', message);
+        console.log('[Set Data] API Payload:', JSON.stringify(payload, null, 2));
 
-        sendMessageToCSharp(message, function(error, data) {
-            console.log('[Set Data] Response received');
-            console.log('[Set Data] Error:', error);
-            console.log('[Set Data] Data:', data);
+        // ORDS endpoint URL
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/sets2vdata';
 
-            if (error) {
-                alert('Failed to set data: ' + error);
-                return;
-            }
+        try {
+            // Make POST request via C# (to handle CORS)
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(payload),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }, function(error, data) {
+                console.log('[Set Data] Response received');
+                console.log('[Set Data] Error:', error);
+                console.log('[Set Data] Data:', data);
 
-            // Parse response
-            try {
-                // Try parsing as JSON first
-                let response;
+                if (error) {
+                    alert('Failed to set data: ' + error);
+                    return;
+                }
+
+                // Parse response
                 try {
-                    response = typeof data === 'string' ? JSON.parse(data) : data;
-                    console.log('[Set Data] Parsed JSON response:', response);
+                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[Set Data] Parsed response:', response);
 
                     if (response.success) {
-                        // Get XML file path
-                        const xmlPath = response.xmlPath || response.filePath || response.path;
-                        if (xmlPath) {
-                            console.log('[Set Data] Opening XML viewer with path:', xmlPath);
-                            showXmlViewer(xmlPath, orderNumber, 'Set Data Transaction');
-                            closeSetDataDialog();
-                        } else {
-                            console.log('[Set Data] No XML path in response');
-                            alert('Data set successfully!\n\nNote: XML path not found in response.');
-                            closeSetDataDialog();
-                        }
+                        alert(`Success! Updated ${response.successCount} record(s).\n\n${response.message}`);
+                        closeSetDataDialog();
+                        // Refresh the allocated lots grid to show updated data
+                        refreshAllocatedLots(orderNumber);
                     } else {
-                        alert('Failed to set data: ' + (response.message || 'Unknown error'));
+                        const errorMsg = response.errorDetails || response.message || 'Unknown error';
+                        alert(`Failed to set data:\n\n${errorMsg}`);
                     }
                 } catch (parseError) {
-                    // If not JSON, check if it's a file path
-                    console.log('[Set Data] Not JSON, checking if file path...');
-                    if (data && typeof data === 'string' && (data.includes('\\') || data.includes('.xml') || data.includes('C:') || data.includes('/'))) {
-                        const xmlPath = data.trim();
-                        console.log('[Set Data] Detected as file path:', xmlPath);
-                        showXmlViewer(xmlPath, orderNumber, 'Set Data Transaction');
-                        closeSetDataDialog();
-                    } else {
-                        // Just a success message
-                        console.log('[Set Data] Success message:', data);
-                        alert('Data set successfully!\n\n' + data);
-                        closeSetDataDialog();
-                    }
+                    console.error('[Set Data] Parse error:', parseError);
+                    alert('Error parsing response: ' + parseError.message);
                 }
-            } catch (error) {
-                console.error('[Set Data] Error processing response:', error);
-                alert('Error processing response: ' + error.message);
-            }
-        });
+            });
+
+        } catch (error) {
+            console.error('[Set Data] Error:', error);
+            alert('Error submitting data: ' + error.message);
+        }
     };
 
     // Handle lot number change for single selection (input field with datalist)
@@ -5652,109 +5631,91 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Submit grid data for multiple selections
-    window.submitSetDataGrid = function(orderNumber, selectedItems) {
+    window.submitSetDataGrid = async function(orderNumber, selectedItems) {
         console.log('[Store Transactions] Submitting grid set data for:', orderNumber);
 
-        // Collect data from grid
-        const gridData = [];
+        // Build records array for the API
+        const records = [];
+
         selectedItems.forEach((item, index) => {
-            const lotNumber = document.querySelector(`.grid-lot-number[data-row="${index}"]`).value;
+            const lotNumber = document.querySelector(`.grid-lot-number[data-row="${index}"]`).value.trim();
             const lotExpDate = document.querySelector(`.grid-lot-exp[data-row="${index}"]`).value;
             const pickedQty = document.querySelector(`.grid-picked-qty[data-row="${index}"]`).value;
             const shipStatus = document.querySelector(`.grid-ship-status[data-row="${index}"]`).value;
             const pickStatus = document.querySelector(`.grid-pick-status[data-row="${index}"]`).value;
             const cancelStatus = document.querySelector(`.grid-cancel-status[data-row="${index}"]`).value;
 
-            gridData.push({
-                item_data: item,
-                updates: {
-                    lot_number: lotNumber || null,
-                    lot_expiration_date: lotExpDate || null,
-                    picked_qty: pickedQty ? parseFloat(pickedQty) : null,
-                    ship_confirm_status: shipStatus || null,
-                    pick_confirm_status: pickStatus || null,
-                    cancelled_status: cancelStatus || null
-                }
-            });
+            // Build record with lid
+            const record = {
+                lid: item.LID || item.lid || item.ID || item.id
+            };
+
+            // Only include fields that have values
+            if (lotNumber) record.lot_number = lotNumber;
+            if (lotExpDate) record.lot_expiration_date = lotExpDate;
+            if (pickedQty) record.picked_qty = parseFloat(pickedQty);
+            if (shipStatus) record.ship_confirm_status = shipStatus;
+            if (pickStatus) record.pick_confirm_status = pickStatus;
+            if (cancelStatus) record.cancelled_status = cancelStatus;
+
+            records.push(record);
         });
 
-        // Get instance from localStorage
-        const instance = localStorage.getItem('fusionInstance') || window.currentStoreTransInstance || 'TEST';
+        const payload = { records };
 
-        // Get trip details
-        const tripId = window.currentStoreTransTripId || '';
-        const tripDate = window.currentStoreTransTripDate || '';
+        console.log('[Set Data Grid] API Payload:', JSON.stringify(payload, null, 2));
 
-        console.log('[Set Data Grid] Grid Data:', gridData);
-        console.log('[Set Data Grid] Instance:', instance);
-        console.log('[Set Data Grid] Trip ID:', tripId);
-        console.log('[Set Data Grid] Trip Date:', tripDate);
+        // ORDS endpoint URL
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/sets2vdata';
 
-        // Send message to C# to generate XML and get file path
-        const message = {
-            action: 'setStoreTransactionGrid',
-            orderNumber: orderNumber,
-            instance: instance,
-            tripId: tripId,
-            tripDate: tripDate,
-            records: gridData
-        };
+        try {
+            // Make POST request via C# (to handle CORS)
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(payload),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }, function(error, data) {
+                console.log('[Set Data Grid] Response received');
+                console.log('[Set Data Grid] Error:', error);
+                console.log('[Set Data Grid] Data:', data);
 
-        console.log('[Set Data Grid] Sending message to C#:', message);
+                if (error) {
+                    alert('Failed to set data: ' + error);
+                    return;
+                }
 
-        sendMessageToCSharp(message, function(error, data) {
-            console.log('[Set Data Grid] Response received');
-            console.log('[Set Data Grid] Error:', error);
-            console.log('[Set Data Grid] Data:', data);
-
-            if (error) {
-                alert('Failed to set data: ' + error);
-                return;
-            }
-
-            // Parse response
-            try {
-                // Try parsing as JSON first
-                let response;
+                // Parse response
                 try {
-                    response = typeof data === 'string' ? JSON.parse(data) : data;
-                    console.log('[Set Data Grid] Parsed JSON response:', response);
+                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[Set Data Grid] Parsed response:', response);
 
                     if (response.success) {
-                        // Get XML file path
-                        const xmlPath = response.xmlPath || response.filePath || response.path;
-                        if (xmlPath) {
-                            console.log('[Set Data Grid] Opening XML viewer with path:', xmlPath);
-                            showXmlViewer(xmlPath, orderNumber, 'Set Data Transaction (Multiple Records)');
-                            closeSetDataDialog();
+                        const message = `Success! Updated ${response.successCount} record(s).\n\n${response.message}`;
+                        if (response.errorCount > 0) {
+                            alert(`${message}\n\nErrors: ${response.errorCount}\nDetails: ${response.errorDetails}`);
                         } else {
-                            console.log('[Set Data Grid] No XML path in response');
-                            alert('Data set successfully!\n\nNote: XML path not found in response.');
-                            closeSetDataDialog();
+                            alert(message);
                         }
+                        closeSetDataDialog();
+                        // Refresh the allocated lots grid to show updated data
+                        refreshAllocatedLots(orderNumber);
                     } else {
-                        alert('Failed to set data: ' + (response.message || 'Unknown error'));
+                        const errorMsg = response.errorDetails || response.message || 'Unknown error';
+                        alert(`Failed to set data:\n\n${errorMsg}`);
                     }
                 } catch (parseError) {
-                    // If not JSON, check if it's a file path
-                    console.log('[Set Data Grid] Not JSON, checking if file path...');
-                    if (data && typeof data === 'string' && (data.includes('\\') || data.includes('.xml') || data.includes('C:') || data.includes('/'))) {
-                        const xmlPath = data.trim();
-                        console.log('[Set Data Grid] Detected as file path:', xmlPath);
-                        showXmlViewer(xmlPath, orderNumber, 'Set Data Transaction (Multiple Records)');
-                        closeSetDataDialog();
-                    } else {
-                        // Just a success message
-                        console.log('[Set Data Grid] Success message:', data);
-                        alert('Data set successfully!\n\n' + data);
-                        closeSetDataDialog();
-                    }
+                    console.error('[Set Data Grid] Parse error:', parseError);
+                    alert('Error parsing response: ' + parseError.message);
                 }
-            } catch (error) {
-                console.error('[Set Data Grid] Error processing response:', error);
-                alert('Error processing response: ' + error.message);
-            }
-        });
+            });
+
+        } catch (error) {
+            console.error('[Set Data Grid] Error:', error);
+            alert('Error submitting data: ' + error.message);
+        }
     };
 
     window.checkFusionStatus = function(orderNumber) {
