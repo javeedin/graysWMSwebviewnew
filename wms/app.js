@@ -3619,6 +3619,61 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
+    // XML Viewer - similar to PDF Viewer but for XML files
+    window.showXmlViewer = function(xmlPath, orderNumber, reportName) {
+        console.log('[XML Viewer] Opening XML:', xmlPath);
+
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.id = 'xml-viewer-modal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 30000; display: flex; align-items: center; justify-content: center; padding: 2rem;';
+
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 100%; max-width: 1200px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+                <!-- Header -->
+                <div style="padding: 1.25rem 1.5rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0;">
+                    <div>
+                        <div style="font-size: 1.2rem; font-weight: 700;">${reportName}</div>
+                        <div style="font-size: 0.85rem; opacity: 0.9; margin-top: 0.25rem;">Order: ${orderNumber}</div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button onclick="window.open('file:///${xmlPath.replace(/\\/g, '/')}')" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i class="fas fa-external-link-alt"></i> Open External
+                        </button>
+                        <button onclick="document.getElementById('xml-viewer-modal').remove()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+
+                <!-- XML Viewer Body -->
+                <div style="flex: 1; overflow: auto; background: #f1f5f9; display: flex; align-items: center; justify-content: center; padding: 1rem;">
+                    <iframe src="file:///${xmlPath.replace(/\\/g, '/')}" style="width: 100%; height: 100%; border: none; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-radius: 8px;"></iframe>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 0.75rem 1.5rem; background: #f8f9fc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 0.75rem; color: #64748b;">
+                        <i class="fas fa-file-code" style="color: #10b981; margin-right: 0.5rem;"></i>
+                        ${xmlPath}
+                    </div>
+                    <button onclick="navigator.clipboard.writeText('${xmlPath}')" style="background: #10b981; border: none; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 600;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                        <i class="fas fa-copy"></i> Copy Path
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Close on overlay click
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    };
+
     // Refresh Trip Details - calls GET endpoint to reload trip data
     window.refreshTripDetails = function(tripId) {
         console.log('[Refresh Trip] Refreshing trip:', tripId);
@@ -5437,8 +5492,15 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Prepare POST data (structure will be provided by user)
-        const postData = {
+        // Get instance from localStorage
+        const instance = localStorage.getItem('fusionInstance') || window.currentStoreTransInstance || 'TEST';
+
+        // Get trip details
+        const tripId = window.currentStoreTransTripId || '';
+        const tripDate = window.currentStoreTransTripDate || '';
+
+        // Prepare data for C# (similar to printStoreTransaction)
+        const setDataPayload = {
             order_number: orderNumber,
             selected_items: selectedItems,
             updates: {
@@ -5451,13 +5513,76 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         };
 
-        console.log('[Store Transactions] POST data:', postData);
+        console.log('[Set Data] Payload:', setDataPayload);
+        console.log('[Set Data] Instance:', instance);
+        console.log('[Set Data] Trip ID:', tripId);
+        console.log('[Set Data] Trip Date:', tripDate);
 
-        // TODO: User will provide POST endpoint
-        alert('Set Data POST endpoint will be integrated here.\n\nData prepared:\n' + JSON.stringify(postData, null, 2));
+        // Send message to C# to generate XML and get file path
+        const message = {
+            action: 'setStoreTransaction',
+            orderNumber: orderNumber,
+            instance: instance,
+            tripId: tripId,
+            tripDate: tripDate,
+            updates: setDataPayload.updates
+        };
 
-        // Close dialog
-        closeSetDataDialog();
+        console.log('[Set Data] Sending message to C#:', message);
+
+        sendMessageToCSharp(message, function(error, data) {
+            console.log('[Set Data] Response received');
+            console.log('[Set Data] Error:', error);
+            console.log('[Set Data] Data:', data);
+
+            if (error) {
+                alert('Failed to set data: ' + error);
+                return;
+            }
+
+            // Parse response
+            try {
+                // Try parsing as JSON first
+                let response;
+                try {
+                    response = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[Set Data] Parsed JSON response:', response);
+
+                    if (response.success) {
+                        // Get XML file path
+                        const xmlPath = response.xmlPath || response.filePath || response.path;
+                        if (xmlPath) {
+                            console.log('[Set Data] Opening XML viewer with path:', xmlPath);
+                            showXmlViewer(xmlPath, orderNumber, 'Set Data Transaction');
+                            closeSetDataDialog();
+                        } else {
+                            console.log('[Set Data] No XML path in response');
+                            alert('Data set successfully!\n\nNote: XML path not found in response.');
+                            closeSetDataDialog();
+                        }
+                    } else {
+                        alert('Failed to set data: ' + (response.message || 'Unknown error'));
+                    }
+                } catch (parseError) {
+                    // If not JSON, check if it's a file path
+                    console.log('[Set Data] Not JSON, checking if file path...');
+                    if (data && typeof data === 'string' && (data.includes('\\') || data.includes('.xml') || data.includes('C:') || data.includes('/'))) {
+                        const xmlPath = data.trim();
+                        console.log('[Set Data] Detected as file path:', xmlPath);
+                        showXmlViewer(xmlPath, orderNumber, 'Set Data Transaction');
+                        closeSetDataDialog();
+                    } else {
+                        // Just a success message
+                        console.log('[Set Data] Success message:', data);
+                        alert('Data set successfully!\n\n' + data);
+                        closeSetDataDialog();
+                    }
+                }
+            } catch (error) {
+                console.error('[Set Data] Error processing response:', error);
+                alert('Error processing response: ' + error.message);
+            }
+        });
     };
 
     // Handle lot number change for single selection (input field with datalist)
@@ -5539,19 +5664,83 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
 
-        // Prepare POST data
-        const postData = {
-            order_number: orderNumber,
+        // Get instance from localStorage
+        const instance = localStorage.getItem('fusionInstance') || window.currentStoreTransInstance || 'TEST';
+
+        // Get trip details
+        const tripId = window.currentStoreTransTripId || '';
+        const tripDate = window.currentStoreTransTripDate || '';
+
+        console.log('[Set Data Grid] Grid Data:', gridData);
+        console.log('[Set Data Grid] Instance:', instance);
+        console.log('[Set Data Grid] Trip ID:', tripId);
+        console.log('[Set Data Grid] Trip Date:', tripDate);
+
+        // Send message to C# to generate XML and get file path
+        const message = {
+            action: 'setStoreTransactionGrid',
+            orderNumber: orderNumber,
+            instance: instance,
+            tripId: tripId,
+            tripDate: tripDate,
             records: gridData
         };
 
-        console.log('[Store Transactions] Grid POST data:', postData);
+        console.log('[Set Data Grid] Sending message to C#:', message);
 
-        // TODO: User will provide POST endpoint
-        alert('Set Data POST endpoint will be integrated here.\n\nData prepared:\n' + JSON.stringify(postData, null, 2));
+        sendMessageToCSharp(message, function(error, data) {
+            console.log('[Set Data Grid] Response received');
+            console.log('[Set Data Grid] Error:', error);
+            console.log('[Set Data Grid] Data:', data);
 
-        // Close dialog
-        closeSetDataDialog();
+            if (error) {
+                alert('Failed to set data: ' + error);
+                return;
+            }
+
+            // Parse response
+            try {
+                // Try parsing as JSON first
+                let response;
+                try {
+                    response = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[Set Data Grid] Parsed JSON response:', response);
+
+                    if (response.success) {
+                        // Get XML file path
+                        const xmlPath = response.xmlPath || response.filePath || response.path;
+                        if (xmlPath) {
+                            console.log('[Set Data Grid] Opening XML viewer with path:', xmlPath);
+                            showXmlViewer(xmlPath, orderNumber, 'Set Data Transaction (Multiple Records)');
+                            closeSetDataDialog();
+                        } else {
+                            console.log('[Set Data Grid] No XML path in response');
+                            alert('Data set successfully!\n\nNote: XML path not found in response.');
+                            closeSetDataDialog();
+                        }
+                    } else {
+                        alert('Failed to set data: ' + (response.message || 'Unknown error'));
+                    }
+                } catch (parseError) {
+                    // If not JSON, check if it's a file path
+                    console.log('[Set Data Grid] Not JSON, checking if file path...');
+                    if (data && typeof data === 'string' && (data.includes('\\') || data.includes('.xml') || data.includes('C:') || data.includes('/'))) {
+                        const xmlPath = data.trim();
+                        console.log('[Set Data Grid] Detected as file path:', xmlPath);
+                        showXmlViewer(xmlPath, orderNumber, 'Set Data Transaction (Multiple Records)');
+                        closeSetDataDialog();
+                    } else {
+                        // Just a success message
+                        console.log('[Set Data Grid] Success message:', data);
+                        alert('Data set successfully!\n\n' + data);
+                        closeSetDataDialog();
+                    }
+                }
+            } catch (error) {
+                console.error('[Set Data Grid] Error processing response:', error);
+                alert('Error processing response: ' + error.message);
+            }
+        });
     };
 
     window.checkFusionStatus = function(orderNumber) {
