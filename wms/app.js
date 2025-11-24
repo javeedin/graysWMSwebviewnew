@@ -5548,7 +5548,10 @@ document.addEventListener('DOMContentLoaded', function() {
             }, function(error, data) {
                 console.log('[Set Data] Response received');
                 console.log('[Set Data] Error:', error);
-                console.log('[Set Data] Data:', data);
+                console.log('[Set Data] Data type:', typeof data);
+                console.log('[Set Data] Data length:', data ? data.length : 0);
+                console.log('[Set Data] Raw data:', data);
+                console.log('[Set Data] First 200 chars:', data ? data.substring(0, 200) : 'null');
 
                 if (error) {
                     // Log error to debug
@@ -5559,7 +5562,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Parse response
                 try {
-                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    // Clean the data - remove any whitespace/newlines and try to extract JSON
+                    let cleanData = data;
+                    if (typeof data === 'string') {
+                        // Log original for debugging
+                        console.log('[Set Data] Original response (with escape chars):', JSON.stringify(data));
+
+                        // Try to extract JSON if response has extra content
+                        const jsonMatch = data.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            cleanData = jsonMatch[0];
+                            console.log('[Set Data] Extracted JSON:', cleanData);
+                        }
+                    }
+
+                    const response = typeof cleanData === 'string' ? JSON.parse(cleanData) : cleanData;
                     console.log('[Set Data] Parsed response:', response);
 
                     // Log success to debug
@@ -5576,8 +5593,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 } catch (parseError) {
                     console.error('[Set Data] Parse error:', parseError);
-                    logDebugInfo('Set Data (Single) - Parse Error', apiUrl, payload, data, parseError.message, 'POST');
-                    alert('Error parsing response: ' + parseError.message);
+                    console.error('[Set Data] Failed to parse data:', data);
+
+                    // Log with raw data for debugging
+                    const debugData = {
+                        rawResponse: data,
+                        responseType: typeof data,
+                        responseLength: data ? data.length : 0,
+                        first100chars: data ? data.substring(0, 100) : null
+                    };
+                    logDebugInfo('Set Data (Single) - Parse Error', apiUrl, payload, debugData, parseError.message, 'POST');
+
+                    alert(`Error parsing response: ${parseError.message}\n\nRaw response (first 200 chars):\n${data ? data.substring(0, 200) : 'null'}\n\nCheck Debug Log for full details.`);
                 }
             });
 
@@ -5693,7 +5720,10 @@ document.addEventListener('DOMContentLoaded', function() {
             }, function(error, data) {
                 console.log('[Set Data Grid] Response received');
                 console.log('[Set Data Grid] Error:', error);
-                console.log('[Set Data Grid] Data:', data);
+                console.log('[Set Data Grid] Data type:', typeof data);
+                console.log('[Set Data Grid] Data length:', data ? data.length : 0);
+                console.log('[Set Data Grid] Raw data:', data);
+                console.log('[Set Data Grid] First 200 chars:', data ? data.substring(0, 200) : 'null');
 
                 if (error) {
                     // Log error to debug
@@ -5704,7 +5734,21 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Parse response
                 try {
-                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    // Clean the data - remove any whitespace/newlines and try to extract JSON
+                    let cleanData = data;
+                    if (typeof data === 'string') {
+                        // Log original for debugging
+                        console.log('[Set Data Grid] Original response (with escape chars):', JSON.stringify(data));
+
+                        // Try to extract JSON if response has extra content
+                        const jsonMatch = data.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) {
+                            cleanData = jsonMatch[0];
+                            console.log('[Set Data Grid] Extracted JSON:', cleanData);
+                        }
+                    }
+
+                    const response = typeof cleanData === 'string' ? JSON.parse(cleanData) : cleanData;
                     console.log('[Set Data Grid] Parsed response:', response);
 
                     // Log success to debug
@@ -5726,8 +5770,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 } catch (parseError) {
                     console.error('[Set Data Grid] Parse error:', parseError);
-                    logDebugInfo('Set Data (Multiple) - Parse Error', apiUrl, payload, data, parseError.message, 'POST');
-                    alert('Error parsing response: ' + parseError.message);
+                    console.error('[Set Data Grid] Failed to parse data:', data);
+
+                    // Log with raw data for debugging
+                    const debugData = {
+                        rawResponse: data,
+                        responseType: typeof data,
+                        responseLength: data ? data.length : 0,
+                        first100chars: data ? data.substring(0, 100) : null
+                    };
+                    logDebugInfo('Set Data (Multiple) - Parse Error', apiUrl, payload, debugData, parseError.message, 'POST');
+
+                    alert(`Error parsing response: ${parseError.message}\n\nRaw response (first 200 chars):\n${data ? data.substring(0, 200) : 'null'}\n\nCheck Debug Log for full details.`);
                 }
             });
 
