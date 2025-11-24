@@ -147,7 +147,6 @@ Expected JSON Input Format:
 }
 
 Source Code for APEX Handler:
-*/
 
 DECLARE
     v_body              CLOB;
@@ -187,6 +186,7 @@ BEGIN
     HTP.p('}');
 
 END;
+*/"
 
 
 -- ============================================================================
@@ -209,7 +209,6 @@ Expected JSON Input:
 }
 
 Source Code:
-*/
 
 DECLARE
     v_body              CLOB;
@@ -268,6 +267,7 @@ EXCEPTION
         :status_code := 500;
         HTP.p('{"success": false, "message": "Error: ' || REPLACE(SQLERRM, '"', '\"') || '"}');
 END;
+*/"
 
 
 -- ============================================================================
