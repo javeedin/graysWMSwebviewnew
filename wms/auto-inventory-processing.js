@@ -330,6 +330,7 @@ function renderTripTransactions(transactions, tripIndex) {
                 source_sub_inv: trx.source_sub_inv,
                 dest_sub_inv: trx.dest_sub_inv,
                 items: [],
+                totalReqQty: 0,
                 totalQty: 0,
                 totalLines: 0,
                 processedLines: 0,
@@ -338,6 +339,7 @@ function renderTripTransactions(transactions, tripIndex) {
             };
         }
         orderGroups[orderNum].items.push({ ...trx, originalIndex: idx });
+        orderGroups[orderNum].totalReqQty += trx.header_original_qty || 0;
         orderGroups[orderNum].totalQty += trx.picked_qty || 0;
         orderGroups[orderNum].totalLines += 1;
 
@@ -413,7 +415,11 @@ function renderTripTransactions(transactions, tripIndex) {
                             <div style="font-size: 13px; font-weight: 700; color: ${order.notProcessedLines > 0 ? '#ef4444' : '#cbd5e1'};">${order.notProcessedLines}</div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Qty</div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Req Qty</div>
+                            <div style="font-size: 13px; font-weight: 700; color: #667eea;">${order.totalReqQty}</div>
+                        </div>
+                        <div>
+                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Qty</div>
                             <div style="font-size: 13px; font-weight: 700; color: #667eea;">${order.totalQty}</div>
                         </div>
                         <div>
@@ -501,6 +507,10 @@ function renderTripTransactions(transactions, tripIndex) {
                             </div>
                         ` : item.transaction_status === 'PROCESSING' ? `
                             <span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
+                        ` : (!item.transaction_status || item.transaction_status === 'PENDING') && item.picked_qty && parseFloat(item.picked_qty) > 0 ? `
+                            <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #667eea; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                                <i class="fas fa-play"></i> Process
+                            </button>
                         ` : `
                             <span style="color: #cbd5e1; font-size: 10px;">-</span>
                         `}
@@ -2515,12 +2525,13 @@ async function processSingleOrder(orderNumber, tripIndex) {
         return;
     }
 
-    // Filter out bypassed transactions
+    // Filter out bypassed transactions and validate picked_qty
     const pendingTransactions = orderTransactions.filter(t => {
         const status = (t.transaction_status || '').toUpperCase();
         const isPending = !t.transaction_status || status === '' || status === 'PENDING';
         const isNotBypassed = !t.bypassed;
-        return isPending && isNotBypassed;
+        const hasValidQuantity = t.picked_qty && parseFloat(t.picked_qty) > 0;
+        return isPending && isNotBypassed && hasValidQuantity;
     });
 
     if (pendingTransactions.length === 0) {
@@ -2588,6 +2599,64 @@ async function processSingleOrder(orderNumber, tripIndex) {
         showOrderProcessingSpinner(orderNumber, false);
         addLogEntry('Error', `Order ${orderNumber}: Unexpected error - ${error.message}`, 'error');
         alert(`Order ${orderNumber}: An unexpected error occurred. Check Processing Log for details.`);
+        updateStatistics();
+    }
+}
+
+// Process single line button handler
+async function processSingleLine(tripIndex, transactionIndex) {
+    const groupedTrips = groupTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        alert('Trip not found');
+        addLogEntry('Error', 'Trip not found', 'error');
+        return;
+    }
+
+    const transaction = trip.transactions[transactionIndex];
+
+    if (!transaction) {
+        alert('Transaction not found');
+        addLogEntry('Error', 'Transaction not found', 'error');
+        return;
+    }
+
+    // Validate picked_qty
+    if (!transaction.picked_qty || parseFloat(transaction.picked_qty) <= 0) {
+        alert(`Cannot process: Invalid quantity (${transaction.picked_qty || 'N/A'})`);
+        addLogEntry('Error', `LID ${transaction.lid}: Invalid quantity`, 'error');
+        return;
+    }
+
+    // Check if already processed
+    const status = (transaction.transaction_status || '').toUpperCase();
+    if (status === 'SUCCESS') {
+        alert('This line is already processed successfully');
+        return;
+    }
+
+    // Check if bypassed
+    if (transaction.bypassed) {
+        alert('This line is bypassed. Uncheck the bypass checkbox to process.');
+        return;
+    }
+
+    addLogEntry('Process', `Processing single line - LID: ${transaction.lid}, Item: ${transaction.item_code}, Qty: ${transaction.picked_qty}`, 'info');
+
+    try {
+        // Process the single transaction
+        await processAutoTransaction(transaction, tripIndex, transactionIndex);
+
+        // Update statistics
+        updateStatistics();
+
+        addLogEntry('Process', `✓ Line processed successfully - LID: ${transaction.lid}`, 'success');
+        alert(`Line processed successfully!\n\nLID: ${transaction.lid}\nItem: ${transaction.item_code}\nQty: ${transaction.picked_qty}`);
+
+    } catch (error) {
+        addLogEntry('Error', `Line processing failed - LID: ${transaction.lid}: ${error.message}`, 'error');
+        alert(`Line processing failed!\n\nLID: ${transaction.lid}\nError: ${error.message}\n\nCheck Processing Log for details.`);
         updateStatistics();
     }
 }
@@ -3612,6 +3681,7 @@ window.showOrderProcessingSpinner = showOrderProcessingSpinner;
 window.verifyWithFusion = verifyWithFusion;
 window.printOrder = printOrder;
 window.processSingleOrder = processSingleOrder;
+window.processSingleLine = processSingleLine;
 window.buildAnalytics = buildAnalytics;
 window.openStoreTransactionsFromOrder = openStoreTransactionsFromOrder;
 window.closeProcessingStatusFloat = closeProcessingStatusFloat;
