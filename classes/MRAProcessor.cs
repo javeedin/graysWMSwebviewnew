@@ -178,13 +178,24 @@ namespace WMSApp.MRA
                 throw new Exception($"Failed to check MRA status: {reportResult.ErrorMessage}");
             }
 
-            // If data exists, MRA interface is already done
-            bool hasData = reportResult.DataSet.Tables.Count > 1 && reportResult.DataSet.Tables[1].Rows.Count > 0;
+            // Check if MRA_TRX_NO has a value - if it does, order is already interfaced
+            bool isInterfaced = false;
+            string mraTrxNo = string.Empty;
+
+            if (reportResult.DataSet.Tables.Count > 1 && reportResult.DataSet.Tables[1].Rows.Count > 0)
+            {
+                var row = reportResult.DataSet.Tables[1].Rows[0];
+                if (row.Table.Columns.Contains("MRA_TRX_NO"))
+                {
+                    mraTrxNo = row["MRA_TRX_NO"]?.ToString() ?? string.Empty;
+                    isInterfaced = !string.IsNullOrWhiteSpace(mraTrxNo);
+                }
+            }
 
             return new MRACheckResult
             {
-                IsInterfaced = hasData,
-                Message = hasData ? "Order already interfaced to MRA" : "Order not yet interfaced",
+                IsInterfaced = isInterfaced,
+                Message = isInterfaced ? $"Order already interfaced to MRA (TRX: {mraTrxNo})" : "Order not yet interfaced",
                 MraOrderNumber = orderNumber
             };
         }
