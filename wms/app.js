@@ -5568,11 +5568,37 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Log original for debugging
                         console.log('[Set Data] Original response (with escape chars):', JSON.stringify(data));
 
-                        // Try to extract JSON if response has extra content
-                        const jsonMatch = data.match(/\{[\s\S]*\}/);
-                        if (jsonMatch) {
-                            cleanData = jsonMatch[0];
-                            console.log('[Set Data] Extracted JSON:', cleanData);
+                        // Handle multiple concatenated JSON objects (e.g., }{)
+                        // Split by }{ and try to find the valid response object
+                        if (data.includes('}{')) {
+                            console.log('[Set Data] Multiple JSON objects detected, splitting...');
+                            const parts = data.split('}{');
+
+                            // Try to parse each part (add back the braces)
+                            for (let i = parts.length - 1; i >= 0; i--) {
+                                let part = parts[i];
+                                if (i > 0) part = '{' + part; // Add opening brace
+                                if (i < parts.length - 1) part = part + '}'; // Add closing brace
+
+                                try {
+                                    const parsed = JSON.parse(part);
+                                    // Use the first valid JSON that has a 'success' field (the actual response)
+                                    if (parsed.hasOwnProperty('success')) {
+                                        cleanData = part;
+                                        console.log('[Set Data] Found valid response object:', cleanData);
+                                        break;
+                                    }
+                                } catch (e) {
+                                    console.log('[Set Data] Part ' + i + ' is not valid JSON, skipping');
+                                }
+                            }
+                        } else {
+                            // Try to extract JSON if response has extra content
+                            const jsonMatch = data.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) {
+                                cleanData = jsonMatch[0];
+                                console.log('[Set Data] Extracted JSON:', cleanData);
+                            }
                         }
                     }
 
@@ -5740,11 +5766,37 @@ document.addEventListener('DOMContentLoaded', function() {
                         // Log original for debugging
                         console.log('[Set Data Grid] Original response (with escape chars):', JSON.stringify(data));
 
-                        // Try to extract JSON if response has extra content
-                        const jsonMatch = data.match(/\{[\s\S]*\}/);
-                        if (jsonMatch) {
-                            cleanData = jsonMatch[0];
-                            console.log('[Set Data Grid] Extracted JSON:', cleanData);
+                        // Handle multiple concatenated JSON objects (e.g., }{)
+                        // Split by }{ and try to find the valid response object
+                        if (data.includes('}{')) {
+                            console.log('[Set Data Grid] Multiple JSON objects detected, splitting...');
+                            const parts = data.split('}{');
+
+                            // Try to parse each part (add back the braces)
+                            for (let i = parts.length - 1; i >= 0; i--) {
+                                let part = parts[i];
+                                if (i > 0) part = '{' + part; // Add opening brace
+                                if (i < parts.length - 1) part = part + '}'; // Add closing brace
+
+                                try {
+                                    const parsed = JSON.parse(part);
+                                    // Use the first valid JSON that has a 'success' field (the actual response)
+                                    if (parsed.hasOwnProperty('success')) {
+                                        cleanData = part;
+                                        console.log('[Set Data Grid] Found valid response object:', cleanData);
+                                        break;
+                                    }
+                                } catch (e) {
+                                    console.log('[Set Data Grid] Part ' + i + ' is not valid JSON, skipping');
+                                }
+                            }
+                        } else {
+                            // Try to extract JSON if response has extra content
+                            const jsonMatch = data.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) {
+                                cleanData = jsonMatch[0];
+                                console.log('[Set Data Grid] Extracted JSON:', cleanData);
+                            }
                         }
                     }
 
