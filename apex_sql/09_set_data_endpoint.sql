@@ -10,7 +10,7 @@
 -- ============================================================================
 
 CREATE OR REPLACE PROCEDURE wms_set_store_transaction_data (
-    p_records_json      IN  CLOB,
+    p_full_json         IN  CLOB,
     p_result            OUT VARCHAR2,
     p_success_count     OUT NUMBER,
     p_error_count       OUT NUMBER,
@@ -32,26 +32,26 @@ CREATE OR REPLACE PROCEDURE wms_set_store_transaction_data (
     v_rows_updated      NUMBER;
 
 BEGIN
-    -- Parse the JSON array
-    APEX_JSON.parse(p_records_json);
+    -- Parse the full JSON payload
+    APEX_JSON.parse(p_full_json);
 
-    -- Get the count of records in the array
-    v_record_count := APEX_JSON.get_count(p_path => '.');
+    -- Get the count of records in the 'records' array
+    v_record_count := APEX_JSON.get_count(p_path => 'records');
 
     -- Loop through each record in the JSON array
     FOR i IN 1..v_record_count LOOP
         BEGIN
             -- Extract values from JSON (using NVL to handle nulls)
-            v_lid := APEX_JSON.get_number(p_path => '[%d].lid', p0 => i);
-            v_lot_number := APEX_JSON.get_varchar2(p_path => '[%d].lot_number', p0 => i);
-            v_picked_qty := APEX_JSON.get_number(p_path => '[%d].picked_qty', p0 => i);
-            v_ship_confirm_st := APEX_JSON.get_varchar2(p_path => '[%d].ship_confirm_status', p0 => i);
-            v_picked_status := APEX_JSON.get_varchar2(p_path => '[%d].pick_confirm_status', p0 => i);
+            v_lid := APEX_JSON.get_number(p_path => 'records[%d].lid', p0 => i);
+            v_lot_number := APEX_JSON.get_varchar2(p_path => 'records[%d].lot_number', p0 => i);
+            v_picked_qty := APEX_JSON.get_number(p_path => 'records[%d].picked_qty', p0 => i);
+            v_ship_confirm_st := APEX_JSON.get_varchar2(p_path => 'records[%d].ship_confirm_status', p0 => i);
+            v_picked_status := APEX_JSON.get_varchar2(p_path => 'records[%d].pick_confirm_status', p0 => i);
 
             -- Handle date conversion
             BEGIN
                 v_lot_exp_date := TO_DATE(
-                    APEX_JSON.get_varchar2(p_path => '[%d].lot_expiration_date', p0 => i),
+                    APEX_JSON.get_varchar2(p_path => 'records[%d].lot_expiration_date', p0 => i),
                     'YYYY-MM-DD'
                 );
             EXCEPTION
@@ -151,7 +151,6 @@ Source Code for APEX Handler:
 
 DECLARE
     v_body              CLOB;
-    v_records_json      CLOB;
     v_result            VARCHAR2(100);
     v_success_count     NUMBER;
     v_error_count       NUMBER;
@@ -160,15 +159,9 @@ BEGIN
     -- Get request body
     v_body := :body_text;
 
-    -- Parse JSON
-    APEX_JSON.parse(v_body);
-
-    -- Extract the records array as JSON string
-    v_records_json := APEX_JSON.get_clob('records');
-
-    -- Call the procedure
+    -- Call the procedure with the full JSON payload
     wms_set_store_transaction_data(
-        p_records_json => v_records_json,
+        p_full_json => v_body,
         p_result => v_result,
         p_success_count => v_success_count,
         p_error_count => v_error_count,
