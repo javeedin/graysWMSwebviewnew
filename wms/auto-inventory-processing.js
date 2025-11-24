@@ -1448,56 +1448,70 @@ function applyFilters() {
     const groupedTrips = groupTransactionsByTrip();
 
     let firstMatchingTripIdx = -1;
-    let firstMatchingOrderId = null;
+    let firstMatchingOrderIdx = -1;
     let hasOrderSearch = autoProcessingFilters.trxNumber !== '';
 
     groupedTrips.forEach((trip, tripIdx) => {
-        trip.transactions.forEach((item, itemIdx) => {
-            const row = document.getElementById(`transaction-row-${tripIdx}-${itemIdx}`);
-            if (!row) return;
-
-            let showRow = true;
-
-            // Filter by item description
-            if (autoProcessingFilters.itemDesc &&
-                !item.item_desc.toLowerCase().includes(autoProcessingFilters.itemDesc)) {
-                showRow = false;
+        // Group by order within this trip
+        const orderGroups = {};
+        trip.transactions.forEach(item => {
+            const orderNum = item.trx_number;
+            if (!orderGroups[orderNum]) {
+                orderGroups[orderNum] = [];
             }
+            orderGroups[orderNum].push(item);
+        });
 
-            // Filter by LID
-            if (autoProcessingFilters.lid &&
-                !String(item.lid || '').toLowerCase().includes(autoProcessingFilters.lid)) {
-                showRow = false;
-            }
+        // Process each order group
+        Object.keys(orderGroups).forEach((orderNum, orderIdx) => {
+            orderGroups[orderNum].forEach((item, itemIdx) => {
+                const row = document.getElementById(`transaction-row-${tripIdx}-${itemIdx}`);
+                if (!row) return;
 
-            // Filter by transaction number
-            if (autoProcessingFilters.trxNumber &&
-                !String(item.trx_number || '').toLowerCase().includes(autoProcessingFilters.trxNumber)) {
-                showRow = false;
-            }
+                let showRow = true;
 
-            // Filter by status
-            if (autoProcessingFilters.status &&
-                (item.transaction_status || 'PENDING').toUpperCase() !== autoProcessingFilters.status) {
-                showRow = false;
-            }
+                // Filter by item description
+                if (autoProcessingFilters.itemDesc &&
+                    !item.item_desc.toLowerCase().includes(autoProcessingFilters.itemDesc)) {
+                    showRow = false;
+                }
 
-            row.style.display = showRow ? '' : 'none';
+                // Filter by LID
+                if (autoProcessingFilters.lid &&
+                    !String(item.lid || '').toLowerCase().includes(autoProcessingFilters.lid)) {
+                    showRow = false;
+                }
 
-            // Track first matching order for auto-expand
-            if (showRow && hasOrderSearch && firstMatchingTripIdx === -1) {
-                firstMatchingTripIdx = tripIdx;
-                firstMatchingOrderId = `order-${tripIdx}-${item.trx_number}`;
-            }
+                // Filter by transaction number
+                if (autoProcessingFilters.trxNumber &&
+                    !String(item.trx_number || '').toLowerCase().includes(autoProcessingFilters.trxNumber)) {
+                    showRow = false;
+                }
+
+                // Filter by status
+                if (autoProcessingFilters.status &&
+                    (item.transaction_status || 'PENDING').toUpperCase() !== autoProcessingFilters.status) {
+                    showRow = false;
+                }
+
+                row.style.display = showRow ? '' : 'none';
+
+                // Track first matching order for auto-expand
+                if (showRow && hasOrderSearch && firstMatchingTripIdx === -1) {
+                    firstMatchingTripIdx = tripIdx;
+                    firstMatchingOrderIdx = orderIdx;
+                }
+            });
         });
     });
 
     addLogEntry('Filter', 'Filters applied', 'info');
 
     // Auto-expand trip and order when searching by order number
-    if (hasOrderSearch && firstMatchingTripIdx !== -1 && firstMatchingOrderId) {
-        console.log('[Filter] Auto-expanding trip:', firstMatchingTripIdx, 'order:', firstMatchingOrderId);
-        addLogEntry('Filter', `Auto-expanding to order ${firstMatchingOrderId}`, 'info');
+    if (hasOrderSearch && firstMatchingTripIdx !== -1 && firstMatchingOrderIdx !== -1) {
+        const orderId = `trip-${firstMatchingTripIdx}-order-${firstMatchingOrderIdx}`;
+        console.log('[Filter] Auto-expanding trip:', firstMatchingTripIdx, 'order:', orderId);
+        addLogEntry('Filter', `Auto-expanding to order ${orderId}`, 'info');
 
         setTimeout(() => {
             // Expand trip (always expand, don't check if already expanded)
@@ -1513,8 +1527,8 @@ function applyFilters() {
             }
 
             // Expand order (always expand, don't check if already expanded)
-            const orderDetails = document.getElementById(`order-details-${firstMatchingOrderId}`);
-            const orderChevron = document.getElementById(`order-chevron-${firstMatchingOrderId}`);
+            const orderDetails = document.getElementById(`order-details-${orderId}`);
+            const orderChevron = document.getElementById(`order-chevron-${orderId}`);
 
             console.log('[Filter] Order element found:', !!orderDetails, 'Chevron found:', !!orderChevron);
 
@@ -1525,13 +1539,13 @@ function applyFilters() {
             }
 
             // Scroll to the order header
-            const orderHeader = document.getElementById(`order-header-${firstMatchingOrderId}`);
+            const orderHeader = document.getElementById(`order-header-${orderId}`);
             console.log('[Filter] Order header found:', !!orderHeader);
 
             if (orderHeader) {
                 orderHeader.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 console.log('[Filter] Scrolled to order');
-                addLogEntry('Filter', `Jumped to order ${firstMatchingOrderId}`, 'success');
+                addLogEntry('Filter', `Jumped to order ${orderId}`, 'success');
             } else {
                 // If no order header, try scrolling to first matching row
                 const firstRow = document.querySelector(`[id^="transaction-row-${firstMatchingTripIdx}-"]`);
