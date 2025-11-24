@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - WMS Application</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            max-width: 900px;
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+        }
+
+        .login-left {
+            flex: 1;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 60px 40px;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+        }
+
+        .login-left h1 {
+            font-size: 2.5rem;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+
+        .login-left p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            line-height: 1.6;
+        }
+
+        .login-left .icon {
+            font-size: 5rem;
+            margin-bottom: 30px;
+        }
+
+        .login-right {
+            flex: 1;
+            padding: 60px 50px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .login-header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .login-header h2 {
+            font-size: 2rem;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .login-header p {
+            color: #666;
+            font-size: 0.95rem;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 0.95rem;
+        }
+
+        .form-group .required {
+            color: #e74c3c;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .input-icon {
+            position: absolute;
+            left: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #999;
+            font-size: 1.2rem;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 14px 15px 14px 45px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-control:hover {
+            border-color: #c0c0c0;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #999;
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 5px;
+        }
+
+        .password-toggle:hover {
+            color: #667eea;
+        }
+
+        .error-message {
+            color: #e74c3c;
+            font-size: 0.85rem;
+            margin-top: 5px;
+            display: none;
+        }
+
+        .error-message.show {
+            display: block;
+        }
+
+        .form-control.error {
+            border-color: #e74c3c;
+        }
+
+        .remember-forgot {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 25px;
+        }
+
+        .remember-me {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .remember-me input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .remember-me label {
+            cursor: pointer;
+            color: #666;
+            font-size: 0.9rem;
+        }
+
+        .forgot-password {
+            color: #667eea;
+            text-decoration: none;
+            font-size: 0.9rem;
+            transition: color 0.3s ease;
+        }
+
+        .forgot-password:hover {
+            color: #764ba2;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-login:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .btn-login:active {
+            transform: translateY(0);
+        }
+
+        .btn-login:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .alert {
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .alert.show {
+            display: block;
+        }
+
+        .alert-error {
+            background-color: #fee;
+            border: 1px solid #fcc;
+            color: #c33;
+        }
+
+        .alert-success {
+            background-color: #efe;
+            border: 1px solid #cfc;
+            color: #3c3;
+        }
+
+        .loading-spinner {
+            display: none;
+            margin-left: 10px;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .btn-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        @media (max-width: 768px) {
+            .login-container {
+                flex-direction: column;
+            }
+
+            .login-left {
+                padding: 40px 30px;
+            }
+
+            .login-left h1 {
+                font-size: 2rem;
+            }
+
+            .login-left .icon {
+                font-size: 3.5rem;
+                margin-bottom: 20px;
+            }
+
+            .login-right {
+                padding: 40px 30px;
+            }
+
+            .login-header h2 {
+                font-size: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-left">
+            <div class="icon">🔐</div>
+            <h1>WMS Application</h1>
+            <p>Enterprise Resource Planning System<br>
+            General Ledger | Accounts Payable | Accounts Receivable<br>
+            Fixed Assets | Warehouse Management</p>
+        </div>
+
+        <div class="login-right">
+            <div class="login-header">
+                <h2>Welcome Back</h2>
+                <p>Please login to your account</p>
+            </div>
+
+            <div id="alertBox" class="alert"></div>
+
+            <form id="loginForm" onsubmit="handleLogin(event)">
+                <div class="form-group">
+                    <label for="instanceName">
+                        Instance Name <span class="required">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🏢</span>
+                        <input
+                            type="text"
+                            id="instanceName"
+                            name="instanceName"
+                            class="form-control"
+                            placeholder="Enter instance name"
+                            required
+                            autocomplete="off"
+                        >
+                    </div>
+                    <div class="error-message" id="instanceNameError"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="username">
+                        Username <span class="required">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">👤</span>
+                        <input
+                            type="text"
+                            id="username"
+                            name="username"
+                            class="form-control"
+                            placeholder="Enter your username"
+                            required
+                            autocomplete="username"
+                        >
+                    </div>
+                    <div class="error-message" id="usernameError"></div>
+                </div>
+
+                <div class="form-group">
+                    <label for="password">
+                        Password <span class="required">*</span>
+                    </label>
+                    <div class="input-wrapper">
+                        <span class="input-icon">🔒</span>
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            class="form-control"
+                            placeholder="Enter your password"
+                            required
+                            autocomplete="current-password"
+                        >
+                        <button type="button" class="password-toggle" onclick="togglePassword()">
+                            <span id="toggleIcon">👁️</span>
+                        </button>
+                    </div>
+                    <div class="error-message" id="passwordError"></div>
+                </div>
+
+                <div class="remember-forgot">
+                    <div class="remember-me">
+                        <input type="checkbox" id="rememberMe" name="rememberMe">
+                        <label for="rememberMe">Remember me</label>
+                    </div>
+                    <a href="#" class="forgot-password" onclick="handleForgotPassword(event)">Forgot Password?</a>
+                </div>
+
+                <button type="submit" class="btn-login" id="loginBtn">
+                    <div class="btn-content">
+                        <span>Sign In</span>
+                        <div class="loading-spinner" id="loadingSpinner"></div>
+                    </div>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Toggle password visibility
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('toggleIcon');
+
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.textContent = '🙈';
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.textContent = '👁️';
+            }
+        }
+
+        // Handle forgot password
+        function handleForgotPassword(event) {
+            event.preventDefault();
+            showAlert('Please contact your system administrator to reset your password.', 'success');
+        }
+
+        // Show alert message
+        function showAlert(message, type) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.textContent = message;
+            alertBox.className = `alert alert-${type} show`;
+
+            setTimeout(() => {
+                alertBox.classList.remove('show');
+            }, 5000);
+        }
+
+        // Clear error for a field
+        function clearError(fieldId) {
+            const field = document.getElementById(fieldId);
+            const errorDiv = document.getElementById(fieldId + 'Error');
+            field.classList.remove('error');
+            errorDiv.classList.remove('show');
+            errorDiv.textContent = '';
+        }
+
+        // Show error for a field
+        function showError(fieldId, message) {
+            const field = document.getElementById(fieldId);
+            const errorDiv = document.getElementById(fieldId + 'Error');
+            field.classList.add('error');
+            errorDiv.textContent = message;
+            errorDiv.classList.add('show');
+        }
+
+        // Add input listeners to clear errors on typing
+        document.getElementById('instanceName').addEventListener('input', () => clearError('instanceName'));
+        document.getElementById('username').addEventListener('input', () => clearError('username'));
+        document.getElementById('password').addEventListener('input', () => clearError('password'));
+
+        // Validate form
+        function validateForm() {
+            let isValid = true;
+
+            const instanceName = document.getElementById('instanceName').value.trim();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            // Clear previous errors
+            clearError('instanceName');
+            clearError('username');
+            clearError('password');
+
+            // Validate instance name
+            if (!instanceName) {
+                showError('instanceName', 'Instance name is required');
+                isValid = false;
+            } else if (instanceName.length < 2) {
+                showError('instanceName', 'Instance name must be at least 2 characters');
+                isValid = false;
+            }
+
+            // Validate username
+            if (!username) {
+                showError('username', 'Username is required');
+                isValid = false;
+            } else if (username.length < 3) {
+                showError('username', 'Username must be at least 3 characters');
+                isValid = false;
+            }
+
+            // Validate password
+            if (!password) {
+                showError('password', 'Password is required');
+                isValid = false;
+            } else if (password.length < 6) {
+                showError('password', 'Password must be at least 6 characters');
+                isValid = false;
+            }
+
+            return isValid;
+        }
+
+        // Handle login form submission
+        async function handleLogin(event) {
+            event.preventDefault();
+
+            if (!validateForm()) {
+                return;
+            }
+
+            const loginBtn = document.getElementById('loginBtn');
+            const loadingSpinner = document.getElementById('loadingSpinner');
+
+            // Get form values
+            const instanceName = document.getElementById('instanceName').value.trim();
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const rememberMe = document.getElementById('rememberMe').checked;
+
+            // Disable button and show loading
+            loginBtn.disabled = true;
+            loadingSpinner.style.display = 'block';
+
+            try {
+                // Prepare login data
+                const loginData = {
+                    instanceName: instanceName,
+                    username: username,
+                    password: password,
+                    rememberMe: rememberMe
+                };
+
+                // Send message to C# backend via WebView2
+                if (window.chrome && window.chrome.webview) {
+                    // WebView2 environment
+                    window.chrome.webview.postMessage({
+                        type: 'LOGIN',
+                        data: loginData
+                    });
+                } else {
+                    // Development/testing mode - simulate API call
+                    console.log('Login attempt:', { instanceName, username, rememberMe });
+
+                    // Simulate API call delay
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+
+                    // For demo purposes - accept any credentials
+                    // In production, this will be handled by the backend
+                    if (username && password) {
+                        showAlert('Login successful! Redirecting...', 'success');
+
+                        // Store session data (in production, this will be in backend)
+                        if (rememberMe) {
+                            localStorage.setItem('instanceName', instanceName);
+                            localStorage.setItem('username', username);
+                        }
+
+                        // Redirect to main application after successful login
+                        setTimeout(() => {
+                            window.location.href = 'index.html';
+                        }, 1000);
+                    } else {
+                        throw new Error('Invalid credentials');
+                    }
+                }
+            } catch (error) {
+                console.error('Login error:', error);
+                showAlert(error.message || 'Login failed. Please check your credentials and try again.', 'error');
+            } finally {
+                // Re-enable button and hide loading
+                loginBtn.disabled = false;
+                loadingSpinner.style.display = 'none';
+            }
+        }
+
+        // Check if user data is remembered
+        window.addEventListener('DOMContentLoaded', () => {
+            const rememberedInstance = localStorage.getItem('instanceName');
+            const rememberedUsername = localStorage.getItem('username');
+
+            if (rememberedInstance && rememberedUsername) {
+                document.getElementById('instanceName').value = rememberedInstance;
+                document.getElementById('username').value = rememberedUsername;
+                document.getElementById('rememberMe').checked = true;
+            }
+        });
+
+        // Listen for messages from C# backend
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.addEventListener('message', event => {
+                const message = event.data;
+
+                if (message.type === 'LOGIN_RESPONSE') {
+                    const loginBtn = document.getElementById('loginBtn');
+                    const loadingSpinner = document.getElementById('loadingSpinner');
+
+                    loginBtn.disabled = false;
+                    loadingSpinner.style.display = 'none';
+
+                    if (message.success) {
+                        showAlert('Login successful! Redirecting...', 'success');
+
+                        // Store user session data if remember me is checked
+                        if (document.getElementById('rememberMe').checked) {
+                            localStorage.setItem('instanceName', document.getElementById('instanceName').value);
+                            localStorage.setItem('username', document.getElementById('username').value);
+                        }
+
+                        // Redirect or load main application
+                        setTimeout(() => {
+                            window.location.href = message.redirectUrl || 'index.html';
+                        }, 1000);
+                    } else {
+                        showAlert(message.message || 'Login failed. Please check your credentials.', 'error');
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>

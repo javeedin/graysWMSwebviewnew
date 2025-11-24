@@ -235,6 +235,121 @@ namespace WMSApp.PrintManagement
                          .Replace("\t", "");
         }
 
+        /// <summary>
+        /// Downloads any Fusion report PDF (Generic method)
+        /// </summary>
+        /// <param name="reportPath">Full report path (e.g., /Custom/DEXPRESS/...)</param>
+        /// <param name="parameterName">Parameter name (e.g., SOURCE_CODE, Order_Number)</param>
+        /// <param name="parameterValue">Parameter value (e.g., order number)</param>
+        /// <param name="instance">Instance name (TEST or PROD)</param>
+        /// <param name="username">Fusion username</param>
+        /// <param name="password">Fusion password</param>
+        /// <returns>FusionPdfResult with PDF data or error</returns>
+        public async Task<FusionPdfResult> DownloadGenericReportPdfAsync(
+            string reportPath,
+            string parameterName,
+            string parameterValue,
+            string instance,
+            string username,
+            string password)
+        {
+            try
+            {
+                // Determine URL based on instance
+                string serviceUrl = instance.ToUpper() == "PROD" ? PROD_URL : TEST_URL;
+
+                // Build SOAP request
+                string soapRequest = BuildGenericReportSoapRequest(parameterValue, username, password, reportPath, parameterName);
+
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Requesting report: {reportPath}");
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Parameter: {parameterName}={parameterValue}");
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Using instance: {instance} ({serviceUrl})");
+
+                // Make HTTP POST request
+                var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
+                content.Headers.Add("SOAPAction", "\"runReport\"");
+
+                var response = await _httpClient.PostAsync(serviceUrl, content);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new FusionPdfResult
+                    {
+                        Success = false,
+                        ErrorMessage = $"HTTP Error: {response.StatusCode} - {response.ReasonPhrase}"
+                    };
+                }
+
+                // Read response
+                string responseContent = await response.Content.ReadAsStringAsync();
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Response received, length: {responseContent.Length}");
+
+                // Parse SOAP response
+                var base64Pdf = ExtractBase64FromSoapResponse(responseContent);
+
+                if (string.IsNullOrEmpty(base64Pdf))
+                {
+                    return new FusionPdfResult
+                    {
+                        Success = false,
+                        ErrorMessage = "No <reportBytes> found in SOAP response"
+                    };
+                }
+
+                // Clean up base64 string
+                base64Pdf = CleanBase64String(base64Pdf);
+
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Report PDF download successful, base64 length: {base64Pdf.Length}");
+
+                return new FusionPdfResult
+                {
+                    Success = true,
+                    Base64Content = base64Pdf
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader ERROR] {ex.Message}");
+                return new FusionPdfResult
+                {
+                    Success = false,
+                    ErrorMessage = ex.Message
+                };
+            }
+        }
+
+        /// <summary>
+        /// Builds SOAP request for any Fusion report (Generic)
+        /// </summary>
+        /// <param name="parameterValue">The value for the parameter</param>
+        /// <param name="username">Fusion username</param>
+        /// <param name="password">Fusion password</param>
+        /// <param name="reportPath">Full report path</param>
+        /// <param name="parameterName">Parameter name</param>
+        private string BuildGenericReportSoapRequest(string parameterValue, string username, string password, string reportPath, string parameterName)
+        {
+            return $@"<?xml version=""1.0"" encoding=""utf-8""?>
+<soapenv:Envelope xmlns:soapenv=""http://schemas.xmlsoap.org/soap/envelope/"" xmlns:v2=""http://xmlns.oracle.com/oxp/service/v2"">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>{reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+           <v2:listOfParamNameValues>
+            <v2:item><v2:name>{parameterName}</v2:name><v2:values><v2:item>{parameterValue}</v2:item></v2:values></v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:reportData/>
+        <v2:reportOutputPath/>
+      </v2:reportRequest>
+      <v2:userID>{username}</v2:userID>
+      <v2:password>{password}</v2:password>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>";
+        }
+
         public void Dispose()
         {
             _httpClient?.Dispose();
