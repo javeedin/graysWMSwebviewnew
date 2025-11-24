@@ -2618,6 +2618,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     $(container).html(`
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button class="icon-btn" onclick="openMRAProcessingPopup('${rowData.ORDER_NUMBER || rowData.order_number}')" title="MRA Interface">
+                                <i class="fas fa-file-invoice-dollar" style="color: #667eea;"></i>
+                            </button>
                             <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
                                 <i class="fas fa-print" style="color: #8b5cf6;"></i>
                             </button>
