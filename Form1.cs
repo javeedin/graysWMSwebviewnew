@@ -91,7 +91,7 @@ namespace WMSApp
 
         private void InitializeComponent1()
         {
-            this.Text = "Fusion client Webview v2 - Released 20-Nov-2025";
+            this.Text = "Gray's WMS v1.1.8 - MRA Enabled | Released 24-Nov-2025";
             this.Size = new Size(1200, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(240, 240, 240);
