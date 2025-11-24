@@ -1496,29 +1496,52 @@ function applyFilters() {
 
     // Auto-expand trip and order when searching by order number
     if (hasOrderSearch && firstMatchingTripIdx !== -1 && firstMatchingOrderId) {
+        console.log('[Filter] Auto-expanding trip:', firstMatchingTripIdx, 'order:', firstMatchingOrderId);
+        addLogEntry('Filter', `Auto-expanding to order ${firstMatchingOrderId}`, 'info');
+
         setTimeout(() => {
-            // Expand trip
+            // Expand trip (always expand, don't check if already expanded)
             const tripDetails = document.getElementById(`trip-details-${firstMatchingTripIdx}`);
             const tripChevron = document.getElementById(`trip-chevron-${firstMatchingTripIdx}`);
-            if (tripDetails && tripDetails.style.display === 'none') {
+
+            console.log('[Filter] Trip element found:', !!tripDetails, 'Chevron found:', !!tripChevron);
+
+            if (tripDetails) {
                 tripDetails.style.display = 'block';
                 if (tripChevron) tripChevron.style.transform = 'rotate(180deg)';
+                console.log('[Filter] Trip expanded');
             }
 
-            // Expand order
+            // Expand order (always expand, don't check if already expanded)
             const orderDetails = document.getElementById(`order-details-${firstMatchingOrderId}`);
             const orderChevron = document.getElementById(`order-chevron-${firstMatchingOrderId}`);
-            if (orderDetails && orderDetails.style.display === 'none') {
+
+            console.log('[Filter] Order element found:', !!orderDetails, 'Chevron found:', !!orderChevron);
+
+            if (orderDetails) {
                 orderDetails.style.display = 'block';
                 if (orderChevron) orderChevron.style.transform = 'rotate(180deg)';
+                console.log('[Filter] Order expanded');
             }
 
-            // Scroll to the order
+            // Scroll to the order header
             const orderHeader = document.getElementById(`order-header-${firstMatchingOrderId}`);
+            console.log('[Filter] Order header found:', !!orderHeader);
+
             if (orderHeader) {
                 orderHeader.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                console.log('[Filter] Scrolled to order');
+                addLogEntry('Filter', `Jumped to order ${firstMatchingOrderId}`, 'success');
+            } else {
+                // If no order header, try scrolling to first matching row
+                const firstRow = document.querySelector(`[id^="transaction-row-${firstMatchingTripIdx}-"]`);
+                if (firstRow && firstRow.style.display !== 'none') {
+                    firstRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    console.log('[Filter] Scrolled to first matching row');
+                    addLogEntry('Filter', 'Jumped to matching transaction', 'success');
+                }
             }
-        }, 100);
+        }, 300);
     }
 }
 
