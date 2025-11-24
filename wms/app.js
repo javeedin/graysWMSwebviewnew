@@ -5466,12 +5466,26 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Send Store transactions modal to back when Set Data opens
+        const storeTransModal = document.getElementById('store-transactions-modal');
+        if (storeTransModal) {
+            console.log('[Set Data] Sending Store transactions modal to back (lowering z-index)');
+            storeTransModal.style.zIndex = '100';  // Lower z-index to send to back
+        }
     }
 
     window.closeSetDataDialog = function() {
         const modal = document.getElementById('set-data-modal');
         if (modal) {
             modal.remove();
+        }
+
+        // Restore Store transactions modal z-index when Set Data closes
+        const storeTransModal = document.getElementById('store-transactions-modal');
+        if (storeTransModal) {
+            console.log('[Set Data] Restoring Store transactions modal z-index to front');
+            storeTransModal.style.zIndex = '25000';  // Restore original z-index
         }
     };
 
