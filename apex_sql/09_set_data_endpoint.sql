@@ -194,7 +194,6 @@ BEGIN
     HTP.p('}');
 
 END;
-/
 
 
 -- ============================================================================
@@ -276,7 +275,6 @@ EXCEPTION
         :status_code := 500;
         HTP.p('{"success": false, "message": "Error: ' || REPLACE(SQLERRM, '"', '\"') || '"}');
 END;
-/
 
 
 -- ============================================================================
@@ -407,7 +405,8 @@ curl -X POST https://your-apex.com/ords/workspace/wms/v1/wms/set-data/single \
    c) Create Handler for Multiple Records:
       - Method: POST
       - Source Type: PL/SQL
-      - Source: Copy the code from "ENDPOINT: POST /wms/set-data" section above
+      - Source: Copy the code from "ENDPOINT: POST /wms/set-data" section above (lines 152-196)
+      - IMPORTANT: Copy ONLY the DECLARE...END; block WITHOUT any "/" character at the end
 
    d) Create Resource Template: /wms/set-data/single (optional)
       - URI Template: /wms/set-data/single
@@ -415,13 +414,20 @@ curl -X POST https://your-apex.com/ords/workspace/wms/v1/wms/set-data/single \
    e) Create Handler for Single Record:
       - Method: POST
       - Source Type: PL/SQL
-      - Source: Copy the code from "ENDPOINT: POST /wms/set-data/single" section above
+      - Source: Copy the code from "ENDPOINT: POST /wms/set-data/single" section above (lines 222-277)
+      - IMPORTANT: Copy ONLY the DECLARE...END; block WITHOUT any "/" character at the end
 
 3. Test the endpoint using the examples provided above
 
 4. Your final URL will be:
    - Multiple: https://[apex-host]/ords/[workspace]/wms/v1/wms/set-data
    - Single: https://[apex-host]/ords/[workspace]/wms/v1/wms/set-data/single
+
+CRITICAL NOTE:
+--------------
+When copying PL/SQL code into APEX REST handler source, do NOT include the "/" (slash)
+character that appears after END; in SQL*Plus scripts. The "/" is only used in SQL*Plus
+for executing blocks, but causes ORA-06550 errors in APEX REST handlers.
 */
 
 -- ============================================================================
