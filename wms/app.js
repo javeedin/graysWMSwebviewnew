@@ -4990,8 +4990,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Get selected rows from Allocated Lots grid (for use in setData and other functions)
     window.getSelectedAllocatedLots = function() {
+        console.log('[Store Transactions] getSelectedAllocatedLots called');
+        console.log('[Store Transactions] allocatedLotsGrid exists:', !!allocatedLotsGrid);
+
         if (allocatedLotsGrid) {
-            return allocatedLotsGrid.getSelectedRowsData();
+            console.log('[Store Transactions] allocatedLotsGrid type:', typeof allocatedLotsGrid);
+            console.log('[Store Transactions] allocatedLotsGrid has getSelectedRowsData:', typeof allocatedLotsGrid.getSelectedRowsData);
+
+            try {
+                const selectedData = allocatedLotsGrid.getSelectedRowsData();
+                console.log('[Store Transactions] Selected rows count:', selectedData.length);
+                console.log('[Store Transactions] Selected rows data:', selectedData);
+                return selectedData;
+            } catch (error) {
+                console.error('[Store Transactions] Error getting selected rows:', error);
+                return [];
+            }
+        } else {
+            console.warn('[Store Transactions] allocatedLotsGrid is null/undefined');
         }
         return [];
     };
