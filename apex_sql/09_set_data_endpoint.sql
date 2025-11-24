@@ -49,11 +49,38 @@ BEGIN
             v_picked_status := APEX_JSON.get_varchar2(p_path => 'records[%d].pick_confirm_status', p0 => i);
 
             -- Handle date conversion
+            DECLARE
+                v_date_string VARCHAR2(100);
             BEGIN
-                v_lot_exp_date := TO_DATE(
-                    APEX_JSON.get_varchar2(p_path => 'records[%d].lot_expiration_date', p0 => i),
-                    'YYYY-MM-DD'
-                );
+                v_date_string := APEX_JSON.get_varchar2(p_path => 'records[%d].lot_expiration_date', p0 => i);
+
+                -- Only try to convert if we have a non-empty string
+                IF v_date_string IS NOT NULL AND TRIM(v_date_string) != '' THEN
+                    -- Try different date formats
+                    BEGIN
+                        v_lot_exp_date := TO_DATE(v_date_string, 'YYYY-MM-DD');
+                    EXCEPTION
+                        WHEN OTHERS THEN
+                            BEGIN
+                                v_lot_exp_date := TO_DATE(v_date_string, 'DD-MON-YYYY');
+                            EXCEPTION
+                                WHEN OTHERS THEN
+                                    BEGIN
+                                        v_lot_exp_date := TO_DATE(v_date_string, 'MM/DD/YYYY');
+                                    EXCEPTION
+                                        WHEN OTHERS THEN
+                                            BEGIN
+                                                v_lot_exp_date := TO_DATE(v_date_string, 'DD/MM/YYYY');
+                                            EXCEPTION
+                                                WHEN OTHERS THEN
+                                                    v_lot_exp_date := NULL;
+                                            END;
+                                    END;
+                            END;
+                    END;
+                ELSE
+                    v_lot_exp_date := NULL;
+                END IF;
             EXCEPTION
                 WHEN OTHERS THEN
                     v_lot_exp_date := NULL;
@@ -232,9 +259,39 @@ BEGIN
     v_ship_confirm_st := APEX_JSON.get_varchar2('ship_confirm_status');
     v_picked_status := APEX_JSON.get_varchar2('pick_confirm_status');
 
-    -- Handle date
+    -- Handle date conversion
+    DECLARE
+        v_date_string VARCHAR2(100);
     BEGIN
-        v_lot_exp_date := TO_DATE(APEX_JSON.get_varchar2('lot_expiration_date'), 'YYYY-MM-DD');
+        v_date_string := APEX_JSON.get_varchar2('lot_expiration_date');
+
+        -- Only try to convert if we have a non-empty string
+        IF v_date_string IS NOT NULL AND TRIM(v_date_string) != '' THEN
+            -- Try different date formats
+            BEGIN
+                v_lot_exp_date := TO_DATE(v_date_string, 'YYYY-MM-DD');
+            EXCEPTION
+                WHEN OTHERS THEN
+                    BEGIN
+                        v_lot_exp_date := TO_DATE(v_date_string, 'DD-MON-YYYY');
+                    EXCEPTION
+                        WHEN OTHERS THEN
+                            BEGIN
+                                v_lot_exp_date := TO_DATE(v_date_string, 'MM/DD/YYYY');
+                            EXCEPTION
+                                WHEN OTHERS THEN
+                                    BEGIN
+                                        v_lot_exp_date := TO_DATE(v_date_string, 'DD/MM/YYYY');
+                                    EXCEPTION
+                                        WHEN OTHERS THEN
+                                            v_lot_exp_date := NULL;
+                                    END;
+                            END;
+                    END;
+            END;
+        ELSE
+            v_lot_exp_date := NULL;
+        END IF;
     EXCEPTION
         WHEN OTHERS THEN
             v_lot_exp_date := NULL;
