@@ -2652,62 +2652,8 @@ async function processSingleOrder(orderNumber, tripIndex) {
 }
 
 // Process single line button handler
-async function processSingleLine(tripIndex, transactionIndex) {
-    const groupedTrips = groupTransactionsByTrip();
-    const trip = groupedTrips[tripIndex];
-
-    if (!trip) {
-        alert('Trip not found');
-        addLogEntry('Error', 'Trip not found', 'error');
-        return;
-    }
-
-    const transaction = trip.transactions[transactionIndex];
-
-    if (!transaction) {
-        alert('Transaction not found');
-        addLogEntry('Error', 'Transaction not found', 'error');
-        return;
-    }
-
-    // Validate picked_qty
-    if (!transaction.picked_qty || parseFloat(transaction.picked_qty) <= 0) {
-        alert(`Cannot process: Invalid quantity (${transaction.picked_qty || 'N/A'})`);
-        addLogEntry('Error', `LID ${transaction.lid}: Invalid quantity`, 'error');
-        return;
-    }
-
-    // Check if already processed
-    const status = (transaction.transaction_status || '').toUpperCase();
-    if (status === 'SUCCESS') {
-        alert('This line is already processed successfully');
-        return;
-    }
-
-    // Check if bypassed
-    if (transaction.bypassed) {
-        alert('This line is bypassed. Uncheck the bypass checkbox to process.');
-        return;
-    }
-
-    addLogEntry('Process', `Processing single line - LID: ${transaction.lid}, Item: ${transaction.item_code}, Qty: ${transaction.picked_qty}`, 'info');
-
-    try {
-        // Process the single transaction
-        await processAutoTransaction(transaction, tripIndex, transactionIndex);
-
-        // Update statistics
-        updateStatistics();
-
-        addLogEntry('Process', `✓ Line processed successfully - LID: ${transaction.lid}`, 'success');
-        alert(`Line processed successfully!\n\nLID: ${transaction.lid}\nItem: ${transaction.item_code}\nQty: ${transaction.picked_qty}`);
-
-    } catch (error) {
-        addLogEntry('Error', `Line processing failed - LID: ${transaction.lid}: ${error.message}`, 'error');
-        alert(`Line processing failed!\n\nLID: ${transaction.lid}\nError: ${error.message}\n\nCheck Processing Log for details.`);
-        updateStatistics();
-    }
-}
+// REMOVED OLD DUPLICATE - This was calling processAutoTransaction which runs DELETE
+// The correct processSingleLine function is at line 1314 and does NOT call DELETE
 
 // Build Analytics View
 function buildAnalytics() {
