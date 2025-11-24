@@ -39,6 +39,20 @@ let currentProcessingOrder = null;
 document.addEventListener('DOMContentLoaded', function() {
     initializeAutoProcessing();
     fetchFusionCloudCredentials();
+
+    // Set page title in toolbar when this page is shown
+    const menuItems = document.querySelectorAll('.menu-item');
+    menuItems.forEach(item => {
+        item.addEventListener('click', function() {
+            const pageId = this.getAttribute('data-page');
+            if (pageId === 'auto-inventory-processing') {
+                const pageTitleElement = document.getElementById('current-page-title');
+                if (pageTitleElement) {
+                    pageTitleElement.textContent = 'Automate Inventory Processing';
+                }
+            }
+        });
+    });
 });
 
 // Initialize auto processing
