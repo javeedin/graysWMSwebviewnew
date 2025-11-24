@@ -179,7 +179,7 @@ namespace WMSApp.MRA
             }
 
             // If data exists, MRA interface is already done
-            bool hasData = reportResult.DataSet.Tables.Count > 0 && reportResult.DataSet.Tables[0].Rows.Count > 0;
+            bool hasData = reportResult.DataSet.Tables.Count > 1 && reportResult.DataSet.Tables[1].Rows.Count > 0;
 
             return new MRACheckResult
             {
