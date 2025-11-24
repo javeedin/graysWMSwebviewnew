@@ -5533,6 +5533,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // ORDS endpoint URL
         const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/sets2vdata';
 
+        // Log debug info before request
+        logDebugInfo('Set Data (Single)', apiUrl, payload, null, null, 'POST');
+
         try {
             // Make POST request via C# (to handle CORS)
             sendMessageToCSharp({
@@ -5548,6 +5551,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[Set Data] Data:', data);
 
                 if (error) {
+                    // Log error to debug
+                    logDebugInfo('Set Data (Single) - Error', apiUrl, payload, null, error, 'POST');
                     alert('Failed to set data: ' + error);
                     return;
                 }
@@ -5556,6 +5561,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 try {
                     const response = typeof data === 'string' ? JSON.parse(data) : data;
                     console.log('[Set Data] Parsed response:', response);
+
+                    // Log success to debug
+                    logDebugInfo('Set Data (Single) - Success', apiUrl, payload, response, null, 'POST');
 
                     if (response.success) {
                         alert(`Success! Updated ${response.successCount} record(s).\n\n${response.message}`);
@@ -5568,12 +5576,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 } catch (parseError) {
                     console.error('[Set Data] Parse error:', parseError);
+                    logDebugInfo('Set Data (Single) - Parse Error', apiUrl, payload, data, parseError.message, 'POST');
                     alert('Error parsing response: ' + parseError.message);
                 }
             });
 
         } catch (error) {
             console.error('[Set Data] Error:', error);
+            logDebugInfo('Set Data (Single) - Exception', apiUrl, payload, null, error.message, 'POST');
             alert('Error submitting data: ' + error.message);
         }
     };
@@ -5668,6 +5678,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // ORDS endpoint URL
         const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/sets2vdata';
 
+        // Log debug info before request
+        logDebugInfo('Set Data (Multiple)', apiUrl, payload, null, null, 'POST');
+
         try {
             // Make POST request via C# (to handle CORS)
             sendMessageToCSharp({
@@ -5683,6 +5696,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 console.log('[Set Data Grid] Data:', data);
 
                 if (error) {
+                    // Log error to debug
+                    logDebugInfo('Set Data (Multiple) - Error', apiUrl, payload, null, error, 'POST');
                     alert('Failed to set data: ' + error);
                     return;
                 }
@@ -5691,6 +5706,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 try {
                     const response = typeof data === 'string' ? JSON.parse(data) : data;
                     console.log('[Set Data Grid] Parsed response:', response);
+
+                    // Log success to debug
+                    logDebugInfo('Set Data (Multiple) - Success', apiUrl, payload, response, null, 'POST');
 
                     if (response.success) {
                         const message = `Success! Updated ${response.successCount} record(s).\n\n${response.message}`;
@@ -5708,12 +5726,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 } catch (parseError) {
                     console.error('[Set Data Grid] Parse error:', parseError);
+                    logDebugInfo('Set Data (Multiple) - Parse Error', apiUrl, payload, data, parseError.message, 'POST');
                     alert('Error parsing response: ' + parseError.message);
                 }
             });
 
         } catch (error) {
             console.error('[Set Data Grid] Error:', error);
+            logDebugInfo('Set Data (Multiple) - Exception', apiUrl, payload, null, error.message, 'POST');
             alert('Error submitting data: ' + error.message);
         }
     };
