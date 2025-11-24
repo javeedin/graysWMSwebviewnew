@@ -1447,6 +1447,10 @@ function applyFilters() {
     // Apply filters by hiding/showing rows
     const groupedTrips = groupTransactionsByTrip();
 
+    let firstMatchingTripIdx = -1;
+    let firstMatchingOrderId = null;
+    let hasOrderSearch = autoProcessingFilters.trxNumber !== '';
+
     groupedTrips.forEach((trip, tripIdx) => {
         trip.transactions.forEach((item, itemIdx) => {
             const row = document.getElementById(`transaction-row-${tripIdx}-${itemIdx}`);
@@ -1479,10 +1483,43 @@ function applyFilters() {
             }
 
             row.style.display = showRow ? '' : 'none';
+
+            // Track first matching order for auto-expand
+            if (showRow && hasOrderSearch && firstMatchingTripIdx === -1) {
+                firstMatchingTripIdx = tripIdx;
+                firstMatchingOrderId = `order-${tripIdx}-${item.trx_number}`;
+            }
         });
     });
 
     addLogEntry('Filter', 'Filters applied', 'info');
+
+    // Auto-expand trip and order when searching by order number
+    if (hasOrderSearch && firstMatchingTripIdx !== -1 && firstMatchingOrderId) {
+        setTimeout(() => {
+            // Expand trip
+            const tripDetails = document.getElementById(`trip-details-${firstMatchingTripIdx}`);
+            const tripChevron = document.getElementById(`trip-chevron-${firstMatchingTripIdx}`);
+            if (tripDetails && tripDetails.style.display === 'none') {
+                tripDetails.style.display = 'block';
+                if (tripChevron) tripChevron.style.transform = 'rotate(180deg)';
+            }
+
+            // Expand order
+            const orderDetails = document.getElementById(`order-details-${firstMatchingOrderId}`);
+            const orderChevron = document.getElementById(`order-chevron-${firstMatchingOrderId}`);
+            if (orderDetails && orderDetails.style.display === 'none') {
+                orderDetails.style.display = 'block';
+                if (orderChevron) orderChevron.style.transform = 'rotate(180deg)';
+            }
+
+            // Scroll to the order
+            const orderHeader = document.getElementById(`order-header-${firstMatchingOrderId}`);
+            if (orderHeader) {
+                orderHeader.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }, 100);
+    }
 }
 
 // Clear all filters
