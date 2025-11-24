@@ -459,6 +459,7 @@ function renderTripTransactions(transactions, tripIndex) {
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">LID</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Req qty</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Qty</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Lot Number</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Status</th>
@@ -488,6 +489,7 @@ function renderTripTransactions(transactions, tripIndex) {
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.lid || 'N/A'}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.item_code}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.item_desc}">${item.item_desc}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #3b82f6;">${item.header_original_qty || item.HEADER_ORIGINAL_QTY || 0}</td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.picked_qty}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.lot_number || 'N/A'}</td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="status-cell-${tripIndex}-${item.originalIndex}">
@@ -498,8 +500,8 @@ function renderTripTransactions(transactions, tripIndex) {
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="action-cell-${tripIndex}-${item.originalIndex}">
                         ${(item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR') ? `
                             <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                                <button onclick="retryTransaction(${tripIndex}, ${item.originalIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
-                                    <i class="fas fa-redo"></i> Retry
+                                <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                    <i class="fas fa-play"></i> Process
                                 </button>
                                 <button onclick="showErrorDetails(${tripIndex}, ${item.originalIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
                                     <i class="fas fa-exclamation-circle"></i> Show Errors
@@ -507,8 +509,10 @@ function renderTripTransactions(transactions, tripIndex) {
                             </div>
                         ` : item.transaction_status === 'PROCESSING' ? `
                             <span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
+                        ` : item.transaction_status === 'SUCCESS' ? `
+                            <span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Completed</span>
                         ` : (!item.transaction_status || item.transaction_status === 'PENDING') && item.picked_qty && parseFloat(item.picked_qty) > 0 ? `
-                            <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #667eea; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                            <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
                                 <i class="fas fa-play"></i> Process
                             </button>
                         ` : `
@@ -1303,6 +1307,50 @@ async function retryTransactionById(transactionId) {
     const transaction = autoProcessingData.find(t => t.transaction_id === transactionId);
     if (transaction) {
         await processAutoTransaction(transaction);
+    }
+}
+
+// Process single line (no GET/DELETE on failure - just mark SUCCESS or FAILED)
+async function processSingleLine(tripIndex, transactionIndex) {
+    const groupedTrips = groupTransactionsByTrip();
+    const transaction = groupedTrips[tripIndex].transactions[transactionIndex];
+
+    if (!transaction) {
+        console.error('[Process Single Line] Transaction not found');
+        return;
+    }
+
+    addLogEntry('Process', `Processing single line: LID ${transaction.lid} | Order: ${transaction.trx_number}...`, 'info');
+
+    // Set status to PROCESSING
+    transaction.transaction_status = 'PROCESSING';
+    updateTransactionStatusInDOM(tripIndex, transactionIndex, 'PROCESSING');
+
+    try {
+        // Call actual web service API to process transaction
+        const response = await processTransactionAPI(transaction);
+
+        // Update transaction status to SUCCESS
+        transaction.transaction_status = 'SUCCESS';
+        updateTransactionStatusInDOM(tripIndex, transactionIndex, 'SUCCESS');
+
+        addLogEntry('Success', `✓ LID: ${transaction.lid} | Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - SUCCESS`, 'success');
+
+        // Update statistics
+        updateStatistics();
+
+    } catch (error) {
+        console.error('[Process Single Line] Error processing transaction:', error);
+
+        // Mark as FAILED (NO cleanup - no GET/DELETE APIs)
+        transaction.transaction_status = 'FAILED';
+        transaction.error_message = error.message;
+        updateTransactionStatusInDOM(tripIndex, transactionIndex, 'FAILED');
+
+        addLogEntry('Error', `✗ LID: ${transaction.lid} | Order: ${transaction.trx_number} | Line: ${transaction.line_number} | Item: ${transaction.item_code} - FAILED: ${error.message}`, 'error');
+
+        // Update statistics
+        updateStatistics();
     }
 }
 
