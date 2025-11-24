@@ -206,6 +206,8 @@ function initializeTripOrdersGrid() {
                     caption: 'Actions',
                     width: 120,
                     cellTemplate: function(container, options) {
+                        console.log('[Trip Details] Rendering Actions column for order:', options.data.source_order_number);
+
                         const mraBtn = $('<button>')
                             .addClass('grid-action-btn btn-retry')
                             .html('<i class="fas fa-file-invoice-dollar"></i>')
@@ -215,7 +217,13 @@ function initializeTripOrdersGrid() {
                                 'margin-right': '4px'
                             })
                             .on('click', function() {
-                                openMRAProcessingPopup(options.data.source_order_number);
+                                console.log('[Trip Details] MRA button clicked for:', options.data.source_order_number);
+                                if (typeof openMRAProcessingPopup === 'function') {
+                                    openMRAProcessingPopup(options.data.source_order_number);
+                                } else {
+                                    console.error('[Trip Details] openMRAProcessingPopup function not found! Check if mra-processor.js is loaded.');
+                                    alert('MRA processor not loaded. Please refresh the page.');
+                                }
                             });
 
                         const removeBtn = $('<button>')
