@@ -2993,7 +2993,22 @@ window.openTripPrintModal = async function(tripId, tripDate, orderCount, tripInd
     await loadPrintersForTripPrint();
 
     // Show modal
-    document.getElementById('trip-print-modal').style.display = 'flex';
+    const modal = document.getElementById('trip-print-modal');
+    modal.style.display = 'flex';
+
+    // Debug: Log z-index information
+    const computedStyle = window.getComputedStyle(modal);
+    const modalZIndex = computedStyle.zIndex;
+    const modalInnerDiv = modal.firstElementChild;
+    const innerZIndex = modalInnerDiv ? window.getComputedStyle(modalInnerDiv).zIndex : 'N/A';
+
+    console.log('=====================================');
+    console.log('[Trip Print] Modal Z-Index Debug:');
+    console.log('[Trip Print] Outer modal z-index:', modalZIndex);
+    console.log('[Trip Print] Inner div z-index:', innerZIndex);
+    console.log('[Trip Print] Modal display:', modal.style.display);
+    console.log('[Trip Print] Modal position:', computedStyle.position);
+    console.log('=====================================');
 
     // Reset buttons
     document.getElementById('trip-print-download-btn').style.display = 'inline-flex';
