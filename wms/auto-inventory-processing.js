@@ -35,6 +35,9 @@ let currentProcessingTrip = null;
 let currentProcessingTripId = null;
 let currentProcessingOrder = null;
 
+// Selected trips for processing (Set of trip_id strings)
+let selectedTripsForProcessing = new Set();
+
 // Initialize auto processing on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeAutoProcessing();
@@ -256,8 +259,20 @@ function displayGroupedTrips() {
         const processingCount = trip.transactions.filter(t => t.transaction_status === 'PROCESSING').length;
         const pendingCount = trip.transactions.length - successCount - failedCount - processingCount;
 
+        // Check if this trip is selected
+        const isSelected = selectedTripsForProcessing.has(trip.trip_id);
+        const selectBtnStyle = isSelected
+            ? 'background: #f59e0b; border: 2px solid #f59e0b;'
+            : 'background: #94a3b8; border: 2px solid #94a3b8;';
+        const selectBtnText = isSelected
+            ? '<i class="fas fa-check-square"></i> Selected'
+            : '<i class="fas fa-square"></i> Select';
+        const cardBorderStyle = isSelected
+            ? 'border: 3px solid #f59e0b;'
+            : 'border: 2px solid #e2e8f0;';
+
         html += `
-            <div style="background: white; border: 2px solid #e2e8f0; border-radius: 8px; margin-bottom: 1rem; overflow: hidden; transition: all 0.3s;">
+            <div id="trip-card-${index}" style="background: white; ${cardBorderStyle} border-radius: 8px; margin-bottom: 1rem; overflow: hidden; transition: all 0.3s;">
                 <!-- Trip Header -->
                 <div onclick="toggleTripDetails(${index})" style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
                     <div style="display: flex; gap: 2rem; align-items: center; flex: 1;">
@@ -295,6 +310,9 @@ function displayGroupedTrips() {
                             ${failedCount > 0 ? `<span style="background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
                     </div>
+                    <button id="trip-select-btn-${index}" onclick="event.stopPropagation(); toggleTripSelection('${trip.trip_id}', ${index})" style="${selectBtnStyle} color: white; padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; margin-right: 0.5rem; transition: all 0.2s;" title="Select for processing">
+                        ${selectBtnText}
+                    </button>
                     <button onclick="event.stopPropagation(); openTripPrintModal('${trip.trip_id}', '${trip.trip_date}', ${orderCount}, ${index})" style="background: #10b981; color: white; border: none; padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; margin-right: 1rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Print all orders in this trip">
                         <i class="fas fa-print"></i> Print Trip
                     </button>
@@ -395,9 +413,9 @@ function renderTripTransactions(transactions, tripIndex) {
         const orderId = `trip-${tripIndex}-order-${orderIdx}`;
 
         html += `
-            <div style="background: white; border: 2px solid #e2e8f0; border-radius: 8px; overflow: hidden;" data-order-container="${tripIndex}">
-                <!-- Order Header -->
-                <div onclick="toggleOrderDetails('${orderId}')" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
+            <div style="background: white; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;" data-order-container="${tripIndex}">
+                <!-- Order Header (lighter than trip header) -->
+                <div onclick="toggleOrderDetails('${orderId}')" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border-left: 3px solid #667eea;" onmouseover="this.style.background='linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'">
                     <div style="display: flex; gap: 1.25rem; align-items: center; flex: 1;">
                         <div style="display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fas fa-box" style="color: #667eea; font-size: 16px;"></i>
@@ -561,6 +579,96 @@ function toggleTripDetails(index) {
     } else {
         details.style.display = 'none';
         chevron.style.transform = 'rotate(0deg)';
+    }
+}
+
+// Toggle trip selection for processing
+function toggleTripSelection(tripId, index) {
+    const btn = document.getElementById(`trip-select-btn-${index}`);
+    const tripCard = document.getElementById(`trip-card-${index}`);
+
+    if (selectedTripsForProcessing.has(tripId)) {
+        // Deselect
+        selectedTripsForProcessing.delete(tripId);
+        if (btn) {
+            btn.style.background = '#94a3b8';
+            btn.style.borderColor = '#94a3b8';
+            btn.innerHTML = '<i class="fas fa-square"></i> Select';
+        }
+        if (tripCard) {
+            tripCard.style.borderColor = '#e2e8f0';
+            tripCard.style.borderWidth = '2px';
+        }
+        addLogEntry('Selection', `Trip ${tripId} deselected`, 'info');
+    } else {
+        // Select
+        selectedTripsForProcessing.add(tripId);
+        if (btn) {
+            btn.style.background = '#f59e0b';
+            btn.style.borderColor = '#f59e0b';
+            btn.innerHTML = '<i class="fas fa-check-square"></i> Selected';
+        }
+        if (tripCard) {
+            tripCard.style.borderColor = '#f59e0b';
+            tripCard.style.borderWidth = '3px';
+        }
+        addLogEntry('Selection', `Trip ${tripId} selected for processing`, 'info');
+    }
+
+    updateSelectionCount();
+}
+
+// Select all trips for processing
+function selectAllTrips() {
+    const groupedTrips = groupTransactionsByTrip();
+    groupedTrips.forEach((trip, index) => {
+        if (!selectedTripsForProcessing.has(trip.trip_id)) {
+            selectedTripsForProcessing.add(trip.trip_id);
+            const btn = document.getElementById(`trip-select-btn-${index}`);
+            const tripCard = document.getElementById(`trip-card-${index}`);
+            if (btn) {
+                btn.style.background = '#f59e0b';
+                btn.style.borderColor = '#f59e0b';
+                btn.innerHTML = '<i class="fas fa-check-square"></i> Selected';
+            }
+            if (tripCard) {
+                tripCard.style.borderColor = '#f59e0b';
+                tripCard.style.borderWidth = '3px';
+            }
+        }
+    });
+    updateSelectionCount();
+    addLogEntry('Selection', `All ${groupedTrips.length} trips selected`, 'info');
+}
+
+// Deselect all trips
+function deselectAllTrips() {
+    const groupedTrips = groupTransactionsByTrip();
+    selectedTripsForProcessing.clear();
+    groupedTrips.forEach((trip, index) => {
+        const btn = document.getElementById(`trip-select-btn-${index}`);
+        const tripCard = document.getElementById(`trip-card-${index}`);
+        if (btn) {
+            btn.style.background = '#94a3b8';
+            btn.style.borderColor = '#94a3b8';
+            btn.innerHTML = '<i class="fas fa-square"></i> Select';
+        }
+        if (tripCard) {
+            tripCard.style.borderColor = '#e2e8f0';
+            tripCard.style.borderWidth = '2px';
+        }
+    });
+    updateSelectionCount();
+    addLogEntry('Selection', 'All trips deselected', 'info');
+}
+
+// Update selection count display
+function updateSelectionCount() {
+    const countEl = document.getElementById('selected-trips-count');
+    if (countEl) {
+        const count = selectedTripsForProcessing.size;
+        countEl.textContent = count > 0 ? `${count} trip${count > 1 ? 's' : ''} selected` : 'No trips selected';
+        countEl.style.color = count > 0 ? '#f59e0b' : '#94a3b8';
     }
 }
 
@@ -764,7 +872,13 @@ function runSimulation() {
         return;
     }
 
-    addLogEntry('System', 'Starting process - Processing all pending transactions...', 'info');
+    // Check if any trips are selected
+    if (selectedTripsForProcessing.size === 0) {
+        alert('Please select at least one trip for processing.\n\nClick the "Select" button on each trip you want to process, or use "Select All" to select all trips.');
+        return;
+    }
+
+    addLogEntry('System', `Starting process - Processing ${selectedTripsForProcessing.size} selected trip(s)...`, 'info');
 
     // Set processing flag
     isProcessing = true;
@@ -912,13 +1026,16 @@ async function processNextBatch() {
 
     // Log total records
     addLogEntry('Debug', `Total records in data: ${autoProcessingData.length}`, 'info');
+    addLogEntry('Debug', `Selected trips for processing: ${Array.from(selectedTripsForProcessing).join(', ')}`, 'info');
 
     // Find pending transactions (case-insensitive check) and not bypassed
+    // ONLY process transactions from SELECTED trips
     const pendingTransactions = autoProcessingData.filter(t => {
         const status = (t.transaction_status || '').toUpperCase();
         const isPending = !t.transaction_status || status === '' || status === 'PENDING';
         const isNotBypassed = !t.bypassed; // Skip bypassed transactions
-        return isPending && isNotBypassed;
+        const isSelectedTrip = selectedTripsForProcessing.has(t.trip_id); // Only selected trips
+        return isPending && isNotBypassed && isSelectedTrip;
     });
 
     addLogEntry('Debug', `Filtered pending records: ${pendingTransactions.length}`, 'info');
