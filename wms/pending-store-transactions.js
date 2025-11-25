@@ -302,7 +302,17 @@ function initializePstGrid(data) {
             headerFilter: { visible: true },
             searchPanel: { visible: true, width: 240, placeholder: 'Search...' },
             columns: [
-                { dataField: 'trx_number', caption: 'Order #', width: 130 },
+                {
+                    dataField: 'trx_number',
+                    caption: 'Order #',
+                    width: 130,
+                    cellTemplate: function(cellElement, cellInfo) {
+                        const trxNumber = cellInfo.value || '';
+                        const rowData = cellInfo.data;
+                        const html = `<a href="javascript:void(0)" onclick="openStoreTransactionsFromPst(pstData[${rowData._rowIndex}])" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${trxNumber}</a>`;
+                        $(cellElement).append(html);
+                    }
+                },
                 { dataField: 'trx_date', caption: 'Date', width: 100 },
                 { dataField: 'trx_type', caption: 'Type', width: 100 },
                 { dataField: 'source_org_code', caption: 'Source Org', width: 100 },
@@ -388,7 +398,7 @@ function renderFallbackTable(data) {
                 <td style="padding: 0.5rem; text-align: center;">
                     <input type="checkbox" class="pst-row-checkbox" data-index="${index}" onchange="togglePstRowSelection('${index}', this.checked)">
                 </td>
-                <td style="padding: 0.5rem; font-weight: 600; color: #1e293b;">${item.trx_number || ''}</td>
+                <td style="padding: 0.5rem;"><a href="javascript:void(0)" onclick="openStoreTransactionsFromPst(pstData[${index}])" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${item.trx_number || ''}</a></td>
                 <td style="padding: 0.5rem; color: #475569;">${item.trx_date || ''}</td>
                 <td style="padding: 0.5rem; color: #475569;">${item.trx_type || ''}</td>
                 <td style="padding: 0.5rem; color: #667eea;">${item.source_org_code || ''}</td>
@@ -489,3 +499,43 @@ function editPstTransaction(rowData) {
     pstLog(`Editing: ${rowData.trx_number}`, 'info');
     alert('Edit: ' + rowData.trx_number);
 }
+
+// Open Store Transactions dialog for a pending transaction
+function openStoreTransactionsFromPst(rowData) {
+    pstLog(`Opening Store Transactions for: ${rowData.trx_number}`, 'info');
+
+    // Map PST fields to the format expected by openStoreTransactionsDialog
+    const mappedRowData = {
+        ORDER_NUMBER: rowData.trx_number || '',
+        order_number: rowData.trx_number || '',
+        ORDER_TYPE: rowData.trx_type || 'Store to Van',
+        order_type: rowData.trx_type || 'Store to Van',
+        TRIP_DATE: rowData.trx_date || '',
+        trip_date: rowData.trx_date || '',
+        INSTANCE_NAME: rowData.source_org_code || 'PROD',
+        instance_name: rowData.source_org_code || 'PROD',
+        SOURCE_ORG_CODE: rowData.source_org_code || '',
+        source_org_code: rowData.source_org_code || '',
+        SOURCE_SUB_INV: rowData.source_sub_inv || '',
+        source_sub_inv: rowData.source_sub_inv || '',
+        DEST_ORG_CODE: rowData.dest_org_code || '',
+        dest_org_code: rowData.dest_org_code || '',
+        DEST_SUB_INV: rowData.dest_sub_inv || '',
+        dest_sub_inv: rowData.dest_sub_inv || '',
+        TOTAL_ITEMS: rowData.total_items || 0,
+        total_items: rowData.total_items || 0,
+        TRANSACTION_STATUS: rowData.transaction_status || '',
+        transaction_status: rowData.transaction_status || ''
+    };
+
+    // Call the existing openStoreTransactionsDialog function from app.js
+    if (typeof window.openStoreTransactionsDialog === 'function') {
+        window.openStoreTransactionsDialog(mappedRowData);
+    } else {
+        pstLog('openStoreTransactionsDialog function not found!', 'error');
+        alert('Store Transactions dialog function not found. Please ensure app.js is loaded.');
+    }
+}
+
+// Expose function globally
+window.openStoreTransactionsFromPst = openStoreTransactionsFromPst;
