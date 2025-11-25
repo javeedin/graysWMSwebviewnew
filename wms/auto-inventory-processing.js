@@ -17,6 +17,8 @@ let autoProcessingFilters = {
 let autoProcessingStats = {
     totalTrips: 0,
     totalOrders: 0,
+    totalLines: 0,
+    cancelled: 0,
     processing: 0,
     success: 0,
     failed: 0
@@ -776,14 +778,21 @@ function updateStatistics() {
 
     // Calculate stats
     autoProcessingStats.totalTrips = groupedTrips.length;
-    autoProcessingStats.totalOrders = autoProcessingData.length;
+    // Total Orders = distinct trx_number count
+    const distinctOrders = [...new Set(autoProcessingData.map(t => t.trx_number))];
+    autoProcessingStats.totalOrders = distinctOrders.length;
+    // Total Lines = all transactions
+    autoProcessingStats.totalLines = autoProcessingData.length;
     autoProcessingStats.success = autoProcessingData.filter(t => t.transaction_status === 'SUCCESS').length;
     autoProcessingStats.failed = autoProcessingData.filter(t => t.transaction_status === 'FAILED' || t.transaction_status === 'ERROR').length;
     autoProcessingStats.processing = autoProcessingData.filter(t => t.transaction_status === 'PROCESSING').length;
+    autoProcessingStats.cancelled = autoProcessingData.filter(t => t.transaction_status === 'CANCELLED').length;
 
     // Update UI
     document.getElementById('auto-stat-trips').textContent = autoProcessingStats.totalTrips;
     document.getElementById('auto-stat-orders').textContent = autoProcessingStats.totalOrders;
+    document.getElementById('auto-stat-lines').textContent = autoProcessingStats.totalLines;
+    document.getElementById('auto-stat-cancelled').textContent = autoProcessingStats.cancelled;
     document.getElementById('auto-stat-success').textContent = autoProcessingStats.success;
     document.getElementById('auto-stat-failed').textContent = autoProcessingStats.failed;
     document.getElementById('auto-stat-processing').textContent = autoProcessingStats.processing;
