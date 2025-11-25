@@ -1800,15 +1800,6 @@
             <!-- Pending Store Transactions Page -->
             <div id="pending-store-transactions" class="page-content" style="display: none;">
                 <div style="padding: 1rem;">
-                    <!-- Debug Panel -->
-                    <div id="pst-debug-panel" style="background: #1e293b; color: #10b981; padding: 0.5rem 1rem; border-radius: 6px; margin-bottom: 0.75rem; font-family: monospace; font-size: 10px; display: none; max-height: 150px; overflow-y: auto;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                            <span style="color: #94a3b8; font-weight: 600;">DEBUG LOG</span>
-                            <button onclick="document.getElementById('pst-debug-panel').style.display='none'" style="background: #ef4444; color: white; border: none; padding: 2px 6px; border-radius: 3px; cursor: pointer; font-size: 9px;">Hide</button>
-                        </div>
-                        <div id="pst-debug-log"></div>
-                    </div>
-
                     <!-- Filters Section -->
                     <div style="background: white; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                         <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
@@ -1827,12 +1818,9 @@
                                 <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">To Date</label>
                                 <input type="date" id="pst-to-date" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
                             </div>
-                            <div style="flex-shrink: 0; display: flex; gap: 0.5rem;">
+                            <div style="flex-shrink: 0;">
                                 <button onclick="fetchPendingStoreTransactions()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
                                     <i class="fas fa-search" id="pst-fetch-icon"></i> Fetch Data
-                                </button>
-                                <button onclick="togglePstDebug()" style="background: #475569; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;" title="Toggle Debug Panel">
-                                    <i class="fas fa-bug"></i>
                                 </button>
                             </div>
                         </div>

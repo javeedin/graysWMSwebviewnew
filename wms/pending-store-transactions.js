@@ -8,7 +8,6 @@
 let pstData = [];
 let pstSelectedRows = new Set();
 let pstGridInstance = null;
-let pstDebugEnabled = false;
 
 // Initialize page on load
 document.addEventListener('DOMContentLoaded', function() {
@@ -29,32 +28,9 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Debug logging
+// Console logging
 function pstLog(message, type = 'info') {
-    const timestamp = new Date().toLocaleTimeString();
-    const logMessage = `[${timestamp}] ${message}`;
-
     console.log(`[PST] ${message}`);
-
-    // Add to debug panel
-    const debugLog = document.getElementById('pst-debug-log');
-    if (debugLog) {
-        const color = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : type === 'warn' ? '#f59e0b' : '#94a3b8';
-        debugLog.innerHTML += `<div style="color: ${color}; margin-bottom: 2px;">${logMessage}</div>`;
-        debugLog.scrollTop = debugLog.scrollHeight;
-    }
-}
-
-// Toggle debug panel
-function togglePstDebug() {
-    const panel = document.getElementById('pst-debug-panel');
-    if (panel) {
-        pstDebugEnabled = panel.style.display === 'none';
-        panel.style.display = pstDebugEnabled ? 'block' : 'none';
-        if (pstDebugEnabled) {
-            pstLog('Debug panel enabled', 'info');
-        }
-    }
 }
 
 // Initialize the page
@@ -84,20 +60,13 @@ function fetchPendingStoreTransactions() {
         return;
     }
 
-    // Show debug panel automatically on fetch
-    const debugPanel = document.getElementById('pst-debug-panel');
-    if (debugPanel) debugPanel.style.display = 'block';
-
     // Show loading state
     const fetchIcon = document.getElementById('pst-fetch-icon');
     if (fetchIcon) fetchIcon.className = 'fas fa-spinner fa-spin';
 
     const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/PendingS2Vtransactions?P_SOURCE_ORG=${sourceOrg}&P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}`;
 
-    pstLog(`Fetching data...`, 'info');
-    pstLog(`Source Org: ${sourceOrg}`, 'info');
-    pstLog(`Date Range: ${fromDate} to ${toDate}`, 'info');
-    pstLog(`API URL: ${apiUrl}`, 'info');
+    pstLog(`Fetching: ${sourceOrg}, ${fromDate} to ${toDate}`);
 
     // Check if sendMessageToCSharp is available
     if (typeof sendMessageToCSharp !== 'function') {
