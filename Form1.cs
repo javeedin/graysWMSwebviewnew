@@ -206,29 +206,6 @@ namespace WMSApp
             }
         }
 
-        /// <summary>
-        /// Recursively copies a directory and all its contents
-        /// </summary>
-        private void CopyDirectory(string sourceDir, string destDir)
-        {
-            // Create destination directory
-            Directory.CreateDirectory(destDir);
-
-            // Copy all files
-            foreach (string file in Directory.GetFiles(sourceDir))
-            {
-                string destFile = Path.Combine(destDir, Path.GetFileName(file));
-                File.Copy(file, destFile, true);
-            }
-
-            // Recursively copy subdirectories
-            foreach (string subDir in Directory.GetDirectories(sourceDir))
-            {
-                string destSubDir = Path.Combine(destDir, Path.GetFileName(subDir));
-                CopyDirectory(subDir, destSubDir);
-            }
-        }
-
         private bool ShowLoginForm()
         {
             using (LoginForm loginForm = new LoginForm())
