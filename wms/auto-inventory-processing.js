@@ -2065,9 +2065,14 @@ function renderFilteredFlatView(filteredData) {
     }
 
     let html = `
-        <div style="background: #e0f2fe; padding: 0.5rem 1rem; border-radius: 6px; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
-            <i class="fas fa-filter" style="color: #0284c7;"></i>
-            <span style="font-size: 11px; color: #0369a1; font-weight: 600;">Filtered View: Showing ${filteredData.length} matching line(s)</span>
+        <div style="background: #e0f2fe; padding: 0.5rem 1rem; border-radius: 6px; margin-bottom: 0.75rem; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-filter" style="color: #0284c7;"></i>
+                <span style="font-size: 11px; color: #0369a1; font-weight: 600;">Filtered View: Showing ${filteredData.length} matching line(s)</span>
+            </div>
+            <button onclick="clearFilters()" style="background: #0284c7; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.3rem;" title="Remove filter and show grouped view">
+                <i class="fas fa-times"></i> Remove Filter
+            </button>
         </div>
         <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
             <table style="width: 100%; border-collapse: collapse;">
@@ -2259,7 +2264,7 @@ function clearFilters() {
     window.currentFilteredData = null;
 
     // Re-render grouped view
-    renderGroupedTrips(groupTransactionsByTrip());
+    displayGroupedTrips();
 
     addLogEntry('Filter', 'Filters cleared - restored grouped view', 'info');
 }
