@@ -30,17 +30,22 @@ Write-Host ""
 
  
 
+# Use current working directory instead of script root
+# This ensures we always use the latest files from where the script is run
+$workingDir = Get-Location
+Write-Host "Working Directory: $workingDir" -ForegroundColor Yellow
+
 # Step 1: Read current version
 
 Write-Host "[1/8] Reading current version..." -ForegroundColor Green
 
- 
 
-$versionFile = "version.json"
+
+$versionFile = Join-Path $workingDir "version.json"
 
 if (-not (Test-Path $versionFile)) {
 
-    Write-Host "ERROR: version.json not found!" -ForegroundColor Red
+    Write-Host "ERROR: version.json not found at $versionFile!" -ForegroundColor Red
 
     exit 1
 
@@ -100,7 +105,7 @@ Write-Host "[3/8] Creating distribution folder..." -ForegroundColor Green
 
 $distFolderName = "Wms-dist-$newVersion"
 
-$distPath = Join-Path $PSScriptRoot $distFolderName
+$distPath = Join-Path $workingDir $distFolderName
 
  
 
@@ -132,7 +137,8 @@ $copiedCount = 0
 
 # Copy all files from wms/ directory
 
-$wmsPath = Join-Path $PSScriptRoot "wms"
+$wmsPath = Join-Path $workingDir "wms"
+Write-Host "  Source WMS folder: $wmsPath" -ForegroundColor Yellow
 
 if (Test-Path $wmsPath) {
 
@@ -186,7 +192,7 @@ $rootFiles = @("version.json", "latest-release.json")
 
 foreach ($file in $rootFiles) {
 
-    $filePath = Join-Path $PSScriptRoot $file
+    $filePath = Join-Path $workingDir $file
 
     if (Test-Path $filePath) {
 
@@ -218,7 +224,7 @@ Write-Host "[5/8] Creating ZIP file..." -ForegroundColor Green
 
 $zipFileName = "wms-webview-html-$newVersion.zip"
 
-$zipPath = Join-Path $PSScriptRoot $zipFileName
+$zipPath = Join-Path $workingDir $zipFileName
 
 
 
@@ -297,7 +303,7 @@ Write-Host "  OK Updated version.json" -ForegroundColor Gray
 
  
 
-$releaseFile = "latest-release.json"
+$releaseFile = Join-Path $workingDir "latest-release.json"
 
 if (Test-Path $releaseFile) {
 
