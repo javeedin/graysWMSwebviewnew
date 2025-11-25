@@ -97,6 +97,36 @@ namespace WMSApp
             this.BackColor = Color.FromArgb(240, 240, 240);
         }
 
+        /// <summary>
+        /// Gets the base path for web files (wms, gl, sync, etc.)
+        /// Supports both single-file published exe and development mode
+        /// </summary>
+        private string GetWebFilesBasePath()
+        {
+            // For single-file publishing, files are extracted next to the exe
+            // Use AppContext.BaseDirectory which works for both scenarios
+            string basePath = AppContext.BaseDirectory;
+
+            // Check if wms folder exists at base path (single-file/published mode)
+            if (Directory.Exists(Path.Combine(basePath, "wms")))
+            {
+                System.Diagnostics.Debug.WriteLine($"[Path] Using published path: {basePath}");
+                return basePath;
+            }
+
+            // Development mode - go up from bin/Debug/net8.0-windows to repo root
+            string devPath = Path.GetFullPath(Path.Combine(Application.StartupPath, "..", "..", ".."));
+            if (Directory.Exists(Path.Combine(devPath, "wms")))
+            {
+                System.Diagnostics.Debug.WriteLine($"[Path] Using development path: {devPath}");
+                return devPath;
+            }
+
+            // Fallback to StartupPath
+            System.Diagnostics.Debug.WriteLine($"[Path] Using fallback path: {Application.StartupPath}");
+            return Application.StartupPath;
+        }
+
         private bool ShowLoginForm()
         {
             using (LoginForm loginForm = new LoginForm())
@@ -317,7 +347,7 @@ namespace WMSApp
 
                 // Load local development version from repository root
                 // Navigate from bin/debug/net8.0 up to repository root
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
 
                 if (File.Exists(indexPath))
@@ -397,7 +427,7 @@ namespace WMSApp
                     if (result == DialogResult.Yes)
                     {
                         // Navigate to local WMS page which has the distribution manager
-                        string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                        string repoRoot = GetWebFilesBasePath();
                         string launcherPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
                         if (File.Exists(launcherPath))
                         {
@@ -458,7 +488,7 @@ namespace WMSApp
             modulesContextMenu = new ContextMenuStrip();
             modulesContextMenu.Items.Add("WMS - Warehouse Management").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -469,7 +499,7 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("GL - General Ledger").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "gl", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -480,7 +510,7 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("SYNC - Oracle Fusion Sync").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "sync", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -491,7 +521,7 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("AR - Accounts Receivable").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ar", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -502,7 +532,7 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("AP - Accounts Payable").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ap", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -513,7 +543,7 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("OM - Order Management").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "om", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -524,7 +554,7 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("FA - Fixed Assets").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "fa", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -535,7 +565,7 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("CA - Cash Management").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ca", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -546,7 +576,7 @@ namespace WMSApp
 
             modulesContextMenu.Items.Add("POS - Point of Sale").Click += (s, e) =>
             {
-                string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                string repoRoot = GetWebFilesBasePath();
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "pos", "index.html"));
                 if (File.Exists(indexPath))
                 {
@@ -2000,7 +2030,7 @@ namespace WMSApp
                     System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
 
                     // Resolve path relative to sync folder
-                    string repoRoot = Path.Combine(Application.StartupPath, "..", "..", "..");
+                    string repoRoot = GetWebFilesBasePath();
                     string fullPath = Path.GetFullPath(Path.Combine(repoRoot, "sync", filePath));
 
                     System.Diagnostics.Debug.WriteLine($"[C#] Full path: {fullPath}");
