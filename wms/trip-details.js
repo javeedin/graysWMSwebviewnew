@@ -218,11 +218,13 @@ function initializeTripOrdersGrid() {
                             })
                             .on('click', function() {
                                 // Get instance from tripDetailsData or global selector (row data doesn't have instance)
+                                // Priority: tripDetailsData > sessionStorage (login) > localStorage (dropdown) > DOM > fallback
                                 const instance = tripDetailsData?.instance ||
+                                                 sessionStorage.getItem('loggedInInstance') ||
                                                  localStorage.getItem('fusionInstance') ||
                                                  document.getElementById('current-instance-display')?.textContent ||
                                                  'PROD';
-                                console.log('[Trip Details] MRA button clicked for:', options.data.source_order_number, 'Instance:', instance, '(from tripDetailsData or global)');
+                                console.log('[Trip Details] MRA button clicked for:', options.data.source_order_number, 'Instance:', instance);
                                 if (typeof openMRAProcessingPopup === 'function') {
                                     openMRAProcessingPopup(options.data.source_order_number, instance);
                                 } else {

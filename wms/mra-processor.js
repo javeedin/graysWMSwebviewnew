@@ -202,8 +202,13 @@ async function processMRAInterface(orderNumber, instance) {
     // Get credentials from localStorage
     const fusionUsername = localStorage.getItem('fusionCloudUsername') || 'shaik';
     const fusionPassword = localStorage.getItem('fusionCloudPassword') || 'fusion1234';
-    // Use instance from parameter (from grid row), fallback to localStorage if not provided
-    const resolvedInstance = instance || localStorage.getItem('instanceName') || 'TEST';
+
+    // Use instance from parameter, fallback to fusionInstance from localStorage (set by app.js selectInstance)
+    // Handle empty string as falsy by checking length
+    const resolvedInstance = (instance && instance.trim()) ||
+                             localStorage.getItem('fusionInstance') ||
+                             document.getElementById('current-instance-display')?.textContent ||
+                             'PROD';
     console.log('[MRA] Using instance:', resolvedInstance, '(from parameter:', instance, ')');
 
     try {
