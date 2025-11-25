@@ -1566,19 +1566,28 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                         addLogEntry('Cancel', `Successfully cancelled line with LID: ${lid}`, 'success');
                         showNotification(`Line ${lid} cancelled successfully`, 'success');
 
+                        // Re-query DOM elements to get fresh references
+                        const currentCancelCell = document.getElementById(`cancel-cell-${tripIndex}-${transactionIndex}`);
+                        const currentStatusCell = document.getElementById(`status-cell-${tripIndex}-${transactionIndex}`);
+
                         // Update the cancel cell to show cancelled status
-                        if (cancelCell) {
-                            cancelCell.innerHTML = `<span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Cancelled</span>`;
+                        if (currentCancelCell) {
+                            currentCancelCell.innerHTML = `<span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Cancelled</span>`;
+                            console.log('[Cancel] Updated cancel cell to Cancelled');
+                        } else {
+                            console.log('[Cancel] WARNING: Cancel cell not found:', `cancel-cell-${tripIndex}-${transactionIndex}`);
                         }
 
                         // Update the status cell
-                        const statusCell = document.getElementById(`status-cell-${tripIndex}-${transactionIndex}`);
-                        if (statusCell) {
-                            statusCell.innerHTML = `
+                        if (currentStatusCell) {
+                            currentStatusCell.innerHTML = `
                                 <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: #6b7280; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
                                     <i class="fas fa-ban"></i> CANCELLED
                                 </span>
                             `;
+                            console.log('[Cancel] Updated status cell to CANCELLED');
+                        } else {
+                            console.log('[Cancel] WARNING: Status cell not found:', `status-cell-${tripIndex}-${transactionIndex}`);
                         }
 
                         // Update transaction status in data
@@ -1602,9 +1611,12 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                         addLogEntry('Cancel', `Failed to cancel line ${lid}: ${errorMsg}`, 'error');
                         showNotification(`Failed to cancel line: ${errorMsg}`, 'error');
 
+                        // Re-query DOM element for fresh reference
+                        const currentCancelCell = document.getElementById(`cancel-cell-${tripIndex}-${transactionIndex}`);
+
                         // Restore cancel button
-                        if (cancelCell) {
-                            cancelCell.innerHTML = `
+                        if (currentCancelCell) {
+                            currentCancelCell.innerHTML = `
                                 <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
                                     <i class="fas fa-times-circle"></i> Cancel
                                 </button>
