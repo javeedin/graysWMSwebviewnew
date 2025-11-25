@@ -41,6 +41,12 @@ let currentProcessingOrder = null;
 // Selected trips for processing (Set of trip_id strings)
 let selectedTripsForProcessing = new Set();
 
+// Font size multiplier for Trip and Order groups (1.0 = 100%)
+let tripOrderFontSizeMultiplier = 1.0;
+const FONT_SIZE_STEP = 0.1; // 10% per click
+const FONT_SIZE_MIN = 0.6;  // 60% minimum
+const FONT_SIZE_MAX = 1.6;  // 160% maximum
+
 // Initialize auto processing on page load
 document.addEventListener('DOMContentLoaded', function() {
     initializeAutoProcessing();
@@ -281,41 +287,41 @@ function displayGroupedTrips() {
         html += `
             <div id="trip-card-${index}" style="background: white; ${cardBorderStyle} border-radius: 8px; margin-bottom: 0.75rem; overflow: hidden; transition: all 0.3s;">
                 <!-- Trip Header -->
-                <div onclick="toggleTripDetails(${index})" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
+                <div class="trip-group-header" onclick="toggleTripDetails(${index})" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
                     <div style="display: flex; gap: 1.5rem; align-items: center; flex: 1;">
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
-                            <i class="fas fa-truck" style="color: #667eea; font-size: 16px;"></i>
+                            <i class="fas fa-truck trip-group-icon" style="color: #667eea; font-size: 16px;"></i>
                             <div>
-                                <div style="font-size: 8px; color: #64748b; font-weight: 600;">TRIP ID</div>
-                                <div style="font-size: 13px; font-weight: 700; color: #1e293b;">${trip.trip_id}</div>
+                                <div class="trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">TRIP ID</div>
+                                <div class="trip-group-value" style="font-size: 13px; font-weight: 700; color: #1e293b;">${trip.trip_id}</div>
                             </div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">DATE</div>
-                            <div style="font-size: 11px; font-weight: 600; color: #1e293b;">${new Date(trip.trip_date).toLocaleDateString()}</div>
+                            <div class="trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">DATE</div>
+                            <div class="trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${new Date(trip.trip_date).toLocaleDateString()}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">LORRY</div>
-                            <div style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_lorry}</div>
+                            <div class="trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">LORRY</div>
+                            <div class="trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_lorry}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">PRIORITY</div>
-                            <div style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_priority}</div>
+                            <div class="trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">PRIORITY</div>
+                            <div class="trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_priority}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">LOADING BAY</div>
-                            <div style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_loading_bay || 'N/A'}</div>
+                            <div class="trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">LOADING BAY</div>
+                            <div class="trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_loading_bay || 'N/A'}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">ORDERS</div>
-                            <div style="font-size: 13px; font-weight: 700; color: #667eea;">${orderCount}</div>
+                            <div class="trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">ORDERS</div>
+                            <div class="trip-group-value" style="font-size: 13px; font-weight: 700; color: #667eea;">${orderCount}</div>
                         </div>
-                        <div style="display: flex; gap: 0.4rem;">
-                            ${successCount > 0 ? `<span style="background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${successCount} ✓</span>` : ''}
-                            ${processingCount > 0 ? `<span style="background: #f59e0b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
-                            ${pendingCount > 0 ? `<span style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
-                            ${cancelledCount > 0 ? `<span style="background: #6b7280; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
-                            ${failedCount > 0 ? `<span style="background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${failedCount} ✗</span>` : ''}
+                        <div class="trip-stats-badges" style="display: flex; gap: 0.4rem;">
+                            ${successCount > 0 ? `<span class="trip-stats-badge" style="background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${successCount} ✓</span>` : ''}
+                            ${processingCount > 0 ? `<span class="trip-stats-badge" style="background: #f59e0b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
+                            ${pendingCount > 0 ? `<span class="trip-stats-badge" style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
+                            ${cancelledCount > 0 ? `<span class="trip-stats-badge" style="background: #6b7280; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
+                            ${failedCount > 0 ? `<span class="trip-stats-badge" style="background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
                     </div>
                     <button id="trip-select-btn-${index}" onclick="event.stopPropagation(); toggleTripSelection('${trip.trip_id}', ${index})" style="${selectBtnStyle} color: white; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-right: 0.4rem; transition: all 0.2s;" title="Select for processing">
@@ -430,13 +436,13 @@ function renderTripTransactions(transactions, tripIndex) {
         html += `
             <div style="background: white; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;" data-order-container="${tripIndex}">
                 <!-- Order Header (lighter than trip header) -->
-                <div onclick="toggleOrderDetails('${orderId}')" style="padding: 0.5rem 0.75rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border-left: 3px solid #667eea;" onmouseover="this.style.background='linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'">
+                <div class="order-group-header" onclick="toggleOrderDetails('${orderId}')" style="padding: 0.5rem 0.75rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border-left: 3px solid #667eea;" onmouseover="this.style.background='linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'">
                     <div style="display: flex; gap: 1rem; align-items: center; flex: 1;">
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
-                            <i class="fas fa-box" style="color: #667eea; font-size: 14px;"></i>
+                            <i class="fas fa-box order-group-icon" style="color: #667eea; font-size: 14px;"></i>
                             <div>
-                                <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Order</div>
-                                <div style="font-size: 12px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
+                                <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Order</div>
+                                <div class="order-group-value" style="font-size: 12px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
                                     ${order.trx_number}
                                     <button onclick="event.stopPropagation(); openStoreTransactionsFromOrder('${order.trx_number}', '${order.instance_name || 'PROD'}')" style="background: transparent; border: 1px solid #667eea; color: #667eea; padding: 1px 4px; border-radius: 4px; cursor: pointer; font-size: 9px; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#667eea'; this.style.color='white'" onmouseout="this.style.background='transparent'; this.style.color='#667eea'" title="Edit Transaction">
                                         <i class="fas fa-edit"></i>
@@ -446,35 +452,35 @@ function renderTripTransactions(transactions, tripIndex) {
                             </div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Type</div>
-                            <div style="font-size: 10px; font-weight: 600; color: #475569;">${order.trx_type || 'N/A'}</div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Type</div>
+                            <div class="order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #475569;">${order.trx_type || 'N/A'}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Lines</div>
-                            <div style="font-size: 11px; font-weight: 700; color: #1e293b;">${order.totalLines}</div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Lines</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #1e293b;">${order.totalLines}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Processed</div>
-                            <div style="font-size: 11px; font-weight: 700; color: #10b981;">${order.processedLines}</div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Processed</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #10b981;">${order.processedLines}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Not Processed</div>
-                            <div style="font-size: 11px; font-weight: 700; color: ${order.notProcessedLines > 0 ? '#ef4444' : '#cbd5e1'};">${order.notProcessedLines}</div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Not Processed</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: ${order.notProcessedLines > 0 ? '#ef4444' : '#cbd5e1'};">${order.notProcessedLines}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Req Qty</div>
-                            <div style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalReqQty}</div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Req Qty</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalReqQty}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Qty</div>
-                            <div style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalQty}</div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Qty</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalQty}</div>
                         </div>
                         <div>
-                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">From → To</div>
-                            <div style="font-size: 10px; font-weight: 600; color: #475569;">${order.source_sub_inv} → ${order.dest_sub_inv}</div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">From → To</div>
+                            <div class="order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #475569;">${order.source_sub_inv} → ${order.dest_sub_inv}</div>
                         </div>
                         <div>
-                            <span style="display: inline-flex; align-items: center; gap: 0.2rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+                            <span class="order-stats-badge" style="display: inline-flex; align-items: center; gap: 0.2rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
                                 <i class="fas fa-${statusIcon}"></i> ${orderStatus}
                             </span>
                         </div>
@@ -1831,38 +1837,145 @@ function populateFilterDropdowns() {
     // Get unique values
     const tripIds = [...new Set(autoProcessingData.map(t => t.trip_id).filter(Boolean))].sort();
     const orderNumbers = [...new Set(autoProcessingData.map(t => t.trx_number).filter(Boolean))].sort();
-    const itemDescs = [...new Set(autoProcessingData.map(t => t.item_description).filter(Boolean))].sort();
+    const itemDescs = [...new Set(autoProcessingData.map(t => t.item_desc).filter(Boolean))].sort();
+    const lids = [...new Set(autoProcessingData.map(t => t.lid).filter(Boolean))].sort();
 
-    // Populate Trip ID dropdown
-    const tripSelect = document.getElementById('filter-trip-id');
-    if (tripSelect) {
-        tripSelect.innerHTML = '<option value="">All Trips</option>';
+    // Populate Trip ID datalist
+    const tripList = document.getElementById('trip-id-list');
+    if (tripList) {
+        tripList.innerHTML = '';
         tripIds.forEach(id => {
-            tripSelect.innerHTML += `<option value="${id}">${id}</option>`;
+            tripList.innerHTML += `<option value="${id}">`;
         });
     }
 
-    // Populate Order # dropdown
-    const orderSelect = document.getElementById('filter-trx-number');
-    if (orderSelect) {
-        orderSelect.innerHTML = '<option value="">All Orders</option>';
+    // Populate Order # datalist
+    const orderList = document.getElementById('trx-number-list');
+    if (orderList) {
+        orderList.innerHTML = '';
         orderNumbers.forEach(num => {
-            orderSelect.innerHTML += `<option value="${num}">${num}</option>`;
+            orderList.innerHTML += `<option value="${num}">`;
         });
     }
 
-    // Populate Item Description dropdown
-    const itemSelect = document.getElementById('filter-item-desc');
-    if (itemSelect) {
-        itemSelect.innerHTML = '<option value="">All Items</option>';
+    // Populate Item Description datalist
+    const itemList = document.getElementById('item-desc-list');
+    if (itemList) {
+        itemList.innerHTML = '';
         itemDescs.forEach(desc => {
-            // Truncate long descriptions for display
-            const displayText = desc.length > 40 ? desc.substring(0, 40) + '...' : desc;
-            itemSelect.innerHTML += `<option value="${desc}">${displayText}</option>`;
+            itemList.innerHTML += `<option value="${desc}">`;
         });
     }
 
-    console.log('[Filters] Populated dropdowns - Trips:', tripIds.length, 'Orders:', orderNumbers.length, 'Items:', itemDescs.length);
+    // Populate LID datalist
+    const lidList = document.getElementById('lid-list');
+    if (lidList) {
+        lidList.innerHTML = '';
+        lids.forEach(lid => {
+            lidList.innerHTML += `<option value="${lid}">`;
+        });
+    }
+
+    console.log('[Filters] Populated datalists - Trips:', tripIds.length, 'Orders:', orderNumbers.length, 'Items:', itemDescs.length, 'LIDs:', lids.length);
+}
+
+// Font size adjustment for Trip and Order groups
+function adjustTripOrderFontSize(direction) {
+    const newMultiplier = tripOrderFontSizeMultiplier + (direction * FONT_SIZE_STEP);
+    if (newMultiplier >= FONT_SIZE_MIN && newMultiplier <= FONT_SIZE_MAX) {
+        tripOrderFontSizeMultiplier = newMultiplier;
+        applyTripOrderFontSize();
+        updateFontSizeIndicator();
+    }
+}
+
+function resetTripOrderFontSize() {
+    tripOrderFontSizeMultiplier = 1.0;
+    applyTripOrderFontSize();
+    updateFontSizeIndicator();
+}
+
+function updateFontSizeIndicator() {
+    const indicator = document.getElementById('font-size-indicator');
+    if (indicator) {
+        indicator.textContent = Math.round(tripOrderFontSizeMultiplier * 100) + '%';
+    }
+}
+
+function applyTripOrderFontSize() {
+    // Base font sizes (from current design)
+    const baseLabelSize = 8;        // Labels (TRIP ID, DATE, etc.)
+    const baseTripValueSize = 13;   // Trip main values (ID, Orders count)
+    const baseTripValueSmSize = 11; // Trip secondary values (date, lorry, etc.)
+    const baseOrderValueSize = 12;  // Order main values
+    const baseOrderValueSmSize = 10;// Order secondary values
+    const baseStatsSize = 9;        // Stats badges
+    const baseTableHeaderSize = 10; // Table header font size
+    const baseTableCellSize = 11;   // Table cell font size
+    const baseIconSize = 16;        // Trip icons
+    const baseOrderIconSize = 14;   // Order icons
+
+    // Apply to Trip Group labels
+    document.querySelectorAll('.trip-group-label').forEach(el => {
+        el.style.fontSize = (baseLabelSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Trip Group main values
+    document.querySelectorAll('.trip-group-value').forEach(el => {
+        el.style.fontSize = (baseTripValueSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Trip Group secondary values
+    document.querySelectorAll('.trip-group-value-sm').forEach(el => {
+        el.style.fontSize = (baseTripValueSmSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Trip Group icons
+    document.querySelectorAll('.trip-group-icon').forEach(el => {
+        el.style.fontSize = (baseIconSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Trip stats badges
+    document.querySelectorAll('.trip-stats-badge').forEach(el => {
+        el.style.fontSize = (baseStatsSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Order Group labels
+    document.querySelectorAll('.order-group-label').forEach(el => {
+        el.style.fontSize = (baseLabelSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Order Group main values
+    document.querySelectorAll('.order-group-value').forEach(el => {
+        el.style.fontSize = (baseOrderValueSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Order Group secondary values
+    document.querySelectorAll('.order-group-value-sm').forEach(el => {
+        el.style.fontSize = (baseOrderValueSmSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Order Group icons
+    document.querySelectorAll('.order-group-icon').forEach(el => {
+        el.style.fontSize = (baseOrderIconSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to Order stats badges
+    document.querySelectorAll('.order-stats-badge').forEach(el => {
+        el.style.fontSize = (baseStatsSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to table headers
+    document.querySelectorAll('#auto-trips-container th').forEach(el => {
+        el.style.fontSize = (baseTableHeaderSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    // Apply to table cells
+    document.querySelectorAll('#auto-trips-container td').forEach(el => {
+        el.style.fontSize = (baseTableCellSize * tripOrderFontSizeMultiplier) + 'px';
+    });
+
+    console.log('[Font Size] Applied multiplier:', tripOrderFontSizeMultiplier);
 }
 
 // Apply filters
@@ -1900,15 +2013,15 @@ function applyFilters() {
 
                 let showRow = true;
 
-                // Filter by trip ID
+                // Filter by trip ID (supports partial match for autocomplete)
                 if (autoProcessingFilters.tripId &&
-                    String(trip.trip_id) !== autoProcessingFilters.tripId) {
+                    !String(trip.trip_id).toLowerCase().includes(autoProcessingFilters.tripId.toLowerCase())) {
                     showRow = false;
                 }
 
                 // Filter by item description
                 if (autoProcessingFilters.itemDesc &&
-                    !item.item_description?.toLowerCase().includes(autoProcessingFilters.itemDesc)) {
+                    !item.item_desc?.toLowerCase().includes(autoProcessingFilters.itemDesc)) {
                     showRow = false;
                 }
 

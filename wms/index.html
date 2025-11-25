@@ -1597,6 +1597,21 @@
                                     <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">FAILED</div>
                                 </div>
                             </div>
+
+                            <!-- Font Size Controls -->
+                            <div style="display: flex; align-items: center; gap: 0.5rem; background: #f1f5f9; padding: 0.4rem 0.75rem; border-radius: 6px; margin-left: auto;">
+                                <span style="font-size: 9px; color: #64748b; font-weight: 600;">Font Size:</span>
+                                <button onclick="adjustTripOrderFontSize(-1)" style="background: #e2e8f0; border: none; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 700; color: #475569; display: flex; align-items: center; justify-content: center;" title="Decrease font size">
+                                    <i class="fas fa-minus" style="font-size: 9px;"></i>
+                                </button>
+                                <span id="font-size-indicator" style="font-size: 10px; color: #475569; font-weight: 600; min-width: 35px; text-align: center;">100%</span>
+                                <button onclick="adjustTripOrderFontSize(1)" style="background: #e2e8f0; border: none; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 700; color: #475569; display: flex; align-items: center; justify-content: center;" title="Increase font size">
+                                    <i class="fas fa-plus" style="font-size: 9px;"></i>
+                                </button>
+                                <button onclick="resetTripOrderFontSize()" style="background: #e2e8f0; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; color: #64748b;" title="Reset to default">
+                                    Reset
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -1623,25 +1638,23 @@
                                 <div style="background: #f8f9fa; padding: 0.75rem; border-radius: 8px; margin-bottom: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: nowrap; align-items: flex-end;">
                                     <div style="flex: 1; min-width: 90px;">
                                         <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Trip ID</label>
-                                        <select id="filter-trip-id" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
-                                            <option value="">All Trips</option>
-                                        </select>
+                                        <input type="text" id="filter-trip-id" list="trip-id-list" placeholder="All Trips" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <datalist id="trip-id-list"></datalist>
                                     </div>
                                     <div style="flex: 1; min-width: 100px;">
                                         <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Order #</label>
-                                        <select id="filter-trx-number" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
-                                            <option value="">All Orders</option>
-                                        </select>
+                                        <input type="text" id="filter-trx-number" list="trx-number-list" placeholder="All Orders" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <datalist id="trx-number-list"></datalist>
                                     </div>
                                     <div style="flex: 1.5; min-width: 140px;">
                                         <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Item Description</label>
-                                        <select id="filter-item-desc" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
-                                            <option value="">All Items</option>
-                                        </select>
+                                        <input type="text" id="filter-item-desc" list="item-desc-list" placeholder="All Items" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <datalist id="item-desc-list"></datalist>
                                     </div>
                                     <div style="flex: 0.8; min-width: 80px;">
                                         <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">LID</label>
-                                        <input type="text" id="filter-lid" placeholder="LID..." style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <input type="text" id="filter-lid" list="lid-list" placeholder="LID..." style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <datalist id="lid-list"></datalist>
                                     </div>
                                     <div style="flex: 0.8; min-width: 85px;">
                                         <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Status</label>
