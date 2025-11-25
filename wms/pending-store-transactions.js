@@ -539,3 +539,386 @@ function openStoreTransactionsFromPst(rowData) {
 
 // Expose function globally
 window.openStoreTransactionsFromPst = openStoreTransactionsFromPst;
+
+// ============================================================================
+// ASSIGN PICKER FOR PST
+// ============================================================================
+
+// Assign Picker to selected orders
+function assignPickerForPst() {
+    pstLog('Assign Picker clicked', 'info');
+
+    // Get selected rows from DevExpress grid or fallback selection
+    let selectedOrders = [];
+
+    if (pstGridInstance) {
+        selectedOrders = pstGridInstance.getSelectedRowsData();
+    } else {
+        // Fallback - use checkbox selection
+        const selectedIndices = Array.from(pstSelectedRows);
+        selectedOrders = selectedIndices.map(idx => pstData[parseInt(idx)]).filter(Boolean);
+    }
+
+    if (selectedOrders.length === 0) {
+        alert('Please select at least one order to assign a picker.');
+        return;
+    }
+
+    pstLog(`Selected ${selectedOrders.length} orders for picker assignment`, 'info');
+
+    // Check if pickers are loaded
+    if (!window.pickersData || window.pickersData.length === 0) {
+        pstLog('Pickers not loaded, loading now...', 'info');
+        if (typeof window.loadPickers === 'function') {
+            window.loadPickers();
+            // Wait for pickers to load then open dialog
+            setTimeout(() => {
+                if (window.pickersData && window.pickersData.length > 0) {
+                    openPstAssignPickerDialog(selectedOrders);
+                } else {
+                    alert('Failed to load pickers. Please try again.');
+                }
+            }, 1500);
+        } else {
+            alert('Pickers module not loaded. Please refresh the page.');
+        }
+        return;
+    }
+
+    openPstAssignPickerDialog(selectedOrders);
+}
+
+// Open Assign Picker Dialog for PST
+function openPstAssignPickerDialog(selectedOrders) {
+    pstLog(`Opening picker dialog for ${selectedOrders.length} orders`, 'info');
+
+    // Build picker options from window.pickersData
+    const pickerOptions = window.pickersData.map(p => {
+        const pickerId = p.PICKER_ID || p.picker_id || '';
+        const pickerName = p.PICKER_NAME || p.picker_name || '';
+        return `<option value="${pickerId}" data-name="${pickerName}">${pickerName} (${pickerId})</option>`;
+    }).join('');
+
+    // Create modal HTML
+    const modalHtml = `
+        <div id="pst-assign-picker-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 25000; justify-content: center; align-items: center;">
+            <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
+                        <i class="fas fa-user-check" style="color: #8b5cf6;"></i> Assign Picker
+                    </h3>
+                    <button onclick="closePstAssignPickerDialog()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px;">×</button>
+                </div>
+                <div style="padding: 1.5rem;">
+                    <div style="margin-bottom: 1rem; padding: 0.75rem; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
+                        <div style="font-size: 0.875rem; color: #0369a1;">
+                            <i class="fas fa-info-circle"></i> Assigning picker to <strong>${selectedOrders.length}</strong> selected order(s)
+                        </div>
+                    </div>
+                    <div style="margin-bottom: 1rem;">
+                        <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Select Picker:</label>
+                        <select id="pst-picker-select" style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.875rem;">
+                            <option value="">-- Select a Picker --</option>
+                            ${pickerOptions}
+                        </select>
+                    </div>
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 0.75rem; background: #f9fafb; border-radius: 0 0 12px 12px;">
+                    <button onclick="closePstAssignPickerDialog()" style="background: #e5e7eb; color: #374151; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 600;">
+                        Cancel
+                    </button>
+                    <button onclick="submitPstAssignPicker()" style="background: #8b5cf6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 600;">
+                        <i class="fas fa-check"></i> Assign
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Store selected orders for submission
+    window.pstSelectedOrdersForPicker = selectedOrders;
+
+    // Add to DOM
+    const modalDiv = document.createElement('div');
+    modalDiv.innerHTML = modalHtml;
+    document.body.appendChild(modalDiv);
+}
+
+// Close Assign Picker Dialog
+function closePstAssignPickerDialog() {
+    const modal = document.getElementById('pst-assign-picker-modal');
+    if (modal) modal.parentElement.remove();
+    window.pstSelectedOrdersForPicker = null;
+}
+
+// Submit Assign Picker
+function submitPstAssignPicker() {
+    const pickerSelect = document.getElementById('pst-picker-select');
+    const selectedOption = pickerSelect.options[pickerSelect.selectedIndex];
+    const pickerId = pickerSelect.value;
+    const pickerName = selectedOption?.getAttribute('data-name') || '';
+
+    if (!pickerId) {
+        alert('Please select a picker');
+        return;
+    }
+
+    const selectedOrders = window.pstSelectedOrdersForPicker || [];
+    if (selectedOrders.length === 0) {
+        alert('No orders selected');
+        closePstAssignPickerDialog();
+        return;
+    }
+
+    pstLog(`Assigning picker ${pickerName} (${pickerId}) to ${selectedOrders.length} orders`, 'info');
+
+    const fusionInstance = localStorage.getItem('fusionInstance') || 'PROD';
+
+    // Process each order
+    let completed = 0;
+    let errors = [];
+
+    selectedOrders.forEach((order, index) => {
+        const orderNumber = order.trx_number || '';
+
+        const payload = {
+            p_trx_number: orderNumber,
+            p_picker_id: pickerId,
+            p_picker_name: pickerName,
+            p_instance_name: fusionInstance
+        };
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/assignpicker';
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(payload)
+        }, function(error, data) {
+            completed++;
+
+            if (error) {
+                errors.push(`${orderNumber}: ${error}`);
+                pstLog(`Error assigning picker to ${orderNumber}: ${error}`, 'error');
+            } else {
+                pstLog(`Picker assigned to ${orderNumber}`, 'success');
+            }
+
+            // Check if all done
+            if (completed === selectedOrders.length) {
+                closePstAssignPickerDialog();
+
+                if (errors.length === 0) {
+                    alert(`Successfully assigned picker to ${selectedOrders.length} order(s)`);
+                } else {
+                    alert(`Completed with ${errors.length} error(s):\n${errors.join('\n')}`);
+                }
+
+                // Refresh data
+                fetchPendingStoreTransactions();
+            }
+        });
+    });
+}
+
+// ============================================================================
+// ALLOCATE LOTS FOR PST (S2V)
+// ============================================================================
+
+// Allocate Lots for S2V orders
+function allocateLotsForPst() {
+    pstLog('Allocate Lots for S2V clicked', 'info');
+
+    // Get selected rows from DevExpress grid or fallback selection
+    let selectedOrders = [];
+
+    if (pstGridInstance) {
+        selectedOrders = pstGridInstance.getSelectedRowsData();
+    } else {
+        // Fallback - use checkbox selection
+        const selectedIndices = Array.from(pstSelectedRows);
+        selectedOrders = selectedIndices.map(idx => pstData[parseInt(idx)]).filter(Boolean);
+    }
+
+    if (selectedOrders.length === 0) {
+        alert('Please select at least one order to allocate lots.');
+        return;
+    }
+
+    pstLog(`Selected ${selectedOrders.length} orders for lot allocation`, 'info');
+
+    // Filter only S2V orders (Store to Van)
+    const s2vOrders = selectedOrders.filter(order => {
+        const trxType = (order.trx_type || '').toUpperCase();
+        return trxType === 'S2V' || trxType === 'STORE TO VAN' || trxType.includes('STORE');
+    });
+
+    if (s2vOrders.length === 0) {
+        alert('No Store to Van orders selected. This function only works for Store to Van order types.');
+        return;
+    }
+
+    pstLog(`Found ${s2vOrders.length} S2V orders out of ${selectedOrders.length} selected`, 'info');
+
+    // Create progress dialog
+    const dialogHtml = `
+        <div id="pst-s2v-allocate-dialog" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 25000; display: flex; align-items: center; justify-content: center;">
+            <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 90%; max-width: 800px; max-height: 80vh; display: flex; flex-direction: column;">
+                <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">
+                        <i class="fas fa-boxes" style="color: #10b981;"></i> Allocate Lots for Store to Van Orders
+                    </h3>
+                    <button onclick="closePstS2VDialog()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; padding: 0; width: 30px; height: 30px;">×</button>
+                </div>
+                <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                    <div style="margin-bottom: 1rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px;">
+                        <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">Processing ${s2vOrders.length} Store to Van Order(s)</div>
+                        <div style="font-size: 0.875rem; color: #047857;">Calling Allocate Lots API for each transaction...</div>
+                    </div>
+                    <div id="pst-s2v-progress-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        ${s2vOrders.map((order, index) => {
+                            const orderNumber = order.trx_number || 'Unknown';
+                            return `
+                                <div id="pst-s2v-item-${index}" style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                        <div style="font-weight: 600; color: #1f2937;">#${index + 1}: ${orderNumber}</div>
+                                        <div id="pst-s2v-status-${index}" style="display: flex; align-items: center; gap: 0.5rem;">
+                                            <i class="fas fa-clock" style="color: #9ca3af;"></i>
+                                            <span style="color: #6b7280; font-size: 0.875rem;">Waiting...</span>
+                                        </div>
+                                    </div>
+                                    <div id="pst-s2v-details-${index}" style="font-size: 0.875rem; color: #6b7280;"></div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
+                    <div id="pst-s2v-summary" style="font-size: 0.875rem; color: #6b7280;">Ready to process...</div>
+                    <button onclick="closePstS2VDialog()" style="background: #e5e7eb; color: #374151; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.875rem; font-weight: 600;">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Add dialog to DOM
+    const dialogDiv = document.createElement('div');
+    dialogDiv.innerHTML = dialogHtml;
+    document.body.appendChild(dialogDiv);
+
+    // Process each S2V order
+    processPstS2VOrders(s2vOrders, 0);
+}
+
+// Close S2V Dialog
+function closePstS2VDialog() {
+    const dialog = document.getElementById('pst-s2v-allocate-dialog');
+    if (dialog) dialog.parentElement.remove();
+}
+
+// Process S2V orders sequentially
+function processPstS2VOrders(orders, index) {
+    if (index >= orders.length) {
+        // All done
+        const summaryEl = document.getElementById('pst-s2v-summary');
+        if (summaryEl) {
+            summaryEl.innerHTML = '<span style="color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> All orders processed!</span>';
+        }
+        return;
+    }
+
+    const order = orders[index];
+    const orderNumber = order.trx_number || 'Unknown';
+    const fusionInstance = localStorage.getItem('fusionInstance') || 'PROD';
+
+    // Update status to processing
+    const statusDiv = document.getElementById(`pst-s2v-status-${index}`);
+    if (statusDiv) {
+        statusDiv.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="color: #3b82f6;"></i><span style="color: #3b82f6; font-size: 0.875rem;">Processing...</span>';
+    }
+
+    // Update summary
+    const summaryEl = document.getElementById('pst-s2v-summary');
+    if (summaryEl) {
+        summaryEl.innerHTML = `Processing ${index + 1} of ${orders.length}...`;
+    }
+
+    // Prepare POST data
+    const postData = {
+        p_trx_number: orderNumber,
+        p_instance_name: fusionInstance
+    };
+
+    const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
+
+    pstLog(`Processing order ${index + 1}/${orders.length}: ${orderNumber}`, 'info');
+
+    // Call API
+    sendMessageToCSharp({
+        action: 'executePost',
+        fullUrl: apiUrl,
+        body: JSON.stringify(postData)
+    }, function(error, data) {
+        const detailsDiv = document.getElementById(`pst-s2v-details-${index}`);
+
+        if (error) {
+            // Error
+            if (statusDiv) {
+                statusDiv.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i><span style="color: #ef4444; font-size: 0.875rem;">Failed</span>';
+            }
+            if (detailsDiv) {
+                detailsDiv.innerHTML = `<div style="color: #ef4444;">Error: ${error}</div>`;
+            }
+            pstLog(`Error allocating lots for ${orderNumber}: ${error}`, 'error');
+
+            // Process next order
+            setTimeout(() => processPstS2VOrders(orders, index + 1), 500);
+        } else {
+            try {
+                const response = typeof data === 'string' ? JSON.parse(data) : data;
+
+                if (response.success) {
+                    const recordCount = response.recordCount || 0;
+                    if (statusDiv) {
+                        statusDiv.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i><span style="color: #10b981; font-size: 0.875rem;">Success</span>';
+                    }
+                    if (detailsDiv) {
+                        detailsDiv.innerHTML = `
+                            <div style="color: #10b981;">✓ ${response.message || 'Success'}</div>
+                            <div style="color: #059669; margin-top: 0.25rem;"><strong>${recordCount}</strong> record(s) allocated</div>
+                        `;
+                    }
+                    pstLog(`Allocated ${recordCount} lots for ${orderNumber}`, 'success');
+                } else {
+                    if (statusDiv) {
+                        statusDiv.innerHTML = '<i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i><span style="color: #f59e0b; font-size: 0.875rem;">Warning</span>';
+                    }
+                    if (detailsDiv) {
+                        detailsDiv.innerHTML = `<div style="color: #f59e0b;">${response.message || 'Unknown error'}</div>`;
+                    }
+                    pstLog(`Warning for ${orderNumber}: ${response.message}`, 'warn');
+                }
+            } catch (parseError) {
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i><span style="color: #f59e0b; font-size: 0.875rem;">Parse Error</span>';
+                }
+                if (detailsDiv) {
+                    detailsDiv.innerHTML = `<div style="color: #f59e0b;">Parse Error: ${parseError.message}</div>`;
+                }
+                pstLog(`Parse error for ${orderNumber}: ${parseError.message}`, 'error');
+            }
+
+            // Process next order
+            setTimeout(() => processPstS2VOrders(orders, index + 1), 500);
+        }
+    });
+}
+
+// Expose functions globally
+window.assignPickerForPst = assignPickerForPst;
+window.allocateLotsForPst = allocateLotsForPst;
+window.closePstAssignPickerDialog = closePstAssignPickerDialog;
+window.submitPstAssignPicker = submitPstAssignPicker;
+window.closePstS2VDialog = closePstS2VDialog;
