@@ -407,7 +407,7 @@ namespace WMSApp.MRA
 
                 System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Line {lineNumber}: Status = '{status}'");
 
-                if (status != "CLOSED" && status != "AWAIT_BILLING" && status != "BILLED" && status != "SHIPPED")
+                if (status != "CLOSED" && status != "AWAIT_BILLING" && status != "BILLED" && status != "SHIPPED" && status != "CANCELED")
                 {
                     result.AllLinesClosed = false;
                     result.OpenLines.Add($"Line {lineNumber}: {status}");
