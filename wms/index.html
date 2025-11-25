@@ -1800,6 +1800,22 @@
             <!-- Pending Store Transactions Page -->
             <div id="pending-store-transactions" class="page-content" style="display: none;">
                 <div style="padding: 1rem;">
+                    <!-- KPI Cards (Small, at top) -->
+                    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.5rem 1rem; border-radius: 6px;">
+                            <span style="font-size: 16px; font-weight: 700; color: white;" id="pst-total-orders">0</span>
+                            <span style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600; margin-left: 0.3rem;">Orders</span>
+                        </div>
+                        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 0.5rem 1rem; border-radius: 6px;">
+                            <span style="font-size: 16px; font-weight: 700; color: white;" id="pst-total-lines">0</span>
+                            <span style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600; margin-left: 0.3rem;">Lines</span>
+                        </div>
+                        <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 0.5rem 1rem; border-radius: 6px;">
+                            <span style="font-size: 16px; font-weight: 700; color: white;" id="pst-selected-count">0</span>
+                            <span style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600; margin-left: 0.3rem;">Selected</span>
+                        </div>
+                    </div>
+
                     <!-- Filters Section -->
                     <div style="background: white; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                         <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
@@ -1823,22 +1839,6 @@
                                     <i class="fas fa-search" id="pst-fetch-icon"></i> Fetch Data
                                 </button>
                             </div>
-                        </div>
-                    </div>
-
-                    <!-- KPI Cards -->
-                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
-                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem 1.5rem; border-radius: 10px; min-width: 140px;">
-                            <div style="font-size: 24px; font-weight: 700; color: white;" id="pst-total-orders">0</div>
-                            <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600;">TOTAL ORDERS</div>
-                        </div>
-                        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 1rem 1.5rem; border-radius: 10px; min-width: 140px;">
-                            <div style="font-size: 24px; font-weight: 700; color: white;" id="pst-total-lines">0</div>
-                            <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600;">TOTAL LINES</div>
-                        </div>
-                        <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 1rem 1.5rem; border-radius: 10px; min-width: 140px;">
-                            <div style="font-size: 24px; font-weight: 700; color: white;" id="pst-selected-count">0</div>
-                            <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600;">SELECTED</div>
                         </div>
                     </div>
 
