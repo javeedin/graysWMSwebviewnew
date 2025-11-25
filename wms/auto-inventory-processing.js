@@ -1481,7 +1481,7 @@ async function retryTransactionById(transactionId) {
 async function cancelS2VLot(tripIndex, transactionIndex, lid) {
     // Validate LID
     if (!lid) {
-        showNotification('Cannot cancel: LID is missing', 'error');
+        
         addLogEntry('Cancel', 'Cannot cancel: LID is missing', 'error');
         return;
     }
@@ -1564,7 +1564,7 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
 
                     if (isSuccess) {
                         addLogEntry('Cancel', `Successfully cancelled line with LID: ${lid}`, 'success');
-                        showNotification(`Line ${lid} cancelled successfully`, 'success');
+                        
 
                         // Log the IDs we're looking for
                         addLogEntry('Cancel', `Looking for cancel-cell-${tripIndex}-${transactionIndex}`, 'info');
@@ -1614,7 +1614,7 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                         }
 
                         addLogEntry('Cancel', `Failed to cancel line ${lid}: ${errorMsg}`, 'error');
-                        showNotification(`Failed to cancel line: ${errorMsg}`, 'error');
+                        
 
                         // Re-query DOM element for fresh reference
                         const currentCancelCell = document.getElementById(`cancel-cell-${tripIndex}-${transactionIndex}`);
@@ -1659,7 +1659,7 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
 
             if (response.ok) {
                 addLogEntry('Cancel', `Successfully cancelled line with LID: ${lid}`, 'success');
-                showNotification(`Line ${lid} cancelled successfully`, 'success');
+                
                 if (cancelCell) {
                     cancelCell.innerHTML = `<span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Cancelled</span>`;
                 }
@@ -1670,7 +1670,7 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
     } catch (error) {
         console.error('[Cancel] Error:', error);
         addLogEntry('Cancel', `Error cancelling line ${lid}: ${error.message}`, 'error');
-        showNotification(`Error cancelling line: ${error.message}`, 'error');
+        
 
         // Restore cancel button
         if (cancelCell) {
