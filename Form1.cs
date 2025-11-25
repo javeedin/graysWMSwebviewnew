@@ -97,21 +97,20 @@ namespace WMSApp
             this.BackColor = Color.FromArgb(240, 240, 240);
         }
 
+        // Fixed installation path for web files
+        private const string INSTALL_PATH = @"C:\fusion\fusionclientweb";
+
         /// <summary>
         /// Gets the base path for web files (wms, gl, sync, etc.)
-        /// Supports both single-file published exe and development mode
+        /// Supports development mode and installed mode at C:\fusion\fusionclientweb
         /// </summary>
         private string GetWebFilesBasePath()
         {
-            // For single-file publishing, files are extracted next to the exe
-            // Use AppContext.BaseDirectory which works for both scenarios
-            string basePath = AppContext.BaseDirectory;
-
-            // Check if wms folder exists at base path (single-file/published mode)
-            if (Directory.Exists(Path.Combine(basePath, "wms")))
+            // Check if files are installed at fixed location
+            if (Directory.Exists(Path.Combine(INSTALL_PATH, "wms")))
             {
-                System.Diagnostics.Debug.WriteLine($"[Path] Using published path: {basePath}");
-                return basePath;
+                System.Diagnostics.Debug.WriteLine($"[Path] Using installed path: {INSTALL_PATH}");
+                return INSTALL_PATH;
             }
 
             // Development mode - go up from bin/Debug/net8.0-windows to repo root
@@ -122,9 +121,112 @@ namespace WMSApp
                 return devPath;
             }
 
+            // Check if files are in AppContext.BaseDirectory (single-file extracted to temp)
+            string basePath = AppContext.BaseDirectory;
+            if (Directory.Exists(Path.Combine(basePath, "wms")))
+            {
+                // Files found in temp extraction - install them to fixed location
+                System.Diagnostics.Debug.WriteLine($"[Path] Found files in temp, installing to: {INSTALL_PATH}");
+                InstallWebFiles(basePath, INSTALL_PATH);
+                return INSTALL_PATH;
+            }
+
             // Fallback to StartupPath
             System.Diagnostics.Debug.WriteLine($"[Path] Using fallback path: {Application.StartupPath}");
             return Application.StartupPath;
+        }
+
+        /// <summary>
+        /// Installs web files from source (temp extraction) to C:\fusion\fusionclientweb
+        /// </summary>
+        private void InstallWebFiles(string sourcePath, string destPath)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[Install] Installing web files from {sourcePath} to {destPath}");
+
+                // Create destination directory
+                if (!Directory.Exists(destPath))
+                {
+                    Directory.CreateDirectory(destPath);
+                }
+
+                // Folders to copy
+                string[] folders = { "wms", "gl", "sync", "ar", "ap", "om", "fa", "ca", "pos" };
+
+                foreach (string folder in folders)
+                {
+                    string sourceFolder = Path.Combine(sourcePath, folder);
+                    string destFolder = Path.Combine(destPath, folder);
+
+                    if (Directory.Exists(sourceFolder))
+                    {
+                        CopyDirectory(sourceFolder, destFolder);
+                        System.Diagnostics.Debug.WriteLine($"[Install] Copied {folder}");
+                    }
+                }
+
+                // Copy root files (index.html, app.js, etc.)
+                string[] rootFiles = { "index.html", "app.js", "config.js", "styles.css", "printer-management-new.js", "monitor-printing.js" };
+                foreach (string file in rootFiles)
+                {
+                    string sourceFile = Path.Combine(sourcePath, file);
+                    string destFile = Path.Combine(destPath, file);
+
+                    if (File.Exists(sourceFile))
+                    {
+                        File.Copy(sourceFile, destFile, true);
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[Install] Installation complete to {destPath}");
+                MessageBox.Show(
+                    $"Web files installed successfully to:\n{destPath}",
+                    "Installation Complete",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Install ERROR] Access denied to {destPath}");
+                MessageBox.Show(
+                    $"Cannot install to {destPath}\n\nAccess denied. Please run as Administrator.",
+                    "Installation Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Install ERROR] {ex.Message}");
+                MessageBox.Show(
+                    $"Failed to install web files to {destPath}\n\nError: {ex.Message}",
+                    "Installation Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        /// <summary>
+        /// Recursively copies a directory and all its contents
+        /// </summary>
+        private void CopyDirectory(string sourceDir, string destDir)
+        {
+            // Create destination directory
+            Directory.CreateDirectory(destDir);
+
+            // Copy all files
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string destFile = Path.Combine(destDir, Path.GetFileName(file));
+                File.Copy(file, destFile, true);
+            }
+
+            // Recursively copy subdirectories
+            foreach (string subDir in Directory.GetDirectories(sourceDir))
+            {
+                string destSubDir = Path.Combine(destDir, Path.GetFileName(subDir));
+                CopyDirectory(subDir, destSubDir);
+            }
         }
 
         private bool ShowLoginForm()
