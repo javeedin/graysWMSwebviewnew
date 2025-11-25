@@ -928,9 +928,105 @@ function processPstS2VOrders(orders, index) {
     });
 }
 
+// ============================================================================
+// EXPORT TO EXCEL
+// ============================================================================
+
+// Export Pending Store Transactions to Excel
+function exportPstToExcel() {
+    pstLog('Export to Excel clicked', 'info');
+
+    if (!pstData || pstData.length === 0) {
+        alert('No data to export. Please fetch data first.');
+        return;
+    }
+
+    // Check if ExcelJS is available
+    if (typeof ExcelJS === 'undefined') {
+        alert('ExcelJS library not loaded. Please refresh the page.');
+        return;
+    }
+
+    pstLog(`Exporting ${pstData.length} records to Excel...`, 'info');
+
+    try {
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Pending Store Transactions');
+
+        // Define columns
+        worksheet.columns = [
+            { header: 'Order #', key: 'trx_number', width: 15 },
+            { header: 'Date', key: 'trx_date', width: 12 },
+            { header: 'Type', key: 'trx_type', width: 15 },
+            { header: 'Source Org', key: 'source_org_code', width: 12 },
+            { header: 'From', key: 'source_sub_inv', width: 15 },
+            { header: 'Dest Org', key: 'dest_org_code', width: 12 },
+            { header: 'To', key: 'dest_sub_inv', width: 15 },
+            { header: 'Items', key: 'total_items', width: 10 },
+            { header: 'Status', key: 'transaction_status', width: 15 }
+        ];
+
+        // Style header row
+        worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        worksheet.getRow(1).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF667eea' }
+        };
+        worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
+
+        // Add data rows
+        pstData.forEach(item => {
+            worksheet.addRow({
+                trx_number: item.trx_number || '',
+                trx_date: item.trx_date || '',
+                trx_type: item.trx_type || '',
+                source_org_code: item.source_org_code || '',
+                source_sub_inv: item.source_sub_inv || '',
+                dest_org_code: item.dest_org_code || '',
+                dest_sub_inv: item.dest_sub_inv || '',
+                total_items: item.total_items || 0,
+                transaction_status: item.transaction_status || ''
+            });
+        });
+
+        // Add borders to all cells
+        worksheet.eachRow((row, rowNumber) => {
+            row.eachCell((cell) => {
+                cell.border = {
+                    top: { style: 'thin' },
+                    left: { style: 'thin' },
+                    bottom: { style: 'thin' },
+                    right: { style: 'thin' }
+                };
+            });
+        });
+
+        // Generate filename with timestamp
+        const now = new Date();
+        const timestamp = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const filename = `PendingStoreTransactions_${timestamp}.xlsx`;
+
+        // Write to buffer and download
+        workbook.xlsx.writeBuffer().then(buffer => {
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            saveAs(blob, filename);
+            pstLog(`Exported ${pstData.length} records to ${filename}`, 'success');
+        }).catch(err => {
+            pstLog(`Export error: ${err.message}`, 'error');
+            alert('Error exporting to Excel: ' + err.message);
+        });
+
+    } catch (error) {
+        pstLog(`Export error: ${error.message}`, 'error');
+        alert('Error exporting to Excel: ' + error.message);
+    }
+}
+
 // Expose functions globally
 window.assignPickerForPst = assignPickerForPst;
 window.allocateLotsForPst = allocateLotsForPst;
 window.closePstAssignPickerDialog = closePstAssignPickerDialog;
 window.submitPstAssignPicker = submitPstAssignPicker;
 window.closePstS2VDialog = closePstS2VDialog;
+window.exportPstToExcel = exportPstToExcel;
