@@ -935,20 +935,29 @@ function stopProcessing() {
 
 // Update current processing display
 function updateCurrentProcessingDisplay() {
+    console.log('[Processing] Updating display - Trip:', currentProcessingTrip, 'TripId:', currentProcessingTripId, 'Order:', currentProcessingOrder);
+
     const tripElement = document.getElementById('current-trip');
     const tripIdElement = document.getElementById('current-trip-id');
     const orderElement = document.getElementById('current-order');
+    const statusDisplay = document.getElementById('current-processing-status');
 
-    if (tripElement && currentProcessingTrip) {
-        tripElement.textContent = currentProcessingTrip;
+    // Make sure floating icon is visible
+    if (statusDisplay && statusDisplay.style.display !== 'flex') {
+        statusDisplay.style.display = 'flex';
+        console.log('[Processing] Showing floating status icon');
     }
 
-    if (tripIdElement && currentProcessingTripId) {
-        tripIdElement.textContent = currentProcessingTripId;
+    if (tripElement) {
+        tripElement.textContent = currentProcessingTrip || '-';
     }
 
-    if (orderElement && currentProcessingOrder) {
-        orderElement.textContent = currentProcessingOrder;
+    if (tripIdElement) {
+        tripIdElement.textContent = currentProcessingTripId || '-';
+    }
+
+    if (orderElement) {
+        orderElement.textContent = currentProcessingOrder || '-';
     }
 }
 
@@ -1028,13 +1037,21 @@ async function processNextBatch() {
     addLogEntry('Debug', `Total records in data: ${autoProcessingData.length}`, 'info');
     addLogEntry('Debug', `Selected trips for processing: ${Array.from(selectedTripsForProcessing).join(', ')}`, 'info');
 
+    // Log sample trip_id from data for debugging
+    if (autoProcessingData.length > 0) {
+        const sampleTripId = autoProcessingData[0].trip_id;
+        addLogEntry('Debug', `Sample trip_id from data: "${sampleTripId}" (type: ${typeof sampleTripId})`, 'info');
+    }
+
     // Find pending transactions (case-insensitive check) and not bypassed
     // ONLY process transactions from SELECTED trips
+    // Convert trip_id to string for comparison since Set stores strings
     const pendingTransactions = autoProcessingData.filter(t => {
         const status = (t.transaction_status || '').toUpperCase();
         const isPending = !t.transaction_status || status === '' || status === 'PENDING';
         const isNotBypassed = !t.bypassed; // Skip bypassed transactions
-        const isSelectedTrip = selectedTripsForProcessing.has(t.trip_id); // Only selected trips
+        const tripIdStr = String(t.trip_id); // Convert to string for comparison
+        const isSelectedTrip = selectedTripsForProcessing.has(tripIdStr); // Only selected trips
         return isPending && isNotBypassed && isSelectedTrip;
     });
 
@@ -1082,9 +1099,11 @@ async function processNextBatch() {
 
             // Update current processing status
             const firstTransaction = orderTransactions[0];
-            currentProcessingTrip = firstTransaction.trip_number;
-            currentProcessingTripId = firstTransaction.trip_id;
+            // Use trip_id for both since trip_number may not exist in the data
+            currentProcessingTrip = firstTransaction.trip_id || firstTransaction.trip_number || '-';
+            currentProcessingTripId = firstTransaction.trip_id || '-';
             currentProcessingOrder = orderNumber;
+            console.log('[Processing] Current: Trip=' + currentProcessingTrip + ', TripId=' + currentProcessingTripId + ', Order=' + currentProcessingOrder);
             updateCurrentProcessingDisplay();
 
             addLogEntry('Order', `Processing Order: ${orderNumber} (${orderTransactions.length} lines)`, 'info');
