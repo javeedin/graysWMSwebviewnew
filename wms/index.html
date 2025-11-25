@@ -146,6 +146,10 @@
                 <i class="fas fa-robot"></i>
                 <span>Auto Inventory Processing</span>
             </div>
+            <div class="menu-item" data-page="pending-store-transactions">
+                <i class="fas fa-warehouse"></i>
+                <span>Pending Store Transactions</span>
+            </div>
             <div class="menu-item" data-page="printer-setup-new">
                 <i class="fas fa-print"></i>
                 <span>Printer Setups</span>
@@ -1792,6 +1796,85 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Pending Store Transactions Page -->
+            <div id="pending-store-transactions" class="page-content" style="display: none;">
+                <div style="padding: 1.5rem;">
+                    <!-- Page Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <div>
+                            <h2 style="margin: 0; color: #1e293b; font-size: 20px; font-weight: 700;">
+                                <i class="fas fa-warehouse" style="color: #667eea; margin-right: 0.5rem;"></i>
+                                Pending Store Transactions
+                            </h2>
+                            <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 12px;">View and manage pending S2V transactions</p>
+                        </div>
+                    </div>
+
+                    <!-- Filters Section -->
+                    <div style="background: white; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                        <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+                            <div style="flex: 1; min-width: 150px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Source Org Code</label>
+                                <select id="pst-source-org" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                                    <option value="GIC">GIC</option>
+                                    <option value="GPC">GPC</option>
+                                </select>
+                            </div>
+                            <div style="flex: 1; min-width: 150px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">From Date</label>
+                                <input type="date" id="pst-from-date" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div style="flex: 1; min-width: 150px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">To Date</label>
+                                <input type="date" id="pst-to-date" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div style="flex-shrink: 0;">
+                                <button onclick="fetchPendingStoreTransactions()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-search" id="pst-fetch-icon"></i> Fetch Data
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KPI Cards -->
+                    <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 1rem 1.5rem; border-radius: 10px; min-width: 140px;">
+                            <div style="font-size: 24px; font-weight: 700; color: white;" id="pst-total-orders">0</div>
+                            <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600;">TOTAL ORDERS</div>
+                        </div>
+                        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 1rem 1.5rem; border-radius: 10px; min-width: 140px;">
+                            <div style="font-size: 24px; font-weight: 700; color: white;" id="pst-total-lines">0</div>
+                            <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600;">TOTAL LINES</div>
+                        </div>
+                        <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 1rem 1.5rem; border-radius: 10px; min-width: 140px;">
+                            <div style="font-size: 24px; font-weight: 700; color: white;" id="pst-selected-count">0</div>
+                            <div style="font-size: 11px; color: rgba(255,255,255,0.9); font-weight: 600;">SELECTED</div>
+                        </div>
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div style="background: white; border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: flex; gap: 0.75rem; align-items: center;">
+                        <button onclick="addSelectedToTrip()" style="background: #10b981; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+                            <i class="fas fa-plus-circle"></i> Add to Trip
+                        </button>
+                        <button onclick="selectAllPstRows()" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+                            <i class="fas fa-check-square"></i> Select All
+                        </button>
+                        <button onclick="deselectAllPstRows()" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+                            <i class="fas fa-square"></i> Deselect All
+                        </button>
+                        <div style="margin-left: auto; font-size: 11px; color: #64748b;">
+                            <span id="pst-last-fetch">Last fetched: Never</span>
+                        </div>
+                    </div>
+
+                    <!-- DevExpress Grid Container -->
+                    <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden;">
+                        <div id="pst-grid-container" style="height: 500px;"></div>
+                    </div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -2386,6 +2469,11 @@
     <!-- Auto Inventory Processing Script -->
     <script>
         document.write('<script src="auto-inventory-processing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
+
+    <!-- Pending Store Transactions Script -->
+    <script>
+        document.write('<script src="pending-store-transactions.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 
     <!-- Floating Current Processing Status Icon -->
