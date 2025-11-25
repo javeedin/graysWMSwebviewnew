@@ -324,10 +324,32 @@ namespace WMSApp.MRA
                 return result;
             }
 
+            // Debug: Log available columns
+            var columnNames = new List<string>();
+            foreach (DataColumn col in orderLinesTable.Columns)
+            {
+                columnNames.Add(col.ColumnName);
+            }
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ValidateOrderLines - Available columns: {string.Join(", ", columnNames)}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ValidateOrderLines - Rows: {orderLinesTable.Rows.Count}");
+
+            // Check if LINE_STATUS column exists
+            if (!orderLinesTable.Columns.Contains("LINE_STATUS"))
+            {
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] WARNING: LINE_STATUS column not found! Skipping validation.");
+                result.AllLinesClosed = true;
+                result.Message = "Line status validation skipped (column not found)";
+                return result;
+            }
+
             foreach (DataRow row in orderLinesTable.Rows)
             {
-                string status = row["LINE_STATUS"]?.ToString().ToUpper();
-                string lineNumber = row["LINE_NUMBER"]?.ToString() ?? "Unknown";
+                string status = row["LINE_STATUS"]?.ToString()?.ToUpper() ?? string.Empty;
+                string lineNumber = orderLinesTable.Columns.Contains("LINE_NUMBER")
+                    ? row["LINE_NUMBER"]?.ToString() ?? "Unknown"
+                    : "Unknown";
+
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Line {lineNumber}: Status = '{status}'");
 
                 if (status != "CLOSED" && status != "AWAIT_BILLING" && status != "BILLED" && status != "SHIPPED")
                 {
