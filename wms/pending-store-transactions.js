@@ -8,266 +8,379 @@
 let pstData = [];
 let pstSelectedRows = new Set();
 let pstGridInstance = null;
+let pstDebugEnabled = false;
 
 // Initialize page on load
 document.addEventListener('DOMContentLoaded', function() {
     initializePendingStoreTransactions();
+
+    // Set page title in toolbar when this page is shown
+    const menuItems = document.querySelectorAll('.menu-item');
+    menuItems.forEach(item => {
+        item.addEventListener('click', function() {
+            const pageId = this.getAttribute('data-page');
+            if (pageId === 'pending-store-transactions') {
+                const pageTitleElement = document.getElementById('current-page-title');
+                if (pageTitleElement) {
+                    pageTitleElement.textContent = 'Pending Transactions';
+                }
+            }
+        });
+    });
 });
+
+// Debug logging
+function pstLog(message, type = 'info') {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = `[${timestamp}] ${message}`;
+
+    console.log(`[PST] ${message}`);
+
+    // Add to debug panel
+    const debugLog = document.getElementById('pst-debug-log');
+    if (debugLog) {
+        const color = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : type === 'warn' ? '#f59e0b' : '#94a3b8';
+        debugLog.innerHTML += `<div style="color: ${color}; margin-bottom: 2px;">${logMessage}</div>`;
+        debugLog.scrollTop = debugLog.scrollHeight;
+    }
+}
+
+// Toggle debug panel
+function togglePstDebug() {
+    const panel = document.getElementById('pst-debug-panel');
+    if (panel) {
+        pstDebugEnabled = panel.style.display === 'none';
+        panel.style.display = pstDebugEnabled ? 'block' : 'none';
+        if (pstDebugEnabled) {
+            pstLog('Debug panel enabled', 'info');
+        }
+    }
+}
 
 // Initialize the page
 function initializePendingStoreTransactions() {
     // Set default dates (today)
     const today = new Date().toISOString().split('T')[0];
-    document.getElementById('pst-from-date').value = today;
-    document.getElementById('pst-to-date').value = today;
+    const fromDateEl = document.getElementById('pst-from-date');
+    const toDateEl = document.getElementById('pst-to-date');
+
+    if (fromDateEl) fromDateEl.value = today;
+    if (toDateEl) toDateEl.value = today;
 
     // Initialize empty grid
     initializePstGrid([]);
 
-    console.log('[PST] Pending Store Transactions initialized');
+    pstLog('Page initialized', 'success');
 }
 
 // Fetch pending store transactions from API
-async function fetchPendingStoreTransactions() {
-    const sourceOrg = document.getElementById('pst-source-org').value;
-    const fromDate = document.getElementById('pst-from-date').value;
-    const toDate = document.getElementById('pst-to-date').value;
+function fetchPendingStoreTransactions() {
+    const sourceOrg = document.getElementById('pst-source-org')?.value || 'GIC';
+    const fromDate = document.getElementById('pst-from-date')?.value;
+    const toDate = document.getElementById('pst-to-date')?.value;
 
     if (!fromDate || !toDate) {
         alert('Please select both From Date and To Date');
         return;
     }
 
+    // Show debug panel automatically on fetch
+    const debugPanel = document.getElementById('pst-debug-panel');
+    if (debugPanel) debugPanel.style.display = 'block';
+
     // Show loading state
     const fetchIcon = document.getElementById('pst-fetch-icon');
-    fetchIcon.className = 'fas fa-spinner fa-spin';
+    if (fetchIcon) fetchIcon.className = 'fas fa-spinner fa-spin';
 
     const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/PendingS2Vtransactions?P_SOURCE_ORG=${sourceOrg}&P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}`;
 
-    console.log('[PST] Fetching from:', apiUrl);
+    pstLog(`Fetching data...`, 'info');
+    pstLog(`Source Org: ${sourceOrg}`, 'info');
+    pstLog(`Date Range: ${fromDate} to ${toDate}`, 'info');
+    pstLog(`API URL: ${apiUrl}`, 'info');
 
-    try {
-        // Use C# REST handler via WebView
-        window.chrome.webview.postMessage({
-            type: 'REST_API_CALL',
-            url: apiUrl,
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' },
-            callbackId: 'pst-fetch-data'
-        });
+    // Check if sendMessageToCSharp is available
+    if (typeof sendMessageToCSharp !== 'function') {
+        pstLog('ERROR: sendMessageToCSharp function not available!', 'error');
+        pstLog('Trying alternative WebView method...', 'warn');
 
-        // Listen for response
-        const handleResponse = (event) => {
-            const data = event.data;
-            if (data.callbackId === 'pst-fetch-data') {
-                window.chrome.webview.removeEventListener('message', handleResponse);
-
-                fetchIcon.className = 'fas fa-search';
-
-                try {
-                    let responseData = data.data;
-                    if (typeof responseData === 'string') {
-                        // Fix potential JSON issues
-                        responseData = responseData.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
-                        responseData = JSON.parse(responseData);
-                    }
-
-                    pstData = responseData.items || responseData || [];
-                    console.log('[PST] Fetched', pstData.length, 'records');
-
-                    // Clear selections
-                    pstSelectedRows.clear();
-
-                    // Update KPI cards
-                    updatePstKpiCards();
-
-                    // Refresh grid
-                    initializePstGrid(pstData);
-
-                    // Update last fetch time
-                    document.getElementById('pst-last-fetch').textContent =
-                        'Last fetched: ' + new Date().toLocaleTimeString();
-
-                } catch (e) {
-                    console.error('[PST] Parse error:', e);
-                    alert('Error parsing response data');
-                }
-            }
-        };
-
-        window.chrome.webview.addEventListener('message', handleResponse);
-
-    } catch (error) {
-        console.error('[PST] Fetch error:', error);
-        fetchIcon.className = 'fas fa-search';
-        alert('Error fetching data: ' + error.message);
+        // Try alternative method
+        fetchPendingStoreTransactionsAlt(apiUrl);
+        return;
     }
+
+    pstLog('Using sendMessageToCSharp...', 'info');
+
+    sendMessageToCSharp({
+        action: "executeGet",
+        fullUrl: apiUrl
+    }, function(error, data) {
+        // Reset icon
+        if (fetchIcon) fetchIcon.className = 'fas fa-search';
+
+        if (error) {
+            pstLog(`Error: ${error}`, 'error');
+            alert('Error fetching data: ' + error);
+            return;
+        }
+
+        pstLog('Response received!', 'success');
+        pstLog(`Raw data type: ${typeof data}`, 'info');
+
+        try {
+            let responseData = data;
+
+            if (typeof responseData === 'string') {
+                pstLog('Parsing string response...', 'info');
+                // Fix potential JSON issues
+                responseData = responseData.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+                responseData = JSON.parse(responseData);
+            }
+
+            pstLog(`Response keys: ${Object.keys(responseData || {}).join(', ')}`, 'info');
+
+            // Try different data structures
+            if (responseData.items) {
+                pstData = responseData.items;
+                pstLog(`Found ${pstData.length} items in response.items`, 'success');
+            } else if (Array.isArray(responseData)) {
+                pstData = responseData;
+                pstLog(`Found ${pstData.length} items (array)`, 'success');
+            } else {
+                pstData = [];
+                pstLog('No items found in response', 'warn');
+                pstLog(`Response preview: ${JSON.stringify(responseData).substring(0, 200)}...`, 'info');
+            }
+
+            // Clear selections
+            pstSelectedRows.clear();
+
+            // Update KPI cards
+            updatePstKpiCards();
+
+            // Refresh grid
+            initializePstGrid(pstData);
+
+            // Update last fetch time
+            const lastFetch = document.getElementById('pst-last-fetch');
+            if (lastFetch) {
+                lastFetch.textContent = 'Last fetched: ' + new Date().toLocaleTimeString();
+            }
+
+        } catch (e) {
+            pstLog(`Parse error: ${e.message}`, 'error');
+            console.error('[PST] Parse error:', e);
+            alert('Error parsing response data: ' + e.message);
+        }
+    });
+}
+
+// Alternative fetch method using WebView directly
+function fetchPendingStoreTransactionsAlt(apiUrl) {
+    pstLog('Using alternative WebView postMessage...', 'info');
+
+    if (!window.chrome?.webview) {
+        pstLog('ERROR: WebView not available!', 'error');
+        const fetchIcon = document.getElementById('pst-fetch-icon');
+        if (fetchIcon) fetchIcon.className = 'fas fa-search';
+        return;
+    }
+
+    const callbackId = 'pst-fetch-' + Date.now();
+    pstLog(`Callback ID: ${callbackId}`, 'info');
+
+    // Setup timeout
+    const timeout = setTimeout(() => {
+        pstLog('Request timeout after 30 seconds!', 'error');
+        const fetchIcon = document.getElementById('pst-fetch-icon');
+        if (fetchIcon) fetchIcon.className = 'fas fa-search';
+    }, 30000);
+
+    const handleResponse = (event) => {
+        const data = event.data;
+        pstLog(`Message received: ${JSON.stringify(data).substring(0, 100)}...`, 'info');
+
+        if (data.callbackId === callbackId || data.requestId === callbackId) {
+            clearTimeout(timeout);
+            window.chrome.webview.removeEventListener('message', handleResponse);
+
+            const fetchIcon = document.getElementById('pst-fetch-icon');
+            if (fetchIcon) fetchIcon.className = 'fas fa-search';
+
+            pstLog('Matched response received!', 'success');
+
+            try {
+                let responseData = data.data || data.response || data;
+                if (typeof responseData === 'string') {
+                    responseData = responseData.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+                    responseData = JSON.parse(responseData);
+                }
+
+                pstData = responseData.items || responseData || [];
+                pstLog(`Fetched ${pstData.length} records`, 'success');
+
+                pstSelectedRows.clear();
+                updatePstKpiCards();
+                initializePstGrid(pstData);
+
+                const lastFetch = document.getElementById('pst-last-fetch');
+                if (lastFetch) {
+                    lastFetch.textContent = 'Last fetched: ' + new Date().toLocaleTimeString();
+                }
+            } catch (e) {
+                pstLog(`Parse error: ${e.message}`, 'error');
+            }
+        }
+    };
+
+    window.chrome.webview.addEventListener('message', handleResponse);
+
+    // Try REST_API_CALL format
+    window.chrome.webview.postMessage({
+        type: 'REST_API_CALL',
+        action: 'executeGet',
+        url: apiUrl,
+        fullUrl: apiUrl,
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        callbackId: callbackId,
+        requestId: callbackId
+    });
+
+    pstLog('Message posted to WebView', 'info');
 }
 
 // Update KPI cards
 function updatePstKpiCards() {
     // Total Lines
-    document.getElementById('pst-total-lines').textContent = pstData.length;
+    const totalLines = document.getElementById('pst-total-lines');
+    if (totalLines) totalLines.textContent = pstData.length;
 
     // Total Orders (distinct order numbers)
     const distinctOrders = [...new Set(pstData.map(t => t.TRX_NUMBER || t.trx_number).filter(Boolean))];
-    document.getElementById('pst-total-orders').textContent = distinctOrders.length;
+    const totalOrders = document.getElementById('pst-total-orders');
+    if (totalOrders) totalOrders.textContent = distinctOrders.length;
 
     // Selected count
-    document.getElementById('pst-selected-count').textContent = pstSelectedRows.size;
+    const selectedCount = document.getElementById('pst-selected-count');
+    if (selectedCount) selectedCount.textContent = pstSelectedRows.size;
+
+    pstLog(`KPI: ${distinctOrders.length} orders, ${pstData.length} lines, ${pstSelectedRows.size} selected`, 'info');
 }
 
 // Initialize DevExpress Grid
 function initializePstGrid(data) {
     const container = document.getElementById('pst-grid-container');
+    if (!container) {
+        pstLog('Grid container not found!', 'error');
+        return;
+    }
 
     // Check if DevExtreme is available
-    if (typeof DevExpress === 'undefined') {
-        // Fallback to HTML table if DevExtreme not available
+    if (typeof DevExpress === 'undefined' || !DevExpress.ui?.dxDataGrid) {
+        pstLog('DevExtreme not available, using fallback table', 'warn');
         renderFallbackTable(data);
         return;
     }
 
+    pstLog('Initializing DevExpress Grid...', 'info');
+
     // Destroy existing grid instance
     if (pstGridInstance) {
         pstGridInstance.dispose();
+        pstGridInstance = null;
     }
 
-    // Create DevExpress DataGrid
-    pstGridInstance = new DevExpress.ui.dxDataGrid(container, {
-        dataSource: data,
-        keyExpr: 'LID',
-        showBorders: true,
-        showRowLines: true,
-        rowAlternationEnabled: true,
-        allowColumnResizing: true,
-        columnAutoWidth: true,
-        wordWrapEnabled: false,
-        height: '100%',
-        selection: {
-            mode: 'multiple',
-            showCheckBoxesMode: 'always'
-        },
-        onSelectionChanged: function(e) {
-            pstSelectedRows = new Set(e.selectedRowKeys);
-            document.getElementById('pst-selected-count').textContent = pstSelectedRows.size;
-        },
-        paging: {
-            pageSize: 50
-        },
-        pager: {
-            showPageSizeSelector: true,
-            allowedPageSizes: [25, 50, 100, 200],
-            showInfo: true
-        },
-        filterRow: {
-            visible: true
-        },
-        headerFilter: {
-            visible: true
-        },
-        searchPanel: {
-            visible: true,
-            width: 240,
-            placeholder: 'Search...'
-        },
-        columns: [
-            {
-                dataField: 'TRX_NUMBER',
-                caption: 'Order #',
-                width: 120,
-                cssClass: 'font-weight-bold'
+    try {
+        // Create DevExpress DataGrid
+        pstGridInstance = new DevExpress.ui.dxDataGrid(container, {
+            dataSource: data,
+            keyExpr: 'LID',
+            showBorders: true,
+            showRowLines: true,
+            rowAlternationEnabled: true,
+            allowColumnResizing: true,
+            columnAutoWidth: true,
+            wordWrapEnabled: false,
+            height: '100%',
+            selection: {
+                mode: 'multiple',
+                showCheckBoxesMode: 'always'
             },
-            {
-                dataField: 'LID',
-                caption: 'LID',
-                width: 80
+            onSelectionChanged: function(e) {
+                pstSelectedRows = new Set(e.selectedRowKeys);
+                const selectedCount = document.getElementById('pst-selected-count');
+                if (selectedCount) selectedCount.textContent = pstSelectedRows.size;
             },
-            {
-                dataField: 'ITEM_CODE',
-                caption: 'Item Code',
-                width: 120
+            paging: {
+                pageSize: 50
             },
-            {
-                dataField: 'ITEM_DESC',
-                caption: 'Item Description',
-                width: 250
+            pager: {
+                showPageSizeSelector: true,
+                allowedPageSizes: [25, 50, 100, 200],
+                showInfo: true
             },
-            {
-                dataField: 'PICKED_QTY',
-                caption: 'Qty',
-                width: 70,
-                dataType: 'number',
-                alignment: 'center'
+            filterRow: {
+                visible: true
             },
-            {
-                dataField: 'LOT_NUMBER',
-                caption: 'Lot #',
-                width: 100
+            headerFilter: {
+                visible: true
             },
-            {
-                dataField: 'SOURCE_SUB_INV',
-                caption: 'From',
-                width: 80
+            searchPanel: {
+                visible: true,
+                width: 240,
+                placeholder: 'Search...'
             },
-            {
-                dataField: 'DEST_SUB_INV',
-                caption: 'To',
-                width: 80
-            },
-            {
-                dataField: 'TRANSACTION_DATE',
-                caption: 'Date',
-                width: 100,
-                dataType: 'date',
-                format: 'yyyy-MM-dd'
-            },
-            {
-                caption: 'Actions',
-                width: 120,
-                alignment: 'center',
-                cellTemplate: function(container, options) {
-                    const rowData = options.data;
-                    const actionDiv = document.createElement('div');
-                    actionDiv.style.display = 'flex';
-                    actionDiv.style.gap = '4px';
-                    actionDiv.style.justifyContent = 'center';
+            columns: [
+                { dataField: 'TRX_NUMBER', caption: 'Order #', width: 120 },
+                { dataField: 'LID', caption: 'LID', width: 80 },
+                { dataField: 'ITEM_CODE', caption: 'Item Code', width: 120 },
+                { dataField: 'ITEM_DESC', caption: 'Item Description', width: 250 },
+                { dataField: 'PICKED_QTY', caption: 'Qty', width: 70, dataType: 'number', alignment: 'center' },
+                { dataField: 'LOT_NUMBER', caption: 'Lot #', width: 100 },
+                { dataField: 'SOURCE_SUB_INV', caption: 'From', width: 80 },
+                { dataField: 'DEST_SUB_INV', caption: 'To', width: 80 },
+                {
+                    caption: 'Actions',
+                    width: 120,
+                    alignment: 'center',
+                    cellTemplate: function(container, options) {
+                        const rowData = options.data;
+                        const actionDiv = document.createElement('div');
+                        actionDiv.style.cssText = 'display: flex; gap: 4px; justify-content: center;';
 
-                    // Add to Trip button
-                    const addBtn = document.createElement('button');
-                    addBtn.innerHTML = '<i class="fas fa-plus"></i>';
-                    addBtn.title = 'Add to Trip';
-                    addBtn.style.cssText = 'background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;';
-                    addBtn.onclick = function(e) {
-                        e.stopPropagation();
-                        addSingleToTrip(rowData);
-                    };
+                        const addBtn = document.createElement('button');
+                        addBtn.innerHTML = '<i class="fas fa-plus"></i>';
+                        addBtn.title = 'Add to Trip';
+                        addBtn.style.cssText = 'background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;';
+                        addBtn.onclick = (e) => { e.stopPropagation(); addSingleToTrip(rowData); };
 
-                    // Edit button
-                    const editBtn = document.createElement('button');
-                    editBtn.innerHTML = '<i class="fas fa-edit"></i>';
-                    editBtn.title = 'Edit';
-                    editBtn.style.cssText = 'background: #667eea; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;';
-                    editBtn.onclick = function(e) {
-                        e.stopPropagation();
-                        editPstTransaction(rowData);
-                    };
+                        const editBtn = document.createElement('button');
+                        editBtn.innerHTML = '<i class="fas fa-edit"></i>';
+                        editBtn.title = 'Edit';
+                        editBtn.style.cssText = 'background: #667eea; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;';
+                        editBtn.onclick = (e) => { e.stopPropagation(); editPstTransaction(rowData); };
 
-                    actionDiv.appendChild(addBtn);
-                    actionDiv.appendChild(editBtn);
-                    container.appendChild(actionDiv);
+                        actionDiv.appendChild(addBtn);
+                        actionDiv.appendChild(editBtn);
+                        container.appendChild(actionDiv);
+                    }
                 }
+            ],
+            onContentReady: function(e) {
+                pstLog('Grid rendered successfully', 'success');
             }
-        ],
-        onContentReady: function(e) {
-            console.log('[PST] Grid content ready');
-        }
-    });
+        });
+    } catch (e) {
+        pstLog(`Grid error: ${e.message}`, 'error');
+        renderFallbackTable(data);
+    }
 }
 
 // Fallback HTML table if DevExtreme not available
 function renderFallbackTable(data) {
     const container = document.getElementById('pst-grid-container');
+    if (!container) return;
 
     if (data.length === 0) {
         container.innerHTML = `
@@ -337,13 +450,10 @@ function renderFallbackTable(data) {
         `;
     });
 
-    html += `
-                </tbody>
-            </table>
-        </div>
-    `;
-
+    html += `</tbody></table></div>`;
     container.innerHTML = html;
+
+    pstLog(`Fallback table rendered with ${data.length} rows`, 'success');
 }
 
 // Toggle all checkboxes
@@ -358,7 +468,8 @@ function toggleAllPstCheckboxes(checked) {
             pstSelectedRows.delete(lid);
         }
     });
-    document.getElementById('pst-selected-count').textContent = pstSelectedRows.size;
+    const selectedCount = document.getElementById('pst-selected-count');
+    if (selectedCount) selectedCount.textContent = pstSelectedRows.size;
 }
 
 // Toggle single row selection
@@ -368,7 +479,8 @@ function togglePstRowSelection(lid, checked) {
     } else {
         pstSelectedRows.delete(lid);
     }
-    document.getElementById('pst-selected-count').textContent = pstSelectedRows.size;
+    const selectedCount = document.getElementById('pst-selected-count');
+    if (selectedCount) selectedCount.textContent = pstSelectedRows.size;
 }
 
 // Select all rows
@@ -395,7 +507,7 @@ function deselectAllPstRows() {
 
 // Add single row to trip
 function addSingleToTrip(rowData) {
-    console.log('[PST] Adding single row to trip:', rowData);
+    pstLog(`Adding to trip: ${rowData.TRX_NUMBER || rowData.trx_number} - LID: ${rowData.LID || rowData.lid}`, 'info');
     // TODO: Implement add to trip modal/functionality
     alert('Add to Trip: ' + (rowData.TRX_NUMBER || rowData.trx_number) + ' - LID: ' + (rowData.LID || rowData.lid));
 }
@@ -412,14 +524,14 @@ function addSelectedToTrip() {
         selectedLids.includes(String(item.LID || item.lid))
     );
 
-    console.log('[PST] Adding', selectedData.length, 'rows to trip');
+    pstLog(`Adding ${selectedData.length} items to trip`, 'info');
     // TODO: Implement add to trip modal/functionality
     alert('Adding ' + selectedData.length + ' item(s) to trip');
 }
 
 // Edit transaction
 function editPstTransaction(rowData) {
-    console.log('[PST] Editing transaction:', rowData);
+    pstLog(`Editing: ${rowData.TRX_NUMBER || rowData.trx_number} - LID: ${rowData.LID || rowData.lid}`, 'info');
     // TODO: Implement edit modal/functionality
     alert('Edit: ' + (rowData.TRX_NUMBER || rowData.trx_number) + ' - LID: ' + (rowData.LID || rowData.lid));
 }
