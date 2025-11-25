@@ -214,54 +214,41 @@ namespace WMSApp.MRA
                 }
             }
 
-            // Check if THIS SPECIFIC ORDER has MRA_TRX_NO value
-            // Tables[0] = DATA_DS (parameters), Tables[1] = G_1 (order data)
+            // Tables[0] = parameters, Tables[1] = MRA data for this specific order
+            // If order is NOT interfaced → Tables[1] will have 0 rows
+            // If order IS interfaced → Tables[1] will have 1 row with MRA_TRX_NO
             bool isInterfaced = false;
             string mraTrxNo = string.Empty;
 
-            // Directly use Tables[1] which contains G_1 order data
+            // Check if Tables[1] exists
             if (reportResult.DataSet.Tables.Count > 1)
             {
-                DataTable ordersTable = reportResult.DataSet.Tables[1];
-                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1]: {ordersTable.TableName}, Rows: {ordersTable.Rows.Count}");
+                DataTable dtMRA = reportResult.DataSet.Tables[1];
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1] Rows: {dtMRA.Rows.Count}");
 
-                if (ordersTable.Rows.Count > 0 &&
-                    ordersTable.Columns.Contains("MRA_TRX_NO") &&
-                    ordersTable.Columns.Contains("SOURCE_ORDER_NUMBER"))
+                // If Tables[1] has rows, get MRA_TRX_NO from first row
+                if (dtMRA.Rows.Count > 0)
                 {
-                    // Search for our specific order number
-                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Searching for order: {orderNumber}");
+                    mraTrxNo = dtMRA.Rows[0]["MRA_TRX_NO"]?.ToString() ?? string.Empty;
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO: '{mraTrxNo}'");
 
-                    foreach (DataRow row in ordersTable.Rows)
+                    // If MRA_TRX_NO has value → already interfaced
+                    if (!string.IsNullOrWhiteSpace(mraTrxNo))
                     {
-                        string rowOrderNumber = row["SOURCE_ORDER_NUMBER"]?.ToString() ?? string.Empty;
-
-                        if (rowOrderNumber.Equals(orderNumber, StringComparison.OrdinalIgnoreCase))
-                        {
-                            mraTrxNo = row["MRA_TRX_NO"]?.ToString() ?? string.Empty;
-                            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] FOUND order {orderNumber}, MRA_TRX_NO: '{mraTrxNo}'");
-
-                            // Check if MRA_TRX_NO has a valid value (not empty, not just "[qrCode] =>")
-                            if (!string.IsNullOrWhiteSpace(mraTrxNo) && !mraTrxNo.StartsWith("[qrCode]"))
-                            {
-                                isInterfaced = true;
-                            }
-                            break;
-                        }
+                        isInterfaced = true;
                     }
                 }
-
-                if (!isInterfaced)
+                else
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order {orderNumber} not interfaced (not found or no valid MRA_TRX_NO)");
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1] is empty - order not interfaced");
                 }
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1] not available - Tables.Count: {reportResult.DataSet.Tables.Count}");
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1] not available - order not interfaced");
             }
 
-            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Result - IsInterfaced: {isInterfaced}, MRA_TRX_NO: '{mraTrxNo}'");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Result - IsInterfaced: {isInterfaced}");
 
             return new MRACheckResult
             {
