@@ -1566,16 +1566,21 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                         addLogEntry('Cancel', `Successfully cancelled line with LID: ${lid}`, 'success');
                         showNotification(`Line ${lid} cancelled successfully`, 'success');
 
+                        // Log the IDs we're looking for
+                        addLogEntry('Cancel', `Looking for cancel-cell-${tripIndex}-${transactionIndex}`, 'info');
+
                         // Re-query DOM elements to get fresh references
                         const currentCancelCell = document.getElementById(`cancel-cell-${tripIndex}-${transactionIndex}`);
                         const currentStatusCell = document.getElementById(`status-cell-${tripIndex}-${transactionIndex}`);
 
+                        addLogEntry('Cancel', `Cancel cell found: ${!!currentCancelCell}, Status cell found: ${!!currentStatusCell}`, 'info');
+
                         // Update the cancel cell to show cancelled status
                         if (currentCancelCell) {
                             currentCancelCell.innerHTML = `<span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Cancelled</span>`;
-                            console.log('[Cancel] Updated cancel cell to Cancelled');
+                            addLogEntry('Cancel', `Updated cancel cell to Cancelled`, 'success');
                         } else {
-                            console.log('[Cancel] WARNING: Cancel cell not found:', `cancel-cell-${tripIndex}-${transactionIndex}`);
+                            addLogEntry('Cancel', `WARNING: Cancel cell not found: cancel-cell-${tripIndex}-${transactionIndex}`, 'error');
                         }
 
                         // Update the status cell
@@ -1585,9 +1590,9 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                                     <i class="fas fa-ban"></i> CANCELLED
                                 </span>
                             `;
-                            console.log('[Cancel] Updated status cell to CANCELLED');
+                            addLogEntry('Cancel', `Updated status cell to CANCELLED`, 'success');
                         } else {
-                            console.log('[Cancel] WARNING: Status cell not found:', `status-cell-${tripIndex}-${transactionIndex}`);
+                            addLogEntry('Cancel', `WARNING: Status cell not found: status-cell-${tripIndex}-${transactionIndex}`, 'error');
                         }
 
                         // Update transaction status in data
