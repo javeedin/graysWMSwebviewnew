@@ -1533,18 +1533,30 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                         try {
                             // Fix invalid JSON with trailing commas (e.g., {"status": "SUCCESS",})
                             let jsonStr = typeof data.data === 'string' ? data.data : JSON.stringify(data.data);
+                            console.log('[Cancel] Original data.data:', jsonStr);
+                            addLogEntry('Cancel', `Raw response data: ${jsonStr}`, 'info');
+
                             jsonStr = jsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+                            console.log('[Cancel] After cleanup:', jsonStr);
 
                             responseBody = JSON.parse(jsonStr);
+                            console.log('[Cancel] Parsed responseBody:', responseBody);
+                            addLogEntry('Cancel', `Parsed status: ${responseBody?.status}`, 'info');
+
                             // Check if API returned status: "SUCCESS"
                             if (responseBody && responseBody.status === 'SUCCESS') {
                                 isSuccess = true;
+                                console.log('[Cancel] SUCCESS detected via JSON parse');
                             }
                         } catch (e) {
                             console.log('[Cancel] Response parse error:', e.message, 'Data:', data.data);
+                            addLogEntry('Cancel', `JSON parse error: ${e.message}`, 'error');
+
                             // Fallback: check if response contains "SUCCESS" string
-                            if (typeof data.data === 'string' && data.data.includes('"status"') && data.data.includes('"SUCCESS"')) {
+                            const dataStr = String(data.data);
+                            if (dataStr.includes('SUCCESS')) {
                                 console.log('[Cancel] Detected SUCCESS via string match');
+                                addLogEntry('Cancel', `SUCCESS detected via string match`, 'info');
                                 isSuccess = true;
                             }
                         }
