@@ -1987,128 +1987,259 @@ function applyFilters() {
     autoProcessingFilters.trxNumber = document.getElementById('filter-trx-number').value.toLowerCase();
     autoProcessingFilters.status = document.getElementById('filter-status').value.toUpperCase();
 
-    // Apply filters by hiding/showing rows
-    const groupedTrips = groupTransactionsByTrip();
+    // Check if any filter is applied
+    const hasAnyFilter = autoProcessingFilters.tripId ||
+                         autoProcessingFilters.itemDesc ||
+                         autoProcessingFilters.lid ||
+                         autoProcessingFilters.trxNumber ||
+                         autoProcessingFilters.status;
 
-    let firstMatchingTripIdx = -1;
-    let firstMatchingOrderIdx = -1;
-    let hasOrderSearch = autoProcessingFilters.trxNumber !== '';
+    if (!hasAnyFilter) {
+        // No filters, show grouped view
+        clearFilters();
+        return;
+    }
 
-    groupedTrips.forEach((trip, tripIdx) => {
-        // Group by order within this trip
-        const orderGroups = {};
-        trip.transactions.forEach(item => {
-            const orderNum = item.trx_number;
-            if (!orderGroups[orderNum]) {
-                orderGroups[orderNum] = [];
-            }
-            orderGroups[orderNum].push(item);
-        });
+    // Filter the data
+    const filteredData = autoProcessingData.filter(item => {
+        let matches = true;
 
-        // Process each order group
-        Object.keys(orderGroups).forEach((orderNum, orderIdx) => {
-            orderGroups[orderNum].forEach((item, itemIdx) => {
-                const row = document.getElementById(`transaction-row-${tripIdx}-${itemIdx}`);
-                if (!row) return;
+        // Filter by trip ID
+        if (autoProcessingFilters.tripId &&
+            !String(item.trip_id || '').toLowerCase().includes(autoProcessingFilters.tripId.toLowerCase())) {
+            matches = false;
+        }
 
-                let showRow = true;
+        // Filter by item description
+        if (autoProcessingFilters.itemDesc &&
+            !String(item.item_desc || '').toLowerCase().includes(autoProcessingFilters.itemDesc)) {
+            matches = false;
+        }
 
-                // Filter by trip ID (supports partial match for autocomplete)
-                if (autoProcessingFilters.tripId &&
-                    !String(trip.trip_id).toLowerCase().includes(autoProcessingFilters.tripId.toLowerCase())) {
-                    showRow = false;
-                }
+        // Filter by LID
+        if (autoProcessingFilters.lid &&
+            !String(item.lid || '').toLowerCase().includes(autoProcessingFilters.lid)) {
+            matches = false;
+        }
 
-                // Filter by item description
-                if (autoProcessingFilters.itemDesc &&
-                    !item.item_desc?.toLowerCase().includes(autoProcessingFilters.itemDesc)) {
-                    showRow = false;
-                }
+        // Filter by transaction number
+        if (autoProcessingFilters.trxNumber &&
+            !String(item.trx_number || '').toLowerCase().includes(autoProcessingFilters.trxNumber)) {
+            matches = false;
+        }
 
-                // Filter by LID
-                if (autoProcessingFilters.lid &&
-                    !String(item.lid || '').toLowerCase().includes(autoProcessingFilters.lid)) {
-                    showRow = false;
-                }
+        // Filter by status
+        if (autoProcessingFilters.status &&
+            (item.transaction_status || 'PENDING').toUpperCase() !== autoProcessingFilters.status) {
+            matches = false;
+        }
 
-                // Filter by transaction number
-                if (autoProcessingFilters.trxNumber &&
-                    !String(item.trx_number || '').toLowerCase().includes(autoProcessingFilters.trxNumber)) {
-                    showRow = false;
-                }
-
-                // Filter by status
-                if (autoProcessingFilters.status &&
-                    (item.transaction_status || 'PENDING').toUpperCase() !== autoProcessingFilters.status) {
-                    showRow = false;
-                }
-
-                row.style.display = showRow ? '' : 'none';
-
-                // Track first matching order for auto-expand
-                if (showRow && hasOrderSearch && firstMatchingTripIdx === -1) {
-                    firstMatchingTripIdx = tripIdx;
-                    firstMatchingOrderIdx = orderIdx;
-                }
-            });
-        });
+        return matches;
     });
 
-    addLogEntry('Filter', 'Filters applied', 'info');
+    // Render flat view with filtered results
+    renderFilteredFlatView(filteredData);
+    addLogEntry('Filter', `Showing ${filteredData.length} matching lines`, 'info');
+}
 
-    // Auto-expand trip and order when searching by order number
-    if (hasOrderSearch && firstMatchingTripIdx !== -1 && firstMatchingOrderIdx !== -1) {
-        const orderId = `trip-${firstMatchingTripIdx}-order-${firstMatchingOrderIdx}`;
-        console.log('[Filter] Auto-expanding trip:', firstMatchingTripIdx, 'order:', orderId);
-        addLogEntry('Filter', `Auto-expanding to order ${orderId}`, 'info');
+// Render filtered results in flat table view (no grouping)
+function renderFilteredFlatView(filteredData) {
+    const container = document.getElementById('auto-trips-container');
+    if (!container) return;
 
-        setTimeout(() => {
-            // Expand trip (always expand, don't check if already expanded)
-            const tripDetails = document.getElementById(`trip-details-${firstMatchingTripIdx}`);
-            const tripChevron = document.getElementById(`trip-chevron-${firstMatchingTripIdx}`);
+    // Hide expand/collapse button in flat view
+    const expandCollapseBtn = document.getElementById('expand-collapse-all-btn');
+    if (expandCollapseBtn) {
+        expandCollapseBtn.style.display = 'none';
+    }
 
-            console.log('[Filter] Trip element found:', !!tripDetails, 'Chevron found:', !!tripChevron);
+    if (filteredData.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 3rem; color: #94a3b8;">
+                <i class="fas fa-search" style="font-size: 48px; margin-bottom: 1rem;"></i>
+                <p style="font-size: 16px; margin: 0;">No matching records found.</p>
+                <p style="font-size: 12px; margin-top: 0.5rem;">Try adjusting your filter criteria.</p>
+            </div>
+        `;
+        return;
+    }
 
-            if (tripDetails) {
-                tripDetails.style.display = 'block';
-                if (tripChevron) tripChevron.style.transform = 'rotate(180deg)';
-                console.log('[Filter] Trip expanded');
-            }
+    let html = `
+        <div style="background: #e0f2fe; padding: 0.5rem 1rem; border-radius: 6px; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem;">
+            <i class="fas fa-filter" style="color: #0284c7;"></i>
+            <span style="font-size: 11px; color: #0369a1; font-weight: 600;">Filtered View: Showing ${filteredData.length} matching line(s)</span>
+        </div>
+        <div style="background: white; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%);">
+                        <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">#</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Trip ID</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Order #</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">LID</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Item Code</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Item Description</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: center; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Req Qty</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: center; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Picked Qty</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: left; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Lot #</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: center; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Status</th>
+                        <th style="padding: 0.6rem 0.75rem; text-align: center; font-size: 10px; color: #64748b; font-weight: 700; border-bottom: 2px solid #e2e8f0;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
 
-            // Expand order (always expand, don't check if already expanded)
-            const orderDetails = document.getElementById(`order-details-${orderId}`);
-            const orderChevron = document.getElementById(`order-chevron-${orderId}`);
+    filteredData.forEach((item, index) => {
+        const status = item.transaction_status || 'PENDING';
+        const statusColor = status === 'SUCCESS' ? '#10b981' :
+                           status === 'FAILED' || status === 'ERROR' ? '#ef4444' :
+                           status === 'PROCESSING' ? '#f59e0b' :
+                           status === 'CANCELLED' ? '#6b7280' :
+                           '#3b82f6';
 
-            console.log('[Filter] Order element found:', !!orderDetails, 'Chevron found:', !!orderChevron);
+        const rowBg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
 
-            if (orderDetails) {
-                orderDetails.style.display = 'block';
-                if (orderChevron) orderChevron.style.transform = 'rotate(180deg)';
-                console.log('[Filter] Order expanded');
-            }
+        // Find original index in autoProcessingData for actions
+        const originalIndex = autoProcessingData.findIndex(t => t === item);
+        const tripIndex = autoProcessingData.findIndex(t => t.trip_id === item.trip_id);
 
-            // Scroll to the order header
-            const orderHeader = document.getElementById(`order-header-${orderId}`);
-            console.log('[Filter] Order header found:', !!orderHeader);
+        html += `
+            <tr style="background: ${rowBg}; border-bottom: 1px solid #f1f5f9;" id="flat-row-${index}">
+                <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #94a3b8; font-weight: 600;">${index + 1}</td>
+                <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.trip_id || 'N/A'}</td>
+                <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #1e293b;">${item.trx_number || 'N/A'}</td>
+                <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.lid || 'N/A'}</td>
+                <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.item_code || 'N/A'}</td>
+                <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.item_desc || ''}">${item.item_desc || 'N/A'}</td>
+                <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #3b82f6;">${item.header_original_qty || item.HEADER_ORIGINAL_QTY || 0}</td>
+                <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.picked_qty || 0}</td>
+                <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.lot_number || 'N/A'}</td>
+                <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                    <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+                        ${status === 'SUCCESS' ? '<i class="fas fa-check"></i>' :
+                          status === 'FAILED' || status === 'ERROR' ? '<i class="fas fa-times"></i>' :
+                          status === 'PROCESSING' ? '<i class="fas fa-spinner fa-spin"></i>' :
+                          status === 'CANCELLED' ? '<i class="fas fa-ban"></i>' :
+                          '<i class="fas fa-clock"></i>'} ${status}
+                    </span>
+                </td>
+                <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                    ${status !== 'SUCCESS' && status !== 'CANCELLED' ? `
+                        <button onclick="cancelS2VLotFromFlat(${index}, '${item.lid}')" style="background: #ef4444; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600;" title="Cancel this line">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                    ` : '-'}
+                </td>
+            </tr>
+        `;
+    });
 
-            if (orderHeader) {
-                orderHeader.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                console.log('[Filter] Scrolled to order');
-                addLogEntry('Filter', `Jumped to order ${orderId}`, 'success');
-            } else {
-                // If no order header, try scrolling to first matching row
-                const firstRow = document.querySelector(`[id^="transaction-row-${firstMatchingTripIdx}-"]`);
-                if (firstRow && firstRow.style.display !== 'none') {
-                    firstRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    console.log('[Filter] Scrolled to first matching row');
-                    addLogEntry('Filter', 'Jumped to matching transaction', 'success');
-                }
-            }
-        }, 300);
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    container.innerHTML = html;
+
+    // Store filtered data for actions
+    window.currentFilteredData = filteredData;
+
+    // Apply font size if not default
+    if (tripOrderFontSizeMultiplier !== 1.0) {
+        applyTripOrderFontSize();
     }
 }
 
-// Clear all filters
+// Cancel S2V Lot from flat filtered view
+async function cancelS2VLotFromFlat(flatIndex, lid) {
+    if (!window.currentFilteredData || !window.currentFilteredData[flatIndex]) {
+        console.error('[Cancel] Invalid flat index:', flatIndex);
+        return;
+    }
+
+    const item = window.currentFilteredData[flatIndex];
+
+    // Find the original index in autoProcessingData
+    const originalIndex = autoProcessingData.findIndex(t => t.lid === lid);
+    if (originalIndex === -1) {
+        console.error('[Cancel] Could not find original item for LID:', lid);
+        return;
+    }
+
+    // Find trip index
+    const tripId = item.trip_id;
+    const groupedTrips = groupTransactionsByTrip();
+    const tripIndex = groupedTrips.findIndex(t => t.trip_id === tripId);
+
+    // Call the existing cancel function logic
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vlot/${lid}`;
+
+    console.log('[Cancel Flat] Cancelling LID:', lid, 'API:', apiUrl);
+    addLogEntry('Cancel', `Cancelling LID: ${lid}`, 'info');
+
+    // Show spinner on button
+    const row = document.getElementById(`flat-row-${flatIndex}`);
+    const actionCell = row ? row.querySelector('td:last-child') : null;
+    if (actionCell) {
+        actionCell.innerHTML = '<i class="fas fa-spinner fa-spin" style="color: #667eea;"></i>';
+    }
+
+    try {
+        window.chrome.webview.postMessage({
+            type: 'REST_API_CALL',
+            url: apiUrl,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({}),
+            callbackId: `cancel-flat-${flatIndex}-${lid}`
+        });
+
+        // Listen for response
+        const handleResponse = (event) => {
+            const data = event.data;
+            if (data.callbackId === `cancel-flat-${flatIndex}-${lid}`) {
+                window.chrome.webview.removeEventListener('message', handleResponse);
+
+                let isSuccess = false;
+                try {
+                    let responseBody = data.data;
+                    if (typeof responseBody === 'string') {
+                        responseBody = responseBody.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+                        responseBody = JSON.parse(responseBody);
+                    }
+                    if (responseBody && responseBody.status === 'SUCCESS') {
+                        isSuccess = true;
+                    }
+                } catch (e) {
+                    console.error('[Cancel Flat] Parse error:', e);
+                }
+
+                if (isSuccess) {
+                    // Update status in data
+                    autoProcessingData[originalIndex].transaction_status = 'CANCELLED';
+
+                    // Re-apply filters to refresh view
+                    applyFilters();
+                    addLogEntry('Cancel', `LID ${lid} cancelled successfully`, 'success');
+                } else {
+                    addLogEntry('Cancel', `Failed to cancel LID ${lid}`, 'error');
+                    // Restore button
+                    if (actionCell) {
+                        actionCell.innerHTML = `<button onclick="cancelS2VLotFromFlat(${flatIndex}, '${lid}')" style="background: #ef4444; color: white; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600;"><i class="fas fa-times"></i> Cancel</button>`;
+                    }
+                }
+            }
+        };
+
+        window.chrome.webview.addEventListener('message', handleResponse);
+    } catch (error) {
+        console.error('[Cancel Flat] Error:', error);
+        addLogEntry('Cancel', `Error cancelling LID ${lid}: ${error.message}`, 'error');
+    }
+}
+
+// Clear all filters and restore grouped view
 function clearFilters() {
     document.getElementById('filter-trip-id').value = '';
     document.getElementById('filter-item-desc').value = '';
@@ -2124,13 +2255,13 @@ function clearFilters() {
         status: ''
     };
 
-    // Show all rows
-    const allRows = document.querySelectorAll('[id^="transaction-row-"]');
-    allRows.forEach(row => {
-        row.style.display = '';
-    });
+    // Clear filtered data
+    window.currentFilteredData = null;
 
-    addLogEntry('Filter', 'Filters cleared', 'info');
+    // Re-render grouped view
+    renderGroupedTrips(groupTransactionsByTrip());
+
+    addLogEntry('Filter', 'Filters cleared - restored grouped view', 'info');
 }
 
 // Global variable to store current error data
