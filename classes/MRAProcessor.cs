@@ -164,6 +164,8 @@ namespace WMSApp.MRA
         /// </summary>
         private async Task<MRACheckResult> CheckMRAInterfaceStatusAsync(string orderNumber)
         {
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] CheckMRAInterfaceStatusAsync - Order: {orderNumber}, Instance: {_instance}");
+
             var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
 
             var parameters = new Dictionary<string, string>
@@ -171,11 +173,40 @@ namespace WMSApp.MRA
                 { "mra_order_number", orderNumber }
             };
 
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Running MRA check report: {MRA_CHECK_REPORT}");
             var reportResult = await reportRunner.RunReportAsync(MRA_CHECK_REPORT, parameters);
 
             if (!reportResult.Success)
             {
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA check report FAILED: {reportResult.ErrorMessage}");
                 throw new Exception($"Failed to check MRA status: {reportResult.ErrorMessage}");
+            }
+
+            // Debug: Log the dataset structure
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA check report SUCCESS. Tables count: {reportResult.DataSet.Tables.Count}");
+            for (int i = 0; i < reportResult.DataSet.Tables.Count; i++)
+            {
+                var table = reportResult.DataSet.Tables[i];
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}]: Name={table.TableName}, Rows={table.Rows.Count}, Columns={table.Columns.Count}");
+
+                // Log column names
+                var columnNames = new List<string>();
+                foreach (DataColumn col in table.Columns)
+                {
+                    columnNames.Add(col.ColumnName);
+                }
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] Columns: {string.Join(", ", columnNames)}");
+
+                // Log first row data if exists
+                if (table.Rows.Count > 0)
+                {
+                    var firstRowValues = new List<string>();
+                    foreach (DataColumn col in table.Columns)
+                    {
+                        firstRowValues.Add($"{col.ColumnName}={table.Rows[0][col]}");
+                    }
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] Row[0]: {string.Join(", ", firstRowValues)}");
+                }
             }
 
             // Check if MRA_TRX_NO has a value - if it does, order is already interfaced
@@ -185,12 +216,29 @@ namespace WMSApp.MRA
             if (reportResult.DataSet.Tables.Count > 1 && reportResult.DataSet.Tables[1].Rows.Count > 0)
             {
                 var row = reportResult.DataSet.Tables[1].Rows[0];
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Checking Tables[1] for MRA_TRX_NO...");
+
                 if (row.Table.Columns.Contains("MRA_TRX_NO"))
                 {
                     mraTrxNo = row["MRA_TRX_NO"]?.ToString() ?? string.Empty;
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO value: '{mraTrxNo}' (IsNullOrWhiteSpace: {string.IsNullOrWhiteSpace(mraTrxNo)})");
                     isInterfaced = !string.IsNullOrWhiteSpace(mraTrxNo);
                 }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO column NOT FOUND in Tables[1]");
+                }
             }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1] not available or empty. Tables.Count={reportResult.DataSet.Tables.Count}");
+                if (reportResult.DataSet.Tables.Count > 1)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1].Rows.Count={reportResult.DataSet.Tables[1].Rows.Count}");
+                }
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA Check Result - IsInterfaced: {isInterfaced}, MRA_TRX_NO: '{mraTrxNo}'");
 
             return new MRACheckResult
             {

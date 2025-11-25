@@ -2041,7 +2041,8 @@ namespace WMSApp
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[C#] Processing MRA Interface request...");
+                System.Diagnostics.Debug.WriteLine($"[C#] ========== MRA INTERFACE REQUEST ==========");
+                System.Diagnostics.Debug.WriteLine($"[C#] Raw messageJson: {messageJson}");
 
                 using (var doc = JsonDocument.Parse(messageJson))
                 {
@@ -2051,7 +2052,11 @@ namespace WMSApp
                     string fusionPassword = root.GetProperty("fusionPassword").GetString();
                     string instance = root.GetProperty("instance").GetString();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] Order Number: {orderNumber}, Instance: {instance}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Parsed values:");
+                    System.Diagnostics.Debug.WriteLine($"[C#]   - Order Number: {orderNumber}");
+                    System.Diagnostics.Debug.WriteLine($"[C#]   - Username: {fusionUsername}");
+                    System.Diagnostics.Debug.WriteLine($"[C#]   - Instance: '{instance}'");
+                    System.Diagnostics.Debug.WriteLine($"[C#] ============================================");
 
                     // Create MRA processor
                     var mraProcessor = new WMSApp.MRA.MRAProcessor(
