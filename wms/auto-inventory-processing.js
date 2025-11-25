@@ -1531,13 +1531,22 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                     // Try to parse the response body if available
                     if (data.data) {
                         try {
-                            responseBody = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
+                            // Fix invalid JSON with trailing commas (e.g., {"status": "SUCCESS",})
+                            let jsonStr = typeof data.data === 'string' ? data.data : JSON.stringify(data.data);
+                            jsonStr = jsonStr.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+
+                            responseBody = JSON.parse(jsonStr);
                             // Check if API returned status: "SUCCESS"
                             if (responseBody && responseBody.status === 'SUCCESS') {
                                 isSuccess = true;
                             }
                         } catch (e) {
-                            console.log('[Cancel] Response is not JSON:', data.data);
+                            console.log('[Cancel] Response parse error:', e.message, 'Data:', data.data);
+                            // Fallback: check if response contains "SUCCESS" string
+                            if (typeof data.data === 'string' && data.data.includes('"status"') && data.data.includes('"SUCCESS"')) {
+                                console.log('[Cancel] Detected SUCCESS via string match');
+                                isSuccess = true;
+                            }
                         }
                     }
 
