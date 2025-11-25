@@ -1505,6 +1505,10 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
     // Build the API URL
     const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vlot/${lid}`;
 
+    // Log the endpoint being called
+    addLogEntry('Cancel', `POST ${apiUrl}`, 'info');
+    console.log('[Cancel] Calling endpoint:', apiUrl);
+
     try {
         // Use C# REST handler via WebView2
         if (window.chrome && window.chrome.webview) {
@@ -1516,7 +1520,28 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                 if (data.requestId === requestId) {
                     window.chrome.webview.removeEventListener('message', responseHandler);
 
-                    if (data.success) {
+                    // Log full response for debugging
+                    console.log('[Cancel] Response received:', data);
+                    addLogEntry('Cancel', `Response: ${JSON.stringify(data).substring(0, 500)}`, 'info');
+
+                    // Check for success - either data.success from C# or status:"SUCCESS" from API response
+                    let isSuccess = data.success;
+                    let responseBody = null;
+
+                    // Try to parse the response body if available
+                    if (data.data) {
+                        try {
+                            responseBody = typeof data.data === 'string' ? JSON.parse(data.data) : data.data;
+                            // Check if API returned status: "SUCCESS"
+                            if (responseBody && responseBody.status === 'SUCCESS') {
+                                isSuccess = true;
+                            }
+                        } catch (e) {
+                            console.log('[Cancel] Response is not JSON:', data.data);
+                        }
+                    }
+
+                    if (isSuccess) {
                         addLogEntry('Cancel', `Successfully cancelled line with LID: ${lid}`, 'success');
                         showNotification(`Line ${lid} cancelled successfully`, 'success');
 
@@ -1541,7 +1566,18 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                             groupedTrips[tripIndex].transactions[transactionIndex].transaction_status = 'CANCELLED';
                         }
                     } else {
-                        const errorMsg = data.error || 'Unknown error occurred';
+                        // Build detailed error message
+                        let errorMsg = data.error || '';
+                        if (data.statusCode) {
+                            errorMsg = `HTTP ${data.statusCode}: ${errorMsg}`;
+                        }
+                        if (responseBody && responseBody.message) {
+                            errorMsg += ` - ${responseBody.message}`;
+                        }
+                        if (!errorMsg) {
+                            errorMsg = `Unknown error. Response: ${JSON.stringify(data).substring(0, 200)}`;
+                        }
+
                         addLogEntry('Cancel', `Failed to cancel line ${lid}: ${errorMsg}`, 'error');
                         showNotification(`Failed to cancel line: ${errorMsg}`, 'error');
 
