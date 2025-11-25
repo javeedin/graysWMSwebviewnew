@@ -275,56 +275,56 @@ function displayGroupedTrips() {
             : 'border: 2px solid #e2e8f0;';
 
         html += `
-            <div id="trip-card-${index}" style="background: white; ${cardBorderStyle} border-radius: 8px; margin-bottom: 1rem; overflow: hidden; transition: all 0.3s;">
+            <div id="trip-card-${index}" style="background: white; ${cardBorderStyle} border-radius: 8px; margin-bottom: 0.75rem; overflow: hidden; transition: all 0.3s;">
                 <!-- Trip Header -->
-                <div onclick="toggleTripDetails(${index})" style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
-                    <div style="display: flex; gap: 2rem; align-items: center; flex: 1;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <i class="fas fa-truck" style="color: #667eea; font-size: 20px;"></i>
+                <div onclick="toggleTripDetails(${index})" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
+                    <div style="display: flex; gap: 1.5rem; align-items: center; flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            <i class="fas fa-truck" style="color: #667eea; font-size: 16px;"></i>
                             <div>
-                                <div style="font-size: 10px; color: #64748b; font-weight: 600;">TRIP ID</div>
-                                <div style="font-size: 16px; font-weight: 700; color: #1e293b;">${trip.trip_id}</div>
+                                <div style="font-size: 8px; color: #64748b; font-weight: 600;">TRIP ID</div>
+                                <div style="font-size: 13px; font-weight: 700; color: #1e293b;">${trip.trip_id}</div>
                             </div>
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: #64748b; font-weight: 600;">DATE</div>
-                            <div style="font-size: 14px; font-weight: 600; color: #1e293b;">${new Date(trip.trip_date).toLocaleDateString()}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">DATE</div>
+                            <div style="font-size: 11px; font-weight: 600; color: #1e293b;">${new Date(trip.trip_date).toLocaleDateString()}</div>
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: #64748b; font-weight: 600;">LORRY</div>
-                            <div style="font-size: 14px; font-weight: 600; color: #1e293b;">${trip.trip_lorry}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">LORRY</div>
+                            <div style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_lorry}</div>
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: #64748b; font-weight: 600;">PRIORITY</div>
-                            <div style="font-size: 14px; font-weight: 600; color: #1e293b;">${trip.trip_priority}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">PRIORITY</div>
+                            <div style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_priority}</div>
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: #64748b; font-weight: 600;">LOADING BAY</div>
-                            <div style="font-size: 14px; font-weight: 600; color: #1e293b;">${trip.trip_loading_bay || 'N/A'}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">LOADING BAY</div>
+                            <div style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_loading_bay || 'N/A'}</div>
                         </div>
                         <div>
-                            <div style="font-size: 10px; color: #64748b; font-weight: 600;">ORDERS</div>
-                            <div style="font-size: 16px; font-weight: 700; color: #667eea;">${orderCount}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600;">ORDERS</div>
+                            <div style="font-size: 13px; font-weight: 700; color: #667eea;">${orderCount}</div>
                         </div>
-                        <div style="display: flex; gap: 0.5rem;">
-                            ${successCount > 0 ? `<span style="background: #10b981; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${successCount} ✓</span>` : ''}
-                            ${processingCount > 0 ? `<span style="background: #f59e0b; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
-                            ${pendingCount > 0 ? `<span style="background: #3b82f6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
-                            ${cancelledCount > 0 ? `<span style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
-                            ${failedCount > 0 ? `<span style="background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${failedCount} ✗</span>` : ''}
+                        <div style="display: flex; gap: 0.4rem;">
+                            ${successCount > 0 ? `<span style="background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${successCount} ✓</span>` : ''}
+                            ${processingCount > 0 ? `<span style="background: #f59e0b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
+                            ${pendingCount > 0 ? `<span style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
+                            ${cancelledCount > 0 ? `<span style="background: #6b7280; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
+                            ${failedCount > 0 ? `<span style="background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
                     </div>
-                    <button id="trip-select-btn-${index}" onclick="event.stopPropagation(); toggleTripSelection('${trip.trip_id}', ${index})" style="${selectBtnStyle} color: white; padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; margin-right: 0.5rem; transition: all 0.2s;" title="Select for processing">
+                    <button id="trip-select-btn-${index}" onclick="event.stopPropagation(); toggleTripSelection('${trip.trip_id}', ${index})" style="${selectBtnStyle} color: white; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-right: 0.4rem; transition: all 0.2s;" title="Select for processing">
                         ${selectBtnText}
                     </button>
-                    <button onclick="event.stopPropagation(); openTripPrintModal('${trip.trip_id}', '${trip.trip_date}', ${orderCount}, ${index})" style="background: #10b981; color: white; border: none; padding: 0.6rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.5rem; margin-right: 1rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Print all orders in this trip">
+                    <button onclick="event.stopPropagation(); openTripPrintModal('${trip.trip_id}', '${trip.trip_date}', ${orderCount}, ${index})" style="background: #10b981; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-right: 0.75rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Print all orders in this trip">
                         <i class="fas fa-print"></i> Print Trip
                     </button>
                     <i class="fas fa-chevron-down" id="trip-chevron-${index}" style="color: #667eea; transition: transform 0.3s;"></i>
                 </div>
 
                 <!-- Trip Details (Collapsible) -->
-                <div id="trip-details-${index}" style="display: none; padding: 1.5rem; background: #f8f9fa;">
+                <div id="trip-details-${index}" style="display: none; padding: 1rem; background: #f8f9fa;">
                     ${renderTripTransactions(trip.transactions, index)}
                 </div>
             </div>
@@ -426,67 +426,67 @@ function renderTripTransactions(transactions, tripIndex) {
         html += `
             <div style="background: white; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;" data-order-container="${tripIndex}">
                 <!-- Order Header (lighter than trip header) -->
-                <div onclick="toggleOrderDetails('${orderId}')" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border-left: 3px solid #667eea;" onmouseover="this.style.background='linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'">
-                    <div style="display: flex; gap: 1.25rem; align-items: center; flex: 1;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <i class="fas fa-box" style="color: #667eea; font-size: 16px;"></i>
+                <div onclick="toggleOrderDetails('${orderId}')" style="padding: 0.5rem 0.75rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border-left: 3px solid #667eea;" onmouseover="this.style.background='linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'">
+                    <div style="display: flex; gap: 1rem; align-items: center; flex: 1;">
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            <i class="fas fa-box" style="color: #667eea; font-size: 14px;"></i>
                             <div>
-                                <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Order</div>
-                                <div style="font-size: 14px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                                <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Order</div>
+                                <div style="font-size: 12px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
                                     ${order.trx_number}
-                                    <button onclick="event.stopPropagation(); openStoreTransactionsFromOrder('${order.trx_number}', '${order.instance_name || 'PROD'}')" style="background: transparent; border: 1px solid #667eea; color: #667eea; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#667eea'; this.style.color='white'" onmouseout="this.style.background='transparent'; this.style.color='#667eea'" title="Edit Transaction">
+                                    <button onclick="event.stopPropagation(); openStoreTransactionsFromOrder('${order.trx_number}', '${order.instance_name || 'PROD'}')" style="background: transparent; border: 1px solid #667eea; color: #667eea; padding: 1px 4px; border-radius: 4px; cursor: pointer; font-size: 9px; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#667eea'; this.style.color='white'" onmouseout="this.style.background='transparent'; this.style.color='#667eea'" title="Edit Transaction">
                                         <i class="fas fa-edit"></i>
                                     </button>
-                                    <i class="fas fa-spinner fa-spin" id="order-processing-${orderId}" style="color: #667eea; font-size: 12px; display: none;"></i>
+                                    <i class="fas fa-spinner fa-spin" id="order-processing-${orderId}" style="color: #667eea; font-size: 10px; display: none;"></i>
                                 </div>
                             </div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Type</div>
-                            <div style="font-size: 11px; font-weight: 600; color: #475569;">${order.trx_type || 'N/A'}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Type</div>
+                            <div style="font-size: 10px; font-weight: 600; color: #475569;">${order.trx_type || 'N/A'}</div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Lines</div>
-                            <div style="font-size: 13px; font-weight: 700; color: #1e293b;">${order.totalLines}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Lines</div>
+                            <div style="font-size: 11px; font-weight: 700; color: #1e293b;">${order.totalLines}</div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Processed</div>
-                            <div style="font-size: 13px; font-weight: 700; color: #10b981;">${order.processedLines}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Processed</div>
+                            <div style="font-size: 11px; font-weight: 700; color: #10b981;">${order.processedLines}</div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Not Processed</div>
-                            <div style="font-size: 13px; font-weight: 700; color: ${order.notProcessedLines > 0 ? '#ef4444' : '#cbd5e1'};">${order.notProcessedLines}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Not Processed</div>
+                            <div style="font-size: 11px; font-weight: 700; color: ${order.notProcessedLines > 0 ? '#ef4444' : '#cbd5e1'};">${order.notProcessedLines}</div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Req Qty</div>
-                            <div style="font-size: 13px; font-weight: 700; color: #667eea;">${order.totalReqQty}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Req Qty</div>
+                            <div style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalReqQty}</div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Qty</div>
-                            <div style="font-size: 13px; font-weight: 700; color: #667eea;">${order.totalQty}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Qty</div>
+                            <div style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalQty}</div>
                         </div>
                         <div>
-                            <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">From → To</div>
-                            <div style="font-size: 11px; font-weight: 600; color: #475569;">${order.source_sub_inv} → ${order.dest_sub_inv}</div>
+                            <div style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">From → To</div>
+                            <div style="font-size: 10px; font-weight: 600; color: #475569;">${order.source_sub_inv} → ${order.dest_sub_inv}</div>
                         </div>
                         <div>
-                            <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${statusColor}; color: white; padding: 4px 10px; border-radius: 12px; font-size: 10px; font-weight: 700;">
+                            <span style="display: inline-flex; align-items: center; gap: 0.2rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
                                 <i class="fas fa-${statusIcon}"></i> ${orderStatus}
                             </span>
                         </div>
-                        <div style="display: flex; gap: 0.5rem; margin-left: auto;">
-                            <button onclick="event.stopPropagation(); processSingleOrder('${order.trx_number}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                        <div style="display: flex; gap: 0.4rem; margin-left: auto;">
+                            <button onclick="event.stopPropagation(); processSingleOrder('${order.trx_number}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
                                 <i class="fas fa-play"></i> Process
                             </button>
-                            <button onclick="event.stopPropagation(); verifyWithFusion('${order.trx_number}', ${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
-                                <i class="fas fa-cloud-upload-alt"></i> Verify with Fusion
+                            <button onclick="event.stopPropagation(); verifyWithFusion('${order.trx_number}', ${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                                <i class="fas fa-cloud-upload-alt"></i> Verify
                             </button>
-                            <button onclick="event.stopPropagation(); printOrder('${order.trx_number}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.25rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                            <button onclick="event.stopPropagation(); printOrder('${order.trx_number}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
                                 <i class="fas fa-print"></i> Print
                             </button>
                         </div>
                     </div>
-                    <i class="fas fa-chevron-down" id="order-chevron-${orderId}" style="color: #667eea; transition: transform 0.3s; font-size: 12px;"></i>
+                    <i class="fas fa-chevron-down" id="order-chevron-${orderId}" style="color: #667eea; transition: transform 0.3s; font-size: 10px;"></i>
                 </div>
 
                 <!-- Order Items (Collapsible) -->
