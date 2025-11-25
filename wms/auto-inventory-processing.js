@@ -398,8 +398,15 @@ function renderTripTransactions(transactions, tripIndex) {
     `;
 
     orders.forEach((order, orderIdx) => {
-        const orderStatus = order.items.every(i => i.transaction_status === 'SUCCESS') ? 'SUCCESS' :
-                           order.items.some(i => i.transaction_status === 'FAILED' || i.transaction_status === 'ERROR') ? 'FAILED' :
+        // Order status logic:
+        // - SUCCESS: All items are SUCCESS or CANCELLED (no real pending work)
+        // - FAILED: Any item is FAILED or ERROR
+        // - PENDING: There are actual pending items
+        const allSuccessOrCancelled = order.items.every(i => i.transaction_status === 'SUCCESS' || i.transaction_status === 'CANCELLED');
+        const hasFailed = order.items.some(i => i.transaction_status === 'FAILED' || i.transaction_status === 'ERROR');
+
+        const orderStatus = hasFailed ? 'FAILED' :
+                           allSuccessOrCancelled ? 'SUCCESS' :
                            'PENDING';
 
         const statusColor = orderStatus === 'SUCCESS' ? '#10b981' :
