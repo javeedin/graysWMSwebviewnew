@@ -182,6 +182,11 @@ namespace WMSApp.MRA
                 throw new Exception($"Failed to check MRA status: {reportResult.ErrorMessage}");
             }
 
+            // Debug: Log the raw XML data
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== RAW XML DATA ==========");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] {reportResult.RawXmlData}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== END RAW XML ==========");
+
             // Debug: Log the dataset structure
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA check report SUCCESS. Tables count: {reportResult.DataSet.Tables.Count}");
             for (int i = 0; i < reportResult.DataSet.Tables.Count; i++)
