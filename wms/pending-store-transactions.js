@@ -592,12 +592,24 @@ function assignPickerForPst() {
 function openPstAssignPickerDialog(selectedOrders) {
     pstLog(`Opening picker dialog for ${selectedOrders.length} orders`, 'info');
 
-    // Build picker options from window.pickersData
-    const pickerOptions = window.pickersData.map(p => {
-        const pickerId = p.PICKER_ID || p.picker_id || '';
-        const pickerName = p.PICKER_NAME || p.picker_name || '';
-        return `<option value="${pickerId}" data-name="${pickerName}">${pickerName} (${pickerId})</option>`;
-    }).join('');
+    // Build picker options from window.pickersData (same as app.js)
+    let pickerOptionsHtml = '';
+
+    if (window.pickersData && window.pickersData.length > 0) {
+        // Filter out deleted pickers
+        const activePickers = window.pickersData.filter(p => p.deleted !== 1);
+        activePickers.forEach(picker => {
+            const pickerId = picker.picker_id || picker.PICKER_ID || picker.id || picker.ID || '';
+            const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
+            const pickerType = picker.picker_type || picker.PICKER_TYPE || picker.type || picker.TYPE || '';
+
+            pickerOptionsHtml += `<option value="${pickerId}" data-name="${pickerName}">${pickerName}${pickerType ? ' (' + pickerType + ')' : ''}</option>`;
+        });
+    }
+
+    if (!pickerOptionsHtml) {
+        pickerOptionsHtml = '<option value="" disabled>No pickers available</option>';
+    }
 
     // Create modal HTML
     const modalHtml = `
@@ -619,7 +631,7 @@ function openPstAssignPickerDialog(selectedOrders) {
                         <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Select Picker:</label>
                         <select id="pst-picker-select" style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.875rem;">
                             <option value="">-- Select a Picker --</option>
-                            ${pickerOptions}
+                            ${pickerOptionsHtml}
                         </select>
                     </div>
                 </div>
