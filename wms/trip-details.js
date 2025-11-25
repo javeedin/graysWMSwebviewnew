@@ -217,9 +217,9 @@ function initializeTripOrdersGrid() {
                                 'margin-right': '4px'
                             })
                             .on('click', function() {
-                                console.log('[Trip Details] MRA button clicked for:', options.data.source_order_number);
+                                console.log('[Trip Details] MRA button clicked for:', options.data.source_order_number, 'Instance:', options.data.instance);
                                 if (typeof openMRAProcessingPopup === 'function') {
-                                    openMRAProcessingPopup(options.data.source_order_number);
+                                    openMRAProcessingPopup(options.data.source_order_number, options.data.instance);
                                 } else {
                                     console.error('[Trip Details] openMRAProcessingPopup function not found! Check if mra-processor.js is loaded.');
                                     alert('MRA processor not loaded. Please refresh the page.');

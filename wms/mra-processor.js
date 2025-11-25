@@ -7,9 +7,10 @@
 /**
  * Opens MRA processing popup and initiates MRA interface for an order
  * @param {string} orderNumber - The order number to process
+ * @param {string} instance - The instance name (e.g., 'PROD', 'TEST')
  */
-async function openMRAProcessingPopup(orderNumber) {
-    console.log('[MRA] Opening MRA processing popup for order:', orderNumber);
+async function openMRAProcessingPopup(orderNumber, instance) {
+    console.log('[MRA] Opening MRA processing popup for order:', orderNumber, 'Instance:', instance);
 
     // Create modal overlay
     const overlay = document.createElement('div');
@@ -187,20 +188,23 @@ async function openMRAProcessingPopup(orderNumber) {
     document.getElementById('mra-cancel-btn').addEventListener('click', closeModal);
 
     // Start MRA processing
-    await processMRAInterface(orderNumber);
+    await processMRAInterface(orderNumber, instance);
 }
 
 /**
  * Processes MRA interface by calling C# backend
  * @param {string} orderNumber - The order number to process
+ * @param {string} instance - The instance name from the grid row
  */
-async function processMRAInterface(orderNumber) {
-    console.log('[MRA] Starting MRA interface processing for order:', orderNumber);
+async function processMRAInterface(orderNumber, instance) {
+    console.log('[MRA] Starting MRA interface processing for order:', orderNumber, 'Instance:', instance);
 
     // Get credentials from localStorage
     const fusionUsername = localStorage.getItem('fusionCloudUsername') || 'shaik';
     const fusionPassword = localStorage.getItem('fusionCloudPassword') || 'fusion1234';
-    const instance = localStorage.getItem('instanceName') || 'TEST';
+    // Use instance from parameter (from grid row), fallback to localStorage if not provided
+    const resolvedInstance = instance || localStorage.getItem('instanceName') || 'TEST';
+    console.log('[MRA] Using instance:', resolvedInstance, '(from parameter:', instance, ')');
 
     try {
         // Send request to C# backend
@@ -211,7 +215,7 @@ async function processMRAInterface(orderNumber) {
             orderNumber: orderNumber,
             fusionUsername: fusionUsername,
             fusionPassword: fusionPassword,
-            instance: instance
+            instance: resolvedInstance
         };
 
         console.log('[MRA] Sending request to C# backend:', message);
