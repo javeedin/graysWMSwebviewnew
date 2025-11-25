@@ -263,6 +263,7 @@ namespace WMSApp.MRA
         /// </summary>
         private async Task<DataSet> FetchOrderSummaryAsync(string orderNumber)
         {
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== FETCH ORDER SUMMARY ==========");
             var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
 
             var parameters = new Dictionary<string, string>
@@ -279,6 +280,23 @@ namespace WMSApp.MRA
                 throw new Exception($"Failed to fetch order summary: {reportResult.ErrorMessage}");
             }
 
+            // Debug: Log tables structure
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order Summary - Tables count: {reportResult.DataSet.Tables.Count}");
+            for (int i = 0; i < reportResult.DataSet.Tables.Count; i++)
+            {
+                var table = reportResult.DataSet.Tables[i];
+                var cols = new List<string>();
+                foreach (DataColumn col in table.Columns) cols.Add(col.ColumnName);
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Summary Table[{i}]: Name={table.TableName}, Rows={table.Rows.Count}, Columns: {string.Join(", ", cols)}");
+
+                if (table.Rows.Count > 0)
+                {
+                    var vals = new List<string>();
+                    foreach (DataColumn col in table.Columns) vals.Add($"{col.ColumnName}={table.Rows[0][col]}");
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Summary Table[{i}] Row[0]: {string.Join(", ", vals)}");
+                }
+            }
+
             return reportResult.DataSet;
         }
 
@@ -287,6 +305,7 @@ namespace WMSApp.MRA
         /// </summary>
         private async Task<DataSet> FetchOrderDetailsAsync(string orderNumber)
         {
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== FETCH ORDER DETAILS ==========");
             var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
 
             var parameters = new Dictionary<string, string>
@@ -301,6 +320,23 @@ namespace WMSApp.MRA
             if (!reportResult.Success)
             {
                 throw new Exception($"Failed to fetch order details: {reportResult.ErrorMessage}");
+            }
+
+            // Debug: Log tables structure
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order Details - Tables count: {reportResult.DataSet.Tables.Count}");
+            for (int i = 0; i < reportResult.DataSet.Tables.Count; i++)
+            {
+                var table = reportResult.DataSet.Tables[i];
+                var cols = new List<string>();
+                foreach (DataColumn col in table.Columns) cols.Add(col.ColumnName);
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Details Table[{i}]: Name={table.TableName}, Rows={table.Rows.Count}, Columns: {string.Join(", ", cols)}");
+
+                if (table.Rows.Count > 0)
+                {
+                    var vals = new List<string>();
+                    foreach (DataColumn col in table.Columns) vals.Add($"{col.ColumnName}={table.Rows[0][col]}");
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Details Table[{i}] Row[0]: {string.Join(", ", vals)}");
+                }
             }
 
             return reportResult.DataSet;
