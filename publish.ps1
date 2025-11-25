@@ -91,8 +91,15 @@ if (Test-Path $exePath) {
         Write-Host ("  {0,-40} {1,12}" -f $_.Name, $size)
     }
     Write-Host ""
-    Write-Host "NOTE: Target machine must have WebView2 Runtime installed." -ForegroundColor Yellow
-    Write-Host "Download: https://developer.microsoft.com/en-us/microsoft-edge/webview2/" -ForegroundColor Yellow
+    Write-Host "The exe is SELF-CONTAINED and includes:" -ForegroundColor Green
+    Write-Host "  - .NET 8.0 Runtime (no .NET installation required)" -ForegroundColor White
+    Write-Host "  - All application DLLs" -ForegroundColor White
+    Write-Host "  - All web files (HTML, JS, CSS)" -ForegroundColor White
+    Write-Host ""
+    Write-Host "NOTE: WebView2 Runtime is REQUIRED on target machine." -ForegroundColor Yellow
+    Write-Host "      Most Windows 10/11 PCs have it pre-installed." -ForegroundColor Yellow
+    Write-Host "      If not, download from:" -ForegroundColor Yellow
+    Write-Host "      https://developer.microsoft.com/en-us/microsoft-edge/webview2/" -ForegroundColor Cyan
     Write-Host ""
 } else {
     Write-Host "ERROR: Output file not found!" -ForegroundColor Red

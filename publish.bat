@@ -44,11 +44,17 @@ echo Files created:
 dir /b "%OUTPUT_DIR%"
 
 echo.
-echo The GraysWMS.exe file contains everything needed to run.
+echo The GraysWMS.exe file is SELF-CONTAINED and includes:
+echo   - .NET 8.0 Runtime (no .NET installation required)
+echo   - All application DLLs
+echo   - All web files (HTML, JS, CSS)
+echo.
 echo Just copy GraysWMS.exe to any Windows 64-bit machine.
 echo.
-echo NOTE: Target machine must have WebView2 Runtime installed.
-echo Download from: https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+echo NOTE: WebView2 Runtime is REQUIRED on target machine.
+echo       Most Windows 10/11 PCs have it pre-installed.
+echo       If not, download from:
+echo       https://developer.microsoft.com/en-us/microsoft-edge/webview2/
 echo.
 
 pause

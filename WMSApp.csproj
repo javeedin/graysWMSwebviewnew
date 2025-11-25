@@ -15,12 +15,16 @@
     <Company>Gray's Inc</Company>
     <Description>Gray's Warehouse Management System</Description>
 
-    <!-- Single File Publishing -->
+    <!-- Single File Publishing - Self-contained means .NET runtime is included -->
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+
+    <!-- Publish trimming (optional - reduces size but may cause issues) -->
+    <!-- <PublishTrimmed>true</PublishTrimmed> -->
   </PropertyGroup>
 
   <ItemGroup>
