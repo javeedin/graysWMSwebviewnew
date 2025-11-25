@@ -91,7 +91,7 @@ namespace WMSApp
 
         private void InitializeComponent1()
         {
-            this.Text = "Gray's WMS v1.1.9 - MRA Fix | Released 25-Nov-2025";
+            this.Text = "Gray's WMS v1.2.0 - MRA Tabbed Popup | Released 25-Nov-2025";
             this.Size = new Size(1200, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(240, 240, 240);
@@ -2065,9 +2065,10 @@ namespace WMSApp
                         instance
                     );
 
-                    // Process with progress updates
+                    // Process with progress updates and data callbacks
                     var result = await mraProcessor.ProcessMRAInterfaceAsync(
                         orderNumber,
+                        // Progress callback
                         (message, step) =>
                         {
                             // Send progress update to JavaScript
@@ -2082,6 +2083,51 @@ namespace WMSApp
                             string progressJson = JsonSerializer.Serialize(progressUpdate);
                             wv.CoreWebView2.PostWebMessageAsJson(progressJson);
                             System.Diagnostics.Debug.WriteLine($"[C#] MRA Progress: {step} - {message}");
+                        },
+                        // Order data callback (for Tab 1)
+                        (headerData, linesData) =>
+                        {
+                            var orderDataMsg = new
+                            {
+                                action = "mraOrderData",
+                                requestId = requestId,
+                                header = headerData,
+                                lines = linesData
+                            };
+
+                            string orderDataJson = JsonSerializer.Serialize(orderDataMsg);
+                            wv.CoreWebView2.PostWebMessageAsJson(orderDataJson);
+                            System.Diagnostics.Debug.WriteLine($"[C#] MRA Order Data sent to JS");
+                        },
+                        // MRA Request callback (for Tab 2)
+                        (endpoint, requestObj) =>
+                        {
+                            var requestDataMsg = new
+                            {
+                                action = "mraRequestData",
+                                requestId = requestId,
+                                endpoint = endpoint,
+                                request = requestObj
+                            };
+
+                            string requestDataJson = JsonSerializer.Serialize(requestDataMsg);
+                            wv.CoreWebView2.PostWebMessageAsJson(requestDataJson);
+                            System.Diagnostics.Debug.WriteLine($"[C#] MRA Request Data sent to JS");
+                        },
+                        // MRA Response callback (for Tab 2)
+                        (success, responseObj) =>
+                        {
+                            var responseDataMsg = new
+                            {
+                                action = "mraResponseData",
+                                requestId = requestId,
+                                success = success,
+                                response = responseObj
+                            };
+
+                            string responseDataJson = JsonSerializer.Serialize(responseDataMsg);
+                            wv.CoreWebView2.PostWebMessageAsJson(responseDataJson);
+                            System.Diagnostics.Debug.WriteLine($"[C#] MRA Response Data sent to JS");
                         }
                     );
 

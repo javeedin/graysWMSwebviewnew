@@ -49,7 +49,12 @@ namespace WMSApp.MRA
         /// <summary>
         /// Main method to process MRA interface for an order
         /// </summary>
-        public async Task<MRAProcessingResult> ProcessMRAInterfaceAsync(string orderNumber, Action<string, MRAProcessingStep> progressCallback = null)
+        public async Task<MRAProcessingResult> ProcessMRAInterfaceAsync(
+            string orderNumber,
+            Action<string, MRAProcessingStep> progressCallback = null,
+            Action<Dictionary<string, object>, List<Dictionary<string, object>>> orderDataCallback = null,
+            Action<string, object> mraRequestCallback = null,
+            Action<bool, object> mraResponseCallback = null)
         {
             var result = new MRAProcessingResult
             {
@@ -98,6 +103,21 @@ namespace WMSApp.MRA
                     return result;
                 }
 
+                // Send order data to JavaScript for Tab 1
+                if (orderDataCallback != null)
+                {
+                    try
+                    {
+                        var headerData = ConvertDataRowToDictionary(orderSummary.Tables[1].Rows[0]);
+                        var linesData = ConvertDataTableToList(orderDetails.Tables[1]);
+                        orderDataCallback(headerData, linesData);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Error sending order data: {ex.Message}");
+                    }
+                }
+
                 // Step 4: Validate all lines are closed
                 progressCallback?.Invoke("Validating order line statuses...", MRAProcessingStep.ValidatingOrderLines);
                 result.CurrentStep = MRAProcessingStep.ValidatingOrderLines;
@@ -116,7 +136,7 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Creating MRA invoice...", MRAProcessingStep.CreatingMRAInvoice);
                 result.CurrentStep = MRAProcessingStep.CreatingMRAInvoice;
 
-                var invoiceResult = await CreateMRAInvoiceAsync(orderSummary.Tables[1], orderDetails.Tables[1]);
+                var invoiceResult = await CreateMRAInvoiceAsync(orderSummary.Tables[1], orderDetails.Tables[1], mraRequestCallback, mraResponseCallback);
                 if (!invoiceResult.Success)
                 {
                     result.Success = false;
@@ -409,7 +429,11 @@ namespace WMSApp.MRA
         /// <summary>
         /// Step 5: Create MRA invoice via API
         /// </summary>
-        private async Task<MRAInvoiceCreationResult> CreateMRAInvoiceAsync(DataTable orderSummary, DataTable orderDetails)
+        private async Task<MRAInvoiceCreationResult> CreateMRAInvoiceAsync(
+            DataTable orderSummary,
+            DataTable orderDetails,
+            Action<string, object> mraRequestCallback = null,
+            Action<bool, object> mraResponseCallback = null)
         {
             try
             {
@@ -505,6 +529,16 @@ namespace WMSApp.MRA
                 string jsonData = JsonConvert.SerializeObject(invoice, Formatting.Indented);
                 System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Invoice JSON: {jsonData}");
 
+                // Send MRA request info to JavaScript for Tab 2
+                try
+                {
+                    mraRequestCallback?.Invoke(_mraApiUrl, invoice);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Error sending MRA request data: {ex.Message}");
+                }
+
                 // Send to MRA API
                 using (HttpClient client = new HttpClient())
                 {
@@ -518,6 +552,22 @@ namespace WMSApp.MRA
                     var apiResponse = JsonConvert.DeserializeObject<MRAApiResponse>(responseBody);
                     string irnCode = apiResponse?.Response?.ResponseId;
                     string qrCode = apiResponse?.Response?.FiscalisedInvoices?.FirstOrDefault()?.QrCode;
+
+                    // Send MRA response info to JavaScript for Tab 2
+                    bool isSuccess = !string.IsNullOrEmpty(irnCode);
+                    try
+                    {
+                        mraResponseCallback?.Invoke(isSuccess, new {
+                            httpStatus = (int)response.StatusCode,
+                            responseId = irnCode,
+                            qrCode = qrCode,
+                            rawResponse = responseBody
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Error sending MRA response data: {ex.Message}");
+                    }
 
                     return new MRAInvoiceCreationResult
                     {
@@ -615,6 +665,32 @@ namespace WMSApp.MRA
                     Message = $"Exception: {ex.Message}"
                 };
             }
+        }
+
+        /// <summary>
+        /// Convert DataRow to Dictionary for JSON serialization
+        /// </summary>
+        private Dictionary<string, object> ConvertDataRowToDictionary(DataRow row)
+        {
+            var dict = new Dictionary<string, object>();
+            foreach (DataColumn column in row.Table.Columns)
+            {
+                dict[column.ColumnName] = row[column] == DBNull.Value ? null : row[column];
+            }
+            return dict;
+        }
+
+        /// <summary>
+        /// Convert DataTable to List of Dictionaries for JSON serialization
+        /// </summary>
+        private List<Dictionary<string, object>> ConvertDataTableToList(DataTable table)
+        {
+            var list = new List<Dictionary<string, object>>();
+            foreach (DataRow row in table.Rows)
+            {
+                list.Add(ConvertDataRowToDictionary(row));
+            }
+            return list;
         }
     }
 
