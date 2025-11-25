@@ -214,13 +214,13 @@ Write-Host "  Copied $copiedCount files from wms/ and root" -ForegroundColor Gra
 
 Write-Host "[5/8] Creating ZIP file..." -ForegroundColor Green
 
- 
+
 
 $zipFileName = "wms-webview-html-$newVersion.zip"
 
 $zipPath = Join-Path $PSScriptRoot $zipFileName
 
- 
+
 
 if (Test-Path $zipPath) {
 
@@ -228,11 +228,23 @@ if (Test-Path $zipPath) {
 
 }
 
- 
+
+
+# Add a small delay to ensure all file handles are released
+Start-Sleep -Seconds 2
 
 try {
 
-    Compress-Archive -Path "$distPath\*" -DestinationPath $zipPath -CompressionLevel Optimal
+    # Use .NET ZipFile class which is more robust than Compress-Archive
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    # Remove existing zip if it exists
+    if (Test-Path $zipPath) {
+        Remove-Item -Path $zipPath -Force
+    }
+
+    # Create ZIP using .NET
+    [System.IO.Compression.ZipFile]::CreateFromDirectory($distPath, $zipPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
 
     $zipSize = (Get-Item $zipPath).Length / 1MB
 
@@ -245,6 +257,7 @@ try {
 catch {
 
     Write-Host "  ERROR: Failed to create ZIP: $_" -ForegroundColor Red
+    Write-Host "  TIP: Close any Explorer windows or applications that might have files open" -ForegroundColor Yellow
 
     exit 1
 
