@@ -496,6 +496,7 @@ function renderTripTransactions(transactions, tripIndex) {
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Lot Number</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Status</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Action</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Cancel</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -549,6 +550,15 @@ function renderTripTransactions(transactions, tripIndex) {
                             </button>
                         ` : `
                             <span style="color: #cbd5e1; font-size: 10px;">-</span>
+                        `}
+                    </td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;" id="cancel-cell-${tripIndex}-${item.originalIndex}">
+                        ${item.transaction_status === 'SUCCESS' ? `
+                            <span style="color: #cbd5e1; font-size: 10px;">-</span>
+                        ` : `
+                            <button onclick="cancelS2VLot(${tripIndex}, ${item.originalIndex}, '${item.lid || ''}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                                <i class="fas fa-times-circle"></i> Cancel
+                            </button>
                         `}
                     </td>
                 </tr>
@@ -1457,6 +1467,138 @@ async function retryTransactionById(transactionId) {
     const transaction = autoProcessingData.find(t => t.transaction_id === transactionId);
     if (transaction) {
         await processAutoTransaction(transaction);
+    }
+}
+
+// Cancel S2V Lot - calls REST API to cancel a line
+async function cancelS2VLot(tripIndex, transactionIndex, lid) {
+    // Validate LID
+    if (!lid) {
+        showNotification('Cannot cancel: LID is missing', 'error');
+        addLogEntry('Cancel', 'Cannot cancel: LID is missing', 'error');
+        return;
+    }
+
+    // Show confirmation prompt
+    const confirmed = confirm(`Are you sure you want to cancel this line?\n\nLID: ${lid}\n\nThis action cannot be undone.`);
+
+    if (!confirmed) {
+        addLogEntry('Cancel', `Cancel operation aborted by user for LID: ${lid}`, 'info');
+        return;
+    }
+
+    addLogEntry('Cancel', `Cancelling line with LID: ${lid}...`, 'info');
+
+    // Update button to show loading state
+    const cancelCell = document.getElementById(`cancel-cell-${tripIndex}-${transactionIndex}`);
+    if (cancelCell) {
+        cancelCell.innerHTML = `<span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Cancelling...</span>`;
+    }
+
+    // Build the API URL
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vlot/${lid}`;
+
+    try {
+        // Use C# REST handler via WebView2
+        if (window.chrome && window.chrome.webview) {
+            const requestId = 'cancel_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+            // Set up response handler
+            const responseHandler = (event) => {
+                const data = event.data;
+                if (data.requestId === requestId) {
+                    window.chrome.webview.removeEventListener('message', responseHandler);
+
+                    if (data.success) {
+                        addLogEntry('Cancel', `Successfully cancelled line with LID: ${lid}`, 'success');
+                        showNotification(`Line ${lid} cancelled successfully`, 'success');
+
+                        // Update the cancel cell to show cancelled status
+                        if (cancelCell) {
+                            cancelCell.innerHTML = `<span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Cancelled</span>`;
+                        }
+
+                        // Update the status cell
+                        const statusCell = document.getElementById(`status-cell-${tripIndex}-${transactionIndex}`);
+                        if (statusCell) {
+                            statusCell.innerHTML = `
+                                <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: #6b7280; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+                                    <i class="fas fa-ban"></i> CANCELLED
+                                </span>
+                            `;
+                        }
+
+                        // Update transaction status in data
+                        const groupedTrips = groupTransactionsByTrip();
+                        if (groupedTrips[tripIndex] && groupedTrips[tripIndex].transactions[transactionIndex]) {
+                            groupedTrips[tripIndex].transactions[transactionIndex].transaction_status = 'CANCELLED';
+                        }
+                    } else {
+                        const errorMsg = data.error || 'Unknown error occurred';
+                        addLogEntry('Cancel', `Failed to cancel line ${lid}: ${errorMsg}`, 'error');
+                        showNotification(`Failed to cancel line: ${errorMsg}`, 'error');
+
+                        // Restore cancel button
+                        if (cancelCell) {
+                            cancelCell.innerHTML = `
+                                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                                    <i class="fas fa-times-circle"></i> Cancel
+                                </button>
+                            `;
+                        }
+                    }
+                }
+            };
+
+            window.chrome.webview.addEventListener('message', responseHandler);
+
+            // Send POST request to C#
+            window.chrome.webview.postMessage({
+                action: 'executePost',
+                requestId: requestId,
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            });
+
+            // Timeout after 30 seconds
+            setTimeout(() => {
+                window.chrome.webview.removeEventListener('message', responseHandler);
+            }, 30000);
+
+        } else {
+            // Fallback for non-WebView2 environment (testing)
+            console.warn('[Cancel] WebView2 not available, using fetch fallback');
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({})
+            });
+
+            if (response.ok) {
+                addLogEntry('Cancel', `Successfully cancelled line with LID: ${lid}`, 'success');
+                showNotification(`Line ${lid} cancelled successfully`, 'success');
+                if (cancelCell) {
+                    cancelCell.innerHTML = `<span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Cancelled</span>`;
+                }
+            } else {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+        }
+    } catch (error) {
+        console.error('[Cancel] Error:', error);
+        addLogEntry('Cancel', `Error cancelling line ${lid}: ${error.message}`, 'error');
+        showNotification(`Error cancelling line: ${error.message}`, 'error');
+
+        // Restore cancel button
+        if (cancelCell) {
+            cancelCell.innerHTML = `
+                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                    <i class="fas fa-times-circle"></i> Cancel
+                </button>
+            `;
+        }
     }
 }
 
