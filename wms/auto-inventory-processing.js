@@ -257,7 +257,8 @@ function displayGroupedTrips() {
         const successCount = trip.transactions.filter(t => t.transaction_status === 'SUCCESS').length;
         const failedCount = trip.transactions.filter(t => t.transaction_status === 'FAILED' || t.transaction_status === 'ERROR').length;
         const processingCount = trip.transactions.filter(t => t.transaction_status === 'PROCESSING').length;
-        const pendingCount = trip.transactions.length - successCount - failedCount - processingCount;
+        const cancelledCount = trip.transactions.filter(t => t.transaction_status === 'CANCELLED').length;
+        const pendingCount = trip.transactions.length - successCount - failedCount - processingCount - cancelledCount;
 
         // Check if this trip is selected
         const isSelected = selectedTripsForProcessing.has(trip.trip_id);
@@ -307,6 +308,7 @@ function displayGroupedTrips() {
                             ${successCount > 0 ? `<span style="background: #10b981; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${successCount} ✓</span>` : ''}
                             ${processingCount > 0 ? `<span style="background: #f59e0b; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
                             ${pendingCount > 0 ? `<span style="background: #3b82f6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
+                            ${cancelledCount > 0 ? `<span style="background: #6b7280; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
                             ${failedCount > 0 ? `<span style="background: #ef4444; color: white; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
                     </div>
