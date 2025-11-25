@@ -77,7 +77,7 @@ namespace WMSApp.MRA
                 result.CurrentStep = MRAProcessingStep.FetchingOrderSummary;
 
                 var orderSummary = await FetchOrderSummaryAsync(orderNumber);
-                if (orderSummary == null || orderSummary.Tables.Count == 0 || orderSummary.Tables[0].Rows.Count == 0)
+                if (orderSummary == null || orderSummary.Tables.Count < 2 || orderSummary.Tables[1].Rows.Count == 0)
                 {
                     result.Success = false;
                     result.Message = "Order summary not found";
@@ -90,7 +90,7 @@ namespace WMSApp.MRA
                 result.CurrentStep = MRAProcessingStep.FetchingOrderDetails;
 
                 var orderDetails = await FetchOrderDetailsAsync(orderNumber);
-                if (orderDetails == null || orderDetails.Tables.Count == 0 || orderDetails.Tables[0].Rows.Count == 0)
+                if (orderDetails == null || orderDetails.Tables.Count < 2 || orderDetails.Tables[1].Rows.Count == 0)
                 {
                     result.Success = false;
                     result.Message = "Order details not found";
@@ -102,7 +102,7 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Validating order line statuses...", MRAProcessingStep.ValidatingOrderLines);
                 result.CurrentStep = MRAProcessingStep.ValidatingOrderLines;
 
-                var validation = ValidateOrderLines(orderDetails.Tables[0]);
+                var validation = ValidateOrderLines(orderDetails.Tables[1]);
                 if (!validation.AllLinesClosed)
                 {
                     result.Success = false;
@@ -116,7 +116,7 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Creating MRA invoice...", MRAProcessingStep.CreatingMRAInvoice);
                 result.CurrentStep = MRAProcessingStep.CreatingMRAInvoice;
 
-                var invoiceResult = await CreateMRAInvoiceAsync(orderSummary.Tables[0], orderDetails.Tables[0]);
+                var invoiceResult = await CreateMRAInvoiceAsync(orderSummary.Tables[1], orderDetails.Tables[1]);
                 if (!invoiceResult.Success)
                 {
                     result.Success = false;
@@ -127,7 +127,7 @@ namespace WMSApp.MRA
 
                 result.IrnCode = invoiceResult.IrnCode;
                 result.QrCodeBase64 = invoiceResult.QrCodeBase64;
-                result.HeaderId = orderSummary.Tables[0].Rows[0]["HEADER_ID"]?.ToString();
+                result.HeaderId = orderSummary.Tables[1].Rows[0]["HEADER_ID"]?.ToString();
 
                 // Step 6: Update Fusion Order
                 progressCallback?.Invoke("Updating Fusion Order Management...", MRAProcessingStep.UpdatingFusionOrder);
