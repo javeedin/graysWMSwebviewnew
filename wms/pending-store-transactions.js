@@ -256,8 +256,10 @@ function updatePstKpiCards() {
     const totalLines = document.getElementById('pst-total-lines');
     if (totalLines) totalLines.textContent = pstData.length;
 
-    // Total Orders (distinct order numbers)
-    const distinctOrders = [...new Set(pstData.map(t => t.TRX_NUMBER || t.trx_number).filter(Boolean))];
+    // Total Orders (distinct order numbers) - try different field names
+    const distinctOrders = [...new Set(pstData.map(t =>
+        t.TRX_NUMBER || t.trx_number || t.HEADER_ID || t.header_id
+    ).filter(Boolean))];
     const totalOrders = document.getElementById('pst-total-orders');
     if (totalOrders) totalOrders.textContent = distinctOrders.length;
 
@@ -276,6 +278,12 @@ function initializePstGrid(data) {
         return;
     }
 
+    // Log first row to see available fields
+    if (data.length > 0) {
+        pstLog(`Data fields: ${Object.keys(data[0]).join(', ')}`, 'info');
+        pstLog(`First row: ${JSON.stringify(data[0]).substring(0, 300)}`, 'info');
+    }
+
     // Check if DevExtreme is available
     if (typeof DevExpress === 'undefined' || !DevExpress.ui?.dxDataGrid) {
         pstLog('DevExtreme not available, using fallback table', 'warn');
@@ -291,11 +299,14 @@ function initializePstGrid(data) {
         pstGridInstance = null;
     }
 
+    // Add row index to each item for selection
+    data.forEach((item, idx) => { item._rowIndex = idx; });
+
     try {
         // Create DevExpress DataGrid
         pstGridInstance = new DevExpress.ui.dxDataGrid(container, {
             dataSource: data,
-            keyExpr: 'LID',
+            keyExpr: '_rowIndex',  // Use generated index as key
             showBorders: true,
             showRowLines: true,
             rowAlternationEnabled: true,
@@ -332,38 +343,33 @@ function initializePstGrid(data) {
                 placeholder: 'Search...'
             },
             columns: [
-                { dataField: 'TRX_NUMBER', caption: 'Order #', width: 120 },
-                { dataField: 'LID', caption: 'LID', width: 80 },
-                { dataField: 'ITEM_CODE', caption: 'Item Code', width: 120 },
-                { dataField: 'ITEM_DESC', caption: 'Item Description', width: 250 },
-                { dataField: 'PICKED_QTY', caption: 'Qty', width: 70, dataType: 'number', alignment: 'center' },
+                { dataField: 'HEADER_ID', caption: 'Header ID', width: 90, visible: false },
+                { dataField: 'LINE_ID', caption: 'Line ID', width: 90 },
+                { dataField: 'TRX_NUMBER', caption: 'Order #', width: 130 },
+                { dataField: 'ITEM_NUMBER', caption: 'Item Code', width: 120 },
+                { dataField: 'ITEM_DESCRIPTION', caption: 'Item Description', width: 250 },
+                { dataField: 'TRANSACTION_QUANTITY', caption: 'Qty', width: 70, dataType: 'number', alignment: 'center' },
                 { dataField: 'LOT_NUMBER', caption: 'Lot #', width: 100 },
-                { dataField: 'SOURCE_SUB_INV', caption: 'From', width: 80 },
-                { dataField: 'DEST_SUB_INV', caption: 'To', width: 80 },
+                { dataField: 'FROM_SUBINVENTORY_CODE', caption: 'From', width: 100 },
+                { dataField: 'TO_SUBINVENTORY_CODE', caption: 'To', width: 100 },
+                { dataField: 'TRANSACTION_DATE', caption: 'Date', width: 100 },
                 {
                     caption: 'Actions',
                     width: 120,
                     alignment: 'center',
-                    cellTemplate: function(container, options) {
-                        const rowData = options.data;
-                        const actionDiv = document.createElement('div');
-                        actionDiv.style.cssText = 'display: flex; gap: 4px; justify-content: center;';
-
-                        const addBtn = document.createElement('button');
-                        addBtn.innerHTML = '<i class="fas fa-plus"></i>';
-                        addBtn.title = 'Add to Trip';
-                        addBtn.style.cssText = 'background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;';
-                        addBtn.onclick = (e) => { e.stopPropagation(); addSingleToTrip(rowData); };
-
-                        const editBtn = document.createElement('button');
-                        editBtn.innerHTML = '<i class="fas fa-edit"></i>';
-                        editBtn.title = 'Edit';
-                        editBtn.style.cssText = 'background: #667eea; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;';
-                        editBtn.onclick = (e) => { e.stopPropagation(); editPstTransaction(rowData); };
-
-                        actionDiv.appendChild(addBtn);
-                        actionDiv.appendChild(editBtn);
-                        container.appendChild(actionDiv);
+                    cellTemplate: function(cellElement, cellInfo) {
+                        const rowData = cellInfo.data;
+                        const html = `
+                            <div style="display: flex; gap: 4px; justify-content: center;">
+                                <button onclick="addSingleToTrip(pstData[${rowData._rowIndex}])" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;" title="Add to Trip">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                                <button onclick="editPstTransaction(pstData[${rowData._rowIndex}])" style="background: #667eea; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;" title="Edit">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                            </div>
+                        `;
+                        $(cellElement).append(html);
                     }
                 }
             ],
@@ -381,6 +387,11 @@ function initializePstGrid(data) {
 function renderFallbackTable(data) {
     const container = document.getElementById('pst-grid-container');
     if (!container) return;
+
+    // Log first row to see fields
+    if (data.length > 0) {
+        pstLog(`Fallback - Data fields: ${Object.keys(data[0]).join(', ')}`, 'info');
+    }
 
     if (data.length === 0) {
         container.innerHTML = `
@@ -400,8 +411,8 @@ function renderFallbackTable(data) {
                         <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 40px;">
                             <input type="checkbox" id="pst-select-all" onchange="toggleAllPstCheckboxes(this.checked)">
                         </th>
+                        <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Line ID</th>
                         <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Order #</th>
-                        <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">LID</th>
                         <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Item Code</th>
                         <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Item Description</th>
                         <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #e2e8f0;">Qty</th>
@@ -416,22 +427,23 @@ function renderFallbackTable(data) {
 
     data.forEach((item, index) => {
         const rowBg = index % 2 === 0 ? '#ffffff' : '#f8fafc';
-        const lid = item.LID || item.lid || '';
-        const trxNumber = item.TRX_NUMBER || item.trx_number || '';
-        const itemCode = item.ITEM_CODE || item.item_code || '';
-        const itemDesc = item.ITEM_DESC || item.item_desc || '';
-        const qty = item.PICKED_QTY || item.picked_qty || 0;
+        // Try multiple field name variations
+        const lineId = item.LINE_ID || item.line_id || item.LID || item.lid || index;
+        const trxNumber = item.TRX_NUMBER || item.trx_number || item.HEADER_ID || '';
+        const itemCode = item.ITEM_NUMBER || item.ITEM_CODE || item.item_code || '';
+        const itemDesc = item.ITEM_DESCRIPTION || item.ITEM_DESC || item.item_desc || '';
+        const qty = item.TRANSACTION_QUANTITY || item.PICKED_QTY || item.picked_qty || 0;
         const lotNumber = item.LOT_NUMBER || item.lot_number || '';
-        const sourceSubInv = item.SOURCE_SUB_INV || item.source_sub_inv || '';
-        const destSubInv = item.DEST_SUB_INV || item.dest_sub_inv || '';
+        const sourceSubInv = item.FROM_SUBINVENTORY_CODE || item.SOURCE_SUB_INV || '';
+        const destSubInv = item.TO_SUBINVENTORY_CODE || item.DEST_SUB_INV || '';
 
         html += `
             <tr style="background: ${rowBg}; border-bottom: 1px solid #f1f5f9;">
                 <td style="padding: 0.5rem; text-align: center;">
-                    <input type="checkbox" class="pst-row-checkbox" data-lid="${lid}" onchange="togglePstRowSelection('${lid}', this.checked)">
+                    <input type="checkbox" class="pst-row-checkbox" data-index="${index}" onchange="togglePstRowSelection('${index}', this.checked)">
                 </td>
+                <td style="padding: 0.5rem; color: #667eea; font-weight: 600;">${lineId}</td>
                 <td style="padding: 0.5rem; font-weight: 600; color: #1e293b;">${trxNumber}</td>
-                <td style="padding: 0.5rem; color: #667eea; font-weight: 600;">${lid}</td>
                 <td style="padding: 0.5rem; color: #667eea;">${itemCode}</td>
                 <td style="padding: 0.5rem; color: #475569; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${itemDesc}">${itemDesc}</td>
                 <td style="padding: 0.5rem; text-align: center; font-weight: 700; color: #1e293b;">${qty}</td>
