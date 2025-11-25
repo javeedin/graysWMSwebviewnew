@@ -1616,48 +1616,55 @@
                         </div>
 
                         <!-- Tab Content -->
-                        <div style="padding: 1.5rem;">
+                        <div style="padding: 1rem;">
                             <!-- Trips View Tab -->
                             <div id="auto-trips-view" class="auto-tab-content">
                                 <!-- Filter Section -->
-                                <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; display: flex; gap: 0.75rem; flex-wrap: nowrap; align-items: flex-end;">
-                                    <div style="flex: 2; min-width: 180px;">
-                                        <label style="font-size: 10px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Item Description</label>
-                                        <input type="text" id="filter-item-desc" placeholder="Enter item..." style="width: 100%; padding: 0.4rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px;">
+                                <div style="background: #f8f9fa; padding: 0.75rem; border-radius: 8px; margin-bottom: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: nowrap; align-items: flex-end;">
+                                    <div style="flex: 1; min-width: 90px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Trip ID</label>
+                                        <select id="filter-trip-id" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                            <option value="">All Trips</option>
+                                        </select>
                                     </div>
                                     <div style="flex: 1; min-width: 100px;">
-                                        <label style="font-size: 10px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">LID</label>
-                                        <input type="text" id="filter-lid" placeholder="LID..." style="width: 100%; padding: 0.4rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Order #</label>
+                                        <select id="filter-trx-number" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                            <option value="">All Orders</option>
+                                        </select>
                                     </div>
-                                    <div style="flex: 1; min-width: 120px;">
-                                        <label style="font-size: 10px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Order #</label>
-                                        <input type="text" id="filter-trx-number" placeholder="Order..." style="width: 100%; padding: 0.4rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px;">
+                                    <div style="flex: 1.5; min-width: 140px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Item Description</label>
+                                        <select id="filter-item-desc" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                            <option value="">All Items</option>
+                                        </select>
                                     </div>
-                                    <div style="flex: 1; min-width: 110px;">
-                                        <label style="font-size: 10px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Status</label>
-                                        <select id="filter-status" style="width: 100%; padding: 0.4rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px;">
+                                    <div style="flex: 0.8; min-width: 80px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">LID</label>
+                                        <input type="text" id="filter-lid" placeholder="LID..." style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                    </div>
+                                    <div style="flex: 0.8; min-width: 85px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Status</label>
+                                        <select id="filter-status" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
                                             <option value="">All</option>
                                             <option value="PENDING">Pending</option>
                                             <option value="PROCESSING">Processing</option>
                                             <option value="SUCCESS">Success</option>
                                             <option value="FAILED">Failed</option>
+                                            <option value="CANCELLED">Cancelled</option>
                                         </select>
                                     </div>
-                                    <div style="flex-shrink: 0; display: flex; gap: 0.5rem;">
-                                        <button onclick="applyFilters()" style="background: #10b981; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; white-space: nowrap; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                    <div style="flex-shrink: 0; display: flex; gap: 0.4rem;">
+                                        <button onclick="applyFilters()" style="background: #10b981; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; white-space: nowrap; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
                                             <i class="fas fa-filter"></i> Apply
                                         </button>
-                                        <button onclick="clearFilters()" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: 600; white-space: nowrap;">
+                                        <button onclick="clearFilters()" style="background: #94a3b8; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; white-space: nowrap;">
                                             <i class="fas fa-times"></i> Clear
                                         </button>
+                                        <button id="expand-collapse-all-btn" onclick="toggleExpandCollapseAll()" style="background: #667eea; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; display: none; white-space: nowrap;">
+                                            <i class="fas fa-expand-alt"></i> Expand All
+                                        </button>
                                     </div>
-                                </div>
-
-                                <!-- Expand/Collapse All Button -->
-                                <div style="margin-bottom: 1rem; display: flex; justify-content: flex-end;">
-                                    <button id="expand-collapse-all-btn" onclick="toggleExpandCollapseAll()" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: none;">
-                                        <i class="fas fa-expand-alt"></i> Expand All
-                                    </button>
                                 </div>
 
                                 <div id="auto-trips-container">

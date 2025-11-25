@@ -9,6 +9,7 @@ let autoProcessingEnabled = false;
 let autoProcessingInterval = null;
 let autoProcessingData = [];
 let autoProcessingFilters = {
+    tripId: '',
     itemDesc: '',
     lid: '',
     trxNumber: '',
@@ -182,6 +183,9 @@ function fetchAutoInventoryData() {
 
                 // Update statistics
                 updateStatistics();
+
+                // Populate filter dropdowns with data
+                populateFilterDropdowns();
 
             } catch (e) {
                 console.error('[Auto Processing] Parse error:', e);
@@ -1820,9 +1824,51 @@ function toggleSelectAllOrder(orderId) {
     });
 }
 
+// Populate filter dropdowns with data from fetched records
+function populateFilterDropdowns() {
+    if (!autoProcessingData || autoProcessingData.length === 0) return;
+
+    // Get unique values
+    const tripIds = [...new Set(autoProcessingData.map(t => t.trip_id).filter(Boolean))].sort();
+    const orderNumbers = [...new Set(autoProcessingData.map(t => t.trx_number).filter(Boolean))].sort();
+    const itemDescs = [...new Set(autoProcessingData.map(t => t.item_description).filter(Boolean))].sort();
+
+    // Populate Trip ID dropdown
+    const tripSelect = document.getElementById('filter-trip-id');
+    if (tripSelect) {
+        tripSelect.innerHTML = '<option value="">All Trips</option>';
+        tripIds.forEach(id => {
+            tripSelect.innerHTML += `<option value="${id}">${id}</option>`;
+        });
+    }
+
+    // Populate Order # dropdown
+    const orderSelect = document.getElementById('filter-trx-number');
+    if (orderSelect) {
+        orderSelect.innerHTML = '<option value="">All Orders</option>';
+        orderNumbers.forEach(num => {
+            orderSelect.innerHTML += `<option value="${num}">${num}</option>`;
+        });
+    }
+
+    // Populate Item Description dropdown
+    const itemSelect = document.getElementById('filter-item-desc');
+    if (itemSelect) {
+        itemSelect.innerHTML = '<option value="">All Items</option>';
+        itemDescs.forEach(desc => {
+            // Truncate long descriptions for display
+            const displayText = desc.length > 40 ? desc.substring(0, 40) + '...' : desc;
+            itemSelect.innerHTML += `<option value="${desc}">${displayText}</option>`;
+        });
+    }
+
+    console.log('[Filters] Populated dropdowns - Trips:', tripIds.length, 'Orders:', orderNumbers.length, 'Items:', itemDescs.length);
+}
+
 // Apply filters
 function applyFilters() {
     // Get filter values
+    autoProcessingFilters.tripId = document.getElementById('filter-trip-id').value;
     autoProcessingFilters.itemDesc = document.getElementById('filter-item-desc').value.toLowerCase();
     autoProcessingFilters.lid = document.getElementById('filter-lid').value.toLowerCase();
     autoProcessingFilters.trxNumber = document.getElementById('filter-trx-number').value.toLowerCase();
@@ -1854,9 +1900,15 @@ function applyFilters() {
 
                 let showRow = true;
 
+                // Filter by trip ID
+                if (autoProcessingFilters.tripId &&
+                    String(trip.trip_id) !== autoProcessingFilters.tripId) {
+                    showRow = false;
+                }
+
                 // Filter by item description
                 if (autoProcessingFilters.itemDesc &&
-                    !item.item_desc.toLowerCase().includes(autoProcessingFilters.itemDesc)) {
+                    !item.item_description?.toLowerCase().includes(autoProcessingFilters.itemDesc)) {
                     showRow = false;
                 }
 
@@ -1945,12 +1997,14 @@ function applyFilters() {
 
 // Clear all filters
 function clearFilters() {
+    document.getElementById('filter-trip-id').value = '';
     document.getElementById('filter-item-desc').value = '';
     document.getElementById('filter-lid').value = '';
     document.getElementById('filter-trx-number').value = '';
     document.getElementById('filter-status').value = '';
 
     autoProcessingFilters = {
+        tripId: '',
         itemDesc: '',
         lid: '',
         trxNumber: '',
