@@ -279,6 +279,28 @@ namespace WMSApp
             }
         }
 
+        private void NavigateToWmsIndex(string repoRoot)
+        {
+            string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+
+            if (File.Exists(indexPath))
+            {
+                System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
+                // Clear any stale localStorage login state before navigation
+                _ = ClearWebViewLoginStateAsync();
+                string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                Navigate(fileUrl);
+            }
+            else
+            {
+                MessageBox.Show(
+                    "Local WMS development files not found at:\n" + indexPath,
+                    "WMS Dev Not Found",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
         private void HandleLoginSuccess(JsonElement root)
         {
             try
@@ -294,6 +316,131 @@ namespace WMSApp
             {
                 System.Diagnostics.Debug.WriteLine($"[LOGIN ERROR] Failed to process login: {ex.Message}");
             }
+        }
+
+        private async Task HandleValidateLogin(WebView2 wv, JsonElement root, string requestId)
+        {
+            string username = "";
+            string instanceName = "PROD";
+
+            try
+            {
+                username = root.TryGetProperty("username", out var userProp) ? userProp.GetString() : "";
+                string password = root.TryGetProperty("password", out var passProp) ? passProp.GetString() : "";
+                instanceName = root.TryGetProperty("instanceName", out var instProp) ? instProp.GetString() : "PROD";
+
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Username: {username}");
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Instance: {instanceName}");
+
+                // Instance URLs
+                var instanceUrls = new Dictionary<string, string>
+                {
+                    { "PROD", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" },
+                    { "TEST", "https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" }
+                };
+
+                if (!instanceUrls.TryGetValue(instanceName, out string baseUrl))
+                {
+                    baseUrl = instanceUrls["PROD"];
+                }
+
+                // Fetch user details from API
+                string apiUrl = $"{baseUrl}/trip/fusionuserdetails";
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Fetching users from: {apiUrl}");
+
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    var response = await client.GetAsync(apiUrl);
+
+                    System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Response status: {response.StatusCode}");
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string jsonResponse = await response.Content.ReadAsStringAsync();
+                        System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Response length: {jsonResponse.Length}");
+
+                        // Parse JSON to find user
+                        using (var doc = JsonDocument.Parse(jsonResponse))
+                        {
+                            var items = doc.RootElement.GetProperty("items");
+                            bool userFound = false;
+
+                            foreach (var item in items.EnumerateArray())
+                            {
+                                string apiUsername = item.TryGetProperty("user_name", out var uProp) ? uProp.GetString() : "";
+                                string apiPassword = item.TryGetProperty("passwordd", out var pProp) ? pProp.GetString() : "";
+
+                                if (!string.IsNullOrEmpty(apiUsername) &&
+                                    apiUsername.Equals(username, StringComparison.OrdinalIgnoreCase) &&
+                                    apiPassword == password)
+                                {
+                                    userFound = true;
+                                    break;
+                                }
+                            }
+
+                            if (userFound)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] SUCCESS - User validated!");
+
+                                // Set session
+                                _loggedInUsername = username;
+                                _loggedInInstance = instanceName;
+                                _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
+                                _isLoggedIn = true;
+
+                                // Send success response to JavaScript by calling the global function directly
+                                string escapedUsername = username.Replace("\\", "\\\\").Replace("'", "\\'");
+                                string escapedInstance = instanceName.Replace("\\", "\\\\").Replace("'", "\\'");
+
+                                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                    console.log('[C# -> JS] Calling handleLoginResponse with success...');
+                                    if (typeof window.handleLoginResponse === 'function') {{
+                                        window.handleLoginResponse(true, '{escapedUsername}', '{escapedInstance}', '');
+                                    }} else {{
+                                        console.error('[C# -> JS] handleLoginResponse function not found!');
+                                    }}
+                                ");
+
+                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Sent success response to JS");
+                            }
+                            else
+                            {
+                                throw new Exception("Invalid username or password");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        throw new Exception($"Server error: {response.StatusCode}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] FAILED - {ex.Message}");
+
+                // Send error response to JavaScript by calling the global function directly
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
+                string escapedUsername = username.Replace("\\", "\\\\").Replace("'", "\\'");
+                string escapedInstance = instanceName.Replace("\\", "\\\\").Replace("'", "\\'");
+
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    console.log('[C# -> JS] Calling handleLoginResponse with error...');
+                    if (typeof window.handleLoginResponse === 'function') {{
+                        window.handleLoginResponse(false, '{escapedUsername}', '{escapedInstance}', '{escapedError}');
+                    }} else {{
+                        console.error('[C# -> JS] handleLoginResponse function not found!');
+                        alert('Login failed: {escapedError}');
+                    }}
+                ");
+
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Sent error response to JS");
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] ========================================");
         }
 
         private void SetupUI()
@@ -476,44 +623,39 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine("[DEBUG] WMS DEV BUTTON CLICKED!");
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
 
-                // Check if user is logged in for WMS, if not show login form
+                // Get repo root path
+                string repoRoot = GetWebFilesBasePath();
+
+                // Check if user is logged in for WMS, if not navigate to HTML login page
                 if (!_isLoggedIn)
                 {
-                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, showing login form...");
-                    if (!ShowLoginForm())
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, navigating to login page...");
+
+                    // Navigate to HTML login page
+                    string loginPath = Path.GetFullPath(Path.Combine(repoRoot, "login.html"));
+                    if (File.Exists(loginPath))
                     {
-                        // User cancelled login
-                        System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
-                        return;
+                        // Clear any stale localStorage login state before navigation
+                        _ = ClearWebViewLoginStateAsync();
+                        string loginUrl = "file:///" + loginPath.Replace("\\", "/");
+                        System.Diagnostics.Debug.WriteLine($"[WMS Dev] Navigating to login: {loginUrl}");
+                        Navigate(loginUrl);
                     }
-                    System.Diagnostics.Debug.WriteLine("[DEBUG] Login form completed successfully");
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WMS Dev] Login page not found at: {loginPath}");
+                        // Fallback to C# login form
+                        if (!ShowLoginForm())
+                        {
+                            return;
+                        }
+                        NavigateToWmsIndex(repoRoot);
+                    }
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, skipping login form");
-                }
-
-                // Load local development version from repository root
-                // Navigate from bin/debug/net8.0 up to repository root
-                string repoRoot = GetWebFilesBasePath();
-                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
-
-                if (File.Exists(indexPath))
-                {
-                    System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
-                    // Clear any stale localStorage login state before navigation
-                    _ = ClearWebViewLoginStateAsync();
-                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
-                    Navigate(fileUrl);
-                    // Send user session after navigation completes (handled in NavigationCompleted event)
-                }
-                else
-                {
-                    MessageBox.Show(
-                        "Local WMS development files not found at:\n" + indexPath,
-                        "WMS Dev Not Found",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, going directly to WMS");
+                    NavigateToWmsIndex(repoRoot);
                 }
             };
             moduleToolTip.SetToolTip(wmsDevButton, "WMS Development - Local Version");
@@ -543,21 +685,38 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine("[DEBUG] WMS PROD BUTTON CLICKED!");
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
 
-                // Check if user is logged in for WMS, if not show login form
+                // Get repo root path
+                string repoRoot = GetWebFilesBasePath();
+
+                // Check if user is logged in for WMS, if not navigate to HTML login page
                 if (!_isLoggedIn)
                 {
-                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, showing login form...");
-                    if (!ShowLoginForm())
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, navigating to login page...");
+
+                    // Navigate to HTML login page
+                    string loginPath = Path.GetFullPath(Path.Combine(repoRoot, "login.html"));
+                    if (File.Exists(loginPath))
                     {
-                        // User cancelled login
-                        System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
-                        return;
+                        // Clear any stale localStorage login state before navigation
+                        _ = ClearWebViewLoginStateAsync();
+                        string loginUrl = "file:///" + loginPath.Replace("\\", "/");
+                        System.Diagnostics.Debug.WriteLine($"[WMS Prod] Navigating to login: {loginUrl}");
+                        Navigate(loginUrl);
+                        return; // Exit - user will be redirected to WMS after login
                     }
-                    System.Diagnostics.Debug.WriteLine("[DEBUG] Login form completed successfully");
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WMS Prod] Login page not found at: {loginPath}");
+                        // Fallback to C# login form
+                        if (!ShowLoginForm())
+                        {
+                            return;
+                        }
+                    }
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, skipping login form");
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, going directly to WMS");
                 }
 
                 // Check if distribution folder exists
@@ -1267,6 +1426,10 @@ namespace WMSApp
                             {
                                 case "loginSuccess":
                                     HandleLoginSuccess(root);
+                                    break;
+
+                                case "validateLogin":
+                                    await HandleValidateLogin(wv, root, requestId);
                                     break;
 
                                 case "executeGet":

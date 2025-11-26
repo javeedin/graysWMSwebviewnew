@@ -292,7 +292,7 @@ namespace WMSApp
                 string selectedInstance = cboInstance.SelectedItem.ToString();
 
                 // Get base URL for the selected instance
-                if (!InstanceUrls.TryGetValue(selectedInstance, out string baseUrl))
+                if (!instanceUrls.TryGetValue(selectedInstance, out string baseUrl))
                 {
                     ShowError("Invalid instance selected");
                     SetControlsEnabled(true);
