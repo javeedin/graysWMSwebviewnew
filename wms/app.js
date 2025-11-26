@@ -1742,8 +1742,11 @@ document.addEventListener('DOMContentLoaded', function() {
             columnMinWidth: 50,
             width: '100%',
             scrolling: {
+                mode: 'standard',
                 useNative: true,
-                showScrollbar: 'onHover'
+                showScrollbar: 'always',
+                scrollByContent: true,
+                scrollByThumb: true
             },
             filterRow: { visible: true },
             headerFilter: { visible: true },
@@ -1776,7 +1779,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 enabled: true,
                 mode: 'select'
             },
-            height: '100%'
+            height: 500
         });
 
         // Store grid instance for global access
