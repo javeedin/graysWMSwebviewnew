@@ -1666,7 +1666,6 @@ document.addEventListener('DOMContentLoaded', function() {
     function displayTripData(trips) {
         const gridContainer = document.getElementById('trips-grid');
         const tripCount = document.getElementById('trip-count');
-        const summaryStats = document.getElementById('summary-stats');
 
         if (!trips || trips.length === 0) {
             gridContainer.innerHTML = `<div style="padding:3rem;text-align:center;color:#64748b;">
@@ -1674,39 +1673,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 <h3>No Trips Found</h3>
             </div>`;
             tripCount.textContent = '0 trips';
-            summaryStats.style.display = 'none';
             return;
         }
-
-        const totalOrders = trips.length;
-        const customers = new Set(trips.map(t => t.account_name).filter(x => x)).size;
-        const lorries = new Set(trips.map(t => t.trip_lorry).filter(x => x)).size;
-        const pickers = new Set(trips.map(t => t.PICKER).filter(x => x)).size;
-        const distinctTrips = new Set(trips.map(t => t.trip_id).filter(x => x)).size;
-
-        summaryStats.innerHTML = `
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('orders')">
-                <div class="value">${totalOrders}</div>
-                <div class="label">Total Orders</div>
-            </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('customers')">
-                <div class="value">${customers}</div>
-                <div class="label">Total Customers</div>
-            </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('lorries')">
-                <div class="value">${lorries}</div>
-                <div class="label">Total Lorries</div>
-            </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('pickers')">
-                <div class="value">${pickers}</div>
-                <div class="label">Total Pickers</div>
-            </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('trips')">
-                <div class="value">${distinctTrips}</div>
-                <div class="label">Total Trips</div>
-            </div>
-        `;
-        summaryStats.style.display = 'grid';
 
         // Auto-populate Trips tab
         openTripManagementTab('trips');
