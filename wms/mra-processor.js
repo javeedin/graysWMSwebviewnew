@@ -221,10 +221,19 @@ async function openMRAProcessingPopup(orderNumber, instance) {
 async function processMRAInterface(orderNumber, instance) {
     addMRALog(`Starting MRA processing for order: ${orderNumber}`, 'info');
 
-    const fusionUsername = localStorage.getItem('fusionCloudUsername') || 'shaik';
-    const fusionPassword = localStorage.getItem('fusionCloudPassword') || 'fusion1234';
+    // Get credentials from localStorage (set during login)
+    const fusionUsername = localStorage.getItem('fusionCloudUsername') || localStorage.getItem('username');
+    const fusionPassword = localStorage.getItem('fusionCloudPassword') || localStorage.getItem('password');
+
+    // Validate that credentials exist - no hardcoded defaults
+    if (!fusionUsername || !fusionPassword) {
+        addMRALog('Error: No login credentials found. Please login first.', 'error');
+        throw new Error('No login credentials found. Please login first.');
+    }
+
     const resolvedInstance = (instance && instance.trim()) ||
                              localStorage.getItem('fusionInstance') ||
+                             localStorage.getItem('instanceName') ||
                              document.getElementById('current-instance-display')?.textContent ||
                              'PROD';
 

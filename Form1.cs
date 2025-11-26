@@ -59,6 +59,7 @@ namespace WMSApp
 
         // User Session Fields
         private string _loggedInUsername;
+        private string _loggedInPassword;
         private string _loggedInInstance;
         private string _loggedInDateTime;
         private bool _isLoggedIn = false;
@@ -222,6 +223,7 @@ namespace WMSApp
                 if (dialogResult == DialogResult.OK && loginForm.LoginSuccessful)
                 {
                     _loggedInUsername = loginForm.Username;
+                    _loggedInPassword = loginForm.Password;
                     _loggedInInstance = loginForm.InstanceName;
                     _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
                     _isLoggedIn = true;
@@ -240,6 +242,7 @@ namespace WMSApp
             // Clear session variables
             _isLoggedIn = false;
             _loggedInUsername = null;
+            _loggedInPassword = null;
             _loggedInInstance = null;
             _loggedInDateTime = null;
 
@@ -259,8 +262,12 @@ namespace WMSApp
                     await wv.CoreWebView2.ExecuteScriptAsync(@"
                         localStorage.removeItem('loggedIn');
                         localStorage.removeItem('username');
+                        localStorage.removeItem('password');
                         localStorage.removeItem('instanceName');
                         localStorage.removeItem('loginTime');
+                        localStorage.removeItem('fusionCloudUsername');
+                        localStorage.removeItem('fusionCloudPassword');
+                        localStorage.removeItem('fusionInstance');
                         console.log('[C# CLEAR] localStorage login state cleared');
                     ");
                     System.Diagnostics.Debug.WriteLine("[LOGIN] ✅ localStorage login state cleared");
@@ -3703,6 +3710,7 @@ namespace WMSApp
             {
                 // Escape strings for JavaScript
                 string username = _loggedInUsername?.Replace("'", "\\'") ?? "";
+                string password = _loggedInPassword?.Replace("'", "\\'") ?? "";
                 string instance = _loggedInInstance?.Replace("'", "\\'") ?? "";
                 string loginDateTime = ("Logged in: " + _loggedInDateTime)?.Replace("'", "\\'") ?? "";
 
@@ -3711,16 +3719,22 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] LoginDateTime: {loginDateTime}");
 
                 // Set localStorage values for login state (required for web page auth check)
+                // Also set fusionCloudUsername/Password for API calls
                 string setLocalStorageScript = $@"
                     console.log('[C# INJECT] Setting localStorage values...');
                     localStorage.setItem('loggedIn', 'true');
                     localStorage.setItem('username', '{username}');
+                    localStorage.setItem('password', '{password}');
                     localStorage.setItem('instanceName', '{instance}');
                     localStorage.setItem('loginTime', '{loginDateTime}');
+                    localStorage.setItem('fusionCloudUsername', '{username}');
+                    localStorage.setItem('fusionCloudPassword', '{password}');
+                    localStorage.setItem('fusionInstance', '{instance}');
                     console.log('[C# INJECT] localStorage values set:');
                     console.log('[C# INJECT] loggedIn:', localStorage.getItem('loggedIn'));
                     console.log('[C# INJECT] username:', localStorage.getItem('username'));
                     console.log('[C# INJECT] instanceName:', localStorage.getItem('instanceName'));
+                    console.log('[C# INJECT] fusionCloudUsername:', localStorage.getItem('fusionCloudUsername'));
                 ";
                 System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Executing localStorage script...");
                 await wv.ExecuteScriptAsync(setLocalStorageScript);

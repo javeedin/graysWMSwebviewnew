@@ -291,13 +291,35 @@ namespace WMSApp
                 // Get selected instance
                 string selectedInstance = cboInstance.SelectedItem.ToString();
 
-                // SKIP API VALIDATION - Accept any credentials
-                // This allows offline login and bypasses API issues
+                // Get base URL for the selected instance
+                if (!InstanceUrls.TryGetValue(selectedInstance, out string baseUrl))
+                {
+                    ShowError("Invalid instance selected");
+                    SetControlsEnabled(true);
+                    btnLogin.Text = "🔐 Login";
+                    return;
+                }
+
+                // VALIDATE credentials against the API
                 System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Accepting credentials WITHOUT API validation");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] Validating credentials against API");
                 System.Diagnostics.Debug.WriteLine($"[LOGIN] Username: {txtUsername.Text}");
                 System.Diagnostics.Debug.WriteLine($"[LOGIN] Instance: {selectedInstance}");
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] ✓ Login SUCCESSFUL (No validation)");
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] BaseURL: {baseUrl}");
+
+                bool isValid = await ValidateLogin(baseUrl, txtUsername.Text, txtPassword.Text);
+
+                if (!isValid)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] ✗ Login FAILED - Invalid credentials");
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
+                    ShowError("Invalid username or password. Please try again.");
+                    SetControlsEnabled(true);
+                    btnLogin.Text = "🔐 Login";
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[LOGIN] ✓ Login SUCCESSFUL (Validated)");
                 System.Diagnostics.Debug.WriteLine($"[LOGIN] ========================================");
 
                 // Store credentials
