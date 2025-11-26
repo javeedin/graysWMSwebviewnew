@@ -4110,9 +4110,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         <!-- Tab 2: Sales Order Lines -->
                         <div id="order-trans-sales-order-lines" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
-                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                 <button class="btn btn-secondary" onclick="refreshSalesOrderLines('${orderNumber}')">
                                     <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn btn-warning" onclick="cancelScheduledLines('${orderNumber}')" style="background: #f59e0b; color: white;">
+                                    <i class="fas fa-clock"></i> Cancel Scheduled Lines
+                                </button>
+                                <button class="btn btn-danger" onclick="cancelSelectedSalesOrderLine('${orderNumber}')" style="background: #ef4444; color: white;">
+                                    <i class="fas fa-times-circle"></i> Cancel Selected Line
+                                </button>
+                                <button class="btn btn-danger" onclick="cancelNotPickedLines('${orderNumber}')" style="background: #dc2626; color: white;">
+                                    <i class="fas fa-ban"></i> Cancel Not Picked Lines
                                 </button>
                             </div>
                             <div id="sales-order-lines-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
@@ -4342,9 +4351,264 @@ document.addEventListener('DOMContentLoaded', function() {
     window.refreshSalesOrderLines = function(orderNumber) {
         console.log('[Order Transactions] Refresh Sales Order Lines for:', orderNumber);
         const gridContainer = document.getElementById('sales-order-lines-grid');
-        if (gridContainer) {
-            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Sales Order Lines will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        if (!gridContainer) {
+            console.error('[Order Transactions] Sales Order Lines grid container not found');
+            return;
         }
+
+        // Show loading state
+        gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Sales Order Lines...</p></div>';
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}`;
+
+        console.log('[Order Transactions] Fetching Sales Order Lines from:', apiUrl);
+
+        // Use C# REST handler
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            if (error) {
+                console.error('[Order Transactions] Error fetching Sales Order Lines:', error);
+                gridContainer.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;"><i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Error loading data</p><p style="font-size: 0.85rem;">${error}</p></div>`;
+                return;
+            }
+
+            try {
+                let responseData = typeof data === 'string' ? JSON.parse(data) : data;
+                let items = responseData.items || responseData || [];
+
+                console.log('[Order Transactions] Sales Order Lines received:', items.length, 'records');
+
+                if (items.length === 0) {
+                    gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>No Sales Order Lines found</p></div>';
+                    return;
+                }
+
+                // Log first item to see available fields
+                console.log('[Order Transactions] Sales Order Lines first item:', items[0]);
+
+                // Build columns dynamically from first item
+                const firstItem = items[0];
+                const columns = Object.keys(firstItem).map(key => {
+                    return {
+                        dataField: key,
+                        caption: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                        width: 'auto'
+                    };
+                });
+
+                // Initialize DevExpress Grid with selection
+                if (typeof DevExpress !== 'undefined' && DevExpress.ui?.dxDataGrid) {
+                    // Clear container
+                    gridContainer.innerHTML = '';
+
+                    window.salesOrderLinesGrid = new DevExpress.ui.dxDataGrid(gridContainer, {
+                        dataSource: items,
+                        showBorders: true,
+                        showRowLines: true,
+                        rowAlternationEnabled: true,
+                        allowColumnResizing: true,
+                        columnAutoWidth: true,
+                        height: '100%',
+                        selection: {
+                            mode: 'single',
+                            showCheckBoxesMode: 'always'
+                        },
+                        paging: { pageSize: 25 },
+                        pager: {
+                            showPageSizeSelector: true,
+                            allowedPageSizes: [10, 25, 50, 100],
+                            showInfo: true
+                        },
+                        filterRow: { visible: true },
+                        headerFilter: { visible: true },
+                        searchPanel: { visible: true, width: 200, placeholder: 'Search...' },
+                        columns: columns,
+                        onContentReady: function(e) {
+                            console.log('[Order Transactions] Sales Order Lines grid rendered');
+                        },
+                        onSelectionChanged: function(e) {
+                            window.selectedSalesOrderLine = e.selectedRowsData[0] || null;
+                            console.log('[Order Transactions] Selected Sales Order Line:', window.selectedSalesOrderLine);
+                        }
+                    });
+                } else {
+                    // Fallback to HTML table with selection
+                    let html = '<div style="overflow-x: auto; max-height: 400px;"><table id="sales-order-lines-table" style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+                    html += '<thead style="position: sticky; top: 0; background: #f8f9fa;"><tr>';
+                    html += '<th style="padding: 0.5rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 30px;"><input type="checkbox" disabled></th>';
+                    Object.keys(firstItem).forEach(key => {
+                        html += `<th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #e2e8f0; font-weight: 600;">${key.replace(/_/g, ' ')}</th>`;
+                    });
+                    html += '</tr></thead><tbody>';
+
+                    items.forEach((item, idx) => {
+                        const bg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        html += `<tr data-index="${idx}" style="background: ${bg}; cursor: pointer;" onclick="selectSalesOrderLineRow(this, ${idx})">`;
+                        html += `<td style="padding: 0.4rem; border-bottom: 1px solid #f1f5f9; text-align: center;"><input type="radio" name="sol-select" value="${idx}"></td>`;
+                        Object.values(item).forEach(val => {
+                            html += `<td style="padding: 0.4rem; border-bottom: 1px solid #f1f5f9;">${val !== null ? val : ''}</td>`;
+                        });
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table></div>';
+                    gridContainer.innerHTML = html;
+
+                    // Store items for selection
+                    window.salesOrderLinesData = items;
+                }
+
+            } catch (parseError) {
+                console.error('[Order Transactions] Parse error:', parseError);
+                gridContainer.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;"><i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Error parsing data</p><p style="font-size: 0.85rem;">${parseError.message}</p></div>`;
+            }
+        });
+    };
+
+    // Helper function for HTML table row selection
+    window.selectSalesOrderLineRow = function(row, index) {
+        // Deselect all rows
+        document.querySelectorAll('#sales-order-lines-table tbody tr').forEach(tr => {
+            tr.style.background = parseInt(tr.dataset.index) % 2 === 0 ? '#ffffff' : '#f8fafc';
+        });
+        // Select clicked row
+        row.style.background = '#e0e7ff';
+        row.querySelector('input[type="radio"]').checked = true;
+        window.selectedSalesOrderLine = window.salesOrderLinesData ? window.salesOrderLinesData[index] : null;
+        console.log('[Order Transactions] Selected Sales Order Line:', window.selectedSalesOrderLine);
+    };
+
+    // Cancel Scheduled Lines function
+    window.cancelScheduledLines = function(orderNumber) {
+        console.log('[Order Transactions] Cancel Scheduled Lines for order:', orderNumber);
+
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to cancel all scheduled lines for order ${orderNumber}?`)) {
+            return;
+        }
+
+        // Show loading indicator
+        showLoading('Cancelling scheduled lines...');
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelscheduledlines/${orderNumber}`;
+
+        console.log('[Order Transactions] Cancel Scheduled Lines API:', apiUrl);
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            payload: {}
+        }, function(error, data) {
+            hideLoading();
+
+            if (error) {
+                console.error('[Order Transactions] Error cancelling scheduled lines:', error);
+                showNotification('Error cancelling scheduled lines: ' + error, 'error');
+                return;
+            }
+
+            console.log('[Order Transactions] Cancel Scheduled Lines response:', data);
+            showNotification('Scheduled lines cancelled successfully', 'success');
+
+            // Refresh the grid
+            refreshSalesOrderLines(orderNumber);
+        });
+    };
+
+    // Cancel Selected Line function
+    window.cancelSelectedSalesOrderLine = function(orderNumber) {
+        console.log('[Order Transactions] Cancel Selected Line for order:', orderNumber);
+
+        // Check if a line is selected
+        if (!window.selectedSalesOrderLine) {
+            showNotification('Please select a line to cancel', 'warning');
+            return;
+        }
+
+        // Get line identifier (try common field names)
+        const lineId = window.selectedSalesOrderLine.LINE_ID ||
+                       window.selectedSalesOrderLine.line_id ||
+                       window.selectedSalesOrderLine.LINE_NUMBER ||
+                       window.selectedSalesOrderLine.line_number ||
+                       window.selectedSalesOrderLine.ORDER_LINE_ID ||
+                       window.selectedSalesOrderLine.order_line_id;
+
+        if (!lineId) {
+            showNotification('Unable to identify the selected line', 'error');
+            return;
+        }
+
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to cancel line ${lineId} for order ${orderNumber}?`)) {
+            return;
+        }
+
+        // Show loading indicator
+        showLoading('Cancelling selected line...');
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelorderline/${orderNumber}/${lineId}`;
+
+        console.log('[Order Transactions] Cancel Selected Line API:', apiUrl);
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            payload: {}
+        }, function(error, data) {
+            hideLoading();
+
+            if (error) {
+                console.error('[Order Transactions] Error cancelling selected line:', error);
+                showNotification('Error cancelling line: ' + error, 'error');
+                return;
+            }
+
+            console.log('[Order Transactions] Cancel Selected Line response:', data);
+            showNotification('Line cancelled successfully', 'success');
+
+            // Clear selection and refresh the grid
+            window.selectedSalesOrderLine = null;
+            refreshSalesOrderLines(orderNumber);
+        });
+    };
+
+    // Cancel Not Picked Lines function
+    window.cancelNotPickedLines = function(orderNumber) {
+        console.log('[Order Transactions] Cancel Not Picked Lines for order:', orderNumber);
+
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to cancel all not picked lines for order ${orderNumber}?`)) {
+            return;
+        }
+
+        // Show loading indicator
+        showLoading('Cancelling not picked lines...');
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelnotpickedlines/${orderNumber}`;
+
+        console.log('[Order Transactions] Cancel Not Picked Lines API:', apiUrl);
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            payload: {}
+        }, function(error, data) {
+            hideLoading();
+
+            if (error) {
+                console.error('[Order Transactions] Error cancelling not picked lines:', error);
+                showNotification('Error cancelling not picked lines: ' + error, 'error');
+                return;
+            }
+
+            console.log('[Order Transactions] Cancel Not Picked Lines response:', data);
+            showNotification('Not picked lines cancelled successfully', 'success');
+
+            // Refresh the grid
+            refreshSalesOrderLines(orderNumber);
+        });
     };
 
     window.refreshLotDetails = function(orderNumber) {
