@@ -208,9 +208,18 @@ namespace WMSApp
 
         private bool ShowLoginForm()
         {
+            System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+            System.Diagnostics.Debug.WriteLine("[DEBUG] ShowLoginForm() CALLED");
+            System.Diagnostics.Debug.WriteLine("[DEBUG] Creating LoginForm instance...");
+
             using (LoginForm loginForm = new LoginForm())
             {
-                if (loginForm.ShowDialog() == DialogResult.OK && loginForm.LoginSuccessful)
+                System.Diagnostics.Debug.WriteLine("[DEBUG] LoginForm instance created, calling ShowDialog()...");
+                var dialogResult = loginForm.ShowDialog();
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] ShowDialog returned: {dialogResult}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] LoginSuccessful: {loginForm.LoginSuccessful}");
+
+                if (dialogResult == DialogResult.OK && loginForm.LoginSuccessful)
                 {
                     _loggedInUsername = loginForm.Username;
                     _loggedInInstance = loginForm.InstanceName;
@@ -430,15 +439,25 @@ namespace WMSApp
             wmsDevButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 240, 180);
             wmsDevButton.Click += (s, e) =>
             {
+                System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+                System.Diagnostics.Debug.WriteLine("[DEBUG] WMS DEV BUTTON CLICKED!");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
+
                 // Check if user is logged in for WMS, if not show login form
                 if (!_isLoggedIn)
                 {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, showing login form...");
                     if (!ShowLoginForm())
                     {
                         // User cancelled login
                         System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
                         return;
                     }
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] Login form completed successfully");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, skipping login form");
                 }
 
                 // Load local development version from repository root
@@ -485,15 +504,25 @@ namespace WMSApp
             wmsProdButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
             wmsProdButton.Click += (s, e) =>
             {
+                System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+                System.Diagnostics.Debug.WriteLine("[DEBUG] WMS PROD BUTTON CLICKED!");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
+
                 // Check if user is logged in for WMS, if not show login form
                 if (!_isLoggedIn)
                 {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, showing login form...");
                     if (!ShowLoginForm())
                     {
                         // User cancelled login
                         System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
                         return;
                     }
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] Login form completed successfully");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, skipping login form");
                 }
 
                 // Check if distribution folder exists
@@ -3615,17 +3644,29 @@ namespace WMSApp
 
                 // Send user session to WMS pages after navigation completes
                 string source = wv.Source.ToLower();
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Navigation completed: {source}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] _isLoggedIn: {_isLoggedIn}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Contains wms/index.html: {source.Contains("/wms/index.html") || source.Contains("\\wms\\index.html")}");
+
                 if (_isLoggedIn && (source.Contains("/wms/index.html") || source.Contains("\\wms\\index.html")))
                 {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] Conditions met! Sending session to WebView...");
                     // Add a small delay to ensure JavaScript is fully loaded
                     await System.Threading.Tasks.Task.Delay(500);
                     SendUserSessionToWebView(wv);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] Conditions NOT met for sending session");
                 }
             }
         }
 
         private async void SendUserSessionToWebView(CoreWebView2 wv)
         {
+            System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] ========================================");
+            System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] SendUserSessionToWebView CALLED");
+
             try
             {
                 // Escape strings for JavaScript
@@ -3633,28 +3674,56 @@ namespace WMSApp
                 string instance = _loggedInInstance?.Replace("'", "\\'") ?? "";
                 string loginDateTime = ("Logged in: " + _loggedInDateTime)?.Replace("'", "\\'") ?? "";
 
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Username: {username}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Instance: {instance}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] LoginDateTime: {loginDateTime}");
+
                 // Set localStorage values for login state (required for web page auth check)
                 string setLocalStorageScript = $@"
+                    console.log('[C# INJECT] Setting localStorage values...');
                     localStorage.setItem('loggedIn', 'true');
                     localStorage.setItem('username', '{username}');
                     localStorage.setItem('instanceName', '{instance}');
                     localStorage.setItem('loginTime', '{loginDateTime}');
-                    console.log('[C# LOGIN] localStorage login state set');
+                    console.log('[C# INJECT] localStorage values set:');
+                    console.log('[C# INJECT] loggedIn:', localStorage.getItem('loggedIn'));
+                    console.log('[C# INJECT] username:', localStorage.getItem('username'));
+                    console.log('[C# INJECT] instanceName:', localStorage.getItem('instanceName'));
                 ";
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Executing localStorage script...");
                 await wv.ExecuteScriptAsync(setLocalStorageScript);
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] localStorage script executed");
 
                 // Call the JavaScript function to update UI
-                string script = $"if (typeof setLoggedInUser === 'function') {{ setLoggedInUser('{username}', '{instance}', '{loginDateTime}'); }}";
+                string script = $@"
+                    console.log('[C# INJECT] Calling setLoggedInUser...');
+                    if (typeof setLoggedInUser === 'function') {{
+                        setLoggedInUser('{username}', '{instance}', '{loginDateTime}');
+                        console.log('[C# INJECT] setLoggedInUser called successfully');
+                    }} else {{
+                        console.log('[C# INJECT] WARNING: setLoggedInUser function NOT FOUND!');
+                    }}
+                ";
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Executing setLoggedInUser script...");
                 await wv.ExecuteScriptAsync(script);
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] setLoggedInUser script executed");
 
                 // Remove auth-pending class to show page content
-                await wv.ExecuteScriptAsync("document.body.classList.remove('auth-pending');");
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Removing auth-pending class...");
+                await wv.ExecuteScriptAsync(@"
+                    console.log('[C# INJECT] Removing auth-pending class...');
+                    document.body.classList.remove('auth-pending');
+                    console.log('[C# INJECT] auth-pending class removed, body should be visible');
+                ");
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] auth-pending class removed");
 
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Sent user session to WebView: {username} ({instance}) - {loginDateTime}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] ✅ SUCCESS - Sent session to WebView");
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] ========================================");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Error sending user session: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] ❌ ERROR: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Stack: {ex.StackTrace}");
             }
         }
 

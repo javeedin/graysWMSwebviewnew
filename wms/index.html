@@ -21,18 +21,36 @@
     <script>
         // IMMEDIATE LOGIN CHECK - runs before body renders
         (function() {
+            console.log('[AUTH DEBUG] ========================================');
+            console.log('[AUTH DEBUG] IMMEDIATE LOGIN CHECK STARTED');
+            console.log('[AUTH DEBUG] Checking localStorage for loggedIn...');
+
             const isLoggedIn = localStorage.getItem('loggedIn');
+            console.log('[AUTH DEBUG] localStorage.loggedIn =', isLoggedIn);
+            console.log('[AUTH DEBUG] isLoggedIn !== "true":', isLoggedIn !== 'true');
+
             if (isLoggedIn !== 'true') {
+                console.log('[AUTH DEBUG] User NOT logged in via localStorage');
+
                 // Check if running inside C# WebView2 - if so, wait for C# to set session
+                console.log('[AUTH DEBUG] Checking for WebView2...');
+                console.log('[AUTH DEBUG] window.chrome:', typeof window.chrome);
+                console.log('[AUTH DEBUG] window.chrome?.webview:', window.chrome?.webview);
+
                 if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
-                    console.log('[AUTH] In WebView2, waiting for C# to set login session...');
+                    console.log('[AUTH DEBUG] In WebView2, waiting for C# to set login session...');
+                    console.log('[AUTH DEBUG] C# will inject localStorage and remove auth-pending class');
                     // C# will set localStorage and remove auth-pending class after page loads
                 } else {
                     // Not in WebView2 and not logged in - redirect to login
-                    console.log('[AUTH] Not logged in, redirecting to login page...');
+                    console.log('[AUTH DEBUG] NOT in WebView2 - redirecting to login.html');
                     window.location.replace('../login.html');
                 }
+            } else {
+                console.log('[AUTH DEBUG] User IS logged in via localStorage!');
+                console.log('[AUTH DEBUG] Allowing page to render...');
             }
+            console.log('[AUTH DEBUG] ========================================');
         })();
     </script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>

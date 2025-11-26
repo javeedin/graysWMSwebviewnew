@@ -37,8 +37,13 @@ namespace WMSApp
 
         public LoginForm()
         {
+            System.Diagnostics.Debug.WriteLine("[DEBUG LoginForm] ========================================");
+            System.Diagnostics.Debug.WriteLine("[DEBUG LoginForm] Constructor called");
             InitializeComponent();
+            System.Diagnostics.Debug.WriteLine("[DEBUG LoginForm] InitializeComponent completed");
             LoadSettings();
+            System.Diagnostics.Debug.WriteLine("[DEBUG LoginForm] LoadSettings completed");
+            System.Diagnostics.Debug.WriteLine("[DEBUG LoginForm] Form ready to be shown");
         }
 
         private void InitializeComponent()
@@ -249,7 +254,12 @@ namespace WMSApp
             this.AcceptButton = btnLogin;
 
             // Focus on username
-            this.Shown += (s, e) => txtUsername.Focus();
+            this.Shown += (s, e) => {
+                System.Diagnostics.Debug.WriteLine("[DEBUG LoginForm] ========================================");
+                System.Diagnostics.Debug.WriteLine("[DEBUG LoginForm] FORM SHOWN EVENT FIRED!");
+                System.Diagnostics.Debug.WriteLine("[DEBUG LoginForm] Form is now visible to user");
+                txtUsername.Focus();
+            };
         }
 
         private async void BtnLogin_Click(object sender, EventArgs e)
