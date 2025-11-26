@@ -112,19 +112,56 @@ function generateRequestId() {
 
 
 
-function sendMessageToCSharp(message, callback) {
+function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
     const requestId = message.requestId || generateRequestId();
     message.requestId = requestId;
-    
-    console.log('[JS] 📤 Sending to C#:', message.action, requestId);
-    
-    window.pendingRequests[requestId] = callback;
-    
+    const startTime = Date.now();
+
+    console.log('[JS] ════════════════════════════════════════════════════════');
+    console.log('[JS] 📤 SENDING MESSAGE TO C#');
+    console.log('[JS] Request ID:', requestId);
+    console.log('[JS] Action:', message.action);
+    console.log('[JS] Full Message:', JSON.stringify(message, null, 2));
+    console.log('[JS] Timeout set to:', timeoutMs, 'ms');
+    console.log('[JS] ════════════════════════════════════════════════════════');
+
+    // Setup timeout to catch stuck requests
+    const timeoutId = setTimeout(() => {
+        if (window.pendingRequests[requestId]) {
+            const elapsed = Date.now() - startTime;
+            console.error('[JS] ⏰ TIMEOUT! Request timed out after', elapsed, 'ms');
+            console.error('[JS] ⏰ Timed out Request ID:', requestId);
+            console.error('[JS] ⏰ Timed out Action:', message.action);
+            console.error('[JS] ⏰ Check if C# received and processed this request');
+
+            delete window.pendingRequests[requestId];
+            callback(`Request timed out after ${timeoutMs}ms. C# did not respond for action: ${message.action}`, null);
+        }
+    }, timeoutMs);
+
+    // Wrap callback to clear timeout when response arrives
+    window.pendingRequests[requestId] = function(error, response) {
+        clearTimeout(timeoutId);
+        const elapsed = Date.now() - startTime;
+        console.log('[JS] ⏱️ Response received in', elapsed, 'ms for:', requestId);
+        callback(error, response);
+    };
+
     if (window.chrome?.webview) {
-        window.chrome.webview.postMessage(message);
-        console.log('[JS] ✅ Message sent');
+        try {
+            window.chrome.webview.postMessage(message);
+            console.log('[JS] ✅ Message posted to WebView2 successfully');
+            console.log('[JS] 🔄 Waiting for C# response...');
+        } catch (postError) {
+            console.error('[JS] ❌ Error posting message:', postError);
+            clearTimeout(timeoutId);
+            delete window.pendingRequests[requestId];
+            callback('Error posting message to C#: ' + postError.message, null);
+        }
     } else {
-        console.error('[JS] ❌ WebView2 not available');
+        console.error('[JS] ❌ WebView2 not available - window.chrome.webview is:', window.chrome?.webview);
+        clearTimeout(timeoutId);
+        delete window.pendingRequests[requestId];
         callback('WebView2 not available', null);
     }
 }
@@ -1356,32 +1393,71 @@ function initPrintJobsGrid() {
 
 if (window.chrome?.webview) {
     console.log('[JS] 🔧 Setting up message listener...');
-    
+
     window.chrome.webview.addEventListener('message', function(event) {
-        console.log('[JS] 📨 Message from C#:', event.data);
-        
+        console.log('[JS] ════════════════════════════════════════════════════════');
+        console.log('[JS] 📨 RECEIVED MESSAGE FROM C#');
+        console.log('[JS] Event Data Type:', typeof event.data);
+        console.log('[JS] Event Data:', JSON.stringify(event.data, null, 2));
+        console.log('[JS] ════════════════════════════════════════════════════════');
+
         const response = event.data;
-        
+
+        console.log('[JS] 🔍 Looking for callback with requestId:', response.requestId);
+        console.log('[JS] 🔍 Pending requests count:', Object.keys(window.pendingRequests || {}).length);
+        console.log('[JS] 🔍 Pending request IDs:', Object.keys(window.pendingRequests || {}));
+
         if (window.pendingRequests && window.pendingRequests[response.requestId]) {
+            console.log('[JS] ✅ Found callback for requestId:', response.requestId);
             const callback = window.pendingRequests[response.requestId];
             delete window.pendingRequests[response.requestId];
-            
+
+            console.log('[JS] 🔍 Response action:', response.action);
+            console.log('[JS] 🔍 Response success:', response.success);
+            console.log('[JS] 🔍 Response has data:', !!response.data);
+            console.log('[JS] 🔍 Response has filePath:', !!(response.filePath || response.pdfPath));
+
             if (response.action === "autoPrintResponse") {
+                console.log('[JS] 📋 Handling as autoPrintResponse');
                 callback(response.success ? null : response.message, response);
             } else if (response.action === "printJobsResponse") {
+                console.log('[JS] 📋 Handling as printJobsResponse');
                 callback(null, response);
             } else if (response.action === "error") {
+                console.log('[JS] 📋 Handling as error response');
                 callback(response.message || response.data?.message, null);
             } else if (response.action === "restResponse") {
+                console.log('[JS] 📋 Handling as restResponse');
                 callback(null, response.data);
+            } else if (response.action === "printSalesOrderResponse" || response.action === "salesOrderPdfResponse") {
+                // Handle Sales Order print response
+                console.log('[JS] 📋 Handling as printSalesOrderResponse');
+                console.log('[JS] 📋 Response details:', {
+                    success: response.success,
+                    filePath: response.filePath,
+                    pdfPath: response.pdfPath,
+                    message: response.message
+                });
+                if (response.success) {
+                    callback(null, response);
+                } else {
+                    callback(response.message || 'Sales order print failed', null);
+                }
             } else {
+                console.log('[JS] 📋 Handling as generic response, action:', response.action);
+                console.log('[JS] 📋 Passing to callback:', response.data || response);
                 callback(null, response.data || response);
             }
         } else {
             console.warn('[JS] ⚠️ No callback found for requestId:', response.requestId);
+            console.warn('[JS] ⚠️ This could mean:');
+            console.warn('[JS] ⚠️   1. Request already timed out');
+            console.warn('[JS] ⚠️   2. Request was never made');
+            console.warn('[JS] ⚠️   3. requestId mismatch between sent and received');
+            console.warn('[JS] ⚠️ Expected one of:', Object.keys(window.pendingRequests || {}));
         }
     });
-    
+
     console.log('[JS] ✅ Message listener ready');
 } else {
     console.warn('[JS] ⚠️ WebView2 not available');

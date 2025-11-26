@@ -1403,7 +1403,7 @@ function printSOOrder(orderNumber, tripIndex) {
     document.body.appendChild(loadingDiv);
 
     // Call C# handler to generate PDF from Oracle Fusion Cloud
-    sendMessageToCSharp({
+    const message = {
         action: 'printSalesOrder',
         orderNumber: String(orderNumber),
         instance: String(instance),
@@ -1412,40 +1412,74 @@ function printSOOrder(orderNumber, tripIndex) {
         tripId: String(tripId),
         tripDate: String(tripDate),
         orderType: String(orderType)
-    }, function(error, data) {
+    };
+
+    const printStartTime = Date.now();
+    console.log('[Order Print] ════════════════════════════════════════════════════════');
+    console.log('[Order Print] 📤 SENDING PRINT REQUEST TO C#');
+    console.log('[Order Print] Order Number:', orderNumber);
+    console.log('[Order Print] Instance:', instance);
+    console.log('[Order Print] Report Path:', reportPath);
+    console.log('[Order Print] Parameter Name:', parameterName);
+    console.log('[Order Print] Trip ID:', tripId);
+    console.log('[Order Print] Trip Date:', tripDate);
+    console.log('[Order Print] Order Type:', orderType);
+    console.log('[Order Print] Full message:', JSON.stringify(message, null, 2));
+    console.log('[Order Print] ⏱️ Started at:', new Date(printStartTime).toISOString());
+    console.log('[Order Print] ════════════════════════════════════════════════════════');
+
+    sendMessageToCSharp(message, function(error, data) {
+        const elapsed = Date.now() - printStartTime;
+        console.log('[Order Print] ════════════════════════════════════════════════════════');
+        console.log('[Order Print] 📨 CALLBACK RECEIVED');
+        console.log('[Order Print] ⏱️ Elapsed time:', elapsed, 'ms');
+        console.log('[Order Print] Error:', error);
+        console.log('[Order Print] Data type:', typeof data);
+        console.log('[Order Print] Data:', JSON.stringify(data, null, 2));
+        console.log('[Order Print] ════════════════════════════════════════════════════════');
+
         const loading = document.getElementById('so-print-loading-indicator');
         if (loading) loading.remove();
 
         if (error) {
+            console.error('[Order Print] ❌ Error received:', error);
             addSOLogEntry('Error', `Failed to generate PDF report: ${error}`, 'error');
             alert('Error generating report: ' + error);
         } else {
             try {
                 const response = typeof data === 'string' ? JSON.parse(data) : data;
+                console.log('[Order Print] ✅ Parsed response:', JSON.stringify(response, null, 2));
                 addSOLogEntry('Print', `Response received: ${JSON.stringify(response)}`, 'info');
 
                 if (response.success) {
                     const pdfPath = response.pdfPath || response.filePath || response.path;
+                    console.log('[Order Print] PDF Path found:', pdfPath);
                     if (pdfPath) {
                         addSOLogEntry('Print', `PDF generated successfully: ${pdfPath}`, 'success');
                         // Open PDF viewer
                         if (typeof window.showPdfViewer === 'function') {
+                            console.log('[Order Print] Opening PDF viewer for:', pdfPath);
                             window.showPdfViewer(pdfPath, orderNumber, reportName);
                         } else {
+                            console.log('[Order Print] PDF viewer not available, showing alert');
                             alert(`PDF report generated successfully!\n\nFile: ${pdfPath}`);
                         }
                     } else {
+                        console.warn('[Order Print] ⚠️ Response success but no path returned');
                         addSOLogEntry('Print', `PDF generated but no path returned`, 'warning');
                     }
                 } else {
+                    console.error('[Order Print] ❌ Response not successful:', response.message);
                     addSOLogEntry('Error', `PDF generation failed: ${response.message || 'Unknown error'}`, 'error');
                     alert('Error generating report: ' + (response.message || 'Unknown error'));
                 }
             } catch (parseError) {
+                console.log('[Order Print] ⚠️ Parse error, checking if raw path:', parseError.message);
                 // Handle non-JSON responses
                 if (data && typeof data === 'string' &&
                     (data.includes('\\') || data.includes('.pdf') || data.includes('C:') || data.includes('/'))) {
                     const pdfPath = data.trim();
+                    console.log('[Order Print] ✅ Data is a file path:', pdfPath);
                     addSOLogEntry('Print', `PDF generated: ${pdfPath}`, 'success');
                     if (typeof window.showPdfViewer === 'function') {
                         window.showPdfViewer(pdfPath, orderNumber, reportName);
@@ -1453,11 +1487,12 @@ function printSOOrder(orderNumber, tripIndex) {
                         alert(`PDF report generated successfully!\n\nFile: ${pdfPath}`);
                     }
                 } else {
+                    console.error('[Order Print] ❌ Cannot parse response:', data);
                     addSOLogEntry('Error', `Failed to parse response: ${parseError.message}`, 'error');
                 }
             }
         }
-    });
+    }, 90000); // 90 second timeout
 }
 
 // Open Trip Print Modal
@@ -1753,6 +1788,7 @@ window.startSOTripDownload = async function() {
                 orderType: order.orderType
             };
 
+            console.log('[SO Trip Print] ════════════════════════════════════════════════════════');
             console.log('[SO Trip Print] 📤 SENDING TO C#');
             console.log('[SO Trip Print] Action:', message.action);
             console.log('[SO Trip Print] Report Path:', message.reportPath);
@@ -1762,27 +1798,52 @@ window.startSOTripDownload = async function() {
             console.log('[SO Trip Print] Instance:', message.instance);
             console.log('[SO Trip Print] tripId:', message.tripId);
             console.log('[SO Trip Print] tripDate:', message.tripDate);
+            console.log('[SO Trip Print] Full message:', JSON.stringify(message, null, 2));
+            console.log('[SO Trip Print] ════════════════════════════════════════════════════════');
+
+            const downloadStartTime = Date.now();
+            console.log('[SO Trip Print] ⏱️ Download started at:', new Date(downloadStartTime).toISOString());
 
             const response = await new Promise((resolve, reject) => {
+                console.log('[SO Trip Print] 🔄 Calling sendMessageToCSharp...');
                 sendMessageToCSharp(message, function(error, response) {
+                    const elapsed = Date.now() - downloadStartTime;
+                    console.log('[SO Trip Print] ════════════════════════════════════════════════════════');
+                    console.log('[SO Trip Print] 📨 CALLBACK RECEIVED');
+                    console.log('[SO Trip Print] ⏱️ Elapsed time:', elapsed, 'ms');
+                    console.log('[SO Trip Print] Error:', error);
+                    console.log('[SO Trip Print] Response type:', typeof response);
+                    console.log('[SO Trip Print] Response:', JSON.stringify(response, null, 2));
+                    console.log('[SO Trip Print] ════════════════════════════════════════════════════════');
+
                     if (error) {
+                        console.error('[SO Trip Print] ❌ Error in callback:', error);
                         reject(new Error(error));
                     } else {
                         try {
                             const parsed = typeof response === 'string' ? JSON.parse(response) : response;
+                            console.log('[SO Trip Print] ✅ Parsed response:', JSON.stringify(parsed, null, 2));
                             resolve(parsed);
                         } catch (e) {
+                            console.log('[SO Trip Print] ⚠️ Response not JSON, checking if path string...');
                             // If response is a path string
                             if (response && typeof response === 'string' &&
                                 (response.includes('\\') || response.includes('.pdf'))) {
+                                console.log('[SO Trip Print] ✅ Response is a file path:', response);
                                 resolve({ success: true, filePath: response.trim() });
                             } else {
+                                console.error('[SO Trip Print] ❌ Invalid response format:', response);
                                 reject(new Error('Invalid response format'));
                             }
                         }
                     }
-                });
+                }, 90000); // 90 second timeout for PDF downloads
             });
+
+            console.log('[SO Trip Print] 🔍 Checking response for success...');
+            console.log('[SO Trip Print] response.success:', response.success);
+            console.log('[SO Trip Print] response.filePath:', response.filePath);
+            console.log('[SO Trip Print] response.pdfPath:', response.pdfPath);
 
             if (response.success && (response.filePath || response.pdfPath)) {
                 order.downloadStatus = 'DOWNLOADED';
@@ -1792,7 +1853,9 @@ window.startSOTripDownload = async function() {
                 console.log(`[SO Trip Print] ✅ Downloaded: ${order.orderNumber} to ${order.pdfPath}`);
                 addSOLogEntry('Print', `Downloaded: ${order.orderNumber}`, 'success');
             } else {
-                throw new Error(response.message || 'Download failed');
+                console.error('[SO Trip Print] ❌ Response missing success or file path');
+                console.error('[SO Trip Print] Full response:', JSON.stringify(response, null, 2));
+                throw new Error(response.message || 'Download failed - no file path in response');
             }
 
         } catch (error) {
