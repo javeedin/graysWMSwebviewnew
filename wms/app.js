@@ -3740,52 +3740,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const payload = { orders };
 
-        // DEBUG: Show exact JSON being sent to API with copy functionality
-        const jsonPayload = JSON.stringify(payload, null, 2);
         console.log('[Assign Picker] Payload:', payload);
-        console.log('[Assign Picker] JSON Payload:\n', jsonPayload);
-
-        // Create modal for copyable JSON display
-        const debugModal = document.createElement('div');
-        debugModal.id = 'debug-json-modal';
-        debugModal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10002; display: flex; align-items: center; justify-content: center;';
-        debugModal.innerHTML = `
-            <div style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); max-width: 600px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
-                    <h3 style="margin: 0; color: #1f2937; font-size: 1.1rem;">DEBUG - JSON Payload</h3>
-                    <button id="debug-close-btn" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #64748b;">&times;</button>
-                </div>
-                <textarea id="debug-json-text" readonly style="flex: 1; min-height: 300px; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 8px; font-family: monospace; font-size: 0.85rem; resize: none; background: #f8fafc;">${jsonPayload.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
-                <div style="display: flex; gap: 0.75rem; margin-top: 1rem;">
-                    <button id="debug-copy-btn" style="flex: 1; padding: 0.75rem; background: #667eea; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">📋 Copy JSON</button>
-                    <button id="debug-continue-btn" style="flex: 1; padding: 0.75rem; background: #10b981; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">✓ Continue</button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(debugModal);
-
-        // Wait for user to close the modal before continuing
-        await new Promise((resolve) => {
-            document.getElementById('debug-copy-btn').onclick = () => {
-                const textarea = document.getElementById('debug-json-text');
-                textarea.select();
-                document.execCommand('copy');
-                document.getElementById('debug-copy-btn').textContent = '✓ Copied!';
-                document.getElementById('debug-copy-btn').style.background = '#10b981';
-                setTimeout(() => {
-                    document.getElementById('debug-copy-btn').textContent = '📋 Copy JSON';
-                    document.getElementById('debug-copy-btn').style.background = '#667eea';
-                }, 2000);
-            };
-            document.getElementById('debug-continue-btn').onclick = () => {
-                debugModal.remove();
-                resolve();
-            };
-            document.getElementById('debug-close-btn').onclick = () => {
-                debugModal.remove();
-                resolve();
-            };
-        });
 
         // Show loading indicator
         const loadingDiv = document.createElement('div');
@@ -3836,14 +3791,34 @@ document.addEventListener('DOMContentLoaded', function() {
                             // Close dialog
                             closeAssignPickerDialog();
 
-                            // Refresh the grid to show updated picker assignments
+                            // Update grid columns with the new picker name
                             const tabId = `trip-detail-${tripId}`;
                             const gridId = `grid-${tabId}`;
                             const gridContainer = $(`#${gridId}`);
                             if (gridContainer && gridContainer.length > 0) {
                                 const gridInstance = gridContainer.dxDataGrid('instance');
                                 if (gridInstance) {
-                                    gridInstance.refresh();
+                                    // Get the data source and update selected rows with new picker name
+                                    const dataSource = gridInstance.getDataSource();
+                                    const allItems = dataSource.items();
+
+                                    // Update picker name in selected orders
+                                    selectedOrders.forEach(selectedOrder => {
+                                        const orderNum = selectedOrder.SOURCE_ORDER_NUMBER || selectedOrder.source_order_number || selectedOrder.ORDER_NUMBER || selectedOrder.order_number;
+                                        allItems.forEach(item => {
+                                            const itemOrderNum = item.SOURCE_ORDER_NUMBER || item.source_order_number || item.ORDER_NUMBER || item.order_number;
+                                            if (itemOrderNum === orderNum) {
+                                                // Update picker name in the data
+                                                item.PICKER = pickerName;
+                                                item.picker = pickerName;
+                                                item.PICKER_NAME = pickerName;
+                                                item.picker_name = pickerName;
+                                            }
+                                        });
+                                    });
+
+                                    // Repaint grid to show updated picker names
+                                    gridInstance.repaint();
                                 }
                             }
                         } else {
@@ -3888,14 +3863,34 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Close dialog
                     closeAssignPickerDialog();
 
-                    // Refresh the grid
+                    // Update grid columns with the new picker name
                     const tabId = `trip-detail-${tripId}`;
                     const gridId = `grid-${tabId}`;
                     const gridContainer = $(`#${gridId}`);
                     if (gridContainer && gridContainer.length > 0) {
                         const gridInstance = gridContainer.dxDataGrid('instance');
                         if (gridInstance) {
-                            gridInstance.refresh();
+                            // Get the data source and update selected rows with new picker name
+                            const dataSource = gridInstance.getDataSource();
+                            const allItems = dataSource.items();
+
+                            // Update picker name in selected orders
+                            selectedOrders.forEach(selectedOrder => {
+                                const orderNum = selectedOrder.SOURCE_ORDER_NUMBER || selectedOrder.source_order_number || selectedOrder.ORDER_NUMBER || selectedOrder.order_number;
+                                allItems.forEach(item => {
+                                    const itemOrderNum = item.SOURCE_ORDER_NUMBER || item.source_order_number || item.ORDER_NUMBER || item.order_number;
+                                    if (itemOrderNum === orderNum) {
+                                        // Update picker name in the data
+                                        item.PICKER = pickerName;
+                                        item.picker = pickerName;
+                                        item.PICKER_NAME = pickerName;
+                                        item.picker_name = pickerName;
+                                    }
+                                });
+                            });
+
+                            // Repaint grid to show updated picker names
+                            gridInstance.repaint();
                         }
                     }
                 } else {
