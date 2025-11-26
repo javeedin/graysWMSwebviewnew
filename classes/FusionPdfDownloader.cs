@@ -80,6 +80,15 @@ namespace WMSApp.PrintManagement
                 string responseContent = await response.Content.ReadAsStringAsync();
                 System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Response received, length: {responseContent.Length}");
 
+                // 🔍 DEBUG: Log full SOAP XML response
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine("[FusionPdfDownloader] FULL SOAP XML RESPONSE (Sales Order):");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                // Truncate reportBytes content if present (it's usually very long base64)
+                string debugResponse = TruncateBase64InXml(responseContent);
+                System.Diagnostics.Debug.WriteLine(debugResponse);
+                System.Diagnostics.Debug.WriteLine("====================================");
+
                 // Parse SOAP response
                 var base64Pdf = ExtractBase64FromSoapResponse(responseContent);
 
@@ -245,6 +254,45 @@ namespace WMSApp.PrintManagement
         }
 
         /// <summary>
+        /// Truncates base64 content within reportBytes elements for debug logging
+        /// Shows first 100 chars and last 50 chars of base64 data
+        /// </summary>
+        private string TruncateBase64InXml(string xml)
+        {
+            if (string.IsNullOrEmpty(xml))
+                return xml;
+
+            try
+            {
+                // Find reportBytes content and truncate it
+                int startTag = xml.IndexOf("<reportBytes>", StringComparison.OrdinalIgnoreCase);
+                int endTag = xml.IndexOf("</reportBytes>", StringComparison.OrdinalIgnoreCase);
+
+                if (startTag >= 0 && endTag > startTag)
+                {
+                    int contentStart = startTag + "<reportBytes>".Length;
+                    string base64Content = xml.Substring(contentStart, endTag - contentStart);
+
+                    if (base64Content.Length > 200)
+                    {
+                        string truncated = base64Content.Substring(0, 100) +
+                            $"... [TRUNCATED {base64Content.Length - 150} chars] ..." +
+                            base64Content.Substring(base64Content.Length - 50);
+
+                        return xml.Substring(0, contentStart) + truncated + xml.Substring(endTag);
+                    }
+                }
+
+                return xml;
+            }
+            catch
+            {
+                // If truncation fails, return original (may be long)
+                return xml;
+            }
+        }
+
+        /// <summary>
         /// Downloads any Fusion report PDF (Generic method)
         /// </summary>
         /// <param name="reportPath">Full report path (e.g., /Custom/DEXPRESS/...)</param>
@@ -300,6 +348,14 @@ namespace WMSApp.PrintManagement
                 // Read response
                 string responseContent = await response.Content.ReadAsStringAsync();
                 System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Response received, length: {responseContent.Length}");
+
+                // 🔍 DEBUG: Log full SOAP XML response
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine("[FusionPdfDownloader] FULL SOAP XML RESPONSE (Generic Report):");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                string debugResponse2 = TruncateBase64InXml(responseContent);
+                System.Diagnostics.Debug.WriteLine(debugResponse2);
+                System.Diagnostics.Debug.WriteLine("====================================");
 
                 // Parse SOAP response
                 var base64Pdf = ExtractBase64FromSoapResponse(responseContent);
@@ -397,6 +453,14 @@ namespace WMSApp.PrintManagement
                 // Read response
                 string responseContent = await response.Content.ReadAsStringAsync();
                 System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Response length: {responseContent.Length}");
+
+                // 🔍 DEBUG: Log full SOAP XML response
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine("[FusionReportDownloader] FULL SOAP XML RESPONSE:");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                string debugResponse3 = TruncateBase64InXml(responseContent);
+                System.Diagnostics.Debug.WriteLine(debugResponse3);
+                System.Diagnostics.Debug.WriteLine("====================================");
 
                 // Parse SOAP response to get base64 content
                 var base64Content = ExtractBase64FromSoapResponse(responseContent);

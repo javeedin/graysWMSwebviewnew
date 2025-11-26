@@ -58,6 +58,14 @@ namespace WMSApp.MRA
                 // Build SOAP request
                 string soapRequest = BuildSoapRequest(reportPath, parameters, outputFormat);
 
+                // 🔍 DEBUG: Log full SOAP XML request (with credentials masked)
+                string maskedXml = soapRequest.Replace(_password, "[PASSWORD_MASKED]");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine("[FusionReportRunner] FULL SOAP XML REQUEST:");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine(maskedXml);
+                System.Diagnostics.Debug.WriteLine("====================================");
+
                 // Make HTTP POST request
                 var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
                 content.Headers.Add("SOAPAction", "\"runReport\"");
@@ -76,6 +84,14 @@ namespace WMSApp.MRA
                 // Read response
                 string responseContent = await response.Content.ReadAsStringAsync();
                 System.Diagnostics.Debug.WriteLine($"[FusionReportRunner] Response received, length: {responseContent.Length}");
+
+                // 🔍 DEBUG: Log full SOAP XML response
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine("[FusionReportRunner] FULL SOAP XML RESPONSE:");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                string debugResponse = TruncateBase64InXml(responseContent);
+                System.Diagnostics.Debug.WriteLine(debugResponse);
+                System.Diagnostics.Debug.WriteLine("====================================");
 
                 // Extract report data from SOAP response
                 var reportData = ExtractReportDataFromSoapResponse(responseContent);
@@ -162,6 +178,45 @@ namespace WMSApp.MRA
     </v2:runReport>
   </soapenv:Body>
 </soapenv:Envelope>";
+        }
+
+        /// <summary>
+        /// Truncates base64 content within reportBytes elements for debug logging
+        /// Shows first 100 chars and last 50 chars of base64 data
+        /// </summary>
+        private string TruncateBase64InXml(string xml)
+        {
+            if (string.IsNullOrEmpty(xml))
+                return xml;
+
+            try
+            {
+                // Find reportBytes content and truncate it
+                int startTag = xml.IndexOf("<reportBytes>", StringComparison.OrdinalIgnoreCase);
+                int endTag = xml.IndexOf("</reportBytes>", StringComparison.OrdinalIgnoreCase);
+
+                if (startTag >= 0 && endTag > startTag)
+                {
+                    int contentStart = startTag + "<reportBytes>".Length;
+                    string base64Content = xml.Substring(contentStart, endTag - contentStart);
+
+                    if (base64Content.Length > 200)
+                    {
+                        string truncated = base64Content.Substring(0, 100) +
+                            $"... [TRUNCATED {base64Content.Length - 150} chars] ..." +
+                            base64Content.Substring(base64Content.Length - 50);
+
+                        return xml.Substring(0, contentStart) + truncated + xml.Substring(endTag);
+                    }
+                }
+
+                return xml;
+            }
+            catch
+            {
+                // If truncation fails, return original (may be long)
+                return xml;
+            }
         }
 
         /// <summary>
