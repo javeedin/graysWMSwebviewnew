@@ -4614,9 +4614,107 @@ document.addEventListener('DOMContentLoaded', function() {
     window.refreshLotDetails = function(orderNumber) {
         console.log('[Order Transactions] Refresh Lot Details for:', orderNumber);
         const gridContainer = document.getElementById('lot-details-grid');
-        if (gridContainer) {
-            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Lot Details will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        if (!gridContainer) {
+            console.error('[Order Transactions] Lot Details grid container not found');
+            return;
         }
+
+        // Show loading state
+        gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Lot Details...</p></div>';
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getlotdetails/${orderNumber}`;
+
+        console.log('[Order Transactions] Fetching Lot Details from:', apiUrl);
+
+        // Use C# REST handler
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            if (error) {
+                console.error('[Order Transactions] Error fetching Lot Details:', error);
+                gridContainer.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;"><i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Error loading data</p><p style="font-size: 0.85rem;">${error}</p></div>`;
+                return;
+            }
+
+            try {
+                let responseData = typeof data === 'string' ? JSON.parse(data) : data;
+                let items = responseData.items || responseData || [];
+
+                console.log('[Order Transactions] Lot Details received:', items.length, 'records');
+
+                if (items.length === 0) {
+                    gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>No Lot Details found</p></div>';
+                    return;
+                }
+
+                // Log first item to see available fields
+                console.log('[Order Transactions] Lot Details first item:', items[0]);
+
+                // Build columns dynamically from first item
+                const firstItem = items[0];
+                const columns = Object.keys(firstItem).map(key => {
+                    return {
+                        dataField: key,
+                        caption: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                        width: 'auto'
+                    };
+                });
+
+                // Initialize DevExpress Grid
+                if (typeof DevExpress !== 'undefined' && DevExpress.ui?.dxDataGrid) {
+                    // Clear container
+                    gridContainer.innerHTML = '';
+
+                    new DevExpress.ui.dxDataGrid(gridContainer, {
+                        dataSource: items,
+                        showBorders: true,
+                        showRowLines: true,
+                        rowAlternationEnabled: true,
+                        allowColumnResizing: true,
+                        columnAutoWidth: true,
+                        height: '100%',
+                        paging: { pageSize: 25 },
+                        pager: {
+                            showPageSizeSelector: true,
+                            allowedPageSizes: [10, 25, 50, 100],
+                            showInfo: true
+                        },
+                        filterRow: { visible: true },
+                        headerFilter: { visible: true },
+                        searchPanel: { visible: true, width: 200, placeholder: 'Search...' },
+                        columns: columns,
+                        onContentReady: function(e) {
+                            console.log('[Order Transactions] Lot Details grid rendered');
+                        }
+                    });
+                } else {
+                    // Fallback to HTML table
+                    let html = '<div style="overflow-x: auto; max-height: 400px;"><table style="width: 100%; border-collapse: collapse; font-size: 11px;">';
+                    html += '<thead style="position: sticky; top: 0; background: #f8f9fa;"><tr>';
+                    Object.keys(firstItem).forEach(key => {
+                        html += `<th style="padding: 0.5rem; text-align: left; border-bottom: 2px solid #e2e8f0; font-weight: 600;">${key.replace(/_/g, ' ')}</th>`;
+                    });
+                    html += '</tr></thead><tbody>';
+
+                    items.forEach((item, idx) => {
+                        const bg = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+                        html += `<tr style="background: ${bg};">`;
+                        Object.values(item).forEach(val => {
+                            html += `<td style="padding: 0.4rem; border-bottom: 1px solid #f1f5f9;">${val !== null ? val : ''}</td>`;
+                        });
+                        html += '</tr>';
+                    });
+
+                    html += '</tbody></table></div>';
+                    gridContainer.innerHTML = html;
+                }
+
+            } catch (parseError) {
+                console.error('[Order Transactions] Parse error:', parseError);
+                gridContainer.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;"><i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Error parsing data</p><p style="font-size: 0.85rem;">${parseError.message}</p></div>`;
+            }
+        });
     };
 
     window.refreshShipmentDetails = function(orderNumber) {
