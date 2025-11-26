@@ -146,6 +146,10 @@
                 <i class="fas fa-robot"></i>
                 <span>Auto Inventory Processing</span>
             </div>
+            <div class="menu-item" data-page="auto-sales-order-processing">
+                <i class="fas fa-shopping-cart"></i>
+                <span>Auto Sales Order Processing</span>
+            </div>
             <div class="menu-item" data-page="pending-store-transactions">
                 <i class="fas fa-warehouse"></i>
                 <span>Pending Store Transactions</span>
@@ -1715,6 +1719,232 @@
                 </div>
             </div>
 
+            <!-- Auto Sales Order Processing Page -->
+            <div id="auto-sales-order-processing" class="page-content" style="display: none;">
+                <div class="grid-container" style="margin-top: 0;">
+                    <!-- Control Panel -->
+                    <div style="background: white; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+                            <!-- Enable/Disable Toggle -->
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <div style="display: flex; align-items: center; gap: 0.75rem; background: #f8f9fa; padding: 0.75rem 1.25rem; border-radius: 8px; border: 2px solid #dee2e6;">
+                                    <span style="font-weight: 600; color: #2d3748; font-size: 14px;">Auto Processing:</span>
+                                    <label class="switch" style="position: relative; display: inline-block; width: 50px; height: 26px;">
+                                        <input type="checkbox" id="auto-so-process-toggle" style="opacity: 0; width: 0; height: 0;">
+                                        <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 26px;"></span>
+                                    </label>
+                                    <span id="auto-so-process-status" style="font-weight: 700; color: #dc3545;">DISABLED</span>
+                                </div>
+
+                                <!-- Date Range -->
+                                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                    <div>
+                                        <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px;">From Date</label>
+                                        <input type="date" id="auto-so-from-date" class="form-control" style="padding: 0.5rem; font-size: 13px; width: 150px;">
+                                    </div>
+                                    <div>
+                                        <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px;">To Date</label>
+                                        <input type="date" id="auto-so-to-date" class="form-control" style="padding: 0.5rem; font-size: 13px; width: 150px;">
+                                    </div>
+                                </div>
+
+                                <!-- Refresh Interval -->
+                                <div>
+                                    <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px;">Refresh Interval</label>
+                                    <select id="auto-so-refresh-interval" class="form-control" style="padding: 0.5rem; font-size: 13px; width: 130px;">
+                                        <option value="10">10 seconds</option>
+                                        <option value="30" selected>30 seconds</option>
+                                        <option value="60">1 minute</option>
+                                        <option value="300">5 minutes</option>
+                                    </select>
+                                </div>
+
+                                <!-- Fetch Button -->
+                                <button id="auto-so-fetch-btn" onclick="fetchAutoSalesOrderData()" style="background: #667eea; color: white; border: none; padding: 0.65rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; margin-top: 18px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);">
+                                    <i class="fas fa-sync-alt"></i> Fetch Data
+                                </button>
+
+                                <!-- Start Process Button -->
+                                <button id="auto-so-run-simulation-btn" onclick="runSOSimulation()" style="background: #10b981; color: white; border: none; padding: 0.65rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; margin-top: 18px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);">
+                                    <i class="fas fa-play"></i> Start Process
+                                </button>
+
+                                <!-- Selection Buttons -->
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 18px; margin-left: 1rem; padding-left: 1rem; border-left: 2px solid #e2e8f0;">
+                                    <button onclick="selectAllSOTrips()" style="background: #f59e0b; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 11px; transition: all 0.2s;" title="Select all trips">
+                                        <i class="fas fa-check-double"></i> Select All
+                                    </button>
+                                    <button onclick="deselectAllSOTrips()" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 11px; transition: all 0.2s;" title="Deselect all trips">
+                                        <i class="fas fa-square"></i> Deselect All
+                                    </button>
+                                    <span id="selected-so-trips-count" style="font-size: 12px; font-weight: 600; color: #94a3b8; margin-left: 0.5rem;">No trips selected</span>
+                                </div>
+
+                                <!-- Processing Timer -->
+                                <div id="so-processing-timer" style="display: none; align-items: center; gap: 0.75rem; background: #f8f9fa; padding: 0.75rem 1.25rem; border-radius: 8px; border: 2px solid #dee2e6; margin-top: 18px;">
+                                    <i class="fas fa-clock" style="color: #667eea; font-size: 16px;"></i>
+                                    <div>
+                                        <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Start Time</div>
+                                        <div id="so-timer-start-time" style="font-size: 13px; font-weight: 700; color: #1e293b;">--:--:--</div>
+                                    </div>
+                                    <div style="width: 1px; height: 30px; background: #dee2e6;"></div>
+                                    <div>
+                                        <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">End Time</div>
+                                        <div id="so-timer-end-time" style="font-size: 13px; font-weight: 700; color: #1e293b;">--:--:--</div>
+                                    </div>
+                                    <div style="width: 1px; height: 30px; background: #dee2e6;"></div>
+                                    <div>
+                                        <div style="font-size: 9px; color: #64748b; font-weight: 600; text-transform: uppercase;">Duration</div>
+                                        <div id="so-timer-duration" style="font-size: 13px; font-weight: 700; color: #667eea;">00:00:00</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Stats Mini Cards -->
+                            <div style="display: flex; gap: 0.75rem;">
+                                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-trips">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">TRIPS</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-orders">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">ORDERS</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-lines">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">LINES</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-cancelled">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">CANCELLED</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-processing">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">PROCESSING</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-success">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">SUCCESS</div>
+                                </div>
+                                <div style="background: linear-gradient(135deg, #f44336 0%, #c62828 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
+                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-failed">0</div>
+                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">FAILED</div>
+                                </div>
+                            </div>
+
+                            <!-- Font Size Controls -->
+                            <div style="display: flex; align-items: center; gap: 0.5rem; background: #f1f5f9; padding: 0.4rem 0.75rem; border-radius: 6px; margin-left: auto;">
+                                <span style="font-size: 9px; color: #64748b; font-weight: 600;">Font Size:</span>
+                                <button onclick="adjustSOTripOrderFontSize(-1)" style="background: #e2e8f0; border: none; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 700; color: #475569; display: flex; align-items: center; justify-content: center;" title="Decrease font size">
+                                    <i class="fas fa-minus" style="font-size: 9px;"></i>
+                                </button>
+                                <span id="so-font-size-indicator" style="font-size: 10px; color: #475569; font-weight: 600; min-width: 35px; text-align: center;">100%</span>
+                                <button onclick="adjustSOTripOrderFontSize(1)" style="background: #e2e8f0; border: none; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 700; color: #475569; display: flex; align-items: center; justify-content: center;" title="Increase font size">
+                                    <i class="fas fa-plus" style="font-size: 9px;"></i>
+                                </button>
+                                <button onclick="resetSOTripOrderFontSize()" style="background: #e2e8f0; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; color: #64748b;" title="Reset to default">
+                                    Reset
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Main Content Area with Tabs -->
+                    <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden;">
+                        <!-- Tabs -->
+                        <div style="display: flex; gap: 0; border-bottom: 2px solid #e2e8f0; background: #f8f9fc;">
+                            <button class="auto-so-tab-btn active" data-tab="so-trips-view" onclick="switchAutoSOTab('so-trips-view')" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #667eea; border-bottom: 3px solid #667eea; transition: all 0.3s;">
+                                <i class="fas fa-list"></i> Trip Summary
+                            </button>
+                            <button class="auto-so-tab-btn" data-tab="so-processing-log" onclick="switchAutoSOTab('so-processing-log')" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 3px solid transparent; transition: all 0.3s;">
+                                <i class="fas fa-terminal"></i> Processing Log
+                            </button>
+                            <button class="auto-so-tab-btn" data-tab="so-analytics" onclick="switchAutoSOTab('so-analytics')" style="flex: 1; padding: 1rem; border: none; background: transparent; cursor: pointer; font-weight: 600; color: #64748b; border-bottom: 3px solid transparent; transition: all 0.3s;">
+                                <i class="fas fa-chart-bar"></i> Analytics
+                            </button>
+                        </div>
+
+                        <!-- Tab Content -->
+                        <div style="padding: 1rem;">
+                            <!-- Trips View Tab -->
+                            <div id="auto-so-trips-view" class="auto-so-tab-content">
+                                <!-- Filter Section -->
+                                <div style="background: #f8f9fa; padding: 0.75rem; border-radius: 8px; margin-bottom: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: nowrap; align-items: flex-end;">
+                                    <div style="flex: 1; min-width: 90px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Trip ID</label>
+                                        <input type="text" id="so-filter-trip-id" list="so-trip-id-list" placeholder="All Trips" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <datalist id="so-trip-id-list"></datalist>
+                                    </div>
+                                    <div style="flex: 1; min-width: 100px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Order #</label>
+                                        <input type="text" id="so-filter-order-number" list="so-order-number-list" placeholder="All Orders" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <datalist id="so-order-number-list"></datalist>
+                                    </div>
+                                    <div style="flex: 1.5; min-width: 140px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Item Description</label>
+                                        <input type="text" id="so-filter-item-desc" list="so-item-desc-list" placeholder="All Items" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <datalist id="so-item-desc-list"></datalist>
+                                    </div>
+                                    <div style="flex: 0.8; min-width: 80px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Customer</label>
+                                        <input type="text" id="so-filter-customer" list="so-customer-list" placeholder="Customer..." style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                        <datalist id="so-customer-list"></datalist>
+                                    </div>
+                                    <div style="flex: 0.8; min-width: 85px;">
+                                        <label style="font-size: 9px; color: #64748b; display: block; margin-bottom: 3px; font-weight: 600;">Status</label>
+                                        <select id="so-filter-status" style="width: 100%; padding: 0.35rem; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 10px;">
+                                            <option value="">All</option>
+                                            <option value="PENDING">Pending</option>
+                                            <option value="PROCESSING">Processing</option>
+                                            <option value="SUCCESS">Success</option>
+                                            <option value="FAILED">Failed</option>
+                                            <option value="CANCELLED">Cancelled</option>
+                                        </select>
+                                    </div>
+                                    <div style="flex-shrink: 0; display: flex; gap: 0.4rem;">
+                                        <button onclick="applySOFilters()" style="background: #10b981; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; white-space: nowrap; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                            <i class="fas fa-filter"></i> Apply
+                                        </button>
+                                        <button onclick="clearSOFilters()" style="background: #94a3b8; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; white-space: nowrap;">
+                                            <i class="fas fa-times"></i> Clear
+                                        </button>
+                                        <button id="so-expand-collapse-all-btn" onclick="toggleSOExpandCollapseAll()" style="background: #667eea; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; display: none; white-space: nowrap;">
+                                            <i class="fas fa-expand-alt"></i> Expand All
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div id="auto-so-trips-container">
+                                    <div style="text-align: center; padding: 3rem; color: #94a3b8;">
+                                        <i class="fas fa-inbox" style="font-size: 48px; margin-bottom: 1rem;"></i>
+                                        <p style="font-size: 16px; margin: 0;">No data loaded. Click "Fetch Data" to begin.</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Processing Log Tab -->
+                            <div id="auto-so-processing-log" class="auto-so-tab-content" style="display: none;">
+                                <div style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 8px; font-family: 'Courier New', monospace; font-size: 12px; max-height: 500px; overflow-y: auto;" id="auto-so-log-container">
+                                    <div style="color: #10b981;">[System] Auto Sales Order Processing initialized.</div>
+                                    <div style="color: #94a3b8;">[Info] Waiting for data fetch...</div>
+                                </div>
+                            </div>
+
+                            <!-- Analytics Tab -->
+                            <div id="auto-so-analytics" class="auto-so-tab-content" style="display: none;">
+                                <div id="so-analytics-container">
+                                    <!-- Analytics content will be populated by JavaScript -->
+                                    <div style="text-align: center; padding: 3rem; color: #94a3b8;">
+                                        <i class="fas fa-chart-bar" style="font-size: 48px; margin-bottom: 1rem;"></i>
+                                        <p style="font-size: 16px; margin: 0;">No analytics data available. Fetch data to view analytics.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Settings & Updates Page -->
             <div id="settings" class="page-content" style="display: none;">
                 <div class="grid-container" style="max-width: 800px; margin: 0 auto;">
@@ -2467,6 +2697,11 @@
     <!-- Auto Inventory Processing Script -->
     <script>
         document.write('<script src="auto-inventory-processing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
+
+    <!-- Auto Sales Order Processing Script -->
+    <script>
+        document.write('<script src="auto-sales-order-processing.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 
     <!-- Pending Store Transactions Script -->
