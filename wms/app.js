@@ -3628,7 +3628,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
                 const pickerType = picker.picker_type || picker.PICKER_TYPE || picker.type || picker.TYPE || '';
 
-                pickerOptionsHtml += `<option value="${pickerId}">${pickerName}${pickerType ? ' (' + pickerType + ')' : ''}</option>`;
+                pickerOptionsHtml += `<option value="${pickerId}" data-name="${pickerName}">${pickerName}${pickerType ? ' (' + pickerType + ')' : ''}</option>`;
             });
         } else {
             pickerOptionsHtml += '<option value="" disabled>No pickers available</option>';
@@ -3711,7 +3711,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const pickerName = pickerSelect.options[pickerSelect.selectedIndex].text;
+        const pickerName = pickerSelect.options[pickerSelect.selectedIndex].getAttribute('data-name') || pickerSelect.options[pickerSelect.selectedIndex].text;
 
         console.log('[Assign Picker] Assigning picker:', pickerId, pickerName);
         console.log('[Assign Picker] To orders:', selectedOrders);
@@ -3740,7 +3740,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const payload = { orders };
 
+        // DEBUG: Show exact JSON being sent to API
+        const jsonPayload = JSON.stringify(payload, null, 2);
         console.log('[Assign Picker] Payload:', payload);
+        console.log('[Assign Picker] JSON Payload:\n', jsonPayload);
+        alert('DEBUG - JSON Payload being sent to API:\n\n' + jsonPayload);
 
         // Show loading indicator
         const loadingDiv = document.createElement('div');
