@@ -208,6 +208,15 @@ namespace WMSApp.PrintManagement
     }
 
     /// <summary>
+    /// Fusion credentials for API access
+    /// </summary>
+    public class FusionCredentials
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+    }
+
+    /// <summary>
     /// Download status enum
     /// </summary>
     public enum DownloadStatus

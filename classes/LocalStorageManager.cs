@@ -130,6 +130,34 @@ namespace WMSApp.PrintManagement
         }
 
         /// <summary>
+        /// Gets Fusion credentials from printer configuration
+        /// </summary>
+        public FusionCredentials GetFusionCredentials()
+        {
+            try
+            {
+                var config = LoadPrinterConfig();
+                if (config != null && !string.IsNullOrEmpty(config.FusionUsername))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[LocalStorageManager] Fusion credentials found for user: {config.FusionUsername}");
+                    return new FusionCredentials
+                    {
+                        Username = config.FusionUsername,
+                        Password = config.FusionPassword
+                    };
+                }
+
+                System.Diagnostics.Debug.WriteLine("[LocalStorageManager] No Fusion credentials found in config");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LocalStorageManager ERROR] Failed to get Fusion credentials: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Saves trip print configuration
         /// </summary>
         /// 
