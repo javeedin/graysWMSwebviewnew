@@ -572,7 +572,7 @@ function openPstAssignPickerDialog(selectedOrders) {
             const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
             const pickerType = picker.picker_type || picker.PICKER_TYPE || picker.type || picker.TYPE || '';
 
-            pickerOptionsHtml += `<option value="${pickerId}" data-name="${pickerName}">${pickerName}${pickerType ? ' (' + pickerType + ')' : ''}</option>`;
+            pickerOptionsHtml += `<option value="${pickerId}" data-name="${pickerName}">${pickerName}</option>`;
         });
     }
 
