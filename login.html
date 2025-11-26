@@ -324,19 +324,20 @@
             <form id="loginForm" onsubmit="handleLogin(event)">
                 <div class="form-group">
                     <label for="instanceName">
-                        Instance Name <span class="required">*</span>
+                        Instance <span class="required">*</span>
                     </label>
                     <div class="input-wrapper">
                         <span class="input-icon">🏢</span>
-                        <input
-                            type="text"
+                        <select
                             id="instanceName"
                             name="instanceName"
                             class="form-control"
-                            placeholder="Enter instance name"
                             required
-                            autocomplete="off"
+                            style="padding-left: 45px; appearance: none; background-image: url('data:image/svg+xml;charset=US-ASCII,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%23999\" stroke-width=\"2\"><polyline points=\"6,9 12,15 18,9\"/></svg>'); background-repeat: no-repeat; background-position: right 15px center;"
                         >
+                            <option value="PROD">PROD (Production)</option>
+                            <option value="TEST">TEST (Testing)</option>
+                        </select>
                     </div>
                     <div class="error-message" id="instanceNameError"></div>
                 </div>
@@ -498,6 +499,12 @@
             return isValid;
         }
 
+        // Instance URLs
+        const instanceUrls = {
+            'PROD': 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT',
+            'TEST': 'https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT'
+        };
+
         // Handle login form submission
         async function handleLogin(event) {
             event.preventDefault();
@@ -510,7 +517,7 @@
             const loadingSpinner = document.getElementById('loadingSpinner');
 
             // Get form values
-            const instanceName = document.getElementById('instanceName').value.trim();
+            const instanceName = document.getElementById('instanceName').value.trim().toUpperCase();
             const username = document.getElementById('username').value.trim();
             const password = document.getElementById('password').value;
             const rememberMe = document.getElementById('rememberMe').checked;
@@ -520,49 +527,66 @@
             loadingSpinner.style.display = 'block';
 
             try {
-                // Prepare login data
-                const loginData = {
-                    instanceName: instanceName,
-                    username: username,
-                    password: password,
-                    rememberMe: rememberMe
-                };
+                // Get the base URL for the selected instance
+                const baseUrl = instanceUrls[instanceName] || instanceUrls['PROD'];
+                const loginUrl = `${baseUrl}/login?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
 
-                // Send message to C# backend via WebView2
-                if (window.chrome && window.chrome.webview) {
-                    // WebView2 environment
-                    window.chrome.webview.postMessage({
-                        type: 'LOGIN',
-                        data: loginData
-                    });
-                } else {
-                    // Development/testing mode - simulate API call
-                    console.log('Login attempt:', { instanceName, username, rememberMe });
+                console.log('[Login] Attempting login to:', instanceName);
+                console.log('[Login] URL:', loginUrl);
 
-                    // Simulate API call delay
-                    await new Promise(resolve => setTimeout(resolve, 1500));
+                // Call the Oracle ORDS API directly
+                const response = await fetch(loginUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
 
-                    // For demo purposes - accept any credentials
-                    // In production, this will be handled by the backend
-                    if (username && password) {
+                console.log('[Login] Response status:', response.status);
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('[Login] Response data:', data);
+
+                    // Check if login was successful (has data)
+                    if (data && (data.items?.length > 0 || Object.keys(data).length > 0)) {
                         showAlert('Login successful! Redirecting...', 'success');
 
-                        // Store session data (in production, this will be in backend)
+                        // Store session data
+                        localStorage.setItem('instanceName', instanceName);
+                        localStorage.setItem('username', username);
+                        localStorage.setItem('loggedIn', 'true');
+                        localStorage.setItem('loginTime', new Date().toISOString());
+
                         if (rememberMe) {
-                            localStorage.setItem('instanceName', instanceName);
-                            localStorage.setItem('username', username);
+                            localStorage.setItem('rememberMe', 'true');
+                        } else {
+                            localStorage.removeItem('rememberMe');
                         }
 
-                        // Redirect to main application after successful login
+                        // Notify C# backend if available
+                        if (window.chrome && window.chrome.webview) {
+                            window.chrome.webview.postMessage({
+                                action: 'loginSuccess',
+                                requestId: 'login_' + Date.now(),
+                                username: username,
+                                instanceName: instanceName,
+                                loginTime: new Date().toISOString()
+                            });
+                        }
+
+                        // Redirect to WMS application
                         setTimeout(() => {
-                            window.location.href = 'index.html';
+                            window.location.href = 'wms/index.html';
                         }, 1000);
                     } else {
-                        throw new Error('Invalid credentials');
+                        throw new Error('Invalid credentials - no user data returned');
                     }
+                } else {
+                    throw new Error(`Login failed with status: ${response.status}`);
                 }
             } catch (error) {
-                console.error('Login error:', error);
+                console.error('[Login] Error:', error);
                 showAlert(error.message || 'Login failed. Please check your credentials and try again.', 'error');
             } finally {
                 // Re-enable button and hide loading
