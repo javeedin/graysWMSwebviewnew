@@ -1223,6 +1223,10 @@ namespace WMSApp
                                     await HandlePrintOrder(wv, messageJson, requestId);
                                     break;
 
+                                case "printSalesOrder":
+                                    await HandlePrintSalesOrder(wv, messageJson, requestId);
+                                    break;
+
                                 case "getPrintJobs":
                                     await HandleGetPrintJobs(wv, messageJson, requestId);
                                     break;
@@ -2846,6 +2850,137 @@ namespace WMSApp
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Print order failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Handles printSalesOrder action from JavaScript
+        /// Downloads PDF from Oracle Fusion and saves it locally
+        /// </summary>
+        private async Task HandlePrintSalesOrder(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine($"[C#] ⭐ HandlePrintSalesOrder STARTED");
+                System.Diagnostics.Debug.WriteLine($"[C#] RequestId: {requestId}");
+                System.Diagnostics.Debug.WriteLine($"[C#] Message: {messageJson}");
+                System.Diagnostics.Debug.WriteLine("====================================");
+
+                var message = JsonSerializer.Deserialize<PrintSalesOrderMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] PrintSalesOrder Parameters:");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - OrderNumber: {message.OrderNumber}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Instance: {message.Instance}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - ReportPath: {message.ReportPath}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - ParameterName: {message.ParameterName}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - TripId: {message.TripId}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - TripDate: {message.TripDate}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - OrderType: {message.OrderType}");
+
+                // Get credentials from storage
+                var credentials = _storageManager.GetFusionCredentials();
+                if (credentials == null || string.IsNullOrEmpty(credentials.Username))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] ❌ No Fusion credentials found");
+                    var errorResponse = new
+                    {
+                        action = "printSalesOrderResponse",
+                        requestId = requestId,
+                        success = false,
+                        message = "Fusion credentials not configured. Please set up credentials in Settings."
+                    };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorResponse));
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Using credentials for user: {credentials.Username}");
+
+                // Download PDF using FusionPdfDownloader
+                var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                WMSApp.PrintManagement.FusionPdfResult result;
+
+                if (!string.IsNullOrEmpty(message.ReportPath))
+                {
+                    // Use generic report download with custom report path
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using generic report: {message.ReportPath}");
+                    result = await downloader.DownloadGenericReportPdfAsync(
+                        message.ReportPath,
+                        message.ParameterName ?? "Order_Number",
+                        message.OrderNumber,
+                        message.Instance,
+                        credentials.Username,
+                        credentials.Password
+                    );
+                }
+                else
+                {
+                    // Use default Sales Order report
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using default Sales Order report");
+                    result = await downloader.DownloadSalesOrderPdfAsync(
+                        message.OrderNumber,
+                        message.Instance,
+                        credentials.Username,
+                        credentials.Password
+                    );
+                }
+
+                if (result.Success)
+                {
+                    // Save PDF to file
+                    string tripDate = message.TripDate ?? DateTime.Now.ToString("yyyy-MM-dd");
+                    string tripId = message.TripId ?? "manual";
+                    string folderPath = Path.Combine(@"C:\fusion", tripDate, tripId);
+                    Directory.CreateDirectory(folderPath);
+
+                    string fileName = $"{message.OrderNumber}.pdf";
+                    string filePath = Path.Combine(folderPath, fileName);
+
+                    byte[] pdfBytes = Convert.FromBase64String(result.Base64Content);
+                    await File.WriteAllBytesAsync(filePath, pdfBytes);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ PDF saved to: {filePath}");
+
+                    var successResponse = new
+                    {
+                        action = "printSalesOrderResponse",
+                        requestId = requestId,
+                        success = true,
+                        pdfPath = filePath,
+                        filePath = filePath,
+                        message = "PDF generated successfully"
+                    };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(successResponse));
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] ❌ PDF download failed: {result.ErrorMessage}");
+                    var errorResponse = new
+                    {
+                        action = "printSalesOrderResponse",
+                        requestId = requestId,
+                        success = false,
+                        message = result.ErrorMessage
+                    };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorResponse));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] HandlePrintSalesOrder failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+
+                var errorResponse = new
+                {
+                    action = "printSalesOrderResponse",
+                    requestId = requestId,
+                    success = false,
+                    message = $"Error: {ex.Message}"
+                };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorResponse));
             }
         }
 

@@ -300,6 +300,39 @@ namespace WMSApp.PrintManagement
     }
 
     /// <summary>
+    /// Message from JavaScript to print Sales Order PDF
+    /// </summary>
+    public class PrintSalesOrderMessage
+    {
+        [JsonProperty("action")]
+        public string Action { get; set; }
+
+        [JsonProperty("requestId")]
+        public string RequestId { get; set; }
+
+        [JsonProperty("orderNumber")]
+        public string OrderNumber { get; set; }
+
+        [JsonProperty("instance")]
+        public string Instance { get; set; }
+
+        [JsonProperty("reportPath")]
+        public string ReportPath { get; set; }
+
+        [JsonProperty("parameterName")]
+        public string ParameterName { get; set; }
+
+        [JsonProperty("tripId")]
+        public string TripId { get; set; }
+
+        [JsonProperty("tripDate")]
+        public string TripDate { get; set; }
+
+        [JsonProperty("orderType")]
+        public string OrderType { get; set; }
+    }
+
+    /// <summary>
     /// Message from JavaScript to get print jobs
     /// </summary>
     public class GetPrintJobsMessage
