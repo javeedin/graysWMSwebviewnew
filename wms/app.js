@@ -3740,7 +3740,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const payload = { orders };
 
+        // DEBUG: Show exact JSON being sent to API
+        const jsonPayload = JSON.stringify(payload, null, 2);
         console.log('[Assign Picker] Payload:', payload);
+        console.log('[Assign Picker] JSON Payload:\n', jsonPayload);
+        alert('DEBUG - JSON Payload being sent to API:\n\n' + jsonPayload);
 
         // Show loading indicator
         const loadingDiv = document.createElement('div');
