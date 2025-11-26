@@ -1740,6 +1740,31 @@ document.addEventListener('DOMContentLoaded', function() {
             return col;
         });
 
+        // Add PICKER column explicitly if not returned by API
+        const hasPickerColumn = columns.some(col =>
+            col.dataField && col.dataField.toLowerCase() === 'picker'
+        );
+        if (!hasPickerColumn) {
+            // Also initialize PICKER field in data if not present
+            trips.forEach(item => {
+                if (!item.PICKER && !item.picker) {
+                    item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                }
+            });
+
+            columns.push({
+                dataField: 'PICKER',
+                caption: 'Picker',
+                minWidth: 150,
+                cellTemplate: function(container, options) {
+                    const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                    const displayText = picker || 'N/A';
+                    const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                    $(container).html(`<span style="${style}">${displayText}</span>`);
+                }
+            });
+        }
+
         try {
             const existingGrid = $(gridContainer).dxDataGrid('instance');
             if (existingGrid) {
@@ -2032,6 +2057,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
             return col;
         });
+
+        // Add PICKER column explicitly if not returned by API
+        const hasPickerColumn = columns.some(col =>
+            col.dataField && col.dataField.toLowerCase() === 'picker'
+        );
+        if (!hasPickerColumn) {
+            // Also initialize PICKER field in data if not present
+            tripDetails.forEach(item => {
+                if (!item.PICKER && !item.picker) {
+                    item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                }
+            });
+
+            columns.push({
+                dataField: 'PICKER',
+                caption: 'Picker',
+                minWidth: 150,
+                cellTemplate: function(container, options) {
+                    const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                    const displayText = picker || 'N/A';
+                    const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                    $(container).html(`<span style="${style}">${displayText}</span>`);
+                }
+            });
+        }
 
         // Add Actions column at the beginning with Assign Picker button
         columns.unshift({
@@ -3294,6 +3344,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 return col;
             });
+
+            // Add PICKER column explicitly if not returned by API
+            const hasPickerColumn = columns.some(col =>
+                col.dataField && col.dataField.toLowerCase() === 'picker'
+            );
+            if (!hasPickerColumn) {
+                // Also initialize PICKER field in data if not present
+                tripData.forEach(item => {
+                    if (!item.PICKER && !item.picker) {
+                        item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                    }
+                });
+
+                columns.push({
+                    dataField: 'PICKER',
+                    caption: 'Picker',
+                    minWidth: 150,
+                    cellTemplate: function(container, options) {
+                        const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                        const displayText = picker || 'N/A';
+                        const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                        $(container).html(`<span style="${style}">${displayText}</span>`);
+                    }
+                });
+            }
 
             // Add Actions column at the beginning
             columns.unshift({
