@@ -53,6 +53,14 @@ namespace WMSApp.PrintManagement
                 System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Requesting PDF for order: {orderNumber}");
                 System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Using instance: {instance} ({serviceUrl})");
 
+                // 🔍 DEBUG: Log full XML payload (with credentials masked)
+                string maskedXml = soapRequest.Replace(password, "[PASSWORD_MASKED]");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine("[FusionPdfDownloader] FULL SOAP XML REQUEST (Sales Order):");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine(maskedXml);
+                System.Diagnostics.Debug.WriteLine("====================================");
+
                 // Make HTTP POST request
                 var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
                 content.Headers.Add("SOAPAction", "\"runReport\"");
@@ -266,6 +274,14 @@ namespace WMSApp.PrintManagement
                 System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Parameter: {parameterName}={parameterValue}");
                 System.Diagnostics.Debug.WriteLine($"[FusionPdfDownloader] Using instance: {instance} ({serviceUrl})");
 
+                // 🔍 DEBUG: Log full XML payload (with credentials masked)
+                string maskedXml = soapRequest.Replace(password, "[PASSWORD_MASKED]");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine("[FusionPdfDownloader] FULL SOAP XML REQUEST:");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine(maskedXml);
+                System.Diagnostics.Debug.WriteLine("====================================");
+
                 // Make HTTP POST request
                 var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
                 content.Headers.Add("SOAPAction", "\"runReport\"");
@@ -353,6 +369,13 @@ namespace WMSApp.PrintManagement
                 System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Report: {reportPath}");
                 System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Parameter: {parameterName}={parameterValue}");
                 System.Diagnostics.Debug.WriteLine($"[FusionReportDownloader] Instance: {instance} ({serviceUrl})");
+                System.Diagnostics.Debug.WriteLine("====================================");
+
+                // 🔍 DEBUG: Log full XML payload (with credentials masked)
+                string maskedXml = soapRequest.Replace(password, "[PASSWORD_MASKED]");
+                System.Diagnostics.Debug.WriteLine("[FusionReportDownloader] FULL SOAP XML REQUEST:");
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine(maskedXml);
                 System.Diagnostics.Debug.WriteLine("====================================");
 
                 // Make HTTP POST request
