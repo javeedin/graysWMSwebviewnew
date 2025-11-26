@@ -1698,15 +1698,15 @@ document.addEventListener('DOMContentLoaded', function() {
             // Set minimum widths based on column type
             const keyLower = key.toLowerCase();
             if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
-                col.minWidth = 180;
+                col.minWidth = 200;
             } else if (keyLower.includes('number') || keyLower.includes('id')) {
-                col.minWidth = 120;
+                col.minWidth = 140;
             } else if (keyLower.includes('date')) {
-                col.minWidth = 110;
+                col.minWidth = 130;
             } else if (keyLower.includes('status')) {
-                col.minWidth = 100;
+                col.minWidth = 120;
             } else {
-                col.minWidth = 90;
+                col.minWidth = 110;
             }
 
             // ORDER_NUMBER hyperlink - opens dialog similar to All Trip Details
@@ -1753,7 +1753,7 @@ document.addEventListener('DOMContentLoaded', function() {
             columns: columns,
             showBorders: true,
             columnAutoWidth: true,
-            columnMinWidth: 100,
+            columnMinWidth: 120,
             width: '100%',
             scrolling: {
                 mode: 'standard',
@@ -1974,17 +1974,17 @@ document.addEventListener('DOMContentLoaded', function() {
             // Set minimum widths based on column type
             const keyLower = key.toLowerCase();
             if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
-                col.minWidth = 180;
+                col.minWidth = 200;
             } else if (keyLower.includes('number') || keyLower.includes('id')) {
-                col.minWidth = 120;
+                col.minWidth = 140;
             } else if (keyLower.includes('date')) {
-                col.minWidth = 110;
+                col.minWidth = 130;
             } else if (keyLower.includes('status')) {
-                col.minWidth = 100;
+                col.minWidth = 120;
             } else if (keyLower.includes('weight') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
-                col.minWidth = 100;
+                col.minWidth = 120;
             } else {
-                col.minWidth = 90;
+                col.minWidth = 110;
             }
 
             // ORDER_NUMBER hyperlink - opens Store Transactions for S2V, Order Details for others
@@ -2074,7 +2074,7 @@ document.addEventListener('DOMContentLoaded', function() {
             columns: columns,
             showBorders: true,
             columnAutoWidth: true,
-            columnMinWidth: 100,
+            columnMinWidth: 120,
             width: '100%',
             scrolling: {
                 mode: 'standard',
