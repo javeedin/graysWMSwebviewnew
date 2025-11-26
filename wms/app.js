@@ -1742,11 +1742,8 @@ document.addEventListener('DOMContentLoaded', function() {
             columnMinWidth: 50,
             width: '100%',
             scrolling: {
-                mode: 'standard',
                 useNative: true,
-                showScrollbar: 'always',
-                scrollByContent: true,
-                scrollByThumb: true
+                showScrollbar: 'always'
             },
             filterRow: { visible: true },
             headerFilter: { visible: true },
@@ -1765,11 +1762,9 @@ document.addEventListener('DOMContentLoaded', function() {
             allowColumnResizing: true,
             columnResizingMode: 'nextColumn',
             rowAlternationEnabled: true,
-            loadPanel: { enabled: true },
             selection: {
                 mode: 'multiple',
-                showCheckBoxesMode: 'always',
-                deferred: false
+                showCheckBoxesMode: 'always'
             },
             export: {
                 enabled: true,
