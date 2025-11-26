@@ -23,8 +23,15 @@
         (function() {
             const isLoggedIn = localStorage.getItem('loggedIn');
             if (isLoggedIn !== 'true') {
-                console.log('[AUTH] Not logged in, redirecting to login page...');
-                window.location.replace('../login.html');
+                // Check if running inside C# WebView2 - if so, wait for C# to set session
+                if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
+                    console.log('[AUTH] In WebView2, waiting for C# to set login session...');
+                    // C# will set localStorage and remove auth-pending class after page loads
+                } else {
+                    // Not in WebView2 and not logged in - redirect to login
+                    console.log('[AUTH] Not logged in, redirecting to login page...');
+                    window.location.replace('../login.html');
+                }
             }
         })();
     </script>
@@ -2824,12 +2831,21 @@
 
         // On page load, restore from session storage or URL parameter
         document.addEventListener('DOMContentLoaded', function() {
-            // Check if user is logged in (from localStorage set by login.html)
+            // Check if user is logged in (from localStorage set by login.html or C# WebView)
             const isLoggedIn = localStorage.getItem('loggedIn');
+            const isInWebView = typeof window.chrome !== 'undefined' && window.chrome.webview;
+
             if (isLoggedIn !== 'true') {
-                console.log('[LOGIN] User not logged in, redirecting to login page...');
-                window.location.href = '../login.html';
-                return;
+                if (isInWebView) {
+                    // In WebView2 - C# will set localStorage and show page via SendUserSessionToWebView
+                    console.log('[LOGIN] In WebView2, waiting for C# to complete login...');
+                    return; // Don't proceed yet, C# will handle it
+                } else {
+                    // Not in WebView2 and not logged in - redirect to login
+                    console.log('[LOGIN] User not logged in, redirecting to login page...');
+                    window.location.href = '../login.html';
+                    return;
+                }
             }
             console.log('[LOGIN] User is logged in, proceeding...');
 

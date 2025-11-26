@@ -1163,14 +1163,13 @@ namespace WMSApp
             {
                 await wv.EnsureCoreWebView2Async(null);
 
-                // CACHE FIX: Clear browser cache to ensure tabs load properly
+                // CACHE FIX: Clear browser cache to ensure tabs load properly (preserve localStorage for login state)
                 try
                 {
                     await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
-                        CoreWebView2BrowsingDataKinds.AllDomStorage |
                         CoreWebView2BrowsingDataKinds.CacheStorage |
                         CoreWebView2BrowsingDataKinds.DiskCache);
-                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully");
+                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully (localStorage preserved)");
                 }
                 catch (Exception cacheEx)
                 {
@@ -3553,10 +3552,9 @@ namespace WMSApp
                 {
                     try
                     {
-                        // AGGRESSIVE CACHE CLEARING - Clear ALL cache before loading local files
-                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing ALL cache before loading local file...");
+                        // Clear cache before loading local files (preserve localStorage for login state)
+                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing cache before loading local file (preserving localStorage)...");
                         await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
-                            CoreWebView2BrowsingDataKinds.AllDomStorage |
                             CoreWebView2BrowsingDataKinds.CacheStorage |
                             CoreWebView2BrowsingDataKinds.DiskCache);
                         System.Diagnostics.Debug.WriteLine("[CACHE] ✅ Cache cleared successfully!");
@@ -3635,9 +3633,22 @@ namespace WMSApp
                 string instance = _loggedInInstance?.Replace("'", "\\'") ?? "";
                 string loginDateTime = ("Logged in: " + _loggedInDateTime)?.Replace("'", "\\'") ?? "";
 
-                // Call the JavaScript function directly
+                // Set localStorage values for login state (required for web page auth check)
+                string setLocalStorageScript = $@"
+                    localStorage.setItem('loggedIn', 'true');
+                    localStorage.setItem('username', '{username}');
+                    localStorage.setItem('instanceName', '{instance}');
+                    localStorage.setItem('loginTime', '{loginDateTime}');
+                    console.log('[C# LOGIN] localStorage login state set');
+                ";
+                await wv.ExecuteScriptAsync(setLocalStorageScript);
+
+                // Call the JavaScript function to update UI
                 string script = $"if (typeof setLoggedInUser === 'function') {{ setLoggedInUser('{username}', '{instance}', '{loginDateTime}'); }}";
                 await wv.ExecuteScriptAsync(script);
+
+                // Remove auth-pending class to show page content
+                await wv.ExecuteScriptAsync("document.body.classList.remove('auth-pending');");
 
                 System.Diagnostics.Debug.WriteLine($"[LOGIN] Sent user session to WebView: {username} ({instance}) - {loginDateTime}");
             }
