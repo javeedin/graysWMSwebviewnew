@@ -246,6 +246,32 @@ namespace WMSApp
             System.Diagnostics.Debug.WriteLine("[LOGOUT] User session cleared successfully");
         }
 
+        private async Task ClearWebViewLoginStateAsync()
+        {
+            // Clear localStorage login state in WebView2 before navigating to WMS
+            // This ensures fresh authentication is required each session
+            var wv = GetCurrentWebView();
+            if (wv?.CoreWebView2 != null)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOGIN] Clearing localStorage login state before WMS navigation...");
+                    await wv.CoreWebView2.ExecuteScriptAsync(@"
+                        localStorage.removeItem('loggedIn');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('instanceName');
+                        localStorage.removeItem('loginTime');
+                        console.log('[C# CLEAR] localStorage login state cleared');
+                    ");
+                    System.Diagnostics.Debug.WriteLine("[LOGIN] ✅ localStorage login state cleared");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Warning: Could not clear localStorage: {ex.Message}");
+                }
+            }
+        }
+
         private void HandleLoginSuccess(JsonElement root)
         {
             try
@@ -468,6 +494,8 @@ namespace WMSApp
                 if (File.Exists(indexPath))
                 {
                     System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
+                    // Clear any stale localStorage login state before navigation
+                    _ = ClearWebViewLoginStateAsync();
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
                     Navigate(fileUrl);
                     // Send user session after navigation completes (handled in NavigationCompleted event)
@@ -533,6 +561,8 @@ namespace WMSApp
                 {
                     // Distribution exists - navigate to it
                     System.Diagnostics.Debug.WriteLine($"[WMS Prod] Launching from distribution: {indexPath}");
+                    // Clear any stale localStorage login state before navigation
+                    _ = ClearWebViewLoginStateAsync();
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
                     Navigate(fileUrl);
                 }
@@ -556,6 +586,8 @@ namespace WMSApp
                         string launcherPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
                         if (File.Exists(launcherPath))
                         {
+                            // Clear any stale localStorage login state before navigation
+                            _ = ClearWebViewLoginStateAsync();
                             string launcherUrl = "file:///" + launcherPath.Replace("\\", "/");
                             Navigate(launcherUrl);
 
