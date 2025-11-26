@@ -1382,7 +1382,7 @@ function printSOOrder(orderNumber, tripIndex) {
 
     // Sales Order reports use a different path than Store Transaction reports
     // The report path will be determined by the order type value
-    const reportPath = '/Custom/DEXPRESS/SALESORDER/GRAYS_SALES_ORDER_BIP.xdo';
+    const reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
     const parameterName = 'Order_Number';
     const reportName = 'Sales Order Report';
 
@@ -1562,7 +1562,7 @@ window.openSOTripPrintModal = async function(tripId, tripDate, orderCount, tripI
         reportName: reportName,
         instanceName: instanceName,
         orderTypeName: orderTypeName,
-        reportPath: '/Custom/DEXPRESS/SALESORDER/GRAYS_SALES_ORDER_BIP.xdo',
+        reportPath: '/Custom/OQ/GR_SalesOrder_Rep.xdo',
         parameterName: 'Order_Number'
     };
 
