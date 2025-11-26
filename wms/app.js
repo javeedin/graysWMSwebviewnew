@@ -1738,25 +1738,37 @@ document.addEventListener('DOMContentLoaded', function() {
             dataSource: trips,
             columns: columns,
             showBorders: true,
-            columnAutoWidth: true,
-            scrolling: { useNative: true, showScrollbar: 'always' },
+            columnAutoWidth: false,
+            width: '100%',
+            scrolling: {
+                mode: 'virtual',
+                rowRenderingMode: 'virtual',
+                useNative: false,
+                showScrollbar: 'always'
+            },
             filterRow: { visible: true },
             headerFilter: { visible: true },
             groupPanel: { visible: true },
             searchPanel: { visible: true, placeholder: "Search..." },
-            paging: { pageSize: 20 },
-            pager: { showPageSizeSelector: true, allowedPageSizes: [10, 20, 50, 'all'] },
+            paging: { pageSize: 50 },
+            pager: { showPageSizeSelector: true, allowedPageSizes: [20, 50, 100, 'all'] },
             allowColumnReordering: true,
             allowColumnResizing: true,
-            columnResizingMode: 'widget',
+            columnResizingMode: 'nextColumn',
             rowAlternationEnabled: true,
+            loadPanel: { enabled: true },
             selection: {
                 mode: 'multiple',
-                showCheckBoxesMode: 'always'
+                showCheckBoxesMode: 'always',
+                deferred: false
             },
             export: {
                 enabled: true,
                 allowExportSelectedData: true
+            },
+            columnChooser: {
+                enabled: true,
+                mode: 'select'
             },
             height: '100%'
         });
