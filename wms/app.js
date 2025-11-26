@@ -1738,20 +1738,26 @@ document.addEventListener('DOMContentLoaded', function() {
             dataSource: trips,
             columns: columns,
             showBorders: true,
-            columnAutoWidth: false,
+            columnAutoWidth: true,
+            columnMinWidth: 50,
             width: '100%',
             scrolling: {
-                mode: 'virtual',
-                rowRenderingMode: 'virtual',
-                useNative: false,
-                showScrollbar: 'always'
+                useNative: true,
+                showScrollbar: 'onHover'
             },
             filterRow: { visible: true },
             headerFilter: { visible: true },
             groupPanel: { visible: true },
             searchPanel: { visible: true, placeholder: "Search..." },
-            paging: { pageSize: 50 },
-            pager: { showPageSizeSelector: true, allowedPageSizes: [20, 50, 100, 'all'] },
+            paging: { enabled: true, pageSize: 25 },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [10, 25, 50, 100],
+                showInfo: true,
+                showNavigationButtons: true,
+                infoText: 'Page {0} of {1} ({2} records)'
+            },
             allowColumnReordering: true,
             allowColumnResizing: true,
             columnResizingMode: 'nextColumn',
@@ -2042,21 +2048,20 @@ document.addEventListener('DOMContentLoaded', function() {
             columnMinWidth: 50,
             width: '100%',
             scrolling: {
-                mode: 'virtual',
-                rowRenderingMode: 'virtual',
-                useNative: false,
-                showScrollbar: 'always',
-                columnRenderingMode: 'virtual'
+                useNative: true,
+                showScrollbar: 'onHover'
             },
             filterRow: { visible: true },
             headerFilter: { visible: true },
             groupPanel: { visible: true, emptyPanelText: 'Drag a column header here to group' },
             searchPanel: { visible: true, placeholder: "Search trip details..." },
-            paging: { pageSize: 50 },
+            paging: { enabled: true, pageSize: 25 },
             pager: {
+                visible: true,
                 showPageSizeSelector: true,
-                allowedPageSizes: [25, 50, 100, 'all'],
+                allowedPageSizes: [10, 25, 50, 100],
                 showInfo: true,
+                showNavigationButtons: true,
                 infoText: 'Page {0} of {1} ({2} records)'
             },
             allowColumnReordering: true,
