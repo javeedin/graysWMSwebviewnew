@@ -369,13 +369,29 @@ function renderTripTransactions(transactions, tripIndex) {
 
     transactions.forEach((trx, idx) => {
         const orderNum = trx.trx_number;
+
+        // Debug: Log picker field values for the first transaction
+        if (idx === 0) {
+            console.log('=== PICKER DEBUG ===');
+            console.log('trx.picker:', trx.picker);
+            console.log('trx.PICKER:', trx.PICKER);
+            console.log('trx.picker_name:', trx.picker_name);
+            console.log('trx.PICKER_NAME:', trx.PICKER_NAME);
+            console.log('Full trx object keys:', Object.keys(trx));
+            console.log('===================');
+        }
+
         if (!orderGroups[orderNum]) {
+            // Get picker from various possible field names
+            const pickerValue = trx.picker || trx.PICKER || trx.picker_name || trx.PICKER_NAME || '';
+            console.log(`Order ${orderNum} - Picker value resolved to:`, pickerValue);
+
             orderGroups[orderNum] = {
                 trx_number: orderNum,
                 trx_type: trx.trx_type,
                 source_sub_inv: trx.source_sub_inv,
                 dest_sub_inv: trx.dest_sub_inv,
-                picker_name: trx.picker_name || trx.PICKER_NAME || '',
+                picker_name: pickerValue,
                 items: [],
                 totalReqQty: 0,
                 totalQty: 0,
