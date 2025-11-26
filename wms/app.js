@@ -2039,33 +2039,53 @@ document.addEventListener('DOMContentLoaded', function() {
             columns: columns,
             showBorders: true,
             columnAutoWidth: true,
-            scrolling: { useNative: true, showScrollbar: 'always' },
+            columnMinWidth: 50,
+            width: '100%',
+            scrolling: {
+                mode: 'virtual',
+                rowRenderingMode: 'virtual',
+                useNative: false,
+                showScrollbar: 'always',
+                columnRenderingMode: 'virtual'
+            },
             filterRow: { visible: true },
             headerFilter: { visible: true },
             groupPanel: { visible: true, emptyPanelText: 'Drag a column header here to group' },
             searchPanel: { visible: true, placeholder: "Search trip details..." },
-            paging: { pageSize: 25 },
+            paging: { pageSize: 50 },
             pager: {
                 showPageSizeSelector: true,
-                allowedPageSizes: [10, 25, 50, 100, 'all'],
+                allowedPageSizes: [25, 50, 100, 'all'],
                 showInfo: true,
                 infoText: 'Page {0} of {1} ({2} records)'
             },
             allowColumnReordering: true,
             allowColumnResizing: true,
-            columnResizingMode: 'widget',
+            columnResizingMode: 'nextColumn',
             rowAlternationEnabled: true,
+            loadPanel: { enabled: true },
             columnChooser: {
                 enabled: true,
                 mode: 'select'
             },
             selection: {
                 mode: 'multiple',
-                showCheckBoxesMode: 'always'
+                showCheckBoxesMode: 'always',
+                deferred: false
             },
             export: {
                 enabled: true,
                 allowExportSelectedData: true
+            },
+            onContentReady: function(e) {
+                // Auto-fit columns on first load
+                if (!e.component.__columnsAutoFitted) {
+                    e.component.__columnsAutoFitted = true;
+                    // Slight delay to ensure rendering is complete
+                    setTimeout(function() {
+                        e.component.updateDimensions();
+                    }, 100);
+                }
             },
             onExporting: function(e) {
                 const workbook = new ExcelJS.Workbook();
