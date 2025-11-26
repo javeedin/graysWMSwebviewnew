@@ -2055,6 +2055,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 col.alignment = 'right';
             }
 
+            // LOT_COUNT column - bold with yellow warning icon if doesn't match order_lines
+            if (keyLower === 'lot_count') {
+                col.cellTemplate = (container, options) => {
+                    const lotCount = options.value;
+                    const rowData = options.data;
+                    const orderLines = rowData.ORDER_LINES || rowData.order_lines || 0;
+                    const mismatch = lotCount !== orderLines;
+
+                    let html = '';
+                    if (mismatch) {
+                        html = `<span style="display: inline-flex; align-items: center; gap: 4px;">
+                            <i class="fas fa-exclamation-triangle" style="color: #f59e0b; font-size: 12px;" title="Lot count (${lotCount}) doesn't match order lines (${orderLines})"></i>
+                            <span style="font-weight: 700;">${lotCount !== null && lotCount !== undefined ? lotCount : ''}</span>
+                        </span>`;
+                    } else {
+                        html = `<span style="font-weight: 700;">${lotCount !== null && lotCount !== undefined ? lotCount : ''}</span>`;
+                    }
+                    $(container).html(html);
+                };
+                col.alignment = 'center';
+            }
+
+            // ORDER_LINES column - bold styling
+            if (keyLower === 'order_lines') {
+                col.cellTemplate = (container, options) => {
+                    const orderLines = options.value;
+                    $(container).html(`<span style="font-weight: 700;">${orderLines !== null && orderLines !== undefined ? orderLines : ''}</span>`);
+                };
+                col.alignment = 'center';
+            }
+
             return col;
         });
 
