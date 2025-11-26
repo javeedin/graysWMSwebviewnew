@@ -1,7 +1,8 @@
 // ============================================================================
 // AUTO SALES ORDER PROCESSING
 // ============================================================================
-//  Automated sales order transaction processing with intelligent retry
+// Automated sales order transaction processing with intelligent retry
+// Uses the actual API fields from autosalesorderprocessing webservice
 // ============================================================================
 
 // Global state
@@ -132,10 +133,18 @@ function fetchAutoSalesOrderData() {
                 // Parse response
                 let response = JSON.parse(data);
 
-                // Store the data
-                autoSOProcessingData = response.items || [];
+                // Store the data - lowercase all field names for consistency
+                autoSOProcessingData = (response.items || []).map(item => {
+                    // Create a normalized item with lowercase keys
+                    const normalized = {};
+                    for (const key in item) {
+                        normalized[key.toLowerCase()] = item[key];
+                    }
+                    return normalized;
+                });
 
                 console.log('[Auto SO Processing] Fetched', autoSOProcessingData.length, 'records');
+                console.log('[Auto SO Processing] Sample record:', autoSOProcessingData[0]);
                 addSOLogEntry('API', `Fetched ${autoSOProcessingData.length} sales order records`, 'success');
 
                 // Group and display data
@@ -179,27 +188,27 @@ function groupSOTransactionsByTrip() {
 
     if (tripIdFilter || orderNumberFilter || itemDescFilter || customerFilter || statusFilter) {
         filteredData = autoSOProcessingData.filter(item => {
-            const matchTripId = !tripIdFilter || String(item.TRIP_ID || item.trip_id || '').toLowerCase().includes(tripIdFilter);
-            const matchOrderNumber = !orderNumberFilter || String(item.ORDER_NUMBER || item.order_number || '').toLowerCase().includes(orderNumberFilter);
-            const matchItemDesc = !itemDescFilter || String(item.ITEM_DESCRIPTION || item.item_description || '').toLowerCase().includes(itemDescFilter);
-            const matchCustomer = !customerFilter || String(item.CUSTOMER_NAME || item.customer_name || '').toLowerCase().includes(customerFilter);
-            const matchStatus = !statusFilter || (item.TRANSACTION_STATUS || item.transaction_status || 'PENDING').toUpperCase() === statusFilter;
+            const matchTripId = !tripIdFilter || String(item.trip_id || '').toLowerCase().includes(tripIdFilter);
+            const matchOrderNumber = !orderNumberFilter || String(item.source_order || '').toLowerCase().includes(orderNumberFilter);
+            const matchItemDesc = !itemDescFilter || String(item.description || '').toLowerCase().includes(itemDescFilter);
+            const matchCustomer = !customerFilter || String(item.customer || '').toLowerCase().includes(customerFilter);
+
+            // Status filter based on pick_confirm_st and cancel_status
+            let itemStatus = getLineStatus(item);
+            const matchStatus = !statusFilter || itemStatus === statusFilter;
 
             return matchTripId && matchOrderNumber && matchItemDesc && matchCustomer && matchStatus;
         });
     }
 
     filteredData.forEach(item => {
-        const tripId = item.TRIP_ID || item.trip_id;
+        const tripId = item.trip_id;
 
         if (!grouped[tripId]) {
             grouped[tripId] = {
                 trip_id: tripId,
-                trip_date: item.TRIP_DATE || item.trip_date,
-                trip_lorry: item.TRIP_LORRY || item.trip_lorry,
-                trip_priority: item.TRIP_PRIORITY || item.trip_priority,
-                trip_loading_bay: item.TRIP_LOADING_BAY || item.trip_loading_bay,
-                instance_name: item.INSTANCE_NAME || item.instance_name,
+                trip_date: item.trip_date,
+                customer: item.customer,
                 transactions: []
             };
         }
@@ -208,6 +217,23 @@ function groupSOTransactionsByTrip() {
     });
 
     return Object.values(grouped);
+}
+
+// Get line status based on API fields
+function getLineStatus(item) {
+    if (item.cancel_status) {
+        return 'CANCELLED';
+    }
+    if (item.processing_status === 'PROCESSING') {
+        return 'PROCESSING';
+    }
+    if (item.processing_status === 'FAILED' || item.error_message) {
+        return 'FAILED';
+    }
+    if (item.pick_confirm_st === 'YES') {
+        return 'SUCCESS';
+    }
+    return 'PENDING';
 }
 
 // Display grouped trips
@@ -236,19 +262,19 @@ function displaySOGroupedTrips() {
     let html = '';
 
     groupedTrips.forEach((trip, index) => {
-        // Get distinct order count (unique ORDER_NUMBER)
-        const distinctOrders = [...new Set(trip.transactions.map(t => t.ORDER_NUMBER || t.order_number))];
+        // Get distinct order count (unique source_order)
+        const distinctOrders = [...new Set(trip.transactions.map(t => t.source_order))];
         const orderCount = distinctOrders.length;
 
+        // Get first customer from transactions (they should all be same for the trip)
+        const tripCustomer = trip.transactions[0]?.customer || 'N/A';
+
         // Calculate status counts
-        const successCount = trip.transactions.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'SUCCESS').length;
-        const failedCount = trip.transactions.filter(t => {
-            const status = t.TRANSACTION_STATUS || t.transaction_status;
-            return status === 'FAILED' || status === 'ERROR';
-        }).length;
-        const processingCount = trip.transactions.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'PROCESSING').length;
-        const cancelledCount = trip.transactions.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'CANCELLED').length;
-        const pendingCount = trip.transactions.length - successCount - failedCount - processingCount - cancelledCount;
+        const successCount = trip.transactions.filter(t => getLineStatus(t) === 'SUCCESS').length;
+        const failedCount = trip.transactions.filter(t => getLineStatus(t) === 'FAILED').length;
+        const processingCount = trip.transactions.filter(t => getLineStatus(t) === 'PROCESSING').length;
+        const cancelledCount = trip.transactions.filter(t => getLineStatus(t) === 'CANCELLED').length;
+        const pendingCount = trip.transactions.filter(t => getLineStatus(t) === 'PENDING').length;
 
         // Check if this trip is selected
         const isSelected = selectedSOTripsForProcessing.has(String(trip.trip_id));
@@ -279,20 +305,12 @@ function displaySOGroupedTrips() {
                             <div class="so-trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</div>
                         </div>
                         <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">LORRY</div>
-                            <div class="so-trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_lorry || 'N/A'}</div>
-                        </div>
-                        <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">PRIORITY</div>
-                            <div class="so-trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_priority || 'N/A'}</div>
-                        </div>
-                        <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">LOADING BAY</div>
-                            <div class="so-trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_loading_bay || 'N/A'}</div>
-                        </div>
-                        <div>
                             <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">ORDERS</div>
                             <div class="so-trip-group-value" style="font-size: 13px; font-weight: 700; color: #667eea;">${orderCount}</div>
+                        </div>
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">LINES</div>
+                            <div class="so-trip-group-value" style="font-size: 13px; font-weight: 700; color: #667eea;">${trip.transactions.length}</div>
                         </div>
                         <div class="so-trip-stats-badges" style="display: flex; gap: 0.4rem;">
                             ${successCount > 0 ? `<span class="so-trip-stats-badge" style="background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${successCount} ✓</span>` : ''}
@@ -337,37 +355,35 @@ function displaySOGroupedTrips() {
     }
 }
 
-// Render trip transactions grouped by order
+// Render trip transactions grouped by source_order (order number)
 function renderSOTripTransactions(transactions, tripIndex) {
-    // Group transactions by ORDER_NUMBER
+    // Group transactions by source_order
     const orderGroups = {};
 
     transactions.forEach((trx, idx) => {
-        const orderNum = trx.ORDER_NUMBER || trx.order_number;
+        const orderNum = trx.source_order || 'Unknown';
         if (!orderGroups[orderNum]) {
             orderGroups[orderNum] = {
-                order_number: orderNum,
-                customer_name: trx.CUSTOMER_NAME || trx.customer_name,
-                order_type: trx.ORDER_TYPE || trx.order_type,
+                source_order: orderNum,
+                customer: trx.customer,
                 items: [],
-                totalReqQty: 0,
-                totalQty: 0,
+                totalRequestedQty: 0,
+                totalPickedQty: 0,
                 totalLines: 0,
                 processedLines: 0,
-                notProcessedLines: 0,
-                overallStatus: trx.transaction_status
+                notProcessedLines: 0
             };
         }
         orderGroups[orderNum].items.push({ ...trx, originalIndex: idx });
-        orderGroups[orderNum].totalReqQty += parseFloat(trx.ORDERED_QUANTITY || trx.ordered_quantity) || 0;
-        orderGroups[orderNum].totalQty += parseFloat(trx.SHIPPED_QUANTITY || trx.shipped_quantity) || 0;
+        orderGroups[orderNum].totalRequestedQty += parseFloat(trx.requested_quantity) || 0;
+        orderGroups[orderNum].totalPickedQty += parseFloat(trx.picked_qty) || 0;
         orderGroups[orderNum].totalLines += 1;
 
         // Count processed vs not processed
-        const trxStatus = trx.TRANSACTION_STATUS || trx.transaction_status;
+        const trxStatus = getLineStatus(trx);
         if (trxStatus === 'SUCCESS') {
             orderGroups[orderNum].processedLines += 1;
-        } else {
+        } else if (trxStatus !== 'CANCELLED') {
             orderGroups[orderNum].notProcessedLines += 1;
         }
     });
@@ -387,18 +403,12 @@ function renderSOTripTransactions(transactions, tripIndex) {
     `;
 
     orders.forEach((order, orderIdx) => {
-        // Order status logic:
-        // - SUCCESS: All items are SUCCESS or CANCELLED (no real pending work)
-        // - FAILED: Any item is FAILED or ERROR
-        // - PENDING: There are actual pending items
+        // Order status logic
         const allSuccessOrCancelled = order.items.every(i => {
-            const status = i.TRANSACTION_STATUS || i.transaction_status;
+            const status = getLineStatus(i);
             return status === 'SUCCESS' || status === 'CANCELLED';
         });
-        const hasFailed = order.items.some(i => {
-            const status = i.TRANSACTION_STATUS || i.transaction_status;
-            return status === 'FAILED' || status === 'ERROR';
-        });
+        const hasFailed = order.items.some(i => getLineStatus(i) === 'FAILED');
 
         const orderStatus = hasFailed ? 'FAILED' :
                            allSuccessOrCancelled ? 'SUCCESS' :
@@ -416,29 +426,25 @@ function renderSOTripTransactions(transactions, tripIndex) {
 
         html += `
             <div style="background: white; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;" data-so-order-container="${tripIndex}">
-                <!-- Order Header (lighter than trip header) -->
+                <!-- Order Header -->
                 <div class="so-order-group-header" onclick="toggleSOOrderDetails('${orderId}')" style="padding: 0.5rem 0.75rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border-left: 3px solid #667eea;" onmouseover="this.style.background='linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'">
                     <div style="display: flex; gap: 1rem; align-items: center; flex: 1;">
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
                             <i class="fas fa-shopping-cart so-order-group-icon" style="color: #667eea; font-size: 14px;"></i>
                             <div>
-                                <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Order #</div>
+                                <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Source Order</div>
                                 <div class="so-order-group-value" style="font-size: 12px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 0.4rem;">
-                                    ${order.order_number}
+                                    ${order.source_order}
                                     <i class="fas fa-spinner fa-spin" id="so-order-processing-${orderId}" style="color: #667eea; font-size: 10px; display: none;"></i>
                                 </div>
                             </div>
                         </div>
                         <div>
                             <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Customer</div>
-                            <div class="so-order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #475569; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${order.customer_name || 'N/A'}">${order.customer_name || 'N/A'}</div>
+                            <div class="so-order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #475569; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${order.customer || 'N/A'}">${order.customer || 'N/A'}</div>
                         </div>
                         <div>
-                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Type</div>
-                            <div class="so-order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #475569;">${order.order_type || 'N/A'}</div>
-                        </div>
-                        <div>
-                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Total Lines</div>
+                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Lines</div>
                             <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #1e293b;">${order.totalLines}</div>
                         </div>
                         <div>
@@ -446,16 +452,16 @@ function renderSOTripTransactions(transactions, tripIndex) {
                             <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #10b981;">${order.processedLines}</div>
                         </div>
                         <div>
-                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Not Processed</div>
+                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Pending</div>
                             <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: ${order.notProcessedLines > 0 ? '#ef4444' : '#cbd5e1'};">${order.notProcessedLines}</div>
                         </div>
                         <div>
-                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Ordered Qty</div>
-                            <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalReqQty}</div>
+                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Req Qty</div>
+                            <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalRequestedQty}</div>
                         </div>
                         <div>
-                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Shipped Qty</div>
-                            <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalQty}</div>
+                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Picked Qty</div>
+                            <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalPickedQty}</div>
                         </div>
                         <div>
                             <span class="so-order-stats-badge" style="display: inline-flex; align-items: center; gap: 0.2rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
@@ -463,7 +469,7 @@ function renderSOTripTransactions(transactions, tripIndex) {
                             </span>
                         </div>
                         <div style="display: flex; gap: 0.4rem; margin-left: auto;">
-                            <button onclick="event.stopPropagation(); processSOSingleOrder('${order.order_number}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                            <button onclick="event.stopPropagation(); processSOSingleOrder('${order.source_order}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
                                 <i class="fas fa-play"></i> Process
                             </button>
                         </div>
@@ -478,12 +484,16 @@ function renderSOTripTransactions(transactions, tripIndex) {
                             <thead>
                                 <tr style="background: #f8f9fa; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0;">
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">#</th>
-                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Line #</th>
-                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item Code</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Pick Slip</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Line</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Item</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Description</th>
-                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Ordered Qty</th>
-                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Shipped Qty</th>
-                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">UOM</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Lot</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Req Qty</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Picked</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Src Subinv</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Dest Subinv</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Pick Confirm</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Status</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Action</th>
                                 </tr>
@@ -492,45 +502,56 @@ function renderSOTripTransactions(transactions, tripIndex) {
         `;
 
         order.items.forEach((item, itemIdx) => {
-            const itemStatus = item.TRANSACTION_STATUS || item.transaction_status;
+            const itemStatus = getLineStatus(item);
             const itemStatusColor = itemStatus === 'SUCCESS' ? '#10b981' :
-                                   itemStatus === 'FAILED' || itemStatus === 'ERROR' ? '#ef4444' :
+                                   itemStatus === 'FAILED' ? '#ef4444' :
                                    itemStatus === 'PROCESSING' ? '#f59e0b' :
+                                   itemStatus === 'CANCELLED' ? '#6b7280' :
                                    '#3b82f6';
 
             const itemStatusIcon = itemStatus === 'SUCCESS' ? 'check-circle' :
-                                  itemStatus === 'FAILED' || itemStatus === 'ERROR' ? 'times-circle' :
+                                  itemStatus === 'FAILED' ? 'times-circle' :
                                   itemStatus === 'PROCESSING' ? 'spinner fa-spin' :
+                                  itemStatus === 'CANCELLED' ? 'ban' :
                                   'clock';
+
+            const pickConfirmColor = item.pick_confirm_st === 'YES' ? '#10b981' : '#ef4444';
 
             html += `
                 <tr id="so-transaction-row-${tripIndex}-${item.originalIndex}" class="so-order-row-${orderId}" style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #94a3b8; font-weight: 600;">${itemIdx + 1}</td>
-                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.LINE_NUMBER || item.line_number || 'N/A'}</td>
-                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.ITEM_NUMBER || item.item_number || item.ITEM_CODE || item.item_code || 'N/A'}</td>
-                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.ITEM_DESCRIPTION || item.item_description || ''}">${item.ITEM_DESCRIPTION || item.item_description || 'N/A'}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #3b82f6;">${item.ORDERED_QUANTITY || item.ordered_quantity || 0}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.SHIPPED_QUANTITY || item.shipped_quantity || 0}</td>
-                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.UOM || item.uom || 'N/A'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.pick_slip || '-'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #1e293b;">${item.pick_slip_line || '-'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.item || '-'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.description || ''}">${item.description || '-'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.lot || '-'}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #3b82f6;">${item.requested_quantity || 0}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.picked_qty || 0}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 10px; color: #475569;">${item.source_subinventory || '-'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 10px; color: #475569;">${item.destination_subinventory || '-'}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${pickConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+                            ${item.pick_confirm_st || 'NO'}
+                        </span>
+                    </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-status-cell-${tripIndex}-${item.originalIndex}">
                         <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${itemStatusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
-                            <i class="fas fa-${itemStatusIcon}"></i> ${item.TRANSACTION_STATUS || item.transaction_status || 'PENDING'}
+                            <i class="fas fa-${itemStatusIcon}"></i> ${itemStatus}
                         </span>
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-action-cell-${tripIndex}-${item.originalIndex}">
-                        ${(itemStatus === 'FAILED' || itemStatus === 'ERROR') ? `
+                        ${itemStatus === 'FAILED' ? `
                             <div style="display: flex; gap: 0.25rem; justify-content: center;">
                                 <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
-                                    <i class="fas fa-play"></i> Process
-                                </button>
-                                <button onclick="showSOErrorDetails(${tripIndex}, ${item.originalIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
-                                    <i class="fas fa-exclamation-circle"></i> Show Errors
+                                    <i class="fas fa-redo"></i> Retry
                                 </button>
                             </div>
                         ` : itemStatus === 'PROCESSING' ? `
                             <span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
                         ` : itemStatus === 'SUCCESS' ? `
-                            <span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Completed</span>
+                            <span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Done</span>
+                        ` : itemStatus === 'CANCELLED' ? `
+                            <span style="color: #6b7280; font-size: 10px;"><i class="fas fa-ban"></i> Cancelled</span>
                         ` : `
                             <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
                                 <i class="fas fa-play"></i> Process
@@ -745,24 +766,25 @@ function toggleSOExpandCollapseAll() {
     }
 }
 
-// Update statistics
+// Update statistics based on actual API fields
 function updateSOStatistics() {
     const groupedTrips = groupSOTransactionsByTrip();
 
     // Calculate stats
     autoSOProcessingStats.totalTrips = groupedTrips.length;
-    // Total Orders = distinct order_number count
-    const distinctOrders = [...new Set(autoSOProcessingData.map(t => t.ORDER_NUMBER || t.order_number))];
+
+    // Total Orders = distinct source_order count
+    const distinctOrders = [...new Set(autoSOProcessingData.map(t => t.source_order))];
     autoSOProcessingStats.totalOrders = distinctOrders.length;
+
     // Total Lines = all transactions
     autoSOProcessingStats.totalLines = autoSOProcessingData.length;
-    autoSOProcessingStats.success = autoSOProcessingData.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'SUCCESS').length;
-    autoSOProcessingStats.failed = autoSOProcessingData.filter(t => {
-        const status = t.TRANSACTION_STATUS || t.transaction_status;
-        return status === 'FAILED' || status === 'ERROR';
-    }).length;
-    autoSOProcessingStats.processing = autoSOProcessingData.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'PROCESSING').length;
-    autoSOProcessingStats.cancelled = autoSOProcessingData.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'CANCELLED').length;
+
+    // Count by status
+    autoSOProcessingStats.success = autoSOProcessingData.filter(t => getLineStatus(t) === 'SUCCESS').length;
+    autoSOProcessingStats.failed = autoSOProcessingData.filter(t => getLineStatus(t) === 'FAILED').length;
+    autoSOProcessingStats.processing = autoSOProcessingData.filter(t => getLineStatus(t) === 'PROCESSING').length;
+    autoSOProcessingStats.cancelled = autoSOProcessingData.filter(t => getLineStatus(t) === 'CANCELLED').length;
 
     // Update UI
     document.getElementById('auto-so-stat-trips').textContent = autoSOProcessingStats.totalTrips;
@@ -786,7 +808,7 @@ function startAutoSOProcessing() {
     document.getElementById('auto-so-process-status').textContent = 'ENABLED';
     document.getElementById('auto-so-process-status').style.color = '#10b981';
 
-    addSOLogEntry('System', 'Auto processing mode ENABLED - Ready to run simulation', 'success');
+    addSOLogEntry('System', 'Auto processing mode ENABLED - Ready to process', 'success');
 }
 
 // Stop auto processing
@@ -946,12 +968,11 @@ async function processSONextBatch() {
     addSOLogEntry('Debug', `Total records in data: ${autoSOProcessingData.length}`, 'info');
     addSOLogEntry('Debug', `Selected trips for processing: ${Array.from(selectedSOTripsForProcessing).join(', ')}`, 'info');
 
-    // Find pending transactions (case-insensitive check)
-    // ONLY process transactions from SELECTED trips
+    // Find pending transactions - ONLY from SELECTED trips
     const pendingTransactions = autoSOProcessingData.filter(t => {
-        const status = (t.TRANSACTION_STATUS || t.transaction_status || '').toUpperCase();
-        const isPending = !t.TRANSACTION_STATUS && !t.transaction_status || status === '' || status === 'PENDING';
-        const tripIdStr = String(t.TRIP_ID || t.trip_id);
+        const status = getLineStatus(t);
+        const isPending = status === 'PENDING';
+        const tripIdStr = String(t.trip_id);
         const isSelectedTrip = selectedSOTripsForProcessing.has(tripIdStr);
         return isPending && isSelectedTrip;
     });
@@ -964,10 +985,10 @@ async function processSONextBatch() {
         return;
     }
 
-    // Group pending transactions by order_number
+    // Group pending transactions by source_order
     const transactionsByOrder = {};
     pendingTransactions.forEach(t => {
-        const orderNum = t.ORDER_NUMBER || t.order_number;
+        const orderNum = t.source_order || 'Unknown';
         if (!transactionsByOrder[orderNum]) {
             transactionsByOrder[orderNum] = [];
         }
@@ -996,8 +1017,8 @@ async function processSONextBatch() {
 
             // Update current processing status
             const firstTransaction = orderTransactions[0];
-            currentSOProcessingTrip = firstTransaction.TRIP_ID || firstTransaction.trip_id || '-';
-            currentSOProcessingTripId = firstTransaction.TRIP_ID || firstTransaction.trip_id || '-';
+            currentSOProcessingTrip = firstTransaction.trip_id || '-';
+            currentSOProcessingTripId = firstTransaction.trip_id || '-';
             currentSOProcessingOrder = orderNumber;
 
             addSOLogEntry('Order', `Processing Order: ${orderNumber} (${orderTransactions.length} lines)`, 'info');
@@ -1026,6 +1047,7 @@ async function processSONextBatch() {
                 });
 
                 // Update status to PROCESSING in DOM
+                transaction.processing_status = 'PROCESSING';
                 if (actualTripIndex !== -1 && actualTransactionIndex !== -1) {
                     updateSOTransactionStatusInDOM(actualTripIndex, actualTransactionIndex, 'PROCESSING');
                 }
@@ -1034,7 +1056,8 @@ async function processSONextBatch() {
                 await new Promise(resolve => setTimeout(resolve, 500));
 
                 // Mark as SUCCESS (replace with actual result handling)
-                transaction.transaction_status = 'SUCCESS';
+                transaction.processing_status = 'SUCCESS';
+                transaction.pick_confirm_st = 'YES';
                 processedCount++;
                 successCount++;
 
@@ -1072,13 +1095,15 @@ function updateSOTransactionStatusInDOM(tripIndex, transactionIndex, status) {
 
     // Update status badge
     const statusColor = status === 'SUCCESS' ? '#10b981' :
-                       status === 'FAILED' || status === 'ERROR' ? '#ef4444' :
+                       status === 'FAILED' ? '#ef4444' :
                        status === 'PROCESSING' ? '#f59e0b' :
+                       status === 'CANCELLED' ? '#6b7280' :
                        '#3b82f6';
 
     const statusIcon = status === 'SUCCESS' ? 'check-circle' :
-                      status === 'FAILED' || status === 'ERROR' ? 'times-circle' :
+                      status === 'FAILED' ? 'times-circle' :
                       status === 'PROCESSING' ? 'spinner fa-spin' :
+                      status === 'CANCELLED' ? 'ban' :
                       'clock';
 
     statusCell.innerHTML = `
@@ -1088,37 +1113,38 @@ function updateSOTransactionStatusInDOM(tripIndex, transactionIndex, status) {
     `;
 
     // Update action button
-    if (status === 'FAILED' || status === 'ERROR') {
+    if (status === 'FAILED') {
         actionCell.innerHTML = `
             <div style="display: flex; gap: 0.25rem; justify-content: center;">
                 <button onclick="processSOSingleLine(${tripIndex}, ${transactionIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
-                    <i class="fas fa-play"></i> Retry
-                </button>
-                <button onclick="showSOErrorDetails(${tripIndex}, ${transactionIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
-                    <i class="fas fa-exclamation-circle"></i> Show Errors
+                    <i class="fas fa-redo"></i> Retry
                 </button>
             </div>
         `;
     } else if (status === 'PROCESSING') {
         actionCell.innerHTML = `<span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>`;
     } else if (status === 'SUCCESS') {
-        actionCell.innerHTML = `<span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Completed</span>`;
+        actionCell.innerHTML = `<span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Done</span>`;
+    } else if (status === 'CANCELLED') {
+        actionCell.innerHTML = `<span style="color: #6b7280; font-size: 10px;"><i class="fas fa-ban"></i> Cancelled</span>`;
     } else {
-        actionCell.innerHTML = `<span style="color: #cbd5e1; font-size: 10px;">-</span>`;
+        actionCell.innerHTML = `
+            <button onclick="processSOSingleLine(${tripIndex}, ${transactionIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                <i class="fas fa-play"></i> Process
+            </button>
+        `;
     }
 }
 
 // Process single order
 function processSOSingleOrder(orderNumber, tripIndex) {
     addSOLogEntry('Order', `Manual processing triggered for Order: ${orderNumber}`, 'info');
-    // Add implementation for single order processing
     alert(`Processing Order: ${orderNumber}\n\nThis feature will process all pending lines in this order.`);
 }
 
 // Process single line
 function processSOSingleLine(tripIndex, transactionIndex) {
     addSOLogEntry('Line', `Manual processing triggered for line at index: ${transactionIndex}`, 'info');
-    // Add implementation for single line processing
     updateSOTransactionStatusInDOM(tripIndex, transactionIndex, 'PROCESSING');
 
     // Simulate processing
@@ -1126,21 +1152,12 @@ function processSOSingleLine(tripIndex, transactionIndex) {
         updateSOTransactionStatusInDOM(tripIndex, transactionIndex, 'SUCCESS');
         const groupedTrips = groupSOTransactionsByTrip();
         if (groupedTrips[tripIndex] && groupedTrips[tripIndex].transactions[transactionIndex]) {
-            groupedTrips[tripIndex].transactions[transactionIndex].transaction_status = 'SUCCESS';
+            groupedTrips[tripIndex].transactions[transactionIndex].processing_status = 'SUCCESS';
+            groupedTrips[tripIndex].transactions[transactionIndex].pick_confirm_st = 'YES';
         }
         updateSOStatistics();
         addSOLogEntry('Line', `Line processed successfully`, 'success');
     }, 1000);
-}
-
-// Show error details
-function showSOErrorDetails(tripIndex, transactionIndex) {
-    const groupedTrips = groupSOTransactionsByTrip();
-    if (groupedTrips[tripIndex] && groupedTrips[tripIndex].transactions[transactionIndex]) {
-        const transaction = groupedTrips[tripIndex].transactions[transactionIndex];
-        const errorMsg = transaction.ERROR_MESSAGE || transaction.error_message || 'No error details available';
-        alert(`Error Details:\n\nOrder: ${transaction.ORDER_NUMBER || transaction.order_number}\nLine: ${transaction.LINE_NUMBER || transaction.line_number}\n\nError: ${errorMsg}`);
-    }
 }
 
 // Add log entry
@@ -1193,13 +1210,13 @@ function switchAutoSOTab(tabId) {
     }
 }
 
-// Populate filter dropdowns
+// Populate filter dropdowns based on actual API fields
 function populateSOFilterDropdowns() {
     // Trip ID
     const tripIdList = document.getElementById('so-trip-id-list');
     if (tripIdList) {
         tripIdList.innerHTML = '';
-        const tripIds = [...new Set(autoSOProcessingData.map(t => t.TRIP_ID || t.trip_id))];
+        const tripIds = [...new Set(autoSOProcessingData.map(t => t.trip_id))];
         tripIds.forEach(id => {
             const option = document.createElement('option');
             option.value = id;
@@ -1207,11 +1224,11 @@ function populateSOFilterDropdowns() {
         });
     }
 
-    // Order Number
+    // Order Number (source_order)
     const orderNumberList = document.getElementById('so-order-number-list');
     if (orderNumberList) {
         orderNumberList.innerHTML = '';
-        const orderNumbers = [...new Set(autoSOProcessingData.map(t => t.ORDER_NUMBER || t.order_number))];
+        const orderNumbers = [...new Set(autoSOProcessingData.map(t => t.source_order))];
         orderNumbers.forEach(num => {
             const option = document.createElement('option');
             option.value = num;
@@ -1219,11 +1236,11 @@ function populateSOFilterDropdowns() {
         });
     }
 
-    // Item Description
+    // Item Description (description)
     const itemDescList = document.getElementById('so-item-desc-list');
     if (itemDescList) {
         itemDescList.innerHTML = '';
-        const itemDescs = [...new Set(autoSOProcessingData.map(t => t.ITEM_DESCRIPTION || t.item_description).filter(d => d))];
+        const itemDescs = [...new Set(autoSOProcessingData.map(t => t.description).filter(d => d))];
         itemDescs.slice(0, 100).forEach(desc => {
             const option = document.createElement('option');
             option.value = desc;
@@ -1235,7 +1252,7 @@ function populateSOFilterDropdowns() {
     const customerList = document.getElementById('so-customer-list');
     if (customerList) {
         customerList.innerHTML = '';
-        const customers = [...new Set(autoSOProcessingData.map(t => t.CUSTOMER_NAME || t.customer_name).filter(c => c))];
+        const customers = [...new Set(autoSOProcessingData.map(t => t.customer).filter(c => c))];
         customers.forEach(customer => {
             const option = document.createElement('option');
             option.value = customer;
