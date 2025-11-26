@@ -1584,6 +1584,33 @@ window.openSOTripPrintModal = async function(tripId, tripDate, orderCount, tripI
     document.getElementById('so-debug-path-format').textContent = `C:/fusion/${formattedTripDate}/${tripId}/{orderNumber}.pdf`;
     document.getElementById('so-debug-current-order').textContent = '-';
 
+    // Generate and display SOAP XML that will be sent to Oracle Fusion
+    const sampleOrderNumber = orders.length > 0 ? orders[0].orderNumber : '1234567';
+    const soapXML = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>${currentSOTripPrintData.reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+          <v2:listOfParamNameValues>
+            <v2:item>
+              <v2:name>${currentSOTripPrintData.parameterName}</v2:name>
+              <v2:values>
+                <v2:item>${sampleOrderNumber}</v2:item>
+              </v2:values>
+            </v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:sizeOfDataChunkDownload>-1</v2:sizeOfDataChunkDownload>
+      </v2:reportRequest>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+    document.getElementById('so-debug-soap-xml').textContent = soapXML;
+
     // Reset buttons
     document.getElementById('so-trip-print-download-btn').style.display = 'inline-flex';
     document.getElementById('so-trip-print-download-btn').disabled = false;
@@ -1626,6 +1653,38 @@ window.toggleSOTripPrintDebug = function() {
         icon.classList.add('fa-chevron-down');
     }
 };
+
+// Update debug SOAP XML for specific order (called during processing)
+function updateSODebugXMLForOrder(orderNumber) {
+    if (!currentSOTripPrintData) return;
+
+    const soapXML = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>${currentSOTripPrintData.reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+          <v2:listOfParamNameValues>
+            <v2:item>
+              <v2:name>${currentSOTripPrintData.parameterName}</v2:name>
+              <v2:values>
+                <v2:item>${orderNumber}</v2:item>
+              </v2:values>
+            </v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:sizeOfDataChunkDownload>-1</v2:sizeOfDataChunkDownload>
+      </v2:reportRequest>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    document.getElementById('so-debug-soap-xml').textContent = soapXML;
+    document.getElementById('so-debug-current-order').textContent = orderNumber;
+}
 
 // Load printers for modal
 async function loadSOTripPrinters() {
@@ -1768,8 +1827,8 @@ window.startSOTripDownload = async function() {
         console.log(`[SO Trip Print] Downloading ${i + 1}/${currentSOTripPrintData.orders.length}: ${order.orderNumber}`);
         console.log(`[SO Trip Print] Order Type: ${order.orderType}`);
 
-        // Update debug info
-        document.getElementById('so-debug-current-order').textContent = order.orderNumber;
+        // Update debug info and SOAP XML display
+        updateSODebugXMLForOrder(order.orderNumber);
 
         // Update status to DOWNLOADING
         order.downloadStatus = 'DOWNLOADING';
