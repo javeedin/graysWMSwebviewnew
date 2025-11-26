@@ -179,27 +179,27 @@ function groupSOTransactionsByTrip() {
 
     if (tripIdFilter || orderNumberFilter || itemDescFilter || customerFilter || statusFilter) {
         filteredData = autoSOProcessingData.filter(item => {
-            const matchTripId = !tripIdFilter || String(item.trip_id || '').toLowerCase().includes(tripIdFilter);
-            const matchOrderNumber = !orderNumberFilter || String(item.order_number || '').toLowerCase().includes(orderNumberFilter);
-            const matchItemDesc = !itemDescFilter || String(item.item_description || '').toLowerCase().includes(itemDescFilter);
-            const matchCustomer = !customerFilter || String(item.customer_name || '').toLowerCase().includes(customerFilter);
-            const matchStatus = !statusFilter || (item.transaction_status || 'PENDING').toUpperCase() === statusFilter;
+            const matchTripId = !tripIdFilter || String(item.TRIP_ID || item.trip_id || '').toLowerCase().includes(tripIdFilter);
+            const matchOrderNumber = !orderNumberFilter || String(item.ORDER_NUMBER || item.order_number || '').toLowerCase().includes(orderNumberFilter);
+            const matchItemDesc = !itemDescFilter || String(item.ITEM_DESCRIPTION || item.item_description || '').toLowerCase().includes(itemDescFilter);
+            const matchCustomer = !customerFilter || String(item.CUSTOMER_NAME || item.customer_name || '').toLowerCase().includes(customerFilter);
+            const matchStatus = !statusFilter || (item.TRANSACTION_STATUS || item.transaction_status || 'PENDING').toUpperCase() === statusFilter;
 
             return matchTripId && matchOrderNumber && matchItemDesc && matchCustomer && matchStatus;
         });
     }
 
     filteredData.forEach(item => {
-        const tripId = item.trip_id;
+        const tripId = item.TRIP_ID || item.trip_id;
 
         if (!grouped[tripId]) {
             grouped[tripId] = {
-                trip_id: item.trip_id,
-                trip_date: item.trip_date,
-                trip_lorry: item.trip_lorry,
-                trip_priority: item.trip_priority,
-                trip_loading_bay: item.trip_loading_bay,
-                instance_name: item.instance_name,
+                trip_id: tripId,
+                trip_date: item.TRIP_DATE || item.trip_date,
+                trip_lorry: item.TRIP_LORRY || item.trip_lorry,
+                trip_priority: item.TRIP_PRIORITY || item.trip_priority,
+                trip_loading_bay: item.TRIP_LOADING_BAY || item.trip_loading_bay,
+                instance_name: item.INSTANCE_NAME || item.instance_name,
                 transactions: []
             };
         }
@@ -237,14 +237,17 @@ function displaySOGroupedTrips() {
 
     groupedTrips.forEach((trip, index) => {
         // Get distinct order count (unique ORDER_NUMBER)
-        const distinctOrders = [...new Set(trip.transactions.map(t => t.order_number))];
+        const distinctOrders = [...new Set(trip.transactions.map(t => t.ORDER_NUMBER || t.order_number))];
         const orderCount = distinctOrders.length;
 
         // Calculate status counts
-        const successCount = trip.transactions.filter(t => t.transaction_status === 'SUCCESS').length;
-        const failedCount = trip.transactions.filter(t => t.transaction_status === 'FAILED' || t.transaction_status === 'ERROR').length;
-        const processingCount = trip.transactions.filter(t => t.transaction_status === 'PROCESSING').length;
-        const cancelledCount = trip.transactions.filter(t => t.transaction_status === 'CANCELLED').length;
+        const successCount = trip.transactions.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'SUCCESS').length;
+        const failedCount = trip.transactions.filter(t => {
+            const status = t.TRANSACTION_STATUS || t.transaction_status;
+            return status === 'FAILED' || status === 'ERROR';
+        }).length;
+        const processingCount = trip.transactions.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'PROCESSING').length;
+        const cancelledCount = trip.transactions.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'CANCELLED').length;
         const pendingCount = trip.transactions.length - successCount - failedCount - processingCount - cancelledCount;
 
         // Check if this trip is selected
@@ -340,12 +343,12 @@ function renderSOTripTransactions(transactions, tripIndex) {
     const orderGroups = {};
 
     transactions.forEach((trx, idx) => {
-        const orderNum = trx.order_number;
+        const orderNum = trx.ORDER_NUMBER || trx.order_number;
         if (!orderGroups[orderNum]) {
             orderGroups[orderNum] = {
                 order_number: orderNum,
-                customer_name: trx.customer_name,
-                order_type: trx.order_type,
+                customer_name: trx.CUSTOMER_NAME || trx.customer_name,
+                order_type: trx.ORDER_TYPE || trx.order_type,
                 items: [],
                 totalReqQty: 0,
                 totalQty: 0,
@@ -356,12 +359,13 @@ function renderSOTripTransactions(transactions, tripIndex) {
             };
         }
         orderGroups[orderNum].items.push({ ...trx, originalIndex: idx });
-        orderGroups[orderNum].totalReqQty += parseFloat(trx.ordered_quantity) || 0;
-        orderGroups[orderNum].totalQty += parseFloat(trx.shipped_quantity) || 0;
+        orderGroups[orderNum].totalReqQty += parseFloat(trx.ORDERED_QUANTITY || trx.ordered_quantity) || 0;
+        orderGroups[orderNum].totalQty += parseFloat(trx.SHIPPED_QUANTITY || trx.shipped_quantity) || 0;
         orderGroups[orderNum].totalLines += 1;
 
         // Count processed vs not processed
-        if (trx.transaction_status === 'SUCCESS') {
+        const trxStatus = trx.TRANSACTION_STATUS || trx.transaction_status;
+        if (trxStatus === 'SUCCESS') {
             orderGroups[orderNum].processedLines += 1;
         } else {
             orderGroups[orderNum].notProcessedLines += 1;
@@ -387,8 +391,14 @@ function renderSOTripTransactions(transactions, tripIndex) {
         // - SUCCESS: All items are SUCCESS or CANCELLED (no real pending work)
         // - FAILED: Any item is FAILED or ERROR
         // - PENDING: There are actual pending items
-        const allSuccessOrCancelled = order.items.every(i => i.transaction_status === 'SUCCESS' || i.transaction_status === 'CANCELLED');
-        const hasFailed = order.items.some(i => i.transaction_status === 'FAILED' || i.transaction_status === 'ERROR');
+        const allSuccessOrCancelled = order.items.every(i => {
+            const status = i.TRANSACTION_STATUS || i.transaction_status;
+            return status === 'SUCCESS' || status === 'CANCELLED';
+        });
+        const hasFailed = order.items.some(i => {
+            const status = i.TRANSACTION_STATUS || i.transaction_status;
+            return status === 'FAILED' || status === 'ERROR';
+        });
 
         const orderStatus = hasFailed ? 'FAILED' :
                            allSuccessOrCancelled ? 'SUCCESS' :
@@ -482,32 +492,33 @@ function renderSOTripTransactions(transactions, tripIndex) {
         `;
 
         order.items.forEach((item, itemIdx) => {
-            const itemStatusColor = item.transaction_status === 'SUCCESS' ? '#10b981' :
-                                   item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR' ? '#ef4444' :
-                                   item.transaction_status === 'PROCESSING' ? '#f59e0b' :
+            const itemStatus = item.TRANSACTION_STATUS || item.transaction_status;
+            const itemStatusColor = itemStatus === 'SUCCESS' ? '#10b981' :
+                                   itemStatus === 'FAILED' || itemStatus === 'ERROR' ? '#ef4444' :
+                                   itemStatus === 'PROCESSING' ? '#f59e0b' :
                                    '#3b82f6';
 
-            const itemStatusIcon = item.transaction_status === 'SUCCESS' ? 'check-circle' :
-                                  item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR' ? 'times-circle' :
-                                  item.transaction_status === 'PROCESSING' ? 'spinner fa-spin' :
+            const itemStatusIcon = itemStatus === 'SUCCESS' ? 'check-circle' :
+                                  itemStatus === 'FAILED' || itemStatus === 'ERROR' ? 'times-circle' :
+                                  itemStatus === 'PROCESSING' ? 'spinner fa-spin' :
                                   'clock';
 
             html += `
                 <tr id="so-transaction-row-${tripIndex}-${item.originalIndex}" class="so-order-row-${orderId}" style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #94a3b8; font-weight: 600;">${itemIdx + 1}</td>
-                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.line_number || 'N/A'}</td>
-                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.item_number || item.item_code || 'N/A'}</td>
-                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.item_description || ''}">${item.item_description || 'N/A'}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #3b82f6;">${item.ordered_quantity || 0}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.shipped_quantity || 0}</td>
-                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.uom || 'N/A'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.LINE_NUMBER || item.line_number || 'N/A'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; font-weight: 600; color: #667eea;">${item.ITEM_NUMBER || item.item_number || item.ITEM_CODE || item.item_code || 'N/A'}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${item.ITEM_DESCRIPTION || item.item_description || ''}">${item.ITEM_DESCRIPTION || item.item_description || 'N/A'}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #3b82f6;">${item.ORDERED_QUANTITY || item.ordered_quantity || 0}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.SHIPPED_QUANTITY || item.shipped_quantity || 0}</td>
+                    <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.UOM || item.uom || 'N/A'}</td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-status-cell-${tripIndex}-${item.originalIndex}">
                         <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${itemStatusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
-                            <i class="fas fa-${itemStatusIcon}"></i> ${item.transaction_status || 'PENDING'}
+                            <i class="fas fa-${itemStatusIcon}"></i> ${item.TRANSACTION_STATUS || item.transaction_status || 'PENDING'}
                         </span>
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-action-cell-${tripIndex}-${item.originalIndex}">
-                        ${(item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR') ? `
+                        ${(itemStatus === 'FAILED' || itemStatus === 'ERROR') ? `
                             <div style="display: flex; gap: 0.25rem; justify-content: center;">
                                 <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
                                     <i class="fas fa-play"></i> Process
@@ -516,9 +527,9 @@ function renderSOTripTransactions(transactions, tripIndex) {
                                     <i class="fas fa-exclamation-circle"></i> Show Errors
                                 </button>
                             </div>
-                        ` : item.transaction_status === 'PROCESSING' ? `
+                        ` : itemStatus === 'PROCESSING' ? `
                             <span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
-                        ` : item.transaction_status === 'SUCCESS' ? `
+                        ` : itemStatus === 'SUCCESS' ? `
                             <span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Completed</span>
                         ` : `
                             <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
@@ -741,14 +752,17 @@ function updateSOStatistics() {
     // Calculate stats
     autoSOProcessingStats.totalTrips = groupedTrips.length;
     // Total Orders = distinct order_number count
-    const distinctOrders = [...new Set(autoSOProcessingData.map(t => t.order_number))];
+    const distinctOrders = [...new Set(autoSOProcessingData.map(t => t.ORDER_NUMBER || t.order_number))];
     autoSOProcessingStats.totalOrders = distinctOrders.length;
     // Total Lines = all transactions
     autoSOProcessingStats.totalLines = autoSOProcessingData.length;
-    autoSOProcessingStats.success = autoSOProcessingData.filter(t => t.transaction_status === 'SUCCESS').length;
-    autoSOProcessingStats.failed = autoSOProcessingData.filter(t => t.transaction_status === 'FAILED' || t.transaction_status === 'ERROR').length;
-    autoSOProcessingStats.processing = autoSOProcessingData.filter(t => t.transaction_status === 'PROCESSING').length;
-    autoSOProcessingStats.cancelled = autoSOProcessingData.filter(t => t.transaction_status === 'CANCELLED').length;
+    autoSOProcessingStats.success = autoSOProcessingData.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'SUCCESS').length;
+    autoSOProcessingStats.failed = autoSOProcessingData.filter(t => {
+        const status = t.TRANSACTION_STATUS || t.transaction_status;
+        return status === 'FAILED' || status === 'ERROR';
+    }).length;
+    autoSOProcessingStats.processing = autoSOProcessingData.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'PROCESSING').length;
+    autoSOProcessingStats.cancelled = autoSOProcessingData.filter(t => (t.TRANSACTION_STATUS || t.transaction_status) === 'CANCELLED').length;
 
     // Update UI
     document.getElementById('auto-so-stat-trips').textContent = autoSOProcessingStats.totalTrips;
@@ -935,9 +949,9 @@ async function processSONextBatch() {
     // Find pending transactions (case-insensitive check)
     // ONLY process transactions from SELECTED trips
     const pendingTransactions = autoSOProcessingData.filter(t => {
-        const status = (t.transaction_status || '').toUpperCase();
-        const isPending = !t.transaction_status || status === '' || status === 'PENDING';
-        const tripIdStr = String(t.trip_id);
+        const status = (t.TRANSACTION_STATUS || t.transaction_status || '').toUpperCase();
+        const isPending = !t.TRANSACTION_STATUS && !t.transaction_status || status === '' || status === 'PENDING';
+        const tripIdStr = String(t.TRIP_ID || t.trip_id);
         const isSelectedTrip = selectedSOTripsForProcessing.has(tripIdStr);
         return isPending && isSelectedTrip;
     });
@@ -953,7 +967,7 @@ async function processSONextBatch() {
     // Group pending transactions by order_number
     const transactionsByOrder = {};
     pendingTransactions.forEach(t => {
-        const orderNum = t.order_number;
+        const orderNum = t.ORDER_NUMBER || t.order_number;
         if (!transactionsByOrder[orderNum]) {
             transactionsByOrder[orderNum] = [];
         }
@@ -982,8 +996,8 @@ async function processSONextBatch() {
 
             // Update current processing status
             const firstTransaction = orderTransactions[0];
-            currentSOProcessingTrip = firstTransaction.trip_id || '-';
-            currentSOProcessingTripId = firstTransaction.trip_id || '-';
+            currentSOProcessingTrip = firstTransaction.TRIP_ID || firstTransaction.trip_id || '-';
+            currentSOProcessingTripId = firstTransaction.TRIP_ID || firstTransaction.trip_id || '-';
             currentSOProcessingOrder = orderNumber;
 
             addSOLogEntry('Order', `Processing Order: ${orderNumber} (${orderTransactions.length} lines)`, 'info');
@@ -1124,8 +1138,8 @@ function showSOErrorDetails(tripIndex, transactionIndex) {
     const groupedTrips = groupSOTransactionsByTrip();
     if (groupedTrips[tripIndex] && groupedTrips[tripIndex].transactions[transactionIndex]) {
         const transaction = groupedTrips[tripIndex].transactions[transactionIndex];
-        const errorMsg = transaction.error_message || 'No error details available';
-        alert(`Error Details:\n\nOrder: ${transaction.order_number}\nLine: ${transaction.line_number}\n\nError: ${errorMsg}`);
+        const errorMsg = transaction.ERROR_MESSAGE || transaction.error_message || 'No error details available';
+        alert(`Error Details:\n\nOrder: ${transaction.ORDER_NUMBER || transaction.order_number}\nLine: ${transaction.LINE_NUMBER || transaction.line_number}\n\nError: ${errorMsg}`);
     }
 }
 
@@ -1185,7 +1199,7 @@ function populateSOFilterDropdowns() {
     const tripIdList = document.getElementById('so-trip-id-list');
     if (tripIdList) {
         tripIdList.innerHTML = '';
-        const tripIds = [...new Set(autoSOProcessingData.map(t => t.trip_id))];
+        const tripIds = [...new Set(autoSOProcessingData.map(t => t.TRIP_ID || t.trip_id))];
         tripIds.forEach(id => {
             const option = document.createElement('option');
             option.value = id;
@@ -1197,7 +1211,7 @@ function populateSOFilterDropdowns() {
     const orderNumberList = document.getElementById('so-order-number-list');
     if (orderNumberList) {
         orderNumberList.innerHTML = '';
-        const orderNumbers = [...new Set(autoSOProcessingData.map(t => t.order_number))];
+        const orderNumbers = [...new Set(autoSOProcessingData.map(t => t.ORDER_NUMBER || t.order_number))];
         orderNumbers.forEach(num => {
             const option = document.createElement('option');
             option.value = num;
@@ -1209,7 +1223,7 @@ function populateSOFilterDropdowns() {
     const itemDescList = document.getElementById('so-item-desc-list');
     if (itemDescList) {
         itemDescList.innerHTML = '';
-        const itemDescs = [...new Set(autoSOProcessingData.map(t => t.item_description).filter(d => d))];
+        const itemDescs = [...new Set(autoSOProcessingData.map(t => t.ITEM_DESCRIPTION || t.item_description).filter(d => d))];
         itemDescs.slice(0, 100).forEach(desc => {
             const option = document.createElement('option');
             option.value = desc;
@@ -1221,7 +1235,7 @@ function populateSOFilterDropdowns() {
     const customerList = document.getElementById('so-customer-list');
     if (customerList) {
         customerList.innerHTML = '';
-        const customers = [...new Set(autoSOProcessingData.map(t => t.customer_name).filter(c => c))];
+        const customers = [...new Set(autoSOProcessingData.map(t => t.CUSTOMER_NAME || t.customer_name).filter(c => c))];
         customers.forEach(customer => {
             const option = document.createElement('option');
             option.value = customer;
