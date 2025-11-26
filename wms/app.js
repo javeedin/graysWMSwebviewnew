@@ -1653,6 +1653,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     let tripDetails = JSON.parse(data);
                     if (!Array.isArray(tripDetails) && tripDetails?.items) tripDetails = tripDetails.items;
                     if (!Array.isArray(tripDetails)) tripDetails = [];
+                    // DEBUG: Log first record to check item columns
+                    if (tripDetails.length > 0) {
+                        console.log('=== All Trip Details - First Record ===');
+                        console.log('All columns:', Object.keys(tripDetails[0]));
+                        console.log('First record data:', tripDetails[0]);
+                        // Check specifically for item-related columns
+                        const itemCols = Object.keys(tripDetails[0]).filter(k => k.toLowerCase().includes('item'));
+                        console.log('Item-related columns:', itemCols);
+                        itemCols.forEach(col => console.log(`${col}:`, tripDetails[0][col]));
+                    }
                     displayTripDetailsData(tripDetails);
                 } catch (e) {
                     if (tripDetailsGridContainer) {
