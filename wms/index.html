@@ -12,6 +12,22 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
     <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Hide body content until login is verified */
+        body.auth-pending {
+            visibility: hidden;
+        }
+    </style>
+    <script>
+        // IMMEDIATE LOGIN CHECK - runs before body renders
+        (function() {
+            const isLoggedIn = localStorage.getItem('loggedIn');
+            if (isLoggedIn !== 'true') {
+                console.log('[AUTH] Not logged in, redirecting to login page...');
+                window.location.replace('../login.html');
+            }
+        })();
+    </script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         // Dynamic cache busting - generate unique timestamp
@@ -35,7 +51,7 @@
         document.write('<script src="config.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </head>
-<body>
+<body class="auth-pending">
     <header class="header">
         <button class="hamburger" id="hamburger">
             <i class="fas fa-bars"></i>
@@ -2816,6 +2832,10 @@
                 return;
             }
             console.log('[LOGIN] User is logged in, proceeding...');
+
+            // Show body content now that login is verified
+            document.body.classList.remove('auth-pending');
+            console.log('[AUTH] Login verified, showing page content');
 
             // Sync login data from localStorage (set by login.html) to sessionStorage
             const lsUsername = localStorage.getItem('username');
