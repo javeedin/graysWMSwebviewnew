@@ -2047,7 +2047,7 @@ document.addEventListener('DOMContentLoaded', function() {
             width: '100%',
             scrolling: {
                 useNative: true,
-                showScrollbar: 'onHover'
+                showScrollbar: 'always'
             },
             filterRow: { visible: true },
             headerFilter: { visible: true },
@@ -2066,7 +2066,6 @@ document.addEventListener('DOMContentLoaded', function() {
             allowColumnResizing: true,
             columnResizingMode: 'nextColumn',
             rowAlternationEnabled: true,
-            loadPanel: { enabled: true },
             columnChooser: {
                 enabled: true,
                 mode: 'select'
@@ -2079,16 +2078,6 @@ document.addEventListener('DOMContentLoaded', function() {
             export: {
                 enabled: true,
                 allowExportSelectedData: true
-            },
-            onContentReady: function(e) {
-                // Auto-fit columns on first load
-                if (!e.component.__columnsAutoFitted) {
-                    e.component.__columnsAutoFitted = true;
-                    // Slight delay to ensure rendering is complete
-                    setTimeout(function() {
-                        e.component.updateDimensions();
-                    }, 100);
-                }
             },
             onExporting: function(e) {
                 const workbook = new ExcelJS.Workbook();
