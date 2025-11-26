@@ -1795,8 +1795,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
+            // ORDER_NUMBER hyperlink - opens Store Transactions for S2V, Order Details for others
+            if (key === 'ORDER_NUMBER' || key === 'order_number') {
+                col.cellTemplate = (container, options) => {
+                    const orderNumber = options.value || '';
+                    const rowData = options.data;
+                    const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                };
+            }
             // Status column styling
-            if (key.toLowerCase().includes('status')) {
+            else if (key.toLowerCase().includes('status')) {
                 col.cellTemplate = (container, options) => {
                     const val = options.value || 'Unknown';
                     const safeClass = String(val).toLowerCase()
@@ -1830,6 +1839,32 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             return col;
+        });
+
+        // Add Actions column at the beginning with Assign Picker button
+        columns.unshift({
+            caption: 'Actions',
+            width: 120,
+            alignment: 'center',
+            allowFiltering: false,
+            allowSorting: false,
+            cellTemplate: function(container, options) {
+                const rowData = options.data;
+                const tripId = rowData.TRIP_ID || rowData.trip_id || '';
+                const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || '';
+                const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+                $(container).html(`
+                    <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                        <button class="icon-btn" onclick='assignPickerForTripOrder(JSON.parse(decodeURIComponent("${encodeURIComponent(JSON.stringify(rowData))}")), "${tripId}")' title="Assign Picker">
+                            <i class="fas fa-user-plus" style="color: #10b981;"></i>
+                        </button>
+                        <button class="icon-btn" onclick="unassignPicker('${tripId}', '${orderNumber}')" title="Unassign Picker">
+                            <i class="fas fa-user-times" style="color: #ef4444;"></i>
+                        </button>
+                    </div>
+                `);
+            }
         });
 
         // Dispose existing grid if exists
