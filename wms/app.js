@@ -2818,7 +2818,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 const first = tripData[0];
                 const columns = Object.keys(first).map(key => {
                 let col = { dataField: key, caption: key.replace(/_/g, ' ') };
-                if (key === 'LINE_STATUS') {
+                if (key === 'ORDER_NUMBER' || key === 'order_number') {
+                    col.cellTemplate = (container, options) => {
+                        const orderNumber = options.value || '';
+                        const rowData = options.data;
+                        const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                    };
+                } else if (key === 'LINE_STATUS') {
                     col.cellTemplate = (container, options) => {
                         const val = options.value || 'Unknown';
                         const safeClass = String(val).toLowerCase()
@@ -2888,6 +2895,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             </button>
                             <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
                                 <i class="fas fa-print" style="color: #8b5cf6;"></i>
+                            </button>
+                            <button class="icon-btn" onclick='assignPickerForTripOrder(${JSON.stringify(rowData)}, "${tripId}")' title="Assign Picker">
+                                <i class="fas fa-user-plus" style="color: #10b981;"></i>
                             </button>
                             <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
                                 <i class="fas fa-user-times" style="color: #ef4444;"></i>
@@ -3608,6 +3618,60 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Assign Picker for a single Trip Order (from Actions column button)
+    window.assignPickerForTripOrder = function(rowData, tripId) {
+        console.log('[Trip Management] Assign picker for order:', rowData.ORDER_NUMBER || rowData.order_number);
+
+        // Get the trip ID from row data if not passed
+        const effectiveTripId = tripId || rowData.TRIP_ID || rowData.trip_id || '';
+
+        // Check if pickers data is loaded, if not load it first
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Assign Picker] Pickers not loaded, loading now...');
+
+            // Show loading message
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#667eea;color:white;padding:1rem 2rem;border-radius:8px;z-index:20000;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading pickers...';
+            document.body.appendChild(loadingMsg);
+
+            // Load pickers
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                // Wait for pickers to load
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        // Remove loading message
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        // Open dialog with single order
+                        openAssignPickerDialog(effectiveTripId, [rowData]);
+                    }
+                }, 500);
+
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again.');
+                    }
+                }, 10000);
+            } else {
+                loadingMsg.remove();
+                alert('Pickers module not loaded. Please refresh the page.');
+            }
+            return;
+        }
+
+        // Open assign picker dialog with single order
+        openAssignPickerDialog(effectiveTripId, [rowData]);
+    };
 
     window.unassignPicker = function(tripId, orderNumber) {
         console.log('[Trip Management] Unassign picker for order:', orderNumber);
