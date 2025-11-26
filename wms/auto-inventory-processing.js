@@ -375,6 +375,7 @@ function renderTripTransactions(transactions, tripIndex) {
                 trx_type: trx.trx_type,
                 source_sub_inv: trx.source_sub_inv,
                 dest_sub_inv: trx.dest_sub_inv,
+                picker_name: trx.picker_name || trx.PICKER_NAME || '',
                 items: [],
                 totalReqQty: 0,
                 totalQty: 0,
@@ -483,6 +484,10 @@ function renderTripTransactions(transactions, tripIndex) {
                             <span class="order-stats-badge" style="display: inline-flex; align-items: center; gap: 0.2rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
                                 <i class="fas fa-${statusIcon}"></i> ${orderStatus}
                             </span>
+                        </div>
+                        <div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Picker</div>
+                            <div class="order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #8b5cf6;">${order.picker_name || 'N/A'}</div>
                         </div>
                         <div style="display: flex; gap: 0.4rem; margin-left: auto;">
                             <button onclick="event.stopPropagation(); processSingleOrder('${order.trx_number}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
