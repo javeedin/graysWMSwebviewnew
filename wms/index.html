@@ -235,7 +235,16 @@
                                     </button>
                                 </div>
                             </div>
-                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
+                            <!-- Global Action Buttons Bar for All Trips -->
+                            <div id="all-trips-action-bar" style="display: flex; gap: 0.75rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+                                <button onclick="assignPickerForSelectedTrips()" class="btn btn-sm" style="background: #10b981; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-user-plus"></i> Assign Picker
+                                </button>
+                                <button onclick="allocateLotsForSelectedTrips()" class="btn btn-sm" style="background: #8b5cf6; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-boxes"></i> Allocate Lot Qty
+                                </button>
+                            </div>
+                            <div style="padding: 0.75rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
                                 <div class="grid-title">All Trips Data</div>
                                 <div id="trip-count">0 trips</div>
                             </div>

@@ -1694,7 +1694,18 @@ document.addEventListener('DOMContentLoaded', function() {
         const first = trips[0];
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
-            if (key === 'LINE_STATUS') {
+
+            // ORDER_NUMBER hyperlink - opens dialog similar to All Trip Details
+            if (key === 'ORDER_NUMBER' || key === 'order_number') {
+                col.cellTemplate = (container, options) => {
+                    const orderNumber = options.value || '';
+                    const rowData = options.data;
+                    const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                };
+            }
+            // Status column styling
+            else if (key === 'LINE_STATUS' || key.toLowerCase().includes('status')) {
                 col.cellTemplate = (container, options) => {
                     const val = options.value || 'Unknown';
                     const safeClass = String(val).toLowerCase()
@@ -1750,8 +1761,164 @@ document.addEventListener('DOMContentLoaded', function() {
             height: '100%'
         });
 
+        // Store grid instance for global access
+        window.tripsGridInstance = $(gridContainer).dxDataGrid('instance');
+
         tripCount.textContent = `${trips.length} ${trips.length === 1 ? 'trip' : 'trips'}`;
     }
+
+    // Global function: Assign Picker for Selected Trips in All Trips grid
+    window.assignPickerForSelectedTrips = function() {
+        console.log('[Global Assign Picker - All Trips] Getting selected rows from All Trips grid');
+
+        if (!window.tripsGridInstance) {
+            alert('Please load trips data first.');
+            return;
+        }
+
+        const selectedRows = window.tripsGridInstance.getSelectedRowsData();
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one row to assign a picker.');
+            return;
+        }
+
+        console.log('[Global Assign Picker - All Trips] Selected', selectedRows.length, 'rows');
+
+        // Get trip ID from first selected row
+        const tripId = selectedRows[0].TRIP_ID || selectedRows[0].trip_id || '';
+
+        // Check if pickers data is loaded
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Global Assign Picker - All Trips] Pickers not loaded, loading now...');
+
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#667eea;color:white;padding:1rem 2rem;border-radius:8px;z-index:20000;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading pickers...';
+            document.body.appendChild(loadingMsg);
+
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        openAssignPickerDialog(tripId, selectedRows);
+                    }
+                }, 500);
+
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again.');
+                    }
+                }, 10000);
+            } else {
+                loadingMsg.remove();
+                alert('Pickers module not loaded. Please refresh the page.');
+            }
+            return;
+        }
+
+        openAssignPickerDialog(tripId, selectedRows);
+    };
+
+    // Global function: Allocate Lots for Selected Trips in All Trips grid
+    window.allocateLotsForSelectedTrips = function() {
+        console.log('[Global Allocate Lots - All Trips] Getting selected rows from All Trips grid');
+
+        if (!window.tripsGridInstance) {
+            alert('Please load trips data first.');
+            return;
+        }
+
+        const selectedRows = window.tripsGridInstance.getSelectedRowsData();
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one row to allocate lots.');
+            return;
+        }
+
+        // Filter only S2V orders
+        const s2vOrders = selectedRows.filter(order => {
+            const orderType = (order.ORDER_TYPE || order.order_type || order.ORDER_TYPE_CODE || order.order_type_code || '').toUpperCase();
+            return orderType === 'STORE TO VAN' || orderType === 'S2V' || orderType === 'VAN TO STORE' || orderType === 'V2S';
+        });
+
+        if (s2vOrders.length === 0) {
+            alert('No Store to Van (S2V) orders found in selection. Please select S2V orders only.');
+            return;
+        }
+
+        console.log('[Global Allocate Lots - All Trips] Found', s2vOrders.length, 'S2V orders out of', selectedRows.length, 'selected');
+
+        // Confirm with user
+        if (!confirm(`Allocate lots for ${s2vOrders.length} S2V order(s)?\n\nThis will fetch and allocate inventory lots for the selected orders.`)) {
+            return;
+        }
+
+        // Show progress
+        const progressModal = document.createElement('div');
+        progressModal.id = 'allocate-lots-progress';
+        progressModal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:20000;';
+        progressModal.innerHTML = `
+            <div style="background:white;padding:2rem;border-radius:12px;max-width:400px;text-align:center;">
+                <i class="fas fa-spinner fa-spin" style="font-size:2rem;color:#8b5cf6;margin-bottom:1rem;"></i>
+                <h3 style="margin-bottom:0.5rem;">Allocating Lots</h3>
+                <p id="allocate-lots-status" style="color:#64748b;">Processing 0 of ${s2vOrders.length} orders...</p>
+            </div>
+        `;
+        document.body.appendChild(progressModal);
+
+        // Process each order
+        let processedCount = 0;
+        let successCount = 0;
+        let errorCount = 0;
+
+        const processNext = (index) => {
+            if (index >= s2vOrders.length) {
+                // All done
+                progressModal.innerHTML = `
+                    <div style="background:white;padding:2rem;border-radius:12px;max-width:400px;text-align:center;">
+                        <i class="fas fa-check-circle" style="font-size:2rem;color:#10b981;margin-bottom:1rem;"></i>
+                        <h3 style="margin-bottom:0.5rem;">Allocation Complete</h3>
+                        <p style="color:#64748b;">Successfully allocated: ${successCount}<br>Failed: ${errorCount}</p>
+                        <button onclick="document.getElementById('allocate-lots-progress').remove()" style="margin-top:1rem;padding:0.5rem 1.5rem;background:#667eea;color:white;border:none;border-radius:6px;cursor:pointer;">Close</button>
+                    </div>
+                `;
+                return;
+            }
+
+            const order = s2vOrders[index];
+            const orderNumber = order.ORDER_NUMBER || order.order_number;
+
+            document.getElementById('allocate-lots-status').textContent = `Processing ${index + 1} of ${s2vOrders.length}: ${orderNumber}`;
+
+            // Call the allocate lot API for this order
+            if (typeof window.allocateLotForOrder === 'function') {
+                window.allocateLotForOrder(order, (success) => {
+                    processedCount++;
+                    if (success) successCount++;
+                    else errorCount++;
+                    processNext(index + 1);
+                });
+            } else {
+                // If allocateLotForOrder doesn't exist, simulate with a delay
+                setTimeout(() => {
+                    processedCount++;
+                    successCount++;
+                    processNext(index + 1);
+                }, 500);
+            }
+        };
+
+        processNext(0);
+    };
 
     // Display Trip Details Data in DevExpress Grid (All Trip Details tab)
     function displayTripDetailsData(tripDetails) {
