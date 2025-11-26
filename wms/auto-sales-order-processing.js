@@ -320,6 +320,9 @@ function displaySOGroupedTrips() {
                             ${failedCount > 0 ? `<span class="so-trip-stats-badge" style="background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
                     </div>
+                    <button onclick="event.stopPropagation(); openSOTripPrintModal('${trip.trip_id}', '${trip.trip_date}', ${orderCount}, ${index})" style="background: #10b981; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-right: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Print all orders in this trip">
+                        <i class="fas fa-print"></i> Print Trip
+                    </button>
                     <button id="so-trip-select-btn-${index}" onclick="event.stopPropagation(); toggleSOTripSelection('${trip.trip_id}', ${index})" style="${selectBtnStyle} color: white; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-right: 0.75rem; transition: all 0.2s;" title="Select for processing">
                         ${selectBtnText}
                     </button>
@@ -469,6 +472,9 @@ function renderSOTripTransactions(transactions, tripIndex) {
                             </span>
                         </div>
                         <div style="display: flex; gap: 0.4rem; margin-left: auto;">
+                            <button onclick="event.stopPropagation(); printSOOrder('${order.source_order}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                <i class="fas fa-print"></i> Print
+                            </button>
                             <button onclick="event.stopPropagation(); processSOSingleOrder('${order.source_order}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
                                 <i class="fas fa-play"></i> Process
                             </button>
@@ -1326,5 +1332,630 @@ function applySOFontSize() {
         el.style.fontSize = `${14 * soTripOrderFontSizeMultiplier}px`;
     });
 }
+
+// ============================================================================
+// PRINT FUNCTIONALITY
+// ============================================================================
+
+// Global state for print modal
+let currentSOTripPrintData = null;
+
+// Print single order
+function printSOOrder(orderNumber, tripIndex) {
+    addSOLogEntry('Print', `Printing Order ${orderNumber}...`, 'info');
+
+    const groupedTrips = groupSOTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        addSOLogEntry('Error', `Trip at index ${tripIndex} not found`, 'error');
+        alert('Trip not found');
+        return;
+    }
+
+    // Get all transactions for this order
+    const orderTransactions = trip.transactions.filter(t => t.source_order === orderNumber);
+
+    if (orderTransactions.length === 0) {
+        addSOLogEntry('Error', `No transactions found for order ${orderNumber}`, 'error');
+        alert('Order not found');
+        return;
+    }
+
+    // Get instance name, trip_id, and trip_date from first transaction
+    const instance = orderTransactions[0].instance_name || orderTransactions[0].INSTANCE_NAME || 'PROD';
+    const tripId = orderTransactions[0].trip_id || '';
+    let tripDate = orderTransactions[0].trip_date || '';
+    const orderType = orderTransactions[0].order_type || orderTransactions[0].ORDER_TYPE || 'Sales Order';
+
+    // Format tripDate to YYYY-MM-DD format
+    if (tripDate) {
+        try {
+            const dateObj = new Date(tripDate);
+            tripDate = dateObj.toISOString().split('T')[0];
+        } catch (e) {
+            if (tripDate.includes('T')) {
+                tripDate = tripDate.split('T')[0];
+            }
+        }
+    }
+
+    // Sales Order reports use a different path than Store Transaction reports
+    // The report path will be determined by the order type value
+    const reportPath = '/Custom/DEXPRESS/SALESORDER/GRAYS_SALES_ORDER_BIP.xdo';
+    const parameterName = 'P_ORDER_NUMBER';
+    const reportName = 'Sales Order Report';
+
+    // Show loading indicator
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'so-print-loading-indicator';
+    loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;';
+    loadingDiv.innerHTML = `
+        <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+            <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #8b5cf6; margin-bottom: 1rem;"></i>
+            <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Generating PDF Report...</div>
+            <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">${reportName}</div>
+            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Order: ${orderNumber}</div>
+            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${instance}</div>
+            <div style="font-size: 0.85rem; color: #10b981; margin-top: 0.25rem;">Order Type: ${orderType}</div>
+        </div>
+    `;
+    document.body.appendChild(loadingDiv);
+
+    // Call C# handler to generate PDF from Oracle Fusion Cloud
+    sendMessageToCSharp({
+        action: 'printSalesOrder',
+        orderNumber: String(orderNumber),
+        instance: String(instance),
+        reportPath: String(reportPath),
+        parameterName: String(parameterName),
+        tripId: String(tripId),
+        tripDate: String(tripDate),
+        orderType: String(orderType)
+    }, function(error, data) {
+        const loading = document.getElementById('so-print-loading-indicator');
+        if (loading) loading.remove();
+
+        if (error) {
+            addSOLogEntry('Error', `Failed to generate PDF report: ${error}`, 'error');
+            alert('Error generating report: ' + error);
+        } else {
+            try {
+                const response = typeof data === 'string' ? JSON.parse(data) : data;
+                addSOLogEntry('Print', `Response received: ${JSON.stringify(response)}`, 'info');
+
+                if (response.success) {
+                    const pdfPath = response.pdfPath || response.filePath || response.path;
+                    if (pdfPath) {
+                        addSOLogEntry('Print', `PDF generated successfully: ${pdfPath}`, 'success');
+                        // Open PDF viewer
+                        if (typeof window.showPdfViewer === 'function') {
+                            window.showPdfViewer(pdfPath, orderNumber, reportName);
+                        } else {
+                            alert(`PDF report generated successfully!\n\nFile: ${pdfPath}`);
+                        }
+                    } else {
+                        addSOLogEntry('Print', `PDF generated but no path returned`, 'warning');
+                    }
+                } else {
+                    addSOLogEntry('Error', `PDF generation failed: ${response.message || 'Unknown error'}`, 'error');
+                    alert('Error generating report: ' + (response.message || 'Unknown error'));
+                }
+            } catch (parseError) {
+                // Handle non-JSON responses
+                if (data && typeof data === 'string' &&
+                    (data.includes('\\') || data.includes('.pdf') || data.includes('C:') || data.includes('/'))) {
+                    const pdfPath = data.trim();
+                    addSOLogEntry('Print', `PDF generated: ${pdfPath}`, 'success');
+                    if (typeof window.showPdfViewer === 'function') {
+                        window.showPdfViewer(pdfPath, orderNumber, reportName);
+                    } else {
+                        alert(`PDF report generated successfully!\n\nFile: ${pdfPath}`);
+                    }
+                } else {
+                    addSOLogEntry('Error', `Failed to parse response: ${parseError.message}`, 'error');
+                }
+            }
+        }
+    });
+}
+
+// Open Trip Print Modal
+window.openSOTripPrintModal = async function(tripId, tripDate, orderCount, tripIndex) {
+    console.log('[SO Trip Print] Opening modal for trip:', tripId);
+
+    // Format tripDate to YYYY-MM-DD
+    let formattedTripDate = tripDate;
+    if (tripDate) {
+        try {
+            const dateObj = new Date(tripDate);
+            formattedTripDate = dateObj.toISOString().split('T')[0];
+        } catch (e) {
+            if (String(tripDate).includes('T')) {
+                formattedTripDate = String(tripDate).split('T')[0];
+            }
+        }
+    }
+
+    // Get trip data
+    const groupedTrips = groupSOTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        alert('Trip not found');
+        return;
+    }
+
+    // Get unique orders from trip
+    const uniqueOrders = [...new Set(trip.transactions.map(t => t.source_order))];
+    const orders = uniqueOrders.map(orderNum => {
+        const orderTransactions = trip.transactions.filter(t => t.source_order === orderNum);
+        const firstTrx = orderTransactions[0];
+        return {
+            orderNumber: orderNum,
+            tripId: tripId,
+            tripDate: formattedTripDate,
+            instance: firstTrx.instance_name || firstTrx.INSTANCE_NAME || 'PROD',
+            orderType: firstTrx.order_type || firstTrx.ORDER_TYPE || 'Sales Order',
+            customer: firstTrx.customer || 'N/A',
+            downloadStatus: 'PENDING',
+            printStatus: 'PENDING',
+            pdfPath: null,
+            error: null
+        };
+    });
+
+    // Sales Order Report
+    let reportName = 'Sales Order Report';
+    let instanceName = 'PROD';
+    let orderTypeName = 'Sales Order';
+
+    if (orders.length > 0) {
+        instanceName = orders[0].instance;
+        orderTypeName = orders[0].orderType;
+        console.log('[SO Trip Print] Order Type:', orderTypeName);
+        console.log('[SO Trip Print] Report:', reportName);
+    }
+
+    // Store current trip print data
+    currentSOTripPrintData = {
+        tripId: tripId,
+        tripDate: formattedTripDate,
+        orderCount: orders.length,
+        orders: orders,
+        tripIndex: tripIndex,
+        reportName: reportName,
+        instanceName: instanceName,
+        orderTypeName: orderTypeName,
+        reportPath: '/Custom/DEXPRESS/SALESORDER/GRAYS_SALES_ORDER_BIP.xdo',
+        parameterName: 'P_ORDER_NUMBER'
+    };
+
+    // Populate modal fields
+    document.getElementById('so-trip-print-trip-id').textContent = tripId;
+    document.getElementById('so-trip-print-instance-name').textContent = instanceName;
+    document.getElementById('so-trip-print-order-type').textContent = orderTypeName;
+    document.getElementById('so-trip-print-order-count').textContent = orders.length;
+    document.getElementById('so-trip-print-report-name').textContent = reportName;
+    document.getElementById('so-trip-print-status').textContent = 'Ready';
+    document.getElementById('so-trip-print-status').style.color = '#10b981';
+
+    // Update debug info
+    document.getElementById('so-debug-report-name').textContent = reportName;
+    document.getElementById('so-debug-report-path').textContent = currentSOTripPrintData.reportPath;
+    document.getElementById('so-debug-param-name').textContent = currentSOTripPrintData.parameterName;
+    document.getElementById('so-debug-order-type-sent').textContent = orderTypeName;
+    document.getElementById('so-debug-trip-date-sent').textContent = formattedTripDate;
+    document.getElementById('so-debug-path-format').textContent = `C:/fusion/${formattedTripDate}/${tripId}/{orderNumber}.pdf`;
+    document.getElementById('so-debug-current-order').textContent = '-';
+
+    // Reset buttons
+    document.getElementById('so-trip-print-download-btn').style.display = 'inline-flex';
+    document.getElementById('so-trip-print-download-btn').disabled = false;
+    document.getElementById('so-trip-print-print-btn').style.display = 'none';
+    document.getElementById('so-trip-print-retry-all-btn').style.display = 'none';
+    document.getElementById('so-trip-print-error').style.display = 'none';
+
+    // Render orders list
+    renderSOTripPrintOrders();
+
+    // Load printers
+    loadSOTripPrinters();
+
+    // Show modal
+    const modal = document.getElementById('so-trip-print-modal');
+    modal.style.display = 'flex';
+
+    addSOLogEntry('Print', `Opened print modal for Trip ${tripId} with ${orders.length} orders`, 'info');
+};
+
+// Close Trip Print Modal
+window.closeSOTripPrintModal = function() {
+    const modal = document.getElementById('so-trip-print-modal');
+    modal.style.display = 'none';
+    currentSOTripPrintData = null;
+};
+
+// Toggle Debug Section
+window.toggleSOTripPrintDebug = function() {
+    const content = document.getElementById('so-trip-debug-content');
+    const icon = document.getElementById('so-trip-debug-toggle-icon');
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+};
+
+// Load printers for modal
+async function loadSOTripPrinters() {
+    const select = document.getElementById('so-trip-print-printer-select');
+    select.innerHTML = '<option value="">-- Loading printers... --</option>';
+
+    try {
+        // Use the same API as auto-inventory-processing
+        const response = await new Promise((resolve, reject) => {
+            const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+            if (!window.pendingRequests) {
+                window.pendingRequests = {};
+            }
+
+            window.pendingRequests[requestId] = (error, data) => {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    try {
+                        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve(parsedData);
+                    } catch (parseError) {
+                        reject(new Error(`JSON Parse Error: ${parseError.message}`));
+                    }
+                }
+            };
+
+            window.chrome.webview.postMessage({
+                action: 'executeGet',
+                requestId: requestId,
+                fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/printers/all'
+            });
+
+            setTimeout(() => {
+                if (window.pendingRequests[requestId]) {
+                    delete window.pendingRequests[requestId];
+                    reject(new Error('Request timeout'));
+                }
+            }, 30000);
+        });
+
+        const printers = response.items || [];
+
+        select.innerHTML = '<option value="">-- Select a printer --</option>';
+        printers.forEach(printer => {
+            const option = document.createElement('option');
+            option.value = printer.PRINTER_NAME || printer.printer_name;
+            option.textContent = `${printer.PRINTER_NAME || printer.printer_name} (${printer.LOCATION || printer.location || 'Unknown'})`;
+            select.appendChild(option);
+        });
+
+        console.log('[SO Trip Print] Loaded', printers.length, 'printers');
+    } catch (error) {
+        console.error('[SO Trip Print] Failed to load printers:', error);
+        select.innerHTML = '<option value="">-- Failed to load printers --</option>';
+    }
+}
+
+// Render orders list in modal
+function renderSOTripPrintOrders() {
+    const container = document.getElementById('so-trip-print-orders-list');
+
+    if (!currentSOTripPrintData || !currentSOTripPrintData.orders) {
+        container.innerHTML = '<p style="color: #94a3b8;">No orders to display</p>';
+        return;
+    }
+
+    let html = '';
+    currentSOTripPrintData.orders.forEach((order, index) => {
+        const downloadStatusColor = order.downloadStatus === 'DOWNLOADED' ? '#10b981' :
+                                   order.downloadStatus === 'DOWNLOADING' ? '#f59e0b' :
+                                   order.downloadStatus === 'FAILED' ? '#ef4444' :
+                                   '#94a3b8';
+
+        const downloadStatusIcon = order.downloadStatus === 'DOWNLOADED' ? 'check-circle' :
+                                  order.downloadStatus === 'DOWNLOADING' ? 'spinner fa-spin' :
+                                  order.downloadStatus === 'FAILED' ? 'times-circle' :
+                                  'clock';
+
+        const printStatusColor = order.printStatus === 'PRINTED' ? '#10b981' :
+                                order.printStatus === 'PRINTING' ? '#f59e0b' :
+                                order.printStatus === 'FAILED' ? '#ef4444' :
+                                '#94a3b8';
+
+        const printStatusIcon = order.printStatus === 'PRINTED' ? 'check-circle' :
+                               order.printStatus === 'PRINTING' ? 'spinner fa-spin' :
+                               order.printStatus === 'FAILED' ? 'times-circle' :
+                               'clock';
+
+        html += `
+            <div style="display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #667eea;">
+                <div style="flex: 1;">
+                    <div style="font-weight: 700; color: #1e293b; font-size: 13px;">${order.orderNumber}</div>
+                    <div style="font-size: 11px; color: #64748b;">${order.customer}</div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div style="text-align: center; min-width: 80px;">
+                        <div style="font-size: 9px; color: #64748b; font-weight: 600;">DOWNLOAD</div>
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${downloadStatusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                            <i class="fas fa-${downloadStatusIcon}"></i> ${order.downloadStatus}
+                        </span>
+                    </div>
+                    <div style="text-align: center; min-width: 80px;">
+                        <div style="font-size: 9px; color: #64748b; font-weight: 600;">PRINT</div>
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${printStatusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                            <i class="fas fa-${printStatusIcon}"></i> ${order.printStatus}
+                        </span>
+                    </div>
+                </div>
+                ${order.error ? `<div style="font-size: 10px; color: #ef4444; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${order.error}">${order.error}</div>` : ''}
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+// Start downloading PDFs for all orders in trip
+window.startSOTripDownload = async function() {
+    if (!currentSOTripPrintData) return;
+
+    console.log('[SO Trip Print] Starting download for all orders...');
+    addSOLogEntry('Print', `Starting PDF download for ${currentSOTripPrintData.orders.length} orders`, 'info');
+
+    // Update status
+    document.getElementById('so-trip-print-status').textContent = 'Downloading...';
+    document.getElementById('so-trip-print-status').style.color = '#f59e0b';
+
+    // Disable download button
+    document.getElementById('so-trip-print-download-btn').disabled = true;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Download each order
+    for (let i = 0; i < currentSOTripPrintData.orders.length; i++) {
+        const order = currentSOTripPrintData.orders[i];
+
+        console.log(`[SO Trip Print] Downloading ${i + 1}/${currentSOTripPrintData.orders.length}: ${order.orderNumber}`);
+        console.log(`[SO Trip Print] Order Type: ${order.orderType}`);
+
+        // Update debug info
+        document.getElementById('so-debug-current-order').textContent = order.orderNumber;
+
+        // Update status to DOWNLOADING
+        order.downloadStatus = 'DOWNLOADING';
+        renderSOTripPrintOrders();
+
+        try {
+            // Use printSalesOrder action for Sales Order Processing
+            const message = {
+                action: 'printSalesOrder',
+                orderNumber: order.orderNumber,
+                instance: order.instance,
+                reportPath: currentSOTripPrintData.reportPath,
+                parameterName: currentSOTripPrintData.parameterName,
+                tripId: order.tripId,
+                tripDate: order.tripDate,
+                orderType: order.orderType
+            };
+
+            console.log('[SO Trip Print] 📤 SENDING TO C#');
+            console.log('[SO Trip Print] Action:', message.action);
+            console.log('[SO Trip Print] Report Path:', message.reportPath);
+            console.log('[SO Trip Print] Parameter Name:', message.parameterName);
+            console.log('[SO Trip Print] Order Number:', message.orderNumber);
+            console.log('[SO Trip Print] Order Type:', message.orderType);
+            console.log('[SO Trip Print] Instance:', message.instance);
+            console.log('[SO Trip Print] tripId:', message.tripId);
+            console.log('[SO Trip Print] tripDate:', message.tripDate);
+
+            const response = await new Promise((resolve, reject) => {
+                sendMessageToCSharp(message, function(error, response) {
+                    if (error) {
+                        reject(new Error(error));
+                    } else {
+                        try {
+                            const parsed = typeof response === 'string' ? JSON.parse(response) : response;
+                            resolve(parsed);
+                        } catch (e) {
+                            // If response is a path string
+                            if (response && typeof response === 'string' &&
+                                (response.includes('\\') || response.includes('.pdf'))) {
+                                resolve({ success: true, filePath: response.trim() });
+                            } else {
+                                reject(new Error('Invalid response format'));
+                            }
+                        }
+                    }
+                });
+            });
+
+            if (response.success && (response.filePath || response.pdfPath)) {
+                order.downloadStatus = 'DOWNLOADED';
+                order.pdfPath = response.filePath || response.pdfPath;
+                order.error = null;
+                successCount++;
+                console.log(`[SO Trip Print] ✅ Downloaded: ${order.orderNumber} to ${order.pdfPath}`);
+                addSOLogEntry('Print', `Downloaded: ${order.orderNumber}`, 'success');
+            } else {
+                throw new Error(response.message || 'Download failed');
+            }
+
+        } catch (error) {
+            console.error(`[SO Trip Print] ❌ Failed to download ${order.orderNumber}:`, error);
+            order.downloadStatus = 'FAILED';
+            order.error = error.message;
+            failCount++;
+            addSOLogEntry('Error', `Failed to download ${order.orderNumber}: ${error.message}`, 'error');
+        }
+
+        renderSOTripPrintOrders();
+
+        // Add delay between downloads
+        if (i < currentSOTripPrintData.orders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    }
+
+    // Update final status
+    if (failCount === 0) {
+        document.getElementById('so-trip-print-status').textContent = 'All Downloaded ✓';
+        document.getElementById('so-trip-print-status').style.color = '#10b981';
+        document.getElementById('so-trip-print-download-btn').style.display = 'none';
+        document.getElementById('so-trip-print-print-btn').style.display = 'inline-flex';
+        addSOLogEntry('Print', `All ${successCount} orders downloaded successfully`, 'success');
+    } else {
+        document.getElementById('so-trip-print-status').textContent = `${successCount} OK, ${failCount} Failed`;
+        document.getElementById('so-trip-print-status').style.color = '#ef4444';
+        document.getElementById('so-trip-print-retry-all-btn').style.display = 'inline-flex';
+        document.getElementById('so-trip-print-download-btn').disabled = false;
+
+        if (successCount > 0) {
+            document.getElementById('so-trip-print-print-btn').style.display = 'inline-flex';
+        }
+        addSOLogEntry('Print', `Download complete: ${successCount} success, ${failCount} failed`, 'warning');
+    }
+};
+
+// Retry failed downloads
+window.retryAllSOTripDownloads = async function() {
+    if (!currentSOTripPrintData) return;
+
+    // Reset failed orders
+    currentSOTripPrintData.orders.forEach(order => {
+        if (order.downloadStatus === 'FAILED') {
+            order.downloadStatus = 'PENDING';
+            order.error = null;
+        }
+    });
+
+    renderSOTripPrintOrders();
+    document.getElementById('so-trip-print-retry-all-btn').style.display = 'none';
+
+    // Start download again
+    await startSOTripDownload();
+};
+
+// Start printing all downloaded PDFs
+window.startSOTripPrinting = async function() {
+    if (!currentSOTripPrintData) return;
+
+    const printerName = document.getElementById('so-trip-print-printer-select').value;
+    const errorDiv = document.getElementById('so-trip-print-error');
+
+    if (!printerName) {
+        errorDiv.textContent = 'Please select a printer';
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    errorDiv.style.display = 'none';
+
+    console.log('[SO Trip Print] Starting printing for all orders with printer:', printerName);
+    addSOLogEntry('Print', `Starting print to ${printerName}`, 'info');
+
+    // Update status
+    document.getElementById('so-trip-print-status').textContent = 'Printing...';
+    document.getElementById('so-trip-print-status').style.color = '#f59e0b';
+
+    // Disable print button
+    document.getElementById('so-trip-print-print-btn').disabled = true;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Print each downloaded order
+    const downloadedOrders = currentSOTripPrintData.orders.filter(o => o.downloadStatus === 'DOWNLOADED');
+
+    for (let i = 0; i < downloadedOrders.length; i++) {
+        const order = downloadedOrders[i];
+
+        console.log(`[SO Trip Print] Printing ${i + 1}/${downloadedOrders.length}: ${order.orderNumber}`);
+
+        // Update status to PRINTING
+        order.printStatus = 'PRINTING';
+        renderSOTripPrintOrders();
+
+        try {
+            // Print PDF via C#
+            const message = {
+                action: 'printOrder',
+                orderNumber: order.orderNumber,
+                tripId: order.tripId,
+                tripDate: order.tripDate,
+                printerName: printerName
+            };
+
+            const response = await new Promise((resolve, reject) => {
+                sendMessageToCSharp(message, function(error, response) {
+                    if (error) {
+                        reject(new Error(error));
+                    } else {
+                        try {
+                            const parsed = typeof response === 'string' ? JSON.parse(response) : response;
+                            resolve(parsed);
+                        } catch (e) {
+                            resolve({ success: true });
+                        }
+                    }
+                });
+            });
+
+            if (response.success) {
+                order.printStatus = 'PRINTED';
+                order.error = null;
+                successCount++;
+                console.log(`[SO Trip Print] ✅ Printed: ${order.orderNumber}`);
+                addSOLogEntry('Print', `Printed: ${order.orderNumber}`, 'success');
+            } else {
+                throw new Error(response.message || 'Print failed');
+            }
+
+        } catch (error) {
+            console.error(`[SO Trip Print] ❌ Failed to print ${order.orderNumber}:`, error);
+            order.printStatus = 'FAILED';
+            order.error = error.message;
+            failCount++;
+            addSOLogEntry('Error', `Failed to print ${order.orderNumber}: ${error.message}`, 'error');
+        }
+
+        renderSOTripPrintOrders();
+
+        // Add delay between prints
+        if (i < downloadedOrders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    // Update final status
+    if (failCount === 0) {
+        document.getElementById('so-trip-print-status').textContent = 'All Printed ✓';
+        document.getElementById('so-trip-print-status').style.color = '#10b981';
+        document.getElementById('so-trip-print-print-btn').style.display = 'none';
+        addSOLogEntry('Print', `All ${successCount} orders printed successfully`, 'success');
+    } else {
+        document.getElementById('so-trip-print-status').textContent = `${successCount} Printed, ${failCount} Failed`;
+        document.getElementById('so-trip-print-status').style.color = '#ef4444';
+        addSOLogEntry('Print', `Print complete: ${successCount} success, ${failCount} failed`, 'warning');
+    }
+
+    document.getElementById('so-trip-print-print-btn').disabled = false;
+
+    console.log(`[SO Trip Print] Printing complete: ${successCount} succeeded, ${failCount} failed`);
+};
 
 console.log('[Auto SO Processing] Module loaded');
