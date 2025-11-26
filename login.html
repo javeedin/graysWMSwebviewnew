@@ -554,6 +554,7 @@
 
                         // Store session data
                         localStorage.setItem('instanceName', instanceName);
+                        localStorage.setItem('fusionInstance', instanceName); // Also used by app.js
                         localStorage.setItem('username', username);
                         localStorage.setItem('loggedIn', 'true');
                         localStorage.setItem('loginTime', new Date().toISOString());
@@ -597,6 +598,14 @@
 
         // Check if user data is remembered
         window.addEventListener('DOMContentLoaded', () => {
+            // Check if already logged in, redirect to WMS
+            const isLoggedIn = localStorage.getItem('loggedIn');
+            if (isLoggedIn === 'true') {
+                console.log('[Login] User already logged in, redirecting to WMS...');
+                window.location.href = 'wms/index.html';
+                return;
+            }
+
             const rememberedInstance = localStorage.getItem('instanceName');
             const rememberedUsername = localStorage.getItem('username');
 

@@ -2776,29 +2776,9 @@
             sessionStorage.removeItem('loggedInInstance');
             sessionStorage.removeItem('loggedInDateTime');
 
-            // Reset UI to default state
-            const usernameElement = document.getElementById('logged-in-username');
-            if (usernameElement) {
-                usernameElement.textContent = '';
-            }
-
-            const loginDateTimeElement = document.getElementById('login-datetime');
-            if (loginDateTimeElement) {
-                loginDateTimeElement.textContent = 'Not logged in';
-            }
-
-            const instanceElement = document.getElementById('current-instance-display');
-            if (instanceElement) {
-                instanceElement.textContent = 'PROD';
-            }
-
-            const instanceElementMini = document.getElementById('current-instance-display-mini');
-            if (instanceElementMini) {
-                instanceElementMini.textContent = '';
-            }
-
-            // Reset checkmarks to PROD
-            updateInstanceCheckmarks('PROD');
+            // Clear localStorage login state (set by login.html)
+            localStorage.removeItem('loggedIn');
+            localStorage.removeItem('loginTime');
 
             // Notify C# WebView to clear session
             if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
@@ -2808,10 +2788,10 @@
                 console.log('[LOGOUT] Logout message sent to C#');
             }
 
-            console.log('[LOGOUT] Logout completed');
+            console.log('[LOGOUT] Logout completed, redirecting to login page...');
 
-            // Show logout confirmation
-            showMessage('Logged out successfully', 'success');
+            // Redirect to login page
+            window.location.href = '../login.html';
         };
 
         // Listen for messages from C# WebView2
@@ -2828,6 +2808,30 @@
 
         // On page load, restore from session storage or URL parameter
         document.addEventListener('DOMContentLoaded', function() {
+            // Check if user is logged in (from localStorage set by login.html)
+            const isLoggedIn = localStorage.getItem('loggedIn');
+            if (isLoggedIn !== 'true') {
+                console.log('[LOGIN] User not logged in, redirecting to login page...');
+                window.location.href = '../login.html';
+                return;
+            }
+            console.log('[LOGIN] User is logged in, proceeding...');
+
+            // Sync login data from localStorage (set by login.html) to sessionStorage
+            const lsUsername = localStorage.getItem('username');
+            const lsInstance = localStorage.getItem('instanceName');
+            const lsLoginTime = localStorage.getItem('loginTime');
+
+            if (lsUsername && !sessionStorage.getItem('loggedInUsername')) {
+                sessionStorage.setItem('loggedInUsername', lsUsername);
+            }
+            if (lsInstance && !sessionStorage.getItem('loggedInInstance')) {
+                sessionStorage.setItem('loggedInInstance', lsInstance);
+            }
+            if (lsLoginTime && !sessionStorage.getItem('loggedInDateTime')) {
+                sessionStorage.setItem('loggedInDateTime', lsLoginTime);
+            }
+
             // Check URL query parameter for instance first
             const urlParams = new URLSearchParams(window.location.search);
             const urlInstance = urlParams.get('instance');
