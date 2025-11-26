@@ -245,7 +245,44 @@
                         </div>
                         <!-- All Trip Details Tab Pane -->
                         <div id="trip-all-trip-details-tab" class="tab-pane">
-                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
+                            <!-- Compact KPI Bar -->
+                            <div id="trip-details-kpi-bar" style="display: flex; gap: 0.75rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-shopping-cart"></i>
+                                    <span>Orders:</span>
+                                    <strong id="kpi-trip-orders">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-route"></i>
+                                    <span>Trips:</span>
+                                    <strong id="kpi-trip-trips">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-users"></i>
+                                    <span>Customers:</span>
+                                    <strong id="kpi-trip-customers">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-truck"></i>
+                                    <span>Lorries:</span>
+                                    <strong id="kpi-trip-lorries">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-user-tag"></i>
+                                    <span>Pickers:</span>
+                                    <strong id="kpi-trip-pickers">0</strong>
+                                </div>
+                                <!-- Spacer -->
+                                <div style="flex: 1;"></div>
+                                <!-- Global Action Buttons -->
+                                <button onclick="assignPickerForSelectedOrders()" class="btn btn-sm" style="background: #10b981; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-user-plus"></i> Assign Picker
+                                </button>
+                                <button onclick="allocateLotsForS2V()" class="btn btn-sm" style="background: #8b5cf6; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-boxes"></i> Allocate Lots (S2V)
+                                </button>
+                            </div>
+                            <div style="padding: 0.75rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
                                 <div class="grid-title">All Trip Details</div>
                                 <div id="trip-details-count">0 records</div>
                             </div>
@@ -2579,7 +2616,7 @@
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
             <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.26-03 (All Trip Details: Order Link + Assign Picker)
+                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.26-04 (KPI Bar + Global Buttons)
             </span>
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
             <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
