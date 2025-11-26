@@ -2519,6 +2519,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     PRIORITY: trip.TRIP_PRIORITY || trip.trip_priority || 'Medium',
                     STATUS: trip.TRIP_STATUS || trip.trip_status || trip.LINE_STATUS || 'ACTIVE',
                     INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || null,
+                    LOADING_BAY: trip.TRIP_LOADING_BAY || trip.trip_loading_bay || trip.LOADING_BAY || trip.loading_bay || null,
                     TOTAL_ORDERS: 0,
                     orders: []
                 };
@@ -2649,7 +2650,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <i class="fas fa-route" style="color: white; font-size: 0.75rem;"></i>
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 0.1rem;">
-                                <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}</span>
+                                <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}${trip.LOADING_BAY ? ` - Bay ${trip.LOADING_BAY}` : ''}</span>
                                 <span style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase;">${trip.STATUS || 'ACTIVE'}</span>
                             </div>
                         </div>
