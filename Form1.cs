@@ -623,8 +623,8 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine("[DEBUG] WMS DEV BUTTON CLICKED!");
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
 
-                // Get repo root path
-                string repoRoot = GetWebFilesBasePath();
+                // Hardcoded path for WMS Dev - always points to local development folder
+                string repoRoot = @"C:\Users\Javeed Shaik\source\repos\javeedin\graysWMSwebviewnew";
 
                 // Check if user is logged in for WMS, if not navigate to HTML login page
                 if (!_isLoggedIn)
