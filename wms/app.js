@@ -1695,6 +1695,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
+            // Set minimum widths based on column type
+            const keyLower = key.toLowerCase();
+            if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
+                col.minWidth = 180;
+            } else if (keyLower.includes('number') || keyLower.includes('id')) {
+                col.minWidth = 120;
+            } else if (keyLower.includes('date')) {
+                col.minWidth = 110;
+            } else if (keyLower.includes('status')) {
+                col.minWidth = 100;
+            } else {
+                col.minWidth = 90;
+            }
+
             // ORDER_NUMBER hyperlink - opens dialog similar to All Trip Details
             if (key === 'ORDER_NUMBER' || key === 'order_number') {
                 col.cellTemplate = (container, options) => {
@@ -1739,9 +1753,10 @@ document.addEventListener('DOMContentLoaded', function() {
             columns: columns,
             showBorders: true,
             columnAutoWidth: true,
-            columnMinWidth: 50,
+            columnMinWidth: 100,
             width: '100%',
             scrolling: {
+                mode: 'standard',
                 useNative: true,
                 showScrollbar: 'always'
             },
@@ -1956,6 +1971,22 @@ document.addEventListener('DOMContentLoaded', function() {
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
+            // Set minimum widths based on column type
+            const keyLower = key.toLowerCase();
+            if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
+                col.minWidth = 180;
+            } else if (keyLower.includes('number') || keyLower.includes('id')) {
+                col.minWidth = 120;
+            } else if (keyLower.includes('date')) {
+                col.minWidth = 110;
+            } else if (keyLower.includes('status')) {
+                col.minWidth = 100;
+            } else if (keyLower.includes('weight') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
+                col.minWidth = 100;
+            } else {
+                col.minWidth = 90;
+            }
+
             // ORDER_NUMBER hyperlink - opens Store Transactions for S2V, Order Details for others
             if (key === 'ORDER_NUMBER' || key === 'order_number') {
                 col.cellTemplate = (container, options) => {
@@ -2043,9 +2074,10 @@ document.addEventListener('DOMContentLoaded', function() {
             columns: columns,
             showBorders: true,
             columnAutoWidth: true,
-            columnMinWidth: 50,
+            columnMinWidth: 100,
             width: '100%',
             scrolling: {
+                mode: 'standard',
                 useNative: true,
                 showScrollbar: 'always'
             },
