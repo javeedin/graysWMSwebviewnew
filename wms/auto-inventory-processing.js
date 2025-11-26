@@ -182,6 +182,15 @@ function fetchAutoInventoryData() {
                 autoProcessingData = response.items || [];
 
                 console.log('[Auto Processing] Fetched', autoProcessingData.length, 'records');
+
+                // Debug: Log first record to see available fields
+                if (autoProcessingData.length > 0) {
+                    console.log('=== API RESPONSE DEBUG ===');
+                    console.log('First record keys:', Object.keys(autoProcessingData[0]));
+                    console.log('First record:', JSON.stringify(autoProcessingData[0], null, 2));
+                    console.log('=========================');
+                }
+
                 addLogEntry('API', `Fetched ${autoProcessingData.length} transaction records`, 'success');
 
                 // Group and display data
@@ -372,19 +381,31 @@ function renderTripTransactions(transactions, tripIndex) {
 
         // Debug: Log picker field values for the first transaction
         if (idx === 0) {
-            console.log('=== PICKER DEBUG ===');
+            console.log('=== PICKER & NEW COLUMNS DEBUG ===');
             console.log('trx.picker:', trx.picker);
             console.log('trx.PICKER:', trx.PICKER);
             console.log('trx.picker_name:', trx.picker_name);
             console.log('trx.PICKER_NAME:', trx.PICKER_NAME);
+            console.log('trx.assigned_picker:', trx.assigned_picker);
+            console.log('trx.ASSIGNED_PICKER:', trx.ASSIGNED_PICKER);
+            console.log('trx.TOTAL_S2V_LINES:', trx.TOTAL_S2V_LINES);
+            console.log('trx.total_s2v_lines:', trx.total_s2v_lines);
+            console.log('trx.TOTAL_ASSIGNED_LINES:', trx.TOTAL_ASSIGNED_LINES);
+            console.log('trx.total_assigned_lines:', trx.total_assigned_lines);
             console.log('Full trx object keys:', Object.keys(trx));
+            console.log('Full trx object:', JSON.stringify(trx, null, 2));
             console.log('===================');
         }
 
         if (!orderGroups[orderNum]) {
             // Get picker from various possible field names
-            const pickerValue = trx.picker || trx.PICKER || trx.picker_name || trx.PICKER_NAME || '';
+            const pickerValue = trx.picker || trx.PICKER || trx.picker_name || trx.PICKER_NAME || trx.ASSIGNED_PICKER || trx.assigned_picker || '';
             console.log(`Order ${orderNum} - Picker value resolved to:`, pickerValue);
+
+            // Get S2V lines and assigned lines from transaction
+            const totalS2VLines = trx.TOTAL_S2V_LINES || trx.total_s2v_lines || 0;
+            const totalAssignedLines = trx.TOTAL_ASSIGNED_LINES || trx.total_assigned_lines || 0;
+            console.log(`Order ${orderNum} - S2V Lines: ${totalS2VLines}, Assigned Lines: ${totalAssignedLines}`);
 
             orderGroups[orderNum] = {
                 trx_number: orderNum,
@@ -392,6 +413,8 @@ function renderTripTransactions(transactions, tripIndex) {
                 source_sub_inv: trx.source_sub_inv,
                 dest_sub_inv: trx.dest_sub_inv,
                 picker_name: pickerValue,
+                total_s2v_lines: totalS2VLines,
+                total_assigned_lines: totalAssignedLines,
                 items: [],
                 totalReqQty: 0,
                 totalQty: 0,
@@ -500,6 +523,14 @@ function renderTripTransactions(transactions, tripIndex) {
                             <span class="order-stats-badge" style="display: inline-flex; align-items: center; gap: 0.2rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
                                 <i class="fas fa-${statusIcon}"></i> ${orderStatus}
                             </span>
+                        </div>
+                        <div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">S2V Lines</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #f59e0b;">${order.total_s2v_lines || 0}</div>
+                        </div>
+                        <div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Assigned</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #06b6d4;">${order.total_assigned_lines || 0}</div>
                         </div>
                         <div>
                             <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Picker</div>
