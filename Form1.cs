@@ -430,31 +430,20 @@ namespace WMSApp
             wmsDevButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 240, 180);
             wmsDevButton.Click += (s, e) =>
             {
+                // Check if user is logged in for WMS, if not show login form
+                if (!_isLoggedIn)
+                {
+                    if (!ShowLoginForm())
+                    {
+                        // User cancelled login
+                        System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
+                        return;
+                    }
+                }
+
                 // Load local development version from repository root
                 // Navigate from bin/debug/net8.0 up to repository root
                 string repoRoot = GetWebFilesBasePath();
-
-                // Check if user is logged in, if not navigate to login page
-                if (!_isLoggedIn)
-                {
-                    string loginPath = Path.GetFullPath(Path.Combine(repoRoot, "login.html"));
-                    if (File.Exists(loginPath))
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[WMS Dev] Navigating to login page: {loginPath}");
-                        string fileUrl = "file:///" + loginPath.Replace("\\", "/");
-                        Navigate(fileUrl);
-                    }
-                    else
-                    {
-                        MessageBox.Show(
-                            "Login page not found at:\n" + loginPath,
-                            "Login Page Not Found",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Warning);
-                    }
-                    return;
-                }
-
                 string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
 
                 if (File.Exists(indexPath))
@@ -496,26 +485,15 @@ namespace WMSApp
             wmsProdButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
             wmsProdButton.Click += (s, e) =>
             {
-                // Check if user is logged in for WMS, if not navigate to login page
+                // Check if user is logged in for WMS, if not show login form
                 if (!_isLoggedIn)
                 {
-                    string repoRoot = GetWebFilesBasePath();
-                    string loginPath = Path.GetFullPath(Path.Combine(repoRoot, "login.html"));
-                    if (File.Exists(loginPath))
+                    if (!ShowLoginForm())
                     {
-                        System.Diagnostics.Debug.WriteLine($"[WMS Prod] Navigating to login page: {loginPath}");
-                        string fileUrl = "file:///" + loginPath.Replace("\\", "/");
-                        Navigate(fileUrl);
+                        // User cancelled login
+                        System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
+                        return;
                     }
-                    else
-                    {
-                        MessageBox.Show(
-                            "Login page not found at:\n" + loginPath,
-                            "Login Page Not Found",
-                            MessageBoxButtons.OK,
-                            MessageBoxIcon.Warning);
-                    }
-                    return;
                 }
 
                 // Check if distribution folder exists
