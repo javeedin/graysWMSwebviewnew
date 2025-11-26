@@ -2857,7 +2857,22 @@
                 if (isInWebView) {
                     // In WebView2 - C# will set localStorage and show page via SendUserSessionToWebView
                     console.log('[LOGIN] In WebView2, waiting for C# to complete login...');
-                    return; // Don't proceed yet, C# will handle it
+
+                    // Add timeout - if C# doesn't respond within 5 seconds, show error or redirect
+                    setTimeout(function() {
+                        const stillNotLoggedIn = localStorage.getItem('loggedIn') !== 'true';
+                        const stillHidden = document.body.classList.contains('auth-pending');
+
+                        if (stillNotLoggedIn && stillHidden) {
+                            console.log('[LOGIN] Timeout - C# did not send session within 5 seconds');
+                            console.log('[LOGIN] Redirecting to login page...');
+                            // Remove auth-pending to avoid blank screen, then redirect
+                            document.body.classList.remove('auth-pending');
+                            window.location.href = '../login.html';
+                        }
+                    }, 5000);
+
+                    return; // Don't proceed yet, C# will handle it (or timeout will redirect)
                 } else {
                     // Not in WebView2 and not logged in - redirect to login
                     console.log('[LOGIN] User not logged in, redirecting to login page...');
