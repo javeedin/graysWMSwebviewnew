@@ -203,6 +203,9 @@
                             <div class="tab-item active" data-tab="all-trips">
                                 <span>All Trips</span>
                             </div>
+                            <div class="tab-item" data-tab="all-trip-details">
+                                <span>All Trip Details</span>
+                            </div>
                         </div>
                     </div>
                     <div id="trip-tab-content" class="tab-content">
@@ -240,10 +243,18 @@
                             </div>
                             <div id="trips-grid" style="height: 500px;"></div>
                         </div>
+                        <!-- All Trip Details Tab Pane -->
+                        <div id="trip-all-trip-details-tab" class="tab-pane">
+                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">All Trip Details</div>
+                                <div id="trip-details-count">0 records</div>
+                            </div>
+                            <div id="trip-details-grid" style="height: 500px;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
-            
+
             <div id="vehicles" class="page-content" style="display: none;">
                 <div class="grid-container" style="margin-top: 20px;">
                     <div class="grid-header" style="padding: 0;">

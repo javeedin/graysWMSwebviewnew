@@ -1526,6 +1526,22 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('trip-date-from').valueAsDate = yesterday;
     document.getElementById('trip-date-to').valueAsDate = tomorrow;
 
+    // Add click handler for All Trips tab (fix: tab was not reactivating when clicked)
+    const allTripsTab = document.querySelector('.tab-item[data-tab="all-trips"]');
+    if (allTripsTab) {
+        allTripsTab.addEventListener('click', function() {
+            activateTripTab('all-trips');
+        });
+    }
+
+    // Add click handler for All Trip Details tab
+    const allTripDetailsTab = document.querySelector('.tab-item[data-tab="all-trip-details"]');
+    if (allTripDetailsTab) {
+        allTripDetailsTab.addEventListener('click', function() {
+            activateTripTab('all-trip-details');
+        });
+    }
+
     // Fetch Trips button
     document.getElementById('fetch-trips-btn').addEventListener('click', function() {
         const instanceName = document.getElementById('trip-instance-name').value;
@@ -1571,15 +1587,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const gridContainer = document.getElementById('trips-grid');
         gridContainer.innerHTML = '<div style="padding:2rem;text-align:center;"><div class="spinner" style="width:40px;height:40px;margin:0 auto 1rem;border:3px solid rgba(99,102,241,0.3);border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;"></div><p>Loading trips data...</p></div>';
 
+        // Also show loading for Trip Details grid
+        const tripDetailsGridContainer = document.getElementById('trip-details-grid');
+        if (tripDetailsGridContainer) {
+            tripDetailsGridContainer.innerHTML = '<div style="padding:2rem;text-align:center;"><div class="spinner" style="width:40px;height:40px;margin:0 auto 1rem;border:3px solid rgba(99,102,241,0.3);border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;"></div><p>Loading trip details...</p></div>';
+        }
+
+        // API 1: Fetch All Trips (existing)
         sendMessageToCSharp({
             action: "executeGet",
             fullUrl: fullUrl
         }, function(error, data) {
-            fetchBtn.disabled = false;
-            fetchIcon.innerHTML = '';
-            fetchIcon.className = 'fas fa-sync-alt';
-            fetchText.textContent = 'Fetch Trips';
-
             if (error) {
                 gridContainer.innerHTML = `
                     <div style="padding:2rem;text-align:center;">
@@ -1598,6 +1616,48 @@ document.addEventListener('DOMContentLoaded', function() {
                     window.currentFullData = trips;
                 } catch (e) {
                     gridContainer.innerHTML = `<div style="padding:2rem;color:#e53e3e;">Invalid JSON: ${e.message}</div>`;
+                }
+            }
+        });
+
+        // API 2: Fetch All Trip Details (new)
+        const tripDetailsBaseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/ALL';
+        const tripDetailsParams = new URLSearchParams({
+            P_FROM_DATE: dateFrom,  // YYYY-MM-DD format
+            P_TO_DATE: dateTo       // YYYY-MM-DD format
+        });
+        const tripDetailsFullUrl = `${tripDetailsBaseUrl}?${tripDetailsParams.toString()}`;
+
+        sendMessageToCSharp({
+            action: "executeGet",
+            fullUrl: tripDetailsFullUrl
+        }, function(error, data) {
+            // Reset button state after both calls complete
+            fetchBtn.disabled = false;
+            fetchIcon.innerHTML = '';
+            fetchIcon.className = 'fas fa-sync-alt';
+            fetchText.textContent = 'Fetch Trips';
+
+            if (error) {
+                if (tripDetailsGridContainer) {
+                    tripDetailsGridContainer.innerHTML = `
+                        <div style="padding:2rem;text-align:center;">
+                            <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#ef4444;margin-bottom:1rem;"></i>
+                            <h3 style="color:#ef4444;">Error</h3>
+                            <p style="color:#64748b;">${error}</p>
+                        </div>
+                    `;
+                }
+            } else {
+                try {
+                    let tripDetails = JSON.parse(data);
+                    if (!Array.isArray(tripDetails) && tripDetails?.items) tripDetails = tripDetails.items;
+                    if (!Array.isArray(tripDetails)) tripDetails = [];
+                    displayTripDetailsData(tripDetails);
+                } catch (e) {
+                    if (tripDetailsGridContainer) {
+                        tripDetailsGridContainer.innerHTML = `<div style="padding:2rem;color:#e53e3e;">Invalid JSON: ${e.message}</div>`;
+                    }
                 }
             }
         });
@@ -1713,6 +1773,135 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
         tripCount.textContent = `${trips.length} ${trips.length === 1 ? 'trip' : 'trips'}`;
+    }
+
+    // Display Trip Details Data in DevExpress Grid (All Trip Details tab)
+    function displayTripDetailsData(tripDetails) {
+        const gridContainer = document.getElementById('trip-details-grid');
+        const tripDetailsCount = document.getElementById('trip-details-count');
+
+        if (!tripDetails || tripDetails.length === 0) {
+            gridContainer.innerHTML = `<div style="padding:3rem;text-align:center;color:#64748b;">
+                <i class="fas fa-clipboard-list" style="font-size:3rem;margin-bottom:1.5rem;color:#cbd5e1;"></i>
+                <h3>No Trip Details Found</h3>
+                <p>Click "Fetch Trips" to load trip details data.</p>
+            </div>`;
+            tripDetailsCount.textContent = '0 records';
+            return;
+        }
+
+        // Build columns dynamically from the first record
+        const first = tripDetails[0];
+        const columns = Object.keys(first).map(key => {
+            let col = { dataField: key, caption: key.replace(/_/g, ' ') };
+
+            // Status column styling
+            if (key.toLowerCase().includes('status')) {
+                col.cellTemplate = (container, options) => {
+                    const val = options.value || 'Unknown';
+                    const safeClass = String(val).toLowerCase()
+                        .replace(/,/g, ' ')
+                        .replace(/\s+/g, '-')
+                        .replace(/[^a-z0-9-]/g, '')
+                        .replace(/-+/g, '-')
+                        .replace(/^-|-$/g, '') || 'unknown';
+                    $(container).html(`<span class="status-badge status-${safeClass}">${val}</span>`);
+                };
+            }
+            // Date columns
+            else if (key.toLowerCase().includes('date')) {
+                col.dataType = 'date';
+                col.format = 'dd-MMM-yyyy';
+            }
+            // Weight columns
+            else if (key.toLowerCase().includes('weight')) {
+                col.format = { type: 'fixedPoint', precision: 2 };
+                col.alignment = 'right';
+            }
+            // Quantity/Amount columns
+            else if (key.toLowerCase().includes('qty') || key.toLowerCase().includes('quantity') || key.toLowerCase().includes('amount')) {
+                col.format = { type: 'fixedPoint', precision: 2 };
+                col.alignment = 'right';
+            }
+            // Numeric columns
+            else if (!isNaN(Number(first[key])) && first[key] !== null && first[key] !== '') {
+                col.format = { type: 'fixedPoint', precision: 0 };
+                col.alignment = 'right';
+            }
+
+            return col;
+        });
+
+        // Dispose existing grid if exists
+        try {
+            const existingGrid = $(gridContainer).dxDataGrid('instance');
+            if (existingGrid) {
+                existingGrid.dispose();
+            }
+        } catch (e) {}
+        $(gridContainer).empty();
+
+        // Create DevExpress DataGrid
+        $(gridContainer).dxDataGrid({
+            dataSource: tripDetails,
+            columns: columns,
+            showBorders: true,
+            columnAutoWidth: true,
+            scrolling: { useNative: true, showScrollbar: 'always' },
+            filterRow: { visible: true },
+            headerFilter: { visible: true },
+            groupPanel: { visible: true, emptyPanelText: 'Drag a column header here to group' },
+            searchPanel: { visible: true, placeholder: "Search trip details..." },
+            paging: { pageSize: 25 },
+            pager: {
+                showPageSizeSelector: true,
+                allowedPageSizes: [10, 25, 50, 100, 'all'],
+                showInfo: true,
+                infoText: 'Page {0} of {1} ({2} records)'
+            },
+            allowColumnReordering: true,
+            allowColumnResizing: true,
+            columnResizingMode: 'widget',
+            rowAlternationEnabled: true,
+            columnChooser: {
+                enabled: true,
+                mode: 'select'
+            },
+            selection: {
+                mode: 'multiple',
+                showCheckBoxesMode: 'always'
+            },
+            export: {
+                enabled: true,
+                allowExportSelectedData: true
+            },
+            onExporting: function(e) {
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('Trip Details');
+
+                DevExpress.excelExporter.exportDataGrid({
+                    component: e.component,
+                    worksheet: worksheet,
+                    autoFilterEnabled: true
+                }).then(function() {
+                    workbook.xlsx.writeBuffer().then(function(buffer) {
+                        saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'TripDetails.xlsx');
+                    });
+                });
+                e.cancel = true;
+            },
+            height: '100%',
+            summary: {
+                totalItems: [{
+                    column: Object.keys(first)[0],
+                    summaryType: 'count',
+                    displayFormat: 'Total: {0} records'
+                }]
+            }
+        });
+
+        tripDetailsCount.textContent = `${tripDetails.length} ${tripDetails.length === 1 ? 'record' : 'records'}`;
+        console.log('[Trip Details] Loaded', tripDetails.length, 'records');
     }
 
     function setupMultiSelectDropdown(buttonId, contentId, textId, defaultText) {
