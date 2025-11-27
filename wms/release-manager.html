@@ -822,19 +822,46 @@
         // Version Management
         async function refreshVersionInfo() {
             try {
-                // Try to load from local version.json
-                const response = await fetch('../version.json?t=' + Date.now());
-                if (response.ok) {
-                    const data = await response.json();
+                // Try multiple paths for version.json
+                const paths = [
+                    '../version.json',
+                    './version.json',
+                    'version.json',
+                    '/version.json'
+                ];
+
+                let data = null;
+                let successPath = null;
+
+                for (const path of paths) {
+                    try {
+                        const response = await fetch(path + '?t=' + Date.now());
+                        if (response.ok) {
+                            data = await response.json();
+                            successPath = path;
+                            break;
+                        }
+                    } catch (e) {
+                        console.log(`Failed to load from ${path}:`, e);
+                    }
+                }
+
+                if (data) {
+                    console.log('Loaded version.json from:', successPath, data);
                     currentVersion = data.version;
-                    document.getElementById('currentVersion').textContent = data.version;
+                    document.getElementById('currentVersion').textContent = data.version || '-';
                     document.getElementById('buildDate').textContent = data.build_date || '-';
                     document.getElementById('changelog').value = data.changelog || '';
                     updateNewVersion();
+                    addProgressLine(`Loaded version info: v${data.version} (${data.build_date})`, 'success');
+                } else {
+                    throw new Error('Could not load version.json from any path');
                 }
             } catch (e) {
                 console.error('Failed to load version info:', e);
                 document.getElementById('currentVersion').textContent = 'Error';
+                document.getElementById('buildDate').textContent = 'Error';
+                addProgressLine('Failed to load version.json: ' + e.message, 'error');
             }
         }
 
