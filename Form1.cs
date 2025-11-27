@@ -1420,9 +1420,14 @@ namespace WMSApp
                         using (var doc = JsonDocument.Parse(messageJson))
                         {
                             var root = doc.RootElement;
-                            string action = root.GetProperty("action").GetString();
-                            string requestId = root.GetProperty("requestId").GetString();
+                            string action = root.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : "";
+                            string requestId = root.TryGetProperty("requestId", out var reqIdProp) ? reqIdProp.GetString() : "";
 
+                            if (string.IsNullOrEmpty(action))
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[C#] No action in message, skipping");
+                                return;
+                            }
 
                             System.Diagnostics.Debug.WriteLine($"[C#] Action: {action}, RequestId: {requestId}");
 
