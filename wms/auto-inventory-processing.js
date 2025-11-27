@@ -5500,6 +5500,8 @@ window.postToTeams = async function() {
         const tripCards = [];
         let totalOrders = 0;
         let totalLines = 0;
+        let totalPicked = 0;
+        let totalNotPicked = 0;
 
         selectedTripsForProcessing.forEach(tripId => {
             const trip = groupedTrips.find(t => t.trip_id === tripId);
@@ -5519,6 +5521,9 @@ window.postToTeams = async function() {
                     orderGroups[orderNum].totalCount++;
                     if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
                         orderGroups[orderNum].pickedCount++;
+                        totalPicked++;
+                    } else {
+                        totalNotPicked++;
                     }
                 });
 
@@ -5526,56 +5531,124 @@ window.postToTeams = async function() {
                 totalOrders += orders.length;
                 totalLines += trip.transactions.length;
 
-                // Build order rows for this trip
-                const orderRows = orders.map(order => {
+                // Get priority info
+                const pri = trip.trip_priority;
+                let priText = pri ? `P${pri}` : '-';
+                let priColor = pri == 1 ? 'attention' : (pri == 2 ? 'warning' : 'default');
+
+                // Build order facts for this trip
+                const orderFacts = orders.map(order => {
                     const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
-                    let statusText = '❌ Not Picked';
-                    if (pickPct === 100) statusText = '✅ Picked';
-                    else if (pickPct > 0) statusText = `🟡 ${pickPct}%`;
+                    let statusIcon = '🔴';
+                    if (pickPct === 100) statusIcon = '🟢';
+                    else if (pickPct > 0) statusIcon = '🟡';
 
                     return {
                         "type": "ColumnSet",
+                        "spacing": "small",
                         "columns": [
-                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": order.orderNumber, "size": "small", "weight": "bolder" }] },
-                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": order.picker, "size": "small" }] },
-                            { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": statusText, "size": "small" }] }
+                            {
+                                "type": "Column",
+                                "width": "40px",
+                                "items": [{ "type": "TextBlock", "text": statusIcon, "size": "small" }]
+                            },
+                            {
+                                "type": "Column",
+                                "width": "stretch",
+                                "items": [{ "type": "TextBlock", "text": order.orderNumber, "size": "small", "weight": "bolder" }]
+                            },
+                            {
+                                "type": "Column",
+                                "width": "stretch",
+                                "items": [{ "type": "TextBlock", "text": order.picker || '-', "size": "small", "isSubtle": true }]
+                            },
+                            {
+                                "type": "Column",
+                                "width": "80px",
+                                "items": [{ "type": "TextBlock", "text": pickPct === 100 ? 'Picked' : (pickPct > 0 ? `${pickPct}%` : 'Pending'), "size": "small", "horizontalAlignment": "right" }]
+                            }
                         ]
                     };
                 });
 
+                // Trip card
                 tripCards.push({
                     "type": "Container",
                     "style": "emphasis",
+                    "bleed": true,
                     "items": [
+                        // Trip Header
                         {
                             "type": "ColumnSet",
                             "columns": [
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚚 Trip: ${trip.trip_id}`, "weight": "bolder", "size": "medium" }] },
-                                { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": `Pri ${trip.trip_priority || '-'}`, "size": "small", "color": trip.trip_priority == 1 ? "attention" : "default" }] }
+                                {
+                                    "type": "Column",
+                                    "width": "auto",
+                                    "items": [{
+                                        "type": "TextBlock",
+                                        "text": "🚚",
+                                        "size": "large"
+                                    }]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": `Trip ${trip.trip_id}`, "weight": "bolder", "size": "medium", "spacing": "none" },
+                                        { "type": "TextBlock", "text": `${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : ''} • ${orders.length} orders`, "size": "small", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "auto",
+                                    "items": [{
+                                        "type": "TextBlock",
+                                        "text": priText,
+                                        "size": "small",
+                                        "weight": "bolder",
+                                        "color": priColor
+                                    }]
+                                }
                             ]
                         },
-                        {
-                            "type": "TextBlock",
-                            "text": `📅 ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'} | 🚛 ${trip.trip_lorry || '-'} | 📍 Bay ${trip.trip_loading_bay || '-'}`,
-                            "size": "small",
-                            "isSubtle": true,
-                            "spacing": "none"
-                        },
+                        // Trip Details Row
                         {
                             "type": "ColumnSet",
+                            "spacing": "small",
                             "columns": [
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "**Order #**", "size": "small" }] },
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "**Picker**", "size": "small" }] },
-                                { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": "**Status**", "size": "small" }] }
-                            ],
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚛 ${trip.trip_lorry || '-'}`, "size": "small", "isSubtle": true }] },
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `📍 Bay ${trip.trip_loading_bay || '-'}`, "size": "small", "isSubtle": true }] }
+                            ]
+                        },
+                        // Divider
+                        {
+                            "type": "TextBlock",
+                            "text": "───────────────────────",
+                            "size": "small",
+                            "isSubtle": true,
                             "spacing": "small"
                         },
-                        ...orderRows
+                        // Order Header
+                        {
+                            "type": "ColumnSet",
+                            "spacing": "small",
+                            "columns": [
+                                { "type": "Column", "width": "40px", "items": [{ "type": "TextBlock", "text": "", "size": "small" }] },
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "ORDER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "PICKER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                { "type": "Column", "width": "80px", "items": [{ "type": "TextBlock", "text": "STATUS", "size": "small", "weight": "bolder", "isSubtle": true, "horizontalAlignment": "right" }] }
+                            ]
+                        },
+                        // Orders
+                        ...orderFacts
                     ],
                     "spacing": "medium"
                 });
             }
         });
+
+        // Calculate pick percentage
+        const pickPct = totalLines > 0 ? Math.round((totalPicked / totalLines) * 100) : 0;
 
         // Build Adaptive Card
         const card = {
@@ -5587,43 +5660,112 @@ window.postToTeams = async function() {
                     "type": "AdaptiveCard",
                     "version": "1.4",
                     "body": [
+                        // Header
                         {
-                            "type": "TextBlock",
-                            "text": "🚚 WMS Trip Summary",
-                            "weight": "bolder",
-                            "size": "large",
-                            "color": "accent"
+                            "type": "Container",
+                            "style": "accent",
+                            "bleed": true,
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": "📦 WMS Trip Summary",
+                                    "weight": "bolder",
+                                    "size": "large",
+                                    "color": "light"
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": new Date().toLocaleString(),
+                                    "size": "small",
+                                    "color": "light",
+                                    "isSubtle": true,
+                                    "spacing": "none"
+                                }
+                            ]
                         },
+                        // Summary Stats
                         {
-                            "type": "TextBlock",
-                            "text": `${selectedTripsForProcessing.size} trip(s) | ${totalOrders} order(s) | ${totalLines} line(s)`,
-                            "spacing": "none",
-                            "isSubtle": true
+                            "type": "ColumnSet",
+                            "spacing": "medium",
+                            "columns": [
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": selectedTripsForProcessing.size.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Trips", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": totalOrders.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Orders", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": totalLines.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Lines", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": `${pickPct}%`, "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center", "color": pickPct === 100 ? "good" : (pickPct > 50 ? "warning" : "attention") },
+                                        { "type": "TextBlock", "text": "Picked", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                }
+                            ]
                         },
+                        // Trip Cards
                         ...tripCards
                     ]
                 }
             }]
         };
 
+        // Add legend
+        card.attachments[0].content.body.push({
+            "type": "Container",
+            "spacing": "medium",
+            "items": [
+                {
+                    "type": "TextBlock",
+                    "text": "🟢 Picked  🟡 Partial  🔴 Pending",
+                    "size": "small",
+                    "isSubtle": true,
+                    "horizontalAlignment": "center"
+                }
+            ]
+        });
+
         // Add comments if provided
         if (comments) {
             card.attachments[0].content.body.push({
-                "type": "TextBlock",
-                "text": `💬 **Comments:** ${comments}`,
-                "wrap": true,
+                "type": "Container",
+                "style": "warning",
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": "💬 Comments",
+                        "weight": "bolder",
+                        "size": "small"
+                    },
+                    {
+                        "type": "TextBlock",
+                        "text": comments,
+                        "wrap": true,
+                        "size": "small"
+                    }
+                ],
                 "spacing": "medium"
             });
         }
-
-        // Add timestamp
-        card.attachments[0].content.body.push({
-            "type": "TextBlock",
-            "text": `Sent at ${new Date().toLocaleString()}`,
-            "size": "small",
-            "isSubtle": true,
-            "spacing": "medium"
-        });
 
         // Send to Teams via C# backend to avoid CORS issues
         if (window.chrome && window.chrome.webview) {
