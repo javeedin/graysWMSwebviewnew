@@ -368,16 +368,21 @@ namespace WMSApp
                             var items = doc.RootElement.GetProperty("items");
                             bool userFound = false;
 
+                            System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Looking for user: '{username}' with password: '{password}'");
+
                             foreach (var item in items.EnumerateArray())
                             {
                                 string apiUsername = item.TryGetProperty("user_name", out var uProp) ? uProp.GetString() : "";
                                 string apiPassword = item.TryGetProperty("passwordd", out var pProp) ? pProp.GetString() : "";
+
+                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Found user in API: '{apiUsername}' with password: '{apiPassword}'");
 
                                 if (!string.IsNullOrEmpty(apiUsername) &&
                                     apiUsername.Equals(username, StringComparison.OrdinalIgnoreCase) &&
                                     apiPassword == password)
                                 {
                                     userFound = true;
+                                    System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] MATCH FOUND!");
                                     break;
                                 }
                             }
