@@ -346,9 +346,11 @@ namespace WMSApp
                     baseUrl = instanceUrls["PROD"];
                 }
 
-                // Fetch user details from API
-                string apiUrl = $"{baseUrl}/trip/fusionuserdetails";
-                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Fetching users from: {apiUrl}");
+                // Call the login endpoint with credentials
+                string encodedUsername = Uri.EscapeDataString(username);
+                string encodedPassword = Uri.EscapeDataString(password);
+                string apiUrl = $"{baseUrl}/login?username={encodedUsername}&password={encodedPassword}";
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Calling login API: {baseUrl}/login?username={encodedUsername}&password=***");
 
                 using (var client = new HttpClient())
                 {
@@ -362,29 +364,16 @@ namespace WMSApp
                         string jsonResponse = await response.Content.ReadAsStringAsync();
                         System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Response length: {jsonResponse.Length}");
 
-                        // Parse JSON to find user
+                        // Parse JSON response
                         using (var doc = JsonDocument.Parse(jsonResponse))
                         {
                             var items = doc.RootElement.GetProperty("items");
-                            bool userFound = false;
+                            int itemCount = 0;
+                            foreach (var _ in items.EnumerateArray()) itemCount++;
 
-                            foreach (var item in items.EnumerateArray())
+                            if (itemCount > 0)
                             {
-                                string apiUsername = item.TryGetProperty("user_name", out var uProp) ? uProp.GetString() : "";
-                                string apiPassword = item.TryGetProperty("passwordd", out var pProp) ? pProp.GetString() : "";
-
-                                if (!string.IsNullOrEmpty(apiUsername) &&
-                                    apiUsername.Equals(username, StringComparison.OrdinalIgnoreCase) &&
-                                    apiPassword == password)
-                                {
-                                    userFound = true;
-                                    break;
-                                }
-                            }
-
-                            if (userFound)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] SUCCESS - User validated!");
+                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] SUCCESS - User validated! Items count: {itemCount}");
 
                                 // Set session
                                 _loggedInUsername = username;
@@ -412,6 +401,11 @@ namespace WMSApp
                                 throw new Exception("Invalid username or password");
                             }
                         }
+                    }
+                    else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                             response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                    {
+                        throw new Exception("Invalid username or password");
                     }
                     else
                     {

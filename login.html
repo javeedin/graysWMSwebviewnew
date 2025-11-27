@@ -419,7 +419,7 @@
                     log('Making direct API call...');
 
                     const baseUrl = instanceUrls[instanceName];
-                    const loginUrl = baseUrl + '/trip/fusionuserdetails';
+                    const loginUrl = baseUrl + '/login?username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password);
 
                     log('API URL: ' + loginUrl);
 
@@ -434,15 +434,12 @@
                         const data = await response.json();
                         log('Response data: ' + JSON.stringify(data));
 
-                        // Check if credentials match
-                        const users = data.items || [];
-                        const user = users.find(u =>
-                            u.user_name && u.user_name.toLowerCase() === username.toLowerCase() &&
-                            u.passwordd === password
-                        );
+                        // Check login response - expecting items array with user data if successful
+                        const items = data.items || [];
 
-                        if (user) {
-                            log('Login successful!');
+                        if (items.length > 0) {
+                            const user = items[0];
+                            log('Login successful! User: ' + JSON.stringify(user));
                             showAlert('Login successful! Redirecting...', 'success');
 
                             // Store session data
@@ -452,6 +449,11 @@
                             localStorage.setItem('fusionInstance', instanceName);
                             localStorage.setItem('loginTime', new Date().toISOString());
 
+                            // Store user details if available
+                            if (user.user_id) localStorage.setItem('userId', user.user_id);
+                            if (user.full_name) localStorage.setItem('fullName', user.full_name);
+                            if (user.email) localStorage.setItem('userEmail', user.email);
+
                             // Redirect after short delay
                             setTimeout(function() {
                                 window.location.href = 'wms/index.html';
@@ -459,6 +461,8 @@
                         } else {
                             throw new Error('Invalid username or password');
                         }
+                    } else if (response.status === 401 || response.status === 403) {
+                        throw new Error('Invalid username or password');
                     } else {
                         throw new Error('Server error: ' + response.status);
                     }
