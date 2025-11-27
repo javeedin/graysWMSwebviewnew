@@ -348,6 +348,13 @@
         .disc-low { background: #fef3c7; color: #d97706; }
         .disc-high { background: #fee2e2; color: #dc2626; }
 
+        .status-icon {
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-yes { color: #059669; }
+        .status-no { color: #dc2626; }
+
         .group-controls {
             display: flex;
             justify-content: flex-end;
@@ -413,6 +420,14 @@
                     <label>Priority</label>
                     <select id="filterPriority" class="form-control">
                         <option value="">All Priorities</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Pick Confirmed</label>
+                    <select id="filterConfirmed" class="form-control">
+                        <option value="">All</option>
+                        <option value="YES">Confirmed</option>
+                        <option value="NO">Not Confirmed</option>
                     </select>
                 </div>
             </div>
@@ -489,7 +504,7 @@
             }
 
             // Add filter change listeners
-            ['filterPicker', 'filterBay', 'filterLorry', 'filterPriority'].forEach(id => {
+            ['filterPicker', 'filterBay', 'filterLorry', 'filterPriority', 'filterConfirmed'].forEach(id => {
                 document.getElementById(id).addEventListener('change', applyFilters);
             });
         });
@@ -615,12 +630,18 @@
             const filterBay = document.getElementById('filterBay').value;
             const filterLorry = document.getElementById('filterLorry').value;
             const filterPriority = document.getElementById('filterPriority').value;
+            const filterConfirmed = document.getElementById('filterConfirmed').value;
 
             filteredData = allData.filter(item => {
                 if (filterPicker && item.picker_name !== filterPicker) return false;
                 if (filterBay && item.loading_bay !== filterBay) return false;
                 if (filterLorry && item.lorry_number !== filterLorry) return false;
                 if (filterPriority && item.order_priority !== filterPriority) return false;
+                if (filterConfirmed) {
+                    const isConfirmed = (item.pick_confirm_status || '').toUpperCase() === 'YES';
+                    if (filterConfirmed === 'YES' && !isConfirmed) return false;
+                    if (filterConfirmed === 'NO' && isConfirmed) return false;
+                }
                 return true;
             });
 
@@ -721,6 +742,7 @@
                             <table class="data-table">
                                 <thead>
                                     <tr>
+                                        <th style="text-align:center">Picked</th>
                                         <th>Order #</th>
                                         <th>Item</th>
                                         <th>Description</th>
@@ -736,6 +758,7 @@
                                 <tbody>
                                     ${items.map(item => `
                                         <tr>
+                                            <td style="text-align:center">${getPickedStatus(item.pick_confirm_status)}</td>
                                             <td><strong>${item.source_order_number || '-'}</strong></td>
                                             <td>${item.item_number || '-'}</td>
                                             <td>${item.description || '-'}</td>
@@ -771,6 +794,14 @@
             document.querySelectorAll('.picker-group').forEach(g => g.classList.add('collapsed'));
         }
 
+        function getPickedStatus(status) {
+            const isYes = (status || '').toUpperCase() === 'YES';
+            if (isYes) {
+                return '<i class="fas fa-check status-icon status-yes"></i>';
+            }
+            return '<i class="fas fa-times status-icon status-no"></i>';
+        }
+
         function getPriorityBadge(priority) {
             if (!priority) return '-';
             const p = Number(priority);
@@ -804,6 +835,7 @@
             document.getElementById('filterBay').value = '';
             document.getElementById('filterLorry').value = '';
             document.getElementById('filterPriority').value = '';
+            document.getElementById('filterConfirmed').value = '';
             applyFilters();
         }
 
@@ -814,8 +846,9 @@
             }
 
             // Create CSV
-            const headers = ['Picker', 'Order #', 'Item', 'Description', 'Qty', 'Customer', 'Priority', 'Loading Bay', 'Lorry', 'Disc %', 'Pick Date'];
+            const headers = ['Pick Confirmed', 'Picker', 'Order #', 'Item', 'Description', 'Qty', 'Customer', 'Priority', 'Loading Bay', 'Lorry', 'Disc %', 'Pick Date'];
             const rows = filteredData.map(item => [
+                item.pick_confirm_status || '',
                 item.picker_name || '',
                 item.source_order_number || '',
                 item.item_number || '',
