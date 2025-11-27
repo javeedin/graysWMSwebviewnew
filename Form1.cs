@@ -4005,24 +4005,27 @@ namespace WMSApp
                     System.Diagnostics.Debug.WriteLine($"[RELEASE] Starting release process - bump: {versionBump}");
 
                     // Send progress to frontend
-                    await SendReleaseProgress(wv, 1, "Reading current version...", "info");
+                    await SendReleaseProgress(wv, 1, "Starting release process...", "info");
 
                     // Get the repo root directory
+                    await SendReleaseProgress(wv, 1, "Finding repository root...", "info");
                     string repoRoot = FindRepoRoot();
                     if (string.IsNullOrEmpty(repoRoot))
                     {
-                        await SendReleaseError(wv, "Could not find repository root directory");
+                        await SendReleaseError(wv, "Could not find repository root directory. Make sure version.json exists in your repo folder.");
                         return;
                     }
+                    await SendReleaseProgress(wv, 1, $"Repository found: {repoRoot}", "info");
 
                     string versionFilePath = Path.Combine(repoRoot, "version.json");
                     if (!File.Exists(versionFilePath))
                     {
-                        await SendReleaseError(wv, "version.json not found");
+                        await SendReleaseError(wv, $"version.json not found at: {versionFilePath}");
                         return;
                     }
 
                     // Read current version
+                    await SendReleaseProgress(wv, 1, "Reading current version...", "info");
                     string versionJson = File.ReadAllText(versionFilePath);
                     using (var versionDoc = JsonDocument.Parse(versionJson))
                     {
@@ -4041,23 +4044,24 @@ namespace WMSApp
                         }
 
                         string newVersion = $"{major}.{minor}.{patch}";
-                        await SendReleaseProgress(wv, 1, $"Version: {currentVersion} → {newVersion}", "success");
+                        await SendReleaseProgress(wv, 1, $"Version bump: {currentVersion} -> {newVersion}", "success");
 
                         // Step 2: Run PowerShell script
-                        await SendReleaseProgress(wv, 2, "Running release script...", "info");
+                        await SendReleaseProgress(wv, 2, "Running PowerShell release script...", "info");
 
                         string psScriptPath = Path.Combine(repoRoot, "create-release.ps1");
                         if (!File.Exists(psScriptPath))
                         {
-                            await SendReleaseError(wv, "create-release.ps1 not found");
+                            await SendReleaseError(wv, $"create-release.ps1 not found at: {psScriptPath}");
                             return;
                         }
+                        await SendReleaseProgress(wv, 2, $"Script found: {psScriptPath}", "info");
 
-                        // Run PowerShell script
+                        // Run PowerShell script with timeout
                         var psi = new System.Diagnostics.ProcessStartInfo
                         {
                             FileName = "powershell.exe",
-                            Arguments = $"-ExecutionPolicy Bypass -File \"{psScriptPath}\" -VersionBump {versionBump} -SkipGitPush",
+                            Arguments = $"-ExecutionPolicy Bypass -NonInteractive -File \"{psScriptPath}\" -VersionBump {versionBump} -SkipGitPush",
                             WorkingDirectory = repoRoot,
                             RedirectStandardOutput = true,
                             RedirectStandardError = true,
@@ -4065,23 +4069,60 @@ namespace WMSApp
                             CreateNoWindow = true
                         };
 
+                        await SendReleaseProgress(wv, 2, "Executing PowerShell script (this may take a minute)...", "info");
+
                         using (var process = new System.Diagnostics.Process { StartInfo = psi })
                         {
                             process.Start();
-                            string output = await process.StandardOutput.ReadToEndAsync();
-                            string error = await process.StandardError.ReadToEndAsync();
-                            await process.WaitForExitAsync();
 
-                            if (process.ExitCode != 0)
+                            // Read output asynchronously
+                            var outputTask = process.StandardOutput.ReadToEndAsync();
+                            var errorTask = process.StandardError.ReadToEndAsync();
+
+                            // Wait for process with timeout (2 minutes)
+                            bool exited = process.WaitForExit(120000);
+
+                            if (!exited)
                             {
-                                await SendReleaseError(wv, $"Release script failed: {error}");
+                                process.Kill();
+                                await SendReleaseError(wv, "PowerShell script timed out after 2 minutes");
                                 return;
                             }
 
+                            string output = await outputTask;
+                            string error = await errorTask;
+
+                            // Log output for debugging
+                            System.Diagnostics.Debug.WriteLine($"[RELEASE] PowerShell exit code: {process.ExitCode}");
                             System.Diagnostics.Debug.WriteLine($"[RELEASE] PowerShell output: {output}");
+                            if (!string.IsNullOrEmpty(error))
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[RELEASE] PowerShell error: {error}");
+                            }
+
+                            // Send output lines to frontend
+                            if (!string.IsNullOrEmpty(output))
+                            {
+                                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                                foreach (var line in lines.Take(20)) // Show first 20 lines
+                                {
+                                    if (line.Contains("SUCCESS") || line.Contains("OK"))
+                                        await SendReleaseProgress(wv, 2, line.Trim(), "success");
+                                    else if (line.Contains("ERROR") || line.Contains("FAIL"))
+                                        await SendReleaseProgress(wv, 2, line.Trim(), "error");
+                                    else if (!string.IsNullOrWhiteSpace(line) && !line.StartsWith("="))
+                                        await SendReleaseProgress(wv, 2, line.Trim(), "info");
+                                }
+                            }
+
+                            if (process.ExitCode != 0)
+                            {
+                                await SendReleaseError(wv, $"Release script failed (exit code {process.ExitCode}): {error}");
+                                return;
+                            }
                         }
 
-                        await SendReleaseProgress(wv, 2, "Distribution folder and ZIP created", "success");
+                        await SendReleaseProgress(wv, 2, "Distribution folder and ZIP created successfully!", "success");
 
                         // Step 3: Verify ZIP file exists
                         await SendReleaseProgress(wv, 3, "Verifying ZIP file...", "info");

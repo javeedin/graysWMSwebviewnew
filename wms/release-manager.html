@@ -122,6 +122,16 @@
             color: #dc2626;
         }
 
+        .token-status.verified {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .token-status.testing {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
         .btn {
             padding: 12px 24px;
             border: none;
@@ -442,9 +452,11 @@
             </div>
             <div class="btn-group">
                 <button class="btn btn-primary" onclick="saveToken()">Save Token</button>
+                <button class="btn btn-success" onclick="testToken()" id="testTokenBtn">Test Token</button>
                 <button class="btn btn-secondary" onclick="toggleTokenVisibility()">Show/Hide</button>
                 <button class="btn btn-danger" onclick="clearToken()">Clear Token</button>
             </div>
+            <div id="tokenTestResult" style="margin-top: 12px; padding: 12px; border-radius: 8px; display: none;"></div>
         </div>
 
         <!-- Version Information -->
@@ -527,10 +539,43 @@
             </div>
         </div>
 
-        <!-- Progress Log -->
-        <div class="card" id="progressCard" style="display: none;">
+        <!-- Progress Log - Always visible -->
+        <div class="card" id="progressCard">
             <h3 class="card-title">Progress Log</h3>
-            <div class="progress-container" id="progressLog"></div>
+            <div class="progress-container" id="progressLog">
+                <div class="progress-line info">Ready to create release. Click "Create Release" to start.</div>
+            </div>
+        </div>
+
+        <!-- Manual Upload Section -->
+        <div class="card">
+            <h3 class="card-title">Manual Upload to Existing Release</h3>
+            <p style="color: #666; margin-bottom: 16px;">Upload a ZIP file to an existing GitHub release</p>
+            <div class="two-column">
+                <div class="form-group">
+                    <label>Select Release</label>
+                    <select id="existingRelease" class="form-control">
+                        <option value="">-- Select a release --</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>ZIP File</label>
+                    <input type="file" id="uploadFile" class="form-control" accept=".zip" style="padding: 10px;">
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="uploadToRelease()" id="uploadBtn">
+                    <span id="uploadBtnText">Upload ZIP to Release</span>
+                    <div class="spinner" id="uploadSpinner" style="display: none;"></div>
+                </button>
+                <button class="btn btn-secondary" onclick="loadExistingReleases()">Refresh Releases</button>
+            </div>
+            <div id="uploadProgress" style="margin-top: 12px; display: none;">
+                <div style="background: #e0e0e0; border-radius: 4px; overflow: hidden;">
+                    <div id="uploadProgressBar" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 8px; width: 0%; transition: width 0.3s;"></div>
+                </div>
+                <div id="uploadStatus" style="margin-top: 8px; font-size: 13px; color: #666;"></div>
+            </div>
         </div>
 
         <!-- Release History -->
@@ -559,6 +604,7 @@
             loadToken();
             refreshVersionInfo();
             loadReleaseHistory();
+            loadExistingReleases();
         });
 
         // Token Management
@@ -596,6 +642,181 @@
         function toggleTokenVisibility() {
             const input = document.getElementById('githubToken');
             input.type = input.type === 'password' ? 'text' : 'password';
+        }
+
+        // Test Token
+        async function testToken() {
+            const token = document.getElementById('githubToken').value.trim() || localStorage.getItem(TOKEN_KEY);
+            const resultDiv = document.getElementById('tokenTestResult');
+            const btn = document.getElementById('testTokenBtn');
+
+            if (!token) {
+                resultDiv.style.display = 'block';
+                resultDiv.style.background = '#fee2e2';
+                resultDiv.style.color = '#dc2626';
+                resultDiv.innerHTML = 'No token entered. Please enter a GitHub token first.';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+            resultDiv.style.display = 'block';
+            resultDiv.style.background = '#fef3c7';
+            resultDiv.style.color = '#d97706';
+            resultDiv.innerHTML = 'Testing token...';
+
+            try {
+                // Test by getting user info
+                const userResponse = await fetch('https://api.github.com/user', {
+                    headers: {
+                        'Authorization': 'token ' + token,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+
+                if (userResponse.ok) {
+                    const user = await userResponse.json();
+
+                    // Also check repo access
+                    const repoResponse = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`, {
+                        headers: {
+                            'Authorization': 'token ' + token,
+                            'Accept': 'application/vnd.github.v3+json'
+                        }
+                    });
+
+                    if (repoResponse.ok) {
+                        const repo = await repoResponse.json();
+                        resultDiv.style.background = '#d1fae5';
+                        resultDiv.style.color = '#059669';
+                        resultDiv.innerHTML = `<strong>Token Valid!</strong><br>
+                            User: ${user.login}<br>
+                            Repository: ${repo.full_name}<br>
+                            Permissions: ${repo.permissions?.push ? 'Push Access' : 'Read Only'}`;
+
+                        document.getElementById('tokenStatus').textContent = 'Verified';
+                        document.getElementById('tokenStatus').className = 'token-status verified';
+                    } else {
+                        resultDiv.style.background = '#fef3c7';
+                        resultDiv.style.color = '#d97706';
+                        resultDiv.innerHTML = `Token valid for user: ${user.login}<br>But no access to repository: ${REPO_OWNER}/${REPO_NAME}`;
+                    }
+                } else {
+                    const error = await userResponse.json();
+                    resultDiv.style.background = '#fee2e2';
+                    resultDiv.style.color = '#dc2626';
+                    resultDiv.innerHTML = `<strong>Token Invalid!</strong><br>${error.message || 'Authentication failed'}`;
+                }
+            } catch (e) {
+                resultDiv.style.background = '#fee2e2';
+                resultDiv.style.color = '#dc2626';
+                resultDiv.innerHTML = `<strong>Error:</strong> ${e.message}`;
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Test Token';
+        }
+
+        // Load existing releases for upload dropdown
+        async function loadExistingReleases() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            const select = document.getElementById('existingRelease');
+
+            try {
+                const headers = { 'Accept': 'application/vnd.github.v3+json' };
+                if (token) headers['Authorization'] = 'token ' + token;
+
+                const response = await fetch(`https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=20`, { headers });
+
+                if (response.ok) {
+                    const releases = await response.json();
+                    select.innerHTML = '<option value="">-- Select a release --</option>';
+                    releases.forEach(r => {
+                        const option = document.createElement('option');
+                        option.value = JSON.stringify({ id: r.id, upload_url: r.upload_url, tag: r.tag_name });
+                        option.textContent = `${r.tag_name} (${new Date(r.published_at).toLocaleDateString()})`;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to load releases:', e);
+            }
+        }
+
+        // Upload file to existing release
+        async function uploadToRelease() {
+            const token = localStorage.getItem(TOKEN_KEY);
+            if (!token) {
+                showAlert('Please save your GitHub token first!', 'error');
+                return;
+            }
+
+            const releaseData = document.getElementById('existingRelease').value;
+            if (!releaseData) {
+                showAlert('Please select a release', 'error');
+                return;
+            }
+
+            const fileInput = document.getElementById('uploadFile');
+            if (!fileInput.files || !fileInput.files[0]) {
+                showAlert('Please select a ZIP file to upload', 'error');
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const release = JSON.parse(releaseData);
+
+            const btn = document.getElementById('uploadBtn');
+            const spinner = document.getElementById('uploadSpinner');
+            const btnText = document.getElementById('uploadBtnText');
+            const progressDiv = document.getElementById('uploadProgress');
+            const progressBar = document.getElementById('uploadProgressBar');
+            const statusDiv = document.getElementById('uploadStatus');
+
+            btn.disabled = true;
+            spinner.style.display = 'block';
+            btnText.textContent = 'Uploading...';
+            progressDiv.style.display = 'block';
+            progressBar.style.width = '0%';
+            statusDiv.textContent = 'Starting upload...';
+
+            try {
+                const uploadUrl = release.upload_url.replace('{?name,label}', '') + '?name=' + encodeURIComponent(file.name);
+
+                statusDiv.textContent = `Uploading ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)...`;
+                progressBar.style.width = '30%';
+
+                const response = await fetch(uploadUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'token ' + token,
+                        'Content-Type': 'application/zip',
+                        'Accept': 'application/vnd.github.v3+json'
+                    },
+                    body: file
+                });
+
+                progressBar.style.width = '90%';
+
+                if (response.ok) {
+                    const asset = await response.json();
+                    progressBar.style.width = '100%';
+                    statusDiv.innerHTML = `<span style="color: #059669;">Upload successful!</span> <a href="${asset.browser_download_url}" target="_blank">Download Link</a>`;
+                    showAlert(`Successfully uploaded ${file.name} to ${release.tag}!`, 'success');
+                    addProgressLine(`Uploaded ${file.name} to release ${release.tag}`, 'success');
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Upload failed');
+                }
+            } catch (e) {
+                statusDiv.innerHTML = `<span style="color: #dc2626;">Upload failed: ${e.message}</span>`;
+                showAlert('Upload failed: ' + e.message, 'error');
+                addProgressLine('Upload failed: ' + e.message, 'error');
+            }
+
+            btn.disabled = false;
+            spinner.style.display = 'none';
+            btnText.textContent = 'Upload ZIP to Release';
         }
 
         // Version Management
