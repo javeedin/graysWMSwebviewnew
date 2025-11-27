@@ -4428,177 +4428,261 @@ namespace WMSApp
         }
 
         /// <summary>
-        /// Gets the current Outlook user's email address
+        /// Gets the current Outlook user's email address (with crash protection)
         /// </summary>
         private async Task HandleGetOutlookEmail(WebView2 wv, string messageJson, string requestId)
         {
+            string email = "";
+
             try
             {
                 System.Diagnostics.Debug.WriteLine("[OUTLOOK] Getting current user email...");
 
-                string email = "";
-                string error = null;
-
+                // Method 1: Try Windows username as safest fallback first
                 try
                 {
-                    // Try to get email from Outlook using COM
+                    email = Environment.UserName;
+                    if (!string.IsNullOrEmpty(email))
+                    {
+                        email = email + "@grfruits.com";
+                    }
+                }
+                catch { }
+
+                // Method 2: Try to get from Outlook (may fail if Outlook not installed)
+                try
+                {
                     Type outlookType = Type.GetTypeFromProgID("Outlook.Application");
                     if (outlookType != null)
                     {
-                        dynamic outlookApp = Activator.CreateInstance(outlookType);
-                        dynamic ns = outlookApp.GetNamespace("MAPI");
-                        dynamic currentUser = ns.CurrentUser;
-                        email = currentUser.Address ?? currentUser.Name ?? "";
-
-                        // If the address is in X500 format, try to get SMTP address
-                        if (email.StartsWith("/O=") || email.StartsWith("/o="))
+                        dynamic outlookApp = null;
+                        try
                         {
-                            try
+                            outlookApp = Activator.CreateInstance(outlookType);
+                            if (outlookApp != null)
                             {
-                                dynamic exchUser = currentUser.GetExchangeUser();
-                                if (exchUser != null)
+                                dynamic ns = outlookApp.GetNamespace("MAPI");
+                                if (ns != null)
                                 {
-                                    email = exchUser.PrimarySmtpAddress ?? email;
+                                    dynamic currentUser = ns.CurrentUser;
+                                    if (currentUser != null)
+                                    {
+                                        string outlookEmail = null;
+                                        try { outlookEmail = currentUser.Address; } catch { }
+
+                                        if (!string.IsNullOrEmpty(outlookEmail))
+                                        {
+                                            // If X500 format, try to get SMTP address
+                                            if (outlookEmail.StartsWith("/O=") || outlookEmail.StartsWith("/o="))
+                                            {
+                                                try
+                                                {
+                                                    dynamic exchUser = currentUser.GetExchangeUser();
+                                                    if (exchUser != null)
+                                                    {
+                                                        string smtpAddr = exchUser.PrimarySmtpAddress;
+                                                        if (!string.IsNullOrEmpty(smtpAddr))
+                                                        {
+                                                            outlookEmail = smtpAddr;
+                                                        }
+                                                    }
+                                                }
+                                                catch { }
+                                            }
+
+                                            email = outlookEmail;
+                                            System.Diagnostics.Debug.WriteLine($"[OUTLOOK] Found email from Outlook: {email}");
+                                        }
+                                    }
                                 }
                             }
-                            catch { }
                         }
-
-                        System.Diagnostics.Debug.WriteLine($"[OUTLOOK] Found email: {email}");
-                    }
-                    else
-                    {
-                        // Fallback: Try Windows identity
-                        email = System.Security.Principal.WindowsIdentity.GetCurrent().Name;
-                        if (email.Contains("\\"))
+                        catch (Exception comEx)
                         {
-                            email = email.Split('\\')[1] + "@company.com";
+                            System.Diagnostics.Debug.WriteLine($"[OUTLOOK] COM error (non-fatal): {comEx.Message}");
                         }
-                        System.Diagnostics.Debug.WriteLine($"[OUTLOOK] Outlook not found, using Windows identity: {email}");
                     }
                 }
-                catch (Exception ex)
+                catch (Exception outlookEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[OUTLOOK] COM error: {ex.Message}");
-                    // Fallback to Windows user
-                    email = Environment.UserName + "@company.com";
+                    System.Diagnostics.Debug.WriteLine($"[OUTLOOK] Outlook access error (non-fatal): {outlookEx.Message}");
                 }
 
+                // Ensure we have something
                 if (string.IsNullOrEmpty(email))
                 {
-                    email = Environment.UserName + "@company.com";
+                    email = Environment.UserName + "@grfruits.com";
                 }
 
-                await wv.CoreWebView2.ExecuteScriptAsync($@"
-                    if (typeof window.handleOutlookEmail === 'function') {{
-                        window.handleOutlookEmail('{email.Replace("'", "\\'")}', null);
-                    }}
-                ");
+                System.Diagnostics.Debug.WriteLine($"[OUTLOOK] Final email: {email}");
+
+                // Send result back to JavaScript
+                try
+                {
+                    string safeEmail = email.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
+                    await wv.CoreWebView2.ExecuteScriptAsync($@"
+                        if (typeof window.handleOutlookEmail === 'function') {{
+                            window.handleOutlookEmail('{safeEmail}', null);
+                        }}
+                    ");
+                }
+                catch (Exception jsEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[OUTLOOK] JS callback error: {jsEx.Message}");
+                }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[OUTLOOK ERROR] {ex.Message}");
-                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
-                await wv.CoreWebView2.ExecuteScriptAsync($@"
-                    if (typeof window.handleOutlookEmail === 'function') {{
-                        window.handleOutlookEmail(null, '{escapedError}');
-                    }}
-                ");
+                // Ultimate fallback - this should never crash
+                System.Diagnostics.Debug.WriteLine($"[OUTLOOK CRITICAL ERROR] {ex.Message}");
+                try
+                {
+                    string fallbackEmail = "user@grfruits.com";
+                    await wv.CoreWebView2.ExecuteScriptAsync($@"
+                        if (typeof window.handleOutlookEmail === 'function') {{
+                            window.handleOutlookEmail('{fallbackEmail}', null);
+                        }}
+                    ");
+                }
+                catch
+                {
+                    // Silently fail - don't crash the app
+                }
             }
         }
 
         /// <summary>
-        /// Sends an email via Outlook
+        /// Sends an email via Outlook (with crash protection)
         /// </summary>
         private async Task HandleSendOutlookEmail(WebView2 wv, string messageJson, string requestId)
         {
+            string to = "";
+            string subject = "";
+            string htmlBody = "";
+
             try
             {
-                using (var doc = JsonDocument.Parse(messageJson))
+                // Parse message JSON safely
+                try
                 {
-                    var root = doc.RootElement;
-                    string to = root.TryGetProperty("to", out var toEl) ? toEl.GetString() : "";
-                    string subject = root.TryGetProperty("subject", out var subEl) ? subEl.GetString() : "";
-                    string htmlBody = root.TryGetProperty("htmlBody", out var bodyEl) ? bodyEl.GetString() : "";
-
-                    System.Diagnostics.Debug.WriteLine($"[EMAIL] Sending email to: {to}");
-                    System.Diagnostics.Debug.WriteLine($"[EMAIL] Subject: {subject}");
-
-                    if (string.IsNullOrEmpty(to))
+                    using (var doc = JsonDocument.Parse(messageJson))
                     {
-                        throw new Exception("Recipient email is required");
+                        var root = doc.RootElement;
+                        to = root.TryGetProperty("to", out var toEl) ? toEl.GetString() ?? "" : "";
+                        subject = root.TryGetProperty("subject", out var subEl) ? subEl.GetString() ?? "" : "";
+                        htmlBody = root.TryGetProperty("htmlBody", out var bodyEl) ? bodyEl.GetString() ?? "" : "";
                     }
+                }
+                catch (Exception parseEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[EMAIL] JSON parse error: {parseEx.Message}");
+                    await SendEmailResult(wv, false, "Failed to parse email data");
+                    return;
+                }
 
+                System.Diagnostics.Debug.WriteLine($"[EMAIL] Sending email to: {to}");
+                System.Diagnostics.Debug.WriteLine($"[EMAIL] Subject: {subject}");
+
+                if (string.IsNullOrEmpty(to))
+                {
+                    await SendEmailResult(wv, false, "Recipient email is required");
+                    return;
+                }
+
+                // Try Outlook first
+                bool outlookSuccess = false;
+                string outlookError = "";
+
+                try
+                {
+                    Type outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                    if (outlookType != null)
+                    {
+                        dynamic outlookApp = Activator.CreateInstance(outlookType);
+                        if (outlookApp != null)
+                        {
+                            dynamic mailItem = outlookApp.CreateItem(0); // 0 = olMailItem
+                            if (mailItem != null)
+                            {
+                                mailItem.To = to;
+                                mailItem.Subject = subject;
+                                mailItem.HTMLBody = htmlBody;
+                                mailItem.Send();
+                                outlookSuccess = true;
+                                System.Diagnostics.Debug.WriteLine("[EMAIL] Email sent successfully via Outlook");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        outlookError = "Outlook is not installed";
+                    }
+                }
+                catch (Exception outlookEx)
+                {
+                    outlookError = outlookEx.Message;
+                    System.Diagnostics.Debug.WriteLine($"[EMAIL] Outlook error (non-fatal): {outlookEx.Message}");
+                }
+
+                if (outlookSuccess)
+                {
+                    await SendEmailResult(wv, true, "Email sent successfully");
+                    return;
+                }
+
+                // Fallback: Try to open default email client
+                try
+                {
+                    string plainBody = "";
                     try
                     {
-                        // Create Outlook instance
-                        Type outlookType = Type.GetTypeFromProgID("Outlook.Application");
-                        if (outlookType == null)
-                        {
-                            throw new Exception("Outlook is not installed on this computer");
-                        }
-
-                        dynamic outlookApp = Activator.CreateInstance(outlookType);
-                        dynamic mailItem = outlookApp.CreateItem(0); // 0 = olMailItem
-
-                        // Set email properties
-                        mailItem.To = to;
-                        mailItem.Subject = subject;
-                        mailItem.HTMLBody = htmlBody;
-
-                        // Send the email
-                        mailItem.Send();
-
-                        System.Diagnostics.Debug.WriteLine("[EMAIL] Email sent successfully via Outlook");
-
-                        await wv.CoreWebView2.ExecuteScriptAsync($@"
-                            if (typeof window.handleEmailSendResult === 'function') {{
-                                window.handleEmailSendResult(true, 'Email sent successfully');
-                            }}
-                        ");
+                        plainBody = System.Text.RegularExpressions.Regex.Replace(htmlBody ?? "", "<.*?>", " ");
+                        plainBody = System.Text.RegularExpressions.Regex.Replace(plainBody, @"\s+", " ").Trim();
+                        if (plainBody.Length > 1500) plainBody = plainBody.Substring(0, 1500) + "...";
                     }
-                    catch (Exception outlookEx)
+                    catch { plainBody = "See attached content"; }
+
+                    string mailto = $"mailto:{Uri.EscapeDataString(to)}?subject={Uri.EscapeDataString(subject ?? "")}&body={Uri.EscapeDataString(plainBody)}";
+
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                     {
-                        System.Diagnostics.Debug.WriteLine($"[EMAIL] Outlook error: {outlookEx.Message}");
+                        FileName = mailto,
+                        UseShellExecute = true
+                    });
 
-                        // Fallback: Try to open default email client
-                        try
-                        {
-                            // Create mailto link (limited to 2000 chars)
-                            string plainBody = System.Text.RegularExpressions.Regex.Replace(htmlBody, "<.*?>", " ");
-                            plainBody = System.Text.RegularExpressions.Regex.Replace(plainBody, @"\s+", " ").Trim();
-                            if (plainBody.Length > 1500) plainBody = plainBody.Substring(0, 1500) + "...";
-
-                            string mailto = $"mailto:{Uri.EscapeDataString(to)}?subject={Uri.EscapeDataString(subject)}&body={Uri.EscapeDataString(plainBody)}";
-
-                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                            {
-                                FileName = mailto,
-                                UseShellExecute = true
-                            });
-
-                            await wv.CoreWebView2.ExecuteScriptAsync($@"
-                                if (typeof window.handleEmailSendResult === 'function') {{
-                                    window.handleEmailSendResult(true, 'Email client opened. Please send manually.');
-                                }}
-                            ");
-                        }
-                        catch
-                        {
-                            throw new Exception($"Outlook error: {outlookEx.Message}. Could not open fallback email client.");
-                        }
-                    }
+                    await SendEmailResult(wv, true, "Email client opened. Please send manually.");
+                }
+                catch (Exception mailtoEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[EMAIL] Mailto fallback error: {mailtoEx.Message}");
+                    string errorMsg = !string.IsNullOrEmpty(outlookError) ? outlookError : mailtoEx.Message;
+                    await SendEmailResult(wv, false, $"Could not send email: {errorMsg}");
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[EMAIL ERROR] {ex.Message}");
-                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
+                System.Diagnostics.Debug.WriteLine($"[EMAIL CRITICAL ERROR] {ex.Message}");
+                await SendEmailResult(wv, false, $"Email error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Helper method to send email result back to JavaScript safely
+        /// </summary>
+        private async Task SendEmailResult(WebView2 wv, bool success, string message)
+        {
+            try
+            {
+                string safeMessage = (message ?? "").Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", " ");
                 await wv.CoreWebView2.ExecuteScriptAsync($@"
                     if (typeof window.handleEmailSendResult === 'function') {{
-                        window.handleEmailSendResult(false, '{escapedError}');
+                        window.handleEmailSendResult({(success ? "true" : "false")}, '{safeMessage}');
                     }}
                 ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[EMAIL] Failed to send result to JS: {ex.Message}");
             }
         }
 
