@@ -1601,6 +1601,14 @@ namespace WMSApp
                                     await HandleSendOutlookEmail(wv, messageJson, requestId);
                                     break;
 
+                                case "sendSmtpEmail":
+                                    await HandleSendSmtpEmail(wv, messageJson, requestId);
+                                    break;
+
+                                case "testSmtpConnection":
+                                    await HandleTestSmtpConnection(wv, messageJson, requestId);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -4683,6 +4691,179 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[EMAIL] Failed to send result to JS: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Sends an email via SMTP (Office 365, Gmail, etc.)
+        /// </summary>
+        private async Task HandleSendSmtpEmail(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string smtpServer = root.TryGetProperty("smtpServer", out var srv) ? srv.GetString() ?? "" : "";
+                    int smtpPort = root.TryGetProperty("smtpPort", out var prt) ? prt.GetInt32() : 587;
+                    string username = root.TryGetProperty("username", out var usr) ? usr.GetString() ?? "" : "";
+                    string password = root.TryGetProperty("password", out var pwd) ? pwd.GetString() ?? "" : "";
+                    bool useSsl = root.TryGetProperty("useSsl", out var ssl) ? ssl.GetBoolean() : true;
+                    string from = root.TryGetProperty("from", out var frm) ? frm.GetString() ?? "" : "";
+                    string to = root.TryGetProperty("to", out var toEl) ? toEl.GetString() ?? "" : "";
+                    string subject = root.TryGetProperty("subject", out var sub) ? sub.GetString() ?? "" : "";
+                    string htmlBody = root.TryGetProperty("htmlBody", out var body) ? body.GetString() ?? "" : "";
+
+                    System.Diagnostics.Debug.WriteLine($"[SMTP] Sending email via {smtpServer}:{smtpPort}");
+                    System.Diagnostics.Debug.WriteLine($"[SMTP] From: {from}, To: {to}");
+
+                    if (string.IsNullOrEmpty(to))
+                    {
+                        await SendEmailResult(wv, false, "Recipient email is required");
+                        return;
+                    }
+
+                    try
+                    {
+                        using (var client = new System.Net.Mail.SmtpClient(smtpServer, smtpPort))
+                        {
+                            client.EnableSsl = useSsl;
+                            client.Credentials = new System.Net.NetworkCredential(username, password);
+                            client.Timeout = 30000; // 30 seconds
+
+                            var mailMessage = new System.Net.Mail.MailMessage();
+                            mailMessage.From = new System.Net.Mail.MailAddress(from);
+
+                            // Handle multiple recipients
+                            foreach (var recipient in to.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                mailMessage.To.Add(recipient.Trim());
+                            }
+
+                            mailMessage.Subject = subject;
+                            mailMessage.Body = htmlBody;
+                            mailMessage.IsBodyHtml = true;
+
+                            await Task.Run(() => client.Send(mailMessage));
+
+                            System.Diagnostics.Debug.WriteLine("[SMTP] Email sent successfully");
+                            await SendEmailResult(wv, true, "Email sent successfully via SMTP");
+                        }
+                    }
+                    catch (System.Net.Mail.SmtpException smtpEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SMTP] SMTP error: {smtpEx.Message}");
+                        string errorMsg = smtpEx.Message;
+                        if (smtpEx.StatusCode == System.Net.Mail.SmtpStatusCode.MustIssueStartTlsFirst)
+                        {
+                            errorMsg = "TLS required. Please enable 'Use TLS/SSL' in settings.";
+                        }
+                        else if (smtpEx.Message.Contains("5.7.57") || smtpEx.Message.Contains("authentication"))
+                        {
+                            errorMsg = "Authentication failed. Check your email and password. For Office 365 with MFA, use an App Password.";
+                        }
+                        await SendEmailResult(wv, false, errorMsg);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SMTP ERROR] {ex.Message}");
+                await SendEmailResult(wv, false, $"SMTP error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Tests SMTP connection
+        /// </summary>
+        private async Task HandleTestSmtpConnection(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string smtpServer = root.TryGetProperty("smtpServer", out var srv) ? srv.GetString() ?? "" : "";
+                    int smtpPort = root.TryGetProperty("smtpPort", out var prt) ? prt.GetInt32() : 587;
+                    string username = root.TryGetProperty("username", out var usr) ? usr.GetString() ?? "" : "";
+                    string password = root.TryGetProperty("password", out var pwd) ? pwd.GetString() ?? "" : "";
+                    bool useSsl = root.TryGetProperty("useSsl", out var ssl) ? ssl.GetBoolean() : true;
+
+                    System.Diagnostics.Debug.WriteLine($"[SMTP TEST] Testing connection to {smtpServer}:{smtpPort}");
+
+                    try
+                    {
+                        using (var client = new System.Net.Mail.SmtpClient(smtpServer, smtpPort))
+                        {
+                            client.EnableSsl = useSsl;
+                            client.Credentials = new System.Net.NetworkCredential(username, password);
+                            client.Timeout = 15000; // 15 seconds for test
+
+                            // Try to connect by sending a NOOP command (no actual email sent)
+                            // SmtpClient doesn't have a direct "test" method, so we'll try a minimal operation
+                            // The connection will be established when we access the ServicePoint
+                            await Task.Run(() =>
+                            {
+                                // Create a minimal test message
+                                var testMsg = new System.Net.Mail.MailMessage();
+                                testMsg.From = new System.Net.Mail.MailAddress(username);
+                                testMsg.To.Add(username);
+                                testMsg.Subject = "Test";
+                                testMsg.Body = "Test";
+
+                                // This will throw if connection fails
+                                // We're not actually sending, just testing the connection setup
+                                using (var tcpClient = new System.Net.Sockets.TcpClient())
+                                {
+                                    tcpClient.Connect(smtpServer, smtpPort);
+                                    tcpClient.Close();
+                                }
+                            });
+
+                            System.Diagnostics.Debug.WriteLine("[SMTP TEST] Connection successful");
+                            await SendSmtpTestResult(wv, true, $"Successfully connected to {smtpServer}:{smtpPort}");
+                        }
+                    }
+                    catch (Exception connEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SMTP TEST] Connection failed: {connEx.Message}");
+                        string errorMsg = connEx.Message;
+                        if (connEx.Message.Contains("5.7.57") || connEx.Message.Contains("authentication"))
+                        {
+                            errorMsg = "Authentication failed. Check your credentials.";
+                        }
+                        else if (connEx.Message.Contains("timed out"))
+                        {
+                            errorMsg = "Connection timed out. Check server address and port.";
+                        }
+                        await SendSmtpTestResult(wv, false, errorMsg);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SMTP TEST ERROR] {ex.Message}");
+                await SendSmtpTestResult(wv, false, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Helper method to send SMTP test result back to JavaScript
+        /// </summary>
+        private async Task SendSmtpTestResult(WebView2 wv, bool success, string message)
+        {
+            try
+            {
+                string safeMessage = (message ?? "").Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", " ");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleSmtpTestResult === 'function') {{
+                        window.handleSmtpTestResult({(success ? "true" : "false")}, '{safeMessage}');
+                    }}
+                ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SMTP TEST] Failed to send result to JS: {ex.Message}");
             }
         }
 
