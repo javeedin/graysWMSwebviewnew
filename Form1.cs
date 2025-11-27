@@ -626,6 +626,14 @@ namespace WMSApp
                 // Hardcoded path for WMS Dev - always points to local development folder
                 string repoRoot = @"C:\Users\Javeed Shaik\source\repos\javeedin\graysWMSwebviewnew";
 
+                // Debug: Show all paths being used
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] ========== WMS DEV PATHS ==========");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] repoRoot: {repoRoot}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] WMS index: {Path.Combine(repoRoot, "wms", "index.html")}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Login page: {Path.Combine(repoRoot, "login.html")}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Instance name: {_instanceName}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] =====================================");
+
                 // Check if user is logged in for WMS, if not navigate to HTML login page
                 if (!_isLoggedIn)
                 {
