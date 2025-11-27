@@ -92,10 +92,23 @@ namespace WMSApp
 
         private void InitializeComponent1()
         {
-            this.Text = "Gray's WMS v1.2.0 - MRA Tabbed Popup | Released 25-Nov-2025 | ✓ GOOD VERSION";
+            this.Text = "Fusion Client Webview - Build v2025.11.27";
             this.Size = new Size(1200, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(240, 240, 240);
+        }
+
+        private void UpdateFormTitle()
+        {
+            const string baseTitle = "Fusion Client Webview - Build v2025.11.27";
+            if (_isLoggedIn && !string.IsNullOrEmpty(_loggedInInstance))
+            {
+                this.Text = $"{baseTitle} [{_loggedInInstance}]";
+            }
+            else
+            {
+                this.Text = baseTitle;
+            }
         }
 
         // Fixed installation path for web files
@@ -230,6 +243,7 @@ namespace WMSApp
                     _isLoggedIn = true;
 
                     System.Diagnostics.Debug.WriteLine($"[LOGIN] Success - User: {_loggedInUsername}, Instance: {_loggedInInstance}, DateTime: {_loggedInDateTime}");
+                    UpdateFormTitle();
                     return true;
                 }
                 return false;
@@ -246,6 +260,7 @@ namespace WMSApp
             _loggedInPassword = null;
             _loggedInInstance = null;
             _loggedInDateTime = null;
+            UpdateFormTitle();
 
             System.Diagnostics.Debug.WriteLine("[LOGOUT] User session cleared successfully");
         }
@@ -310,6 +325,7 @@ namespace WMSApp
                 _loggedInInstance = root.TryGetProperty("instanceName", out var instProp) ? instProp.GetString() : "PROD";
                 _loggedInDateTime = root.TryGetProperty("loginTime", out var timeProp) ? timeProp.GetString() : DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
                 _isLoggedIn = true;
+                UpdateFormTitle();
 
                 System.Diagnostics.Debug.WriteLine($"[LOGIN SUCCESS] User: {_loggedInUsername}, Instance: {_loggedInInstance}, DateTime: {_loggedInDateTime}");
             }
@@ -380,6 +396,7 @@ namespace WMSApp
                                 _loggedInInstance = instanceName;
                                 _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
                                 _isLoggedIn = true;
+                                UpdateFormTitle();
 
                                 // Send success response to JavaScript by calling the global function directly
                                 string escapedUsername = username.Replace("\\", "\\\\").Replace("'", "\\'");
