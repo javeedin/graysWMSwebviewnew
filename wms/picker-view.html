@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picker View - WMS</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .picker-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .picker-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .picker-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        .picker-header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin: 0 0 20px 0;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .filters-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 0;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #e0e0e0;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-box .label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .stat-box .value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .stat-box .value.green { color: #059669; }
+        .stat-box .value.blue { color: #2563eb; }
+        .stat-box .value.orange { color: #d97706; }
+
+        .picker-group {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .picker-group-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .picker-group-header:hover {
+            filter: brightness(1.05);
+        }
+
+        .picker-group-header h3 {
+            margin: 0;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .picker-group-header .stats {
+            display: flex;
+            gap: 20px;
+            font-size: 14px;
+        }
+
+        .picker-group-header .stats span {
+            background: rgba(255,255,255,0.2);
+            padding: 4px 12px;
+            border-radius: 20px;
+        }
+
+        .picker-group-body {
+            padding: 0;
+        }
+
+        .picker-group.collapsed .picker-group-body {
+            display: none;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+
+        .data-table th {
+            background: #f8f9fa;
+            padding: 12px 16px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            border-bottom: 2px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+        }
+
+        .data-table td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+        }
+
+        .data-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .priority-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .priority-high { background: #fee2e2; color: #dc2626; }
+        .priority-medium { background: #fef3c7; color: #d97706; }
+        .priority-low { background: #d1fae5; color: #059669; }
+
+        .bay-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #dbeafe;
+            color: #2563eb;
+        }
+
+        .lorry-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            background: #f3e8ff;
+            color: #7c3aed;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            margin-bottom: 20px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-overlay.show {
+            display: flex;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+
+        .no-data i {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #ccc;
+        }
+
+        .disc-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .disc-0 { background: #d1fae5; color: #059669; }
+        .disc-low { background: #fef3c7; color: #d97706; }
+        .disc-high { background: #fee2e2; color: #dc2626; }
+    </style>
+</head>
+<body style="background: #f5f7fa; min-height: 100vh;">
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <div class="picker-container">
+        <a href="index.html" class="back-link">
+            <span>&#8592;</span> Back to WMS
+        </a>
+
+        <div class="picker-header">
+            <h1><i class="fas fa-users"></i> Picker View</h1>
+            <p>View and monitor picker assignments and order status</p>
+        </div>
+
+        <!-- Filters -->
+        <div class="card">
+            <h3 class="card-title">Query Parameters</h3>
+            <div class="filters-row">
+                <div class="form-group">
+                    <label>Assignment Date</label>
+                    <input type="date" id="fromDate" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>Instance</label>
+                    <select id="instance" class="form-control">
+                        <option value="PROD">PROD</option>
+                        <option value="TEST">TEST</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Picker</label>
+                    <select id="filterPicker" class="form-control">
+                        <option value="">All Pickers</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Loading Bay</label>
+                    <select id="filterBay" class="form-control">
+                        <option value="">All Bays</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Lorry</label>
+                    <select id="filterLorry" class="form-control">
+                        <option value="">All Lorries</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Priority</label>
+                    <select id="filterPriority" class="form-control">
+                        <option value="">All Priorities</option>
+                    </select>
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="loadData()">
+                    <i class="fas fa-search"></i> Load Data
+                </button>
+                <button class="btn btn-secondary" onclick="clearFilters()">
+                    <i class="fas fa-times"></i> Clear Filters
+                </button>
+                <button class="btn btn-secondary" onclick="exportData()">
+                    <i class="fas fa-download"></i> Export
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row" id="statsRow" style="display: none;">
+            <div class="stat-box">
+                <div class="label">Total Orders</div>
+                <div class="value blue" id="statOrders">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Total Items</div>
+                <div class="value green" id="statItems">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Total Qty</div>
+                <div class="value orange" id="statQty">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Pickers</div>
+                <div class="value" id="statPickers">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Loading Bays</div>
+                <div class="value" id="statBays">0</div>
+            </div>
+        </div>
+
+        <!-- Results -->
+        <div id="resultsContainer">
+            <div class="no-data">
+                <i class="fas fa-users"></i>
+                <p>Select a date and click "Load Data" to view picker assignments</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = {
+            'PROD': 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT',
+            'TEST': 'https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT'
+        };
+
+        let allData = [];
+        let filteredData = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set default date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('fromDate').value = today;
+
+            // Load saved instance preference
+            const savedInstance = localStorage.getItem('instanceName');
+            if (savedInstance) {
+                document.getElementById('instance').value = savedInstance;
+            }
+
+            // Add filter change listeners
+            ['filterPicker', 'filterBay', 'filterLorry', 'filterPriority'].forEach(id => {
+                document.getElementById(id).addEventListener('change', applyFilters);
+            });
+        });
+
+        function showLoading(show) {
+            document.getElementById('loadingOverlay').classList.toggle('show', show);
+        }
+
+        async function loadData() {
+            const fromDate = document.getElementById('fromDate').value;
+            const instance = document.getElementById('instance').value;
+
+            if (!fromDate) {
+                alert('Please select an assignment date');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const baseUrl = API_BASE[instance];
+                const url = `${baseUrl}/trip/getpickersview?fromDate=${fromDate}&instance=${instance}`;
+
+                console.log('Fetching:', url);
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                allData = data.items || [];
+
+                console.log('Loaded', allData.length, 'items');
+
+                populateFilters();
+                applyFilters();
+
+            } catch (error) {
+                console.error('Error loading data:', error);
+                alert('Failed to load data: ' + error.message);
+                document.getElementById('resultsContainer').innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>
+                        <p>Error: ${error.message}</p>
+                    </div>
+                `;
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function populateFilters() {
+            // Get unique values for each filter
+            const pickers = [...new Set(allData.map(d => d.picker_name).filter(Boolean))].sort();
+            const bays = [...new Set(allData.map(d => d.loading_bay).filter(Boolean))].sort();
+            const lorries = [...new Set(allData.map(d => d.lorry_number).filter(Boolean))].sort();
+            const priorities = [...new Set(allData.map(d => d.order_priority).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
+
+            populateSelect('filterPicker', pickers, 'All Pickers');
+            populateSelect('filterBay', bays, 'All Bays');
+            populateSelect('filterLorry', lorries, 'All Lorries');
+            populateSelect('filterPriority', priorities, 'All Priorities');
+        }
+
+        function populateSelect(id, values, defaultText) {
+            const select = document.getElementById(id);
+            const currentValue = select.value;
+            select.innerHTML = `<option value="">${defaultText}</option>`;
+            values.forEach(v => {
+                const option = document.createElement('option');
+                option.value = v;
+                option.textContent = v;
+                select.appendChild(option);
+            });
+            select.value = currentValue || '';
+        }
+
+        function applyFilters() {
+            const filterPicker = document.getElementById('filterPicker').value;
+            const filterBay = document.getElementById('filterBay').value;
+            const filterLorry = document.getElementById('filterLorry').value;
+            const filterPriority = document.getElementById('filterPriority').value;
+
+            filteredData = allData.filter(item => {
+                if (filterPicker && item.picker_name !== filterPicker) return false;
+                if (filterBay && item.loading_bay !== filterBay) return false;
+                if (filterLorry && item.lorry_number !== filterLorry) return false;
+                if (filterPriority && item.order_priority !== filterPriority) return false;
+                return true;
+            });
+
+            updateStats();
+            renderResults();
+        }
+
+        function updateStats() {
+            const statsRow = document.getElementById('statsRow');
+
+            if (filteredData.length === 0) {
+                statsRow.style.display = 'none';
+                return;
+            }
+
+            statsRow.style.display = 'grid';
+
+            const orders = new Set(filteredData.map(d => d.source_order_number)).size;
+            const items = filteredData.length;
+            const qty = filteredData.reduce((sum, d) => sum + (Number(d.qty) || 0), 0);
+            const pickers = new Set(filteredData.map(d => d.picker_name)).size;
+            const bays = new Set(filteredData.map(d => d.loading_bay).filter(Boolean)).size;
+
+            document.getElementById('statOrders').textContent = orders.toLocaleString();
+            document.getElementById('statItems').textContent = items.toLocaleString();
+            document.getElementById('statQty').textContent = qty.toLocaleString();
+            document.getElementById('statPickers').textContent = pickers;
+            document.getElementById('statBays').textContent = bays;
+        }
+
+        function renderResults() {
+            const container = document.getElementById('resultsContainer');
+
+            if (filteredData.length === 0) {
+                container.innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-inbox"></i>
+                        <p>No data found for the selected criteria</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Group by picker
+            const grouped = {};
+            filteredData.forEach(item => {
+                const picker = item.picker_name || 'Unassigned';
+                if (!grouped[picker]) {
+                    grouped[picker] = [];
+                }
+                grouped[picker].push(item);
+            });
+
+            // Sort pickers alphabetically
+            const sortedPickers = Object.keys(grouped).sort();
+
+            let html = '';
+            sortedPickers.forEach(picker => {
+                const items = grouped[picker];
+                const totalQty = items.reduce((sum, d) => sum + (Number(d.qty) || 0), 0);
+                const uniqueOrders = new Set(items.map(d => d.source_order_number)).size;
+
+                html += `
+                    <div class="picker-group" id="group-${picker.replace(/\s+/g, '-')}">
+                        <div class="picker-group-header" onclick="toggleGroup(this)">
+                            <h3>
+                                <i class="fas fa-user"></i>
+                                ${picker}
+                            </h3>
+                            <div class="stats">
+                                <span><i class="fas fa-box"></i> ${items.length} items</span>
+                                <span><i class="fas fa-file-alt"></i> ${uniqueOrders} orders</span>
+                                <span><i class="fas fa-cubes"></i> ${totalQty.toLocaleString()} qty</span>
+                            </div>
+                        </div>
+                        <div class="picker-group-body">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Order #</th>
+                                        <th>Item</th>
+                                        <th>Description</th>
+                                        <th>Qty</th>
+                                        <th>Customer</th>
+                                        <th>Priority</th>
+                                        <th>Loading Bay</th>
+                                        <th>Lorry</th>
+                                        <th>Disc %</th>
+                                        <th>Pick Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${items.map(item => `
+                                        <tr>
+                                            <td><strong>${item.source_order_number || '-'}</strong></td>
+                                            <td>${item.item_number || '-'}</td>
+                                            <td>${item.description || '-'}</td>
+                                            <td><strong>${item.qty || 0}</strong></td>
+                                            <td>${item.account_name || '-'}</td>
+                                            <td>${getPriorityBadge(item.order_priority)}</td>
+                                            <td>${item.loading_bay ? `<span class="bay-badge">${item.loading_bay}</span>` : '-'}</td>
+                                            <td>${item.lorry_number ? `<span class="lorry-badge">${item.lorry_number}</span>` : '-'}</td>
+                                            <td>${getDiscBadge(item.disc_per)}</td>
+                                            <td>${formatDate(item.pick_release_date)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function toggleGroup(header) {
+            const group = header.closest('.picker-group');
+            group.classList.toggle('collapsed');
+        }
+
+        function getPriorityBadge(priority) {
+            if (!priority) return '-';
+            const p = Number(priority);
+            let cls = 'priority-low';
+            if (p <= 3) cls = 'priority-high';
+            else if (p <= 6) cls = 'priority-medium';
+            return `<span class="priority-badge ${cls}">${priority}</span>`;
+        }
+
+        function getDiscBadge(disc) {
+            if (!disc) return '-';
+            const val = parseFloat(disc);
+            let cls = 'disc-0';
+            if (val > 10) cls = 'disc-high';
+            else if (val > 0) cls = 'disc-low';
+            return `<span class="disc-badge ${cls}">${disc}</span>`;
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            try {
+                const date = new Date(dateStr);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            } catch {
+                return dateStr;
+            }
+        }
+
+        function clearFilters() {
+            document.getElementById('filterPicker').value = '';
+            document.getElementById('filterBay').value = '';
+            document.getElementById('filterLorry').value = '';
+            document.getElementById('filterPriority').value = '';
+            applyFilters();
+        }
+
+        function exportData() {
+            if (filteredData.length === 0) {
+                alert('No data to export');
+                return;
+            }
+
+            // Create CSV
+            const headers = ['Picker', 'Order #', 'Item', 'Description', 'Qty', 'Customer', 'Priority', 'Loading Bay', 'Lorry', 'Disc %', 'Pick Date'];
+            const rows = filteredData.map(item => [
+                item.picker_name || '',
+                item.source_order_number || '',
+                item.item_number || '',
+                item.description || '',
+                item.qty || '',
+                item.account_name || '',
+                item.order_priority || '',
+                item.loading_bay || '',
+                item.lorry_number || '',
+                item.disc_per || '',
+                item.pick_release_date || ''
+            ]);
+
+            let csv = headers.join(',') + '\n';
+            rows.forEach(row => {
+                csv += row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',') + '\n';
+            });
+
+            // Download
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `picker-view-${document.getElementById('fromDate').value}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
