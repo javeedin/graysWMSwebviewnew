@@ -8,7 +8,8 @@ console.log('[Distribution] Module loading...');
 console.log('[Distribution] ========================================');
 
 let distributionConfig = {
-    distributionFolder: 'C:\\fusion\\fusionclientweb\\wms',
+    // Local development folder - matches WMS Dev button path in Form1.cs
+    distributionFolder: 'C:\\Users\\Javeed Shaik\\source\\repos\\javeedin\\graysWMSwebviewnew\\wms',
     // Use GitHub Releases API to automatically get latest release
     githubReleaseAPI: 'https://api.github.com/repos/javeedin/graysWMSwebviewnew/releases/latest',
     isDownloading: false
