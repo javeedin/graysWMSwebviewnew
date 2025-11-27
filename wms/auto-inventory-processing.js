@@ -4614,7 +4614,7 @@ function initTeamsIntegration() {
                                 <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
                                     <i class="fas fa-user"></i> From
                                 </label>
-                                <input type="email" id="email-from" readonly style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; background: #f0f0f0; box-sizing: border-box;" placeholder="Loading from Outlook...">
+                                <input type="email" id="email-from" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; box-sizing: border-box;" placeholder="Loading from Outlook...">
                             </div>
                             <div style="margin-bottom: 16px;">
                                 <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
@@ -4827,21 +4827,14 @@ function generateTeamsMessagePreview() {
     const groupedTrips = groupTransactionsByTrip();
 
     let html = '<div style="font-family: Segoe UI, sans-serif;">';
-    html += '<div style="font-size: 16px; font-weight: 600; color: #1e3a5f; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;"><i class="fas fa-truck"></i> WMS Trip Update</div>';
+    html += '<div style="font-size: 16px; font-weight: 600; color: #1e3a5f; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;"><i class="fas fa-truck"></i> WMS Trip Summary</div>';
 
     let totalOrders = 0;
     let totalLines = 0;
-    let totalQty = 0;
 
     selectedTripsForProcessing.forEach(tripId => {
         const trip = groupedTrips.find(t => t.trip_id === tripId);
         if (trip) {
-            const orderCount = new Set(trip.transactions.map(t => t.source_order)).size;
-            const tripQty = trip.transactions.reduce((sum, t) => sum + (parseFloat(t.quantity) || 0), 0);
-            totalOrders += orderCount;
-            totalLines += trip.transactions.length;
-            totalQty += tripQty;
-
             // Get priority color
             const pri = trip.trip_priority;
             let priColor = '#666';
@@ -4849,28 +4842,78 @@ function generateTeamsMessagePreview() {
             else if (pri == 2) priColor = '#f97316';
             else if (pri == 3) priColor = '#eab308';
 
+            // Group transactions by order
+            const orderGroups = {};
+            trip.transactions.forEach(trx => {
+                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                if (!orderGroups[orderNum]) {
+                    orderGroups[orderNum] = {
+                        orderNumber: orderNum,
+                        picker: trx.picker || trx.PICKER || trx.picker_name || '-',
+                        items: [],
+                        pickedCount: 0,
+                        totalCount: 0
+                    };
+                }
+                orderGroups[orderNum].items.push(trx);
+                orderGroups[orderNum].totalCount++;
+                if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
+                    orderGroups[orderNum].pickedCount++;
+                }
+            });
+
+            const orders = Object.values(orderGroups);
+            totalOrders += orders.length;
+            totalLines += trip.transactions.length;
+
             html += `
                 <div style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-radius: 10px; padding: 14px; margin-bottom: 12px; border-left: 5px solid #1e3a5f; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                    <!-- Trip Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0;">
                         <span style="font-weight: 700; color: #1e3a5f; font-size: 15px;">🚚 Trip: ${trip.trip_id}</span>
                         <span style="background: ${priColor}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;">Priority ${pri || '-'}</span>
                     </div>
-                    <table style="width: 100%; font-size: 12px; color: #475569;">
-                        <tr>
-                            <td style="padding: 3px 0;"><strong>📅 Date:</strong> ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</td>
-                            <td style="padding: 3px 0;"><strong>🚛 Lorry:</strong> ${trip.trip_lorry || '-'}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 3px 0;"><strong>📍 Bay:</strong> ${trip.trip_loading_bay || '-'}</td>
-                            <td style="padding: 3px 0;"><strong>👤 Picker:</strong> ${trip.picker || '-'}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 3px 0;"><strong>📦 Orders:</strong> ${orderCount}</td>
-                            <td style="padding: 3px 0;"><strong>📋 Lines:</strong> ${trip.transactions.length}</td>
-                        </tr>
-                        <tr>
-                            <td colspan="2" style="padding: 3px 0;"><strong>📊 Total Qty:</strong> ${tripQty.toLocaleString()}</td>
-                        </tr>
+                    <!-- Trip Info Row -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 11px; color: #475569; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed #e2e8f0;">
+                        <div><strong>📅</strong> ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</div>
+                        <div><strong>🚛</strong> ${trip.trip_lorry || '-'}</div>
+                        <div><strong>📍</strong> Bay ${trip.trip_loading_bay || '-'}</div>
+                        <div><strong>📦</strong> ${orders.length} Orders</div>
+                    </div>
+                    <!-- Orders Table -->
+                    <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #e2e8f0;">
+                                <th style="padding: 6px 8px; text-align: left; font-weight: 600; color: #334155;">Order #</th>
+                                <th style="padding: 6px 8px; text-align: left; font-weight: 600; color: #334155;">Picker</th>
+                                <th style="padding: 6px 8px; text-align: center; font-weight: 600; color: #334155;">Pick Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${orders.map(order => {
+                                const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
+                                let statusColor = '#ef4444'; // red
+                                let statusText = 'Not Picked';
+                                if (pickPct === 100) {
+                                    statusColor = '#10b981';
+                                    statusText = 'Picked';
+                                } else if (pickPct > 0) {
+                                    statusColor = '#f59e0b';
+                                    statusText = `${pickPct}% Picked`;
+                                }
+                                return `
+                                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                                        <td style="padding: 6px 8px; color: #1e3a5f; font-weight: 500;">${order.orderNumber}</td>
+                                        <td style="padding: 6px 8px; color: #64748b;">${order.picker}</td>
+                                        <td style="padding: 6px 8px; text-align: center;">
+                                            <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                                                ${statusText}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
                     </table>
                 </div>
             `;
@@ -4878,24 +4921,19 @@ function generateTeamsMessagePreview() {
     });
 
     html += `
-        <div style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-radius: 10px; padding: 14px; margin-top: 14px; color: white;">
-            <div style="font-weight: 700; font-size: 14px; margin-bottom: 8px;">📊 Summary</div>
-            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center;">
+        <div style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-radius: 10px; padding: 12px; margin-top: 14px; color: white;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center;">
                 <div>
-                    <div style="font-size: 20px; font-weight: 700;">${selectedTripsForProcessing.size}</div>
-                    <div style="font-size: 11px; opacity: 0.9;">Trips</div>
+                    <div style="font-size: 18px; font-weight: 700;">${selectedTripsForProcessing.size}</div>
+                    <div style="font-size: 10px; opacity: 0.9;">Trips</div>
                 </div>
                 <div>
-                    <div style="font-size: 20px; font-weight: 700;">${totalOrders}</div>
-                    <div style="font-size: 11px; opacity: 0.9;">Orders</div>
+                    <div style="font-size: 18px; font-weight: 700;">${totalOrders}</div>
+                    <div style="font-size: 10px; opacity: 0.9;">Orders</div>
                 </div>
                 <div>
-                    <div style="font-size: 20px; font-weight: 700;">${totalLines}</div>
-                    <div style="font-size: 11px; opacity: 0.9;">Lines</div>
-                </div>
-                <div>
-                    <div style="font-size: 20px; font-weight: 700;">${totalQty.toLocaleString()}</div>
-                    <div style="font-size: 11px; opacity: 0.9;">Total Qty</div>
+                    <div style="font-size: 18px; font-weight: 700;">${totalLines}</div>
+                    <div style="font-size: 10px; opacity: 0.9;">Lines</div>
                 </div>
             </div>
         </div>
@@ -4978,7 +5016,6 @@ function generateEmailHtmlBody(comments) {
     const groupedTrips = groupTransactionsByTrip();
     let totalOrders = 0;
     let totalLines = 0;
-    let totalQty = 0;
 
     let html = `
     <!DOCTYPE html>
@@ -4986,18 +5023,26 @@ function generateEmailHtmlBody(comments) {
     <head>
         <style>
             body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
-            .container { max-width: 700px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+            .container { max-width: 750px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
             .header { background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 24px; text-align: center; }
             .header h1 { margin: 0; font-size: 24px; }
             .header p { margin: 8px 0 0; opacity: 0.9; }
             .content { padding: 24px; }
-            .trip-card { background: #f8fafc; border-radius: 10px; padding: 16px; margin-bottom: 16px; border-left: 5px solid #1e3a5f; }
-            .trip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-            .trip-id { font-weight: 700; color: #1e3a5f; font-size: 16px; }
-            .priority { padding: 4px 12px; border-radius: 12px; color: white; font-size: 12px; font-weight: 600; }
-            .trip-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; color: #475569; }
+            .trip-card { background: #f8fafc; border-radius: 10px; padding: 16px; margin-bottom: 20px; border-left: 5px solid #1e3a5f; }
+            .trip-header { border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 12px; }
+            .trip-title { display: flex; justify-content: space-between; align-items: center; }
+            .trip-id { font-weight: 700; color: #1e3a5f; font-size: 18px; }
+            .priority { padding: 4px 14px; border-radius: 12px; color: white; font-size: 12px; font-weight: 600; }
+            .trip-info { display: flex; gap: 20px; margin-top: 10px; font-size: 13px; color: #475569; }
+            .orders-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+            .orders-table th { background: #e2e8f0; padding: 10px 12px; text-align: left; font-weight: 600; color: #334155; }
+            .orders-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+            .status-badge { padding: 4px 10px; border-radius: 12px; color: white; font-size: 11px; font-weight: 600; }
+            .status-picked { background: #10b981; }
+            .status-partial { background: #f59e0b; }
+            .status-not-picked { background: #ef4444; }
             .summary { background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-radius: 10px; padding: 20px; color: white; text-align: center; margin-top: 20px; }
-            .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 12px; }
+            .summary-grid { display: flex; justify-content: space-around; margin-top: 12px; }
             .summary-item { text-align: center; }
             .summary-value { font-size: 28px; font-weight: 700; }
             .summary-label { font-size: 12px; opacity: 0.9; }
@@ -5008,7 +5053,7 @@ function generateEmailHtmlBody(comments) {
     <body>
         <div class="container">
             <div class="header">
-                <h1>🚚 WMS Trip Update</h1>
+                <h1>🚚 WMS Trip Summary</h1>
                 <p>${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
             </div>
             <div class="content">
@@ -5017,33 +5062,87 @@ function generateEmailHtmlBody(comments) {
     selectedTripsForProcessing.forEach(tripId => {
         const trip = groupedTrips.find(t => t.trip_id === tripId);
         if (trip) {
-            const orderCount = new Set(trip.transactions.map(t => t.source_order)).size;
-            const tripQty = trip.transactions.reduce((sum, t) => sum + (parseFloat(t.quantity) || 0), 0);
-            totalOrders += orderCount;
-            totalLines += trip.transactions.length;
-            totalQty += tripQty;
-
             const pri = trip.trip_priority;
             let priColor = '#666';
             if (pri == 1) priColor = '#dc2626';
             else if (pri == 2) priColor = '#f97316';
             else if (pri == 3) priColor = '#eab308';
 
+            // Group transactions by order
+            const orderGroups = {};
+            trip.transactions.forEach(trx => {
+                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                if (!orderGroups[orderNum]) {
+                    orderGroups[orderNum] = {
+                        orderNumber: orderNum,
+                        picker: trx.picker || trx.PICKER || trx.picker_name || '-',
+                        items: [],
+                        pickedCount: 0,
+                        totalCount: 0
+                    };
+                }
+                orderGroups[orderNum].items.push(trx);
+                orderGroups[orderNum].totalCount++;
+                if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
+                    orderGroups[orderNum].pickedCount++;
+                }
+            });
+
+            const orders = Object.values(orderGroups);
+            totalOrders += orders.length;
+            totalLines += trip.transactions.length;
+
             html += `
                 <div class="trip-card">
                     <div class="trip-header">
-                        <span class="trip-id">Trip: ${trip.trip_id}</span>
-                        <span class="priority" style="background: ${priColor};">Priority ${pri || '-'}</span>
+                        <div class="trip-title">
+                            <span class="trip-id">🚚 Trip: ${trip.trip_id}</span>
+                            <span class="priority" style="background: ${priColor};">Priority ${pri || '-'}</span>
+                        </div>
+                        <div class="trip-info">
+                            <span>📅 ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</span>
+                            <span>🚛 ${trip.trip_lorry || '-'}</span>
+                            <span>📍 Bay ${trip.trip_loading_bay || '-'}</span>
+                            <span>📦 ${orders.length} Orders</span>
+                        </div>
                     </div>
-                    <div class="trip-details">
-                        <div><strong>📅 Date:</strong> ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</div>
-                        <div><strong>🚛 Lorry:</strong> ${trip.trip_lorry || '-'}</div>
-                        <div><strong>📍 Bay:</strong> ${trip.trip_loading_bay || '-'}</div>
-                        <div><strong>👤 Picker:</strong> ${trip.picker || '-'}</div>
-                        <div><strong>📦 Orders:</strong> ${orderCount}</div>
-                        <div><strong>📋 Lines:</strong> ${trip.transactions.length}</div>
-                        <div><strong>📊 Total Qty:</strong> ${tripQty.toLocaleString()}</div>
-                    </div>
+                    <table class="orders-table">
+                        <thead>
+                            <tr>
+                                <th>Order #</th>
+                                <th>Picker</th>
+                                <th style="text-align: center;">Pick Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            orders.forEach(order => {
+                const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
+                let statusClass = 'status-not-picked';
+                let statusText = 'Not Picked';
+                if (pickPct === 100) {
+                    statusClass = 'status-picked';
+                    statusText = '✓ Picked';
+                } else if (pickPct > 0) {
+                    statusClass = 'status-partial';
+                    statusText = `${pickPct}% Picked`;
+                }
+
+                html += `
+                            <tr>
+                                <td style="font-weight: 600; color: #1e3a5f;">${order.orderNumber}</td>
+                                <td>${order.picker}</td>
+                                <td style="text-align: center;">
+                                    <span class="status-badge ${statusClass}">${statusText}</span>
+                                </td>
+                            </tr>
+                `;
+            });
+
+            html += `
+                        </tbody>
+                    </table>
                 </div>
             `;
         }
@@ -5064,10 +5163,6 @@ function generateEmailHtmlBody(comments) {
                         <div class="summary-item">
                             <div class="summary-value">${totalLines}</div>
                             <div class="summary-label">Lines</div>
-                        </div>
-                        <div class="summary-item">
-                            <div class="summary-value">${totalQty.toLocaleString()}</div>
-                            <div class="summary-label">Total Qty</div>
                         </div>
                     </div>
                 </div>
@@ -5223,26 +5318,82 @@ window.postToTeams = async function() {
     try {
         // Build Adaptive Card payload
         const groupedTrips = groupTransactionsByTrip();
-        const tripDetails = [];
+        const tripCards = [];
         let totalOrders = 0;
         let totalLines = 0;
 
         selectedTripsForProcessing.forEach(tripId => {
             const trip = groupedTrips.find(t => t.trip_id === tripId);
             if (trip) {
-                const orderCount = new Set(trip.transactions.map(t => t.source_order)).size;
-                totalOrders += orderCount;
+                // Group transactions by order
+                const orderGroups = {};
+                trip.transactions.forEach(trx => {
+                    const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                    if (!orderGroups[orderNum]) {
+                        orderGroups[orderNum] = {
+                            orderNumber: orderNum,
+                            picker: trx.picker || trx.PICKER || trx.picker_name || '-',
+                            pickedCount: 0,
+                            totalCount: 0
+                        };
+                    }
+                    orderGroups[orderNum].totalCount++;
+                    if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
+                        orderGroups[orderNum].pickedCount++;
+                    }
+                });
+
+                const orders = Object.values(orderGroups);
+                totalOrders += orders.length;
                 totalLines += trip.transactions.length;
 
-                tripDetails.push({
-                    trip_id: trip.trip_id,
-                    trip_date: trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A',
-                    trip_lorry: trip.trip_lorry || '-',
-                    trip_loading_bay: trip.trip_loading_bay || '-',
-                    trip_priority: trip.trip_priority || '-',
-                    picker: trip.picker || '-',
-                    orderCount: orderCount,
-                    lineCount: trip.transactions.length
+                // Build order rows for this trip
+                const orderRows = orders.map(order => {
+                    const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
+                    let statusText = '❌ Not Picked';
+                    if (pickPct === 100) statusText = '✅ Picked';
+                    else if (pickPct > 0) statusText = `🟡 ${pickPct}%`;
+
+                    return {
+                        "type": "ColumnSet",
+                        "columns": [
+                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": order.orderNumber, "size": "small", "weight": "bolder" }] },
+                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": order.picker, "size": "small" }] },
+                            { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": statusText, "size": "small" }] }
+                        ]
+                    };
+                });
+
+                tripCards.push({
+                    "type": "Container",
+                    "style": "emphasis",
+                    "items": [
+                        {
+                            "type": "ColumnSet",
+                            "columns": [
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚚 Trip: ${trip.trip_id}`, "weight": "bolder", "size": "medium" }] },
+                                { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": `Pri ${trip.trip_priority || '-'}`, "size": "small", "color": trip.trip_priority == 1 ? "attention" : "default" }] }
+                            ]
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": `📅 ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'} | 🚛 ${trip.trip_lorry || '-'} | 📍 Bay ${trip.trip_loading_bay || '-'}`,
+                            "size": "small",
+                            "isSubtle": true,
+                            "spacing": "none"
+                        },
+                        {
+                            "type": "ColumnSet",
+                            "columns": [
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "**Order #**", "size": "small" }] },
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "**Picker**", "size": "small" }] },
+                                { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": "**Status**", "size": "small" }] }
+                            ],
+                            "spacing": "small"
+                        },
+                        ...orderRows
+                    ],
+                    "spacing": "medium"
                 });
             }
         });
@@ -5259,7 +5410,7 @@ window.postToTeams = async function() {
                     "body": [
                         {
                             "type": "TextBlock",
-                            "text": "📦 WMS Trip Update",
+                            "text": "🚚 WMS Trip Summary",
                             "weight": "bolder",
                             "size": "large",
                             "color": "accent"
@@ -5270,47 +5421,7 @@ window.postToTeams = async function() {
                             "spacing": "none",
                             "isSubtle": true
                         },
-                        {
-                            "type": "Container",
-                            "items": tripDetails.map(trip => ({
-                                "type": "Container",
-                                "style": "emphasis",
-                                "items": [
-                                    {
-                                        "type": "TextBlock",
-                                        "text": `Trip: ${trip.trip_id}`,
-                                        "weight": "bolder"
-                                    },
-                                    {
-                                        "type": "ColumnSet",
-                                        "columns": [
-                                            {
-                                                "type": "Column",
-                                                "items": [
-                                                    { "type": "TextBlock", "text": `📅 ${trip.trip_date}`, "size": "small" },
-                                                    { "type": "TextBlock", "text": `🚚 ${trip.trip_lorry}`, "size": "small", "spacing": "none" }
-                                                ]
-                                            },
-                                            {
-                                                "type": "Column",
-                                                "items": [
-                                                    { "type": "TextBlock", "text": `📍 Bay: ${trip.trip_loading_bay}`, "size": "small" },
-                                                    { "type": "TextBlock", "text": `⚡ Pri: ${trip.trip_priority}`, "size": "small", "spacing": "none" }
-                                                ]
-                                            },
-                                            {
-                                                "type": "Column",
-                                                "items": [
-                                                    { "type": "TextBlock", "text": `👤 ${trip.picker}`, "size": "small" },
-                                                    { "type": "TextBlock", "text": `📦 ${trip.orderCount} orders, ${trip.lineCount} lines`, "size": "small", "spacing": "none" }
-                                                ]
-                                            }
-                                        ]
-                                    }
-                                ],
-                                "spacing": "medium"
-                            }))
-                        }
+                        ...tripCards
                     ]
                 }
             }]
