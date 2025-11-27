@@ -41,6 +41,17 @@ let currentProcessingOrder = null;
 // Selected trips for processing (Set of trip_id strings)
 let selectedTripsForProcessing = new Set();
 
+// Pre-calculated summary data for selected trips
+let selectedTripsSummary = {
+    totalTrips: 0,
+    totalOrders: 0,
+    totalLines: 0,
+    totalPicked: 0,
+    totalNotPicked: 0,
+    pickPercentage: 0,
+    trips: [] // Array of trip detail objects
+};
+
 // Font size multiplier for Trip and Order groups (1.0 = 100%)
 let tripOrderFontSizeMultiplier = 1.0;
 const FONT_SIZE_STEP = 0.1; // 10% per click
@@ -745,7 +756,7 @@ function deselectAllTrips() {
     addLogEntry('Selection', 'All trips deselected', 'info');
 }
 
-// Update selection count display
+// Update selection count display and recalculate summary
 function updateSelectionCount() {
     const countEl = document.getElementById('selected-trips-count');
     if (countEl) {
@@ -753,6 +764,104 @@ function updateSelectionCount() {
         countEl.textContent = count > 0 ? `${count} trip${count > 1 ? 's' : ''} selected` : 'No trips selected';
         countEl.style.color = count > 0 ? '#f59e0b' : '#94a3b8';
     }
+
+    // Recalculate summary data for selected trips
+    recalculateSelectedTripsSummary();
+}
+
+// Recalculate the global selectedTripsSummary based on selected trips
+function recalculateSelectedTripsSummary() {
+    // Reset summary
+    selectedTripsSummary = {
+        totalTrips: 0,
+        totalOrders: 0,
+        totalLines: 0,
+        totalPicked: 0,
+        totalNotPicked: 0,
+        pickPercentage: 0,
+        trips: []
+    };
+
+    if (selectedTripsForProcessing.size === 0) {
+        return;
+    }
+
+    const groupedTrips = groupTransactionsByTrip();
+
+    selectedTripsForProcessing.forEach(tripId => {
+        const trip = groupedTrips.find(t => t.trip_id === tripId);
+        if (trip) {
+            // Group transactions by order
+            const orderGroups = {};
+            trip.transactions.forEach(trx => {
+                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                if (!orderGroups[orderNum]) {
+                    orderGroups[orderNum] = {
+                        orderNumber: orderNum,
+                        picker: trx.picker || trx.PICKER || trx.picker_name || '-',
+                        pickedCount: 0,
+                        totalCount: 0
+                    };
+                }
+                orderGroups[orderNum].totalCount++;
+                if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
+                    orderGroups[orderNum].pickedCount++;
+                    selectedTripsSummary.totalPicked++;
+                } else {
+                    selectedTripsSummary.totalNotPicked++;
+                }
+            });
+
+            const orders = Object.values(orderGroups);
+
+            // Calculate trip-level stats
+            const tripPickedCount = orders.reduce((sum, o) => sum + o.pickedCount, 0);
+            const tripTotalCount = orders.reduce((sum, o) => sum + o.totalCount, 0);
+            const tripPickPct = tripTotalCount > 0 ? Math.round((tripPickedCount / tripTotalCount) * 100) : 0;
+
+            // Get priority info
+            const pri = trip.trip_priority;
+            let priText = pri ? `P${pri}` : '-';
+            let priColor = pri == 1 ? 'attention' : (pri == 2 ? 'warning' : 'default');
+
+            // Add to summary
+            selectedTripsSummary.trips.push({
+                tripId: trip.trip_id,
+                tripDate: trip.trip_date,
+                tripLorry: trip.trip_lorry || '-',
+                tripLoadingBay: trip.trip_loading_bay || '-',
+                tripPriority: pri,
+                priorityText: priText,
+                priorityColor: priColor,
+                orderCount: orders.length,
+                lineCount: trip.transactions.length,
+                pickedCount: tripPickedCount,
+                pickPercentage: tripPickPct,
+                orders: orders.map(order => {
+                    const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
+                    return {
+                        orderNumber: order.orderNumber,
+                        picker: order.picker,
+                        pickedCount: order.pickedCount,
+                        totalCount: order.totalCount,
+                        pickPercentage: pickPct,
+                        statusIcon: pickPct === 100 ? '🟢' : (pickPct > 0 ? '🟡' : '🔴'),
+                        statusText: pickPct === 100 ? 'Picked' : (pickPct > 0 ? `${pickPct}%` : 'Pending')
+                    };
+                })
+            });
+
+            selectedTripsSummary.totalOrders += orders.length;
+            selectedTripsSummary.totalLines += trip.transactions.length;
+        }
+    });
+
+    selectedTripsSummary.totalTrips = selectedTripsSummary.trips.length;
+    selectedTripsSummary.pickPercentage = selectedTripsSummary.totalLines > 0
+        ? Math.round((selectedTripsSummary.totalPicked / selectedTripsSummary.totalLines) * 100)
+        : 0;
+
+    console.log('Selected Trips Summary:', selectedTripsSummary);
 }
 
 // Toggle order details
@@ -5495,160 +5604,160 @@ window.postToTeams = async function() {
     btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
 
     try {
-        // Build Adaptive Card payload
-        const groupedTrips = groupTransactionsByTrip();
+        // Use pre-calculated summary data from selectedTripsSummary
+        const summary = selectedTripsSummary;
         const tripCards = [];
-        let totalOrders = 0;
-        let totalLines = 0;
-        let totalPicked = 0;
-        let totalNotPicked = 0;
 
-        selectedTripsForProcessing.forEach(tripId => {
-            const trip = groupedTrips.find(t => t.trip_id === tripId);
-            if (trip) {
-                // Group transactions by order
-                const orderGroups = {};
-                trip.transactions.forEach(trx => {
-                    const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
-                    if (!orderGroups[orderNum]) {
-                        orderGroups[orderNum] = {
-                            orderNumber: orderNum,
-                            picker: trx.picker || trx.PICKER || trx.picker_name || '-',
-                            pickedCount: 0,
-                            totalCount: 0
-                        };
+        // Build trip cards from pre-calculated summary
+        summary.trips.forEach(trip => {
+            const tripStatusIcon = trip.pickPercentage === 100 ? '🟢' : (trip.pickPercentage > 0 ? '🟡' : '🔴');
+
+            // Unique ID for this trip's order details
+            const orderDetailsId = `orderDetails_${trip.tripId}`;
+            const expandBtnId = `expandBtn_${trip.tripId}`;
+            const collapseBtnId = `collapseBtn_${trip.tripId}`;
+
+            // Build order facts from pre-calculated order data
+            const orderFacts = trip.orders.map(order => ({
+                "type": "ColumnSet",
+                "spacing": "small",
+                "columns": [
+                    {
+                        "type": "Column",
+                        "width": "40px",
+                        "items": [{ "type": "TextBlock", "text": order.statusIcon, "size": "small" }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [{ "type": "TextBlock", "text": order.orderNumber, "size": "small", "weight": "bolder" }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [{ "type": "TextBlock", "text": order.picker || '-', "size": "small", "isSubtle": true }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "80px",
+                        "items": [{ "type": "TextBlock", "text": order.statusText, "size": "small", "horizontalAlignment": "right" }]
                     }
-                    orderGroups[orderNum].totalCount++;
-                    if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
-                        orderGroups[orderNum].pickedCount++;
-                        totalPicked++;
-                    } else {
-                        totalNotPicked++;
-                    }
-                });
+                ]
+            }));
 
-                const orders = Object.values(orderGroups);
-                totalOrders += orders.length;
-                totalLines += trip.transactions.length;
-
-                // Get priority info
-                const pri = trip.trip_priority;
-                let priText = pri ? `P${pri}` : '-';
-                let priColor = pri == 1 ? 'attention' : (pri == 2 ? 'warning' : 'default');
-
-                // Build order facts for this trip
-                const orderFacts = orders.map(order => {
-                    const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
-                    let statusIcon = '🔴';
-                    if (pickPct === 100) statusIcon = '🟢';
-                    else if (pickPct > 0) statusIcon = '🟡';
-
-                    return {
+            // Trip card with expand/collapse functionality
+            tripCards.push({
+                "type": "Container",
+                "style": "emphasis",
+                "bleed": true,
+                "items": [
+                    // Trip Header
+                    {
                         "type": "ColumnSet",
-                        "spacing": "small",
                         "columns": [
                             {
                                 "type": "Column",
-                                "width": "40px",
-                                "items": [{ "type": "TextBlock", "text": statusIcon, "size": "small" }]
+                                "width": "auto",
+                                "items": [{
+                                    "type": "TextBlock",
+                                    "text": "🚚",
+                                    "size": "large"
+                                }]
                             },
                             {
                                 "type": "Column",
                                 "width": "stretch",
-                                "items": [{ "type": "TextBlock", "text": order.orderNumber, "size": "small", "weight": "bolder" }]
+                                "items": [
+                                    { "type": "TextBlock", "text": `Trip ${trip.tripId}`, "weight": "bolder", "size": "medium", "spacing": "none" },
+                                    { "type": "TextBlock", "text": `${trip.tripDate ? new Date(trip.tripDate).toLocaleDateString() : ''} • ${trip.orderCount} orders`, "size": "small", "isSubtle": true, "spacing": "none" }
+                                ]
                             },
                             {
                                 "type": "Column",
-                                "width": "stretch",
-                                "items": [{ "type": "TextBlock", "text": order.picker || '-', "size": "small", "isSubtle": true }]
-                            },
-                            {
-                                "type": "Column",
-                                "width": "80px",
-                                "items": [{ "type": "TextBlock", "text": pickPct === 100 ? 'Picked' : (pickPct > 0 ? `${pickPct}%` : 'Pending'), "size": "small", "horizontalAlignment": "right" }]
+                                "width": "auto",
+                                "items": [{
+                                    "type": "TextBlock",
+                                    "text": trip.priorityText,
+                                    "size": "small",
+                                    "weight": "bolder",
+                                    "color": trip.priorityColor
+                                }]
                             }
                         ]
-                    };
-                });
-
-                // Trip card
-                tripCards.push({
-                    "type": "Container",
-                    "style": "emphasis",
-                    "bleed": true,
-                    "items": [
-                        // Trip Header
-                        {
-                            "type": "ColumnSet",
-                            "columns": [
-                                {
-                                    "type": "Column",
-                                    "width": "auto",
-                                    "items": [{
-                                        "type": "TextBlock",
-                                        "text": "🚚",
-                                        "size": "large"
-                                    }]
-                                },
-                                {
-                                    "type": "Column",
-                                    "width": "stretch",
-                                    "items": [
-                                        { "type": "TextBlock", "text": `Trip ${trip.trip_id}`, "weight": "bolder", "size": "medium", "spacing": "none" },
-                                        { "type": "TextBlock", "text": `${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : ''} • ${orders.length} orders`, "size": "small", "isSubtle": true, "spacing": "none" }
-                                    ]
-                                },
-                                {
-                                    "type": "Column",
-                                    "width": "auto",
-                                    "items": [{
-                                        "type": "TextBlock",
-                                        "text": priText,
-                                        "size": "small",
-                                        "weight": "bolder",
-                                        "color": priColor
-                                    }]
-                                }
-                            ]
-                        },
-                        // Trip Details Row
-                        {
-                            "type": "ColumnSet",
-                            "spacing": "small",
-                            "columns": [
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚛 ${trip.trip_lorry || '-'}`, "size": "small", "isSubtle": true }] },
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `📍 Bay ${trip.trip_loading_bay || '-'}`, "size": "small", "isSubtle": true }] }
-                            ]
-                        },
-                        // Divider
-                        {
-                            "type": "TextBlock",
-                            "text": "───────────────────────",
-                            "size": "small",
-                            "isSubtle": true,
-                            "spacing": "small"
-                        },
-                        // Order Header
-                        {
-                            "type": "ColumnSet",
-                            "spacing": "small",
-                            "columns": [
-                                { "type": "Column", "width": "40px", "items": [{ "type": "TextBlock", "text": "", "size": "small" }] },
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "ORDER", "size": "small", "weight": "bolder", "isSubtle": true }] },
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "PICKER", "size": "small", "weight": "bolder", "isSubtle": true }] },
-                                { "type": "Column", "width": "80px", "items": [{ "type": "TextBlock", "text": "STATUS", "size": "small", "weight": "bolder", "isSubtle": true, "horizontalAlignment": "right" }] }
-                            ]
-                        },
-                        // Orders
-                        ...orderFacts
-                    ],
-                    "spacing": "medium"
-                });
-            }
+                    },
+                    // Trip Details Row with Pick Status
+                    {
+                        "type": "ColumnSet",
+                        "spacing": "small",
+                        "columns": [
+                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚛 ${trip.tripLorry}`, "size": "small", "isSubtle": true }] },
+                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `📍 Bay ${trip.tripLoadingBay}`, "size": "small", "isSubtle": true }] },
+                            { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": `${tripStatusIcon} ${trip.pickPercentage}% Picked`, "size": "small", "weight": "bolder" }] }
+                        ]
+                    },
+                    // Expand Button (visible by default)
+                    {
+                        "type": "ActionSet",
+                        "id": expandBtnId,
+                        "actions": [
+                            {
+                                "type": "Action.ToggleVisibility",
+                                "title": "▼ Show Orders",
+                                "targetElements": [orderDetailsId, expandBtnId, collapseBtnId]
+                            }
+                        ],
+                        "spacing": "small"
+                    },
+                    // Collapse Button (hidden by default)
+                    {
+                        "type": "ActionSet",
+                        "id": collapseBtnId,
+                        "isVisible": false,
+                        "actions": [
+                            {
+                                "type": "Action.ToggleVisibility",
+                                "title": "▲ Hide Orders",
+                                "targetElements": [orderDetailsId, expandBtnId, collapseBtnId]
+                            }
+                        ],
+                        "spacing": "small"
+                    },
+                    // Order Details Container (hidden by default)
+                    {
+                        "type": "Container",
+                        "id": orderDetailsId,
+                        "isVisible": false,
+                        "items": [
+                            // Divider
+                            {
+                                "type": "TextBlock",
+                                "text": "───────────────────────",
+                                "size": "small",
+                                "isSubtle": true,
+                                "spacing": "small"
+                            },
+                            // Order Header
+                            {
+                                "type": "ColumnSet",
+                                "spacing": "small",
+                                "columns": [
+                                    { "type": "Column", "width": "40px", "items": [{ "type": "TextBlock", "text": "", "size": "small" }] },
+                                    { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "ORDER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                    { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "PICKER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                    { "type": "Column", "width": "80px", "items": [{ "type": "TextBlock", "text": "STATUS", "size": "small", "weight": "bolder", "isSubtle": true, "horizontalAlignment": "right" }] }
+                                ]
+                            },
+                            // Orders
+                            ...orderFacts
+                        ]
+                    }
+                ],
+                "spacing": "medium"
+            });
         });
 
-        // Calculate pick percentage
-        const pickPct = totalLines > 0 ? Math.round((totalPicked / totalLines) * 100) : 0;
+        // Use pre-calculated pick percentage from summary
+        const pickPct = summary.pickPercentage;
 
         // Build Adaptive Card
         const card = {
@@ -5683,7 +5792,7 @@ window.postToTeams = async function() {
                                 }
                             ]
                         },
-                        // Summary Stats
+                        // Summary Stats (using pre-calculated data)
                         {
                             "type": "ColumnSet",
                             "spacing": "medium",
@@ -5692,7 +5801,7 @@ window.postToTeams = async function() {
                                     "type": "Column",
                                     "width": "stretch",
                                     "items": [
-                                        { "type": "TextBlock", "text": selectedTripsForProcessing.size.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": summary.totalTrips.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
                                         { "type": "TextBlock", "text": "Trips", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
                                     ]
                                 },
@@ -5700,7 +5809,7 @@ window.postToTeams = async function() {
                                     "type": "Column",
                                     "width": "stretch",
                                     "items": [
-                                        { "type": "TextBlock", "text": totalOrders.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": summary.totalOrders.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
                                         { "type": "TextBlock", "text": "Orders", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
                                     ]
                                 },
@@ -5708,7 +5817,7 @@ window.postToTeams = async function() {
                                     "type": "Column",
                                     "width": "stretch",
                                     "items": [
-                                        { "type": "TextBlock", "text": totalLines.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": summary.totalLines.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
                                         { "type": "TextBlock", "text": "Lines", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
                                     ]
                                 },
