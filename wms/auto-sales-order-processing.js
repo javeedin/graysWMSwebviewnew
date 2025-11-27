@@ -208,6 +208,10 @@ function groupSOTransactionsByTrip() {
             grouped[tripId] = {
                 trip_id: tripId,
                 trip_date: item.trip_date,
+                trip_lorry: item.trip_lorry,
+                trip_loading_bay: item.trip_loading_bay,
+                trip_priority: item.trip_priority,
+                picker: item.picker,
                 customer: item.customer,
                 transactions: []
             };
@@ -292,32 +296,48 @@ function displaySOGroupedTrips() {
             <div id="so-trip-card-${index}" style="background: white; ${cardBorderStyle} border-radius: 8px; margin-bottom: 0.75rem; overflow: hidden; transition: all 0.3s;">
                 <!-- Trip Header -->
                 <div class="so-trip-group-header" onclick="toggleSOTripDetails(${index})" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
-                    <div style="display: flex; gap: 1.5rem; align-items: center; flex: 1;">
+                    <div style="display: flex; gap: 1rem; align-items: center; flex: 1; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
-                            <i class="fas fa-truck so-trip-group-icon" style="color: #667eea; font-size: 16px;"></i>
+                            <i class="fas fa-truck so-trip-group-icon" style="color: #667eea; font-size: 14px;"></i>
                             <div>
-                                <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">TRIP ID</div>
-                                <div class="so-trip-group-value" style="font-size: 13px; font-weight: 700; color: #1e293b;">${trip.trip_id}</div>
+                                <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">TRIP</div>
+                                <div class="so-trip-group-value" style="font-size: 11px; font-weight: 700; color: #1e293b;">${trip.trip_id}</div>
                             </div>
                         </div>
                         <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">DATE</div>
-                            <div class="so-trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">LORRY</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #7c3aed;">${trip.trip_lorry || '-'}</div>
                         </div>
                         <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">ORDERS</div>
-                            <div class="so-trip-group-value" style="font-size: 13px; font-weight: 700; color: #667eea;">${orderCount}</div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">BAY</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #2563eb;">${trip.trip_loading_bay || '-'}</div>
                         </div>
                         <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">LINES</div>
-                            <div class="so-trip-group-value" style="font-size: 13px; font-weight: 700; color: #667eea;">${trip.transactions.length}</div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">PRI</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 700; color: ${trip.trip_priority <= 3 ? '#dc2626' : trip.trip_priority <= 6 ? '#d97706' : '#059669'};">${trip.trip_priority || '-'}</div>
                         </div>
-                        <div class="so-trip-stats-badges" style="display: flex; gap: 0.4rem;">
-                            ${successCount > 0 ? `<span class="so-trip-stats-badge" style="background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${successCount} ✓</span>` : ''}
-                            ${processingCount > 0 ? `<span class="so-trip-stats-badge" style="background: #f59e0b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
-                            ${pendingCount > 0 ? `<span class="so-trip-stats-badge" style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
-                            ${cancelledCount > 0 ? `<span class="so-trip-stats-badge" style="background: #6b7280; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
-                            ${failedCount > 0 ? `<span class="so-trip-stats-badge" style="background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${failedCount} ✗</span>` : ''}
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">PICKER</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #1e293b; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${trip.picker || ''}">${trip.picker || '-'}</div>
+                        </div>
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">DATE</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #1e293b;">${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : '-'}</div>
+                        </div>
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">ORD</div>
+                            <div class="so-trip-group-value" style="font-size: 11px; font-weight: 700; color: #667eea;">${orderCount}</div>
+                        </div>
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">LINES</div>
+                            <div class="so-trip-group-value" style="font-size: 11px; font-weight: 700; color: #667eea;">${trip.transactions.length}</div>
+                        </div>
+                        <div class="so-trip-stats-badges" style="display: flex; gap: 0.3rem;">
+                            ${successCount > 0 ? `<span class="so-trip-stats-badge" style="background: #10b981; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${successCount} ✓</span>` : ''}
+                            ${processingCount > 0 ? `<span class="so-trip-stats-badge" style="background: #f59e0b; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
+                            ${pendingCount > 0 ? `<span class="so-trip-stats-badge" style="background: #3b82f6; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
+                            ${cancelledCount > 0 ? `<span class="so-trip-stats-badge" style="background: #6b7280; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
+                            ${failedCount > 0 ? `<span class="so-trip-stats-badge" style="background: #ef4444; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
                     </div>
                     <button onclick="event.stopPropagation(); openSOTripPrintModal('${trip.trip_id}', '${trip.trip_date}', ${orderCount}, ${index})" style="background: #10b981; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-right: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Print all orders in this trip">
