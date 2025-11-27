@@ -11,6 +11,11 @@ let currentVehiclesData = [];
 window.currentFullData = currentFullData;
 window.pendingRequests = {};
 
+// Store Transactions Dialog Grid Instances
+let transactionDetailsGrid = null;
+let qohDetailsGrid = null;
+let allocatedLotsGrid = null;
+
 // ========================================
 // INSTANCE MANAGEMENT
 // ========================================
@@ -1413,10 +1418,15 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
             const pageId = this.getAttribute('data-page');
             document.getElementById(pageId).style.display = 'block';
-            
+
             const pageTitle = this.textContent.trim();
             document.title = `WMS - ${pageTitle}`;
-            
+
+            // Collapse sidebar when navigating to Auto Inventory Processing
+            if (pageId === 'auto-inventory-processing') {
+                document.getElementById('sidebar').classList.add('collapsed');
+            }
+
             if (pageId === 'vehicles' && currentFullData.length > 0) {
                 initVehiclesPage();
             } else if (pageId === 'monitor-printing') {
@@ -1561,6 +1571,9 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
         `;
         summaryStats.style.display = 'grid';
+
+        // Auto-populate Trips tab
+        openTripManagementTab('trips');
 
         setupAllTripsFilters(trips);
         
@@ -2028,6 +2041,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     TRIP_DATE: tripDate ? String(tripDate).split(' ')[0] : 'N/A',
                     LORRY_NUMBER: trip.trip_lorry || trip.TRIP_LORRY || 'N/A',
                     PRIORITY: trip.TRIP_PRIORITY || trip.trip_priority || 'Medium',
+                    STATUS: trip.TRIP_STATUS || trip.trip_status || trip.LINE_STATUS || 'ACTIVE',
+                    INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || null,
                     TOTAL_ORDERS: 0,
                     orders: []
                 };
@@ -2049,30 +2064,45 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         
         const uniqueDates = [...new Set(tripsArray.map(t => t.TRIP_DATE))].sort().reverse();
-        
+
         const container = document.getElementById(`grid-${tabId}`);
         container.style.height = 'auto';
         container.innerHTML = `
-            <div class="date-filter-section">
-                <span class="date-filter-label">Filter by Date:</span>
-                <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; flex: 1;">
-                    <div id="date-filters-${tabId}" style="display: flex; flex-wrap: wrap; gap: 0.5rem; flex: 1;">
-                        ${uniqueDates.map(date => 
-                            `<span class="filter-chip active" data-date="${date}" data-tab="${tabId}">${date}</span>`
-                        ).join('')}
+            <!-- Results Header with Date Filters -->
+            <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; padding: 1.25rem;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem;">
+                    <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                        <i class="fas fa-truck-loading" style="color: white; font-size: 1.1rem;"></i>
                     </div>
-                    <button class="btn btn-secondary" id="select-all-dates-${tabId}" style="white-space: nowrap;">
-                        <i class="fas fa-check-double"></i> Select All
-                    </button>
-                    <button class="btn btn-secondary" id="clear-all-dates-${tabId}" style="white-space: nowrap;">
-                        <i class="fas fa-times"></i> Clear All
-                    </button>
+                    <div>
+                        <div style="font-size: 1rem; font-weight: 700; color: #1e293b;">Trip Results</div>
+                        <div style="font-size: 0.75rem; color: #64748b;">Showing <span id="trips-count-${tabId}" style="font-weight: 700; color: #667eea;">${tripsArray.length}</span> of ${tripsArray.length} trips</div>
+                    </div>
+                </div>
+
+                <div style="border-top: 1px solid #e2e8f0; padding-top: 1rem;">
+                    <div style="display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <div style="color: #64748b; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-calendar-alt" style="color: #667eea;"></i>
+                            Filter by Date:
+                        </div>
+                        <div id="date-filters-${tabId}" style="display: flex; flex-wrap: wrap; gap: 0.5rem; flex: 1;">
+                            ${uniqueDates.map(date =>
+                                `<span class="filter-chip active" data-date="${date}" data-tab="${tabId}">${date}</span>`
+                            ).join('')}
+                        </div>
+                        <button class="btn btn-secondary" id="select-all-dates-${tabId}" style="white-space: nowrap; font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <i class="fas fa-check-double"></i> Select All
+                        </button>
+                        <button class="btn btn-secondary" id="clear-all-dates-${tabId}" style="white-space: nowrap; font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <i class="fas fa-times"></i> Clear All
+                        </button>
+                    </div>
                 </div>
             </div>
-            <div style="padding: 0.75rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
-                <div class="grid-title">Showing <span id="trips-count-${tabId}">${tripsArray.length}</span> of ${tripsArray.length} trips</div>
-            </div>
-            <div id="trip-cards-${tabId}" class="trip-cards-container"></div>
+
+            <!-- Trip Cards Container -->
+            <div id="trip-cards-${tabId}" class="trip-cards-container" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 0.75rem; padding: 0 0.5rem;"></div>
         `;
         
         setTimeout(() => {
@@ -2129,41 +2159,60 @@ document.addEventListener('DOMContentLoaded', function() {
         
         let html = '';
         filteredTrips.forEach(trip => {
-            const priorityClass = trip.PRIORITY.toLowerCase().includes('high') ? 'priority-high' : 
-                                 trip.PRIORITY.toLowerCase().includes('low') ? 'priority-low' : 'priority-medium';
-            
+            const priorityColor = trip.PRIORITY.toLowerCase().includes('high') ? '#ef4444' :
+                                 trip.PRIORITY.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
+            const priorityBg = trip.PRIORITY.toLowerCase().includes('high') ? 'linear-gradient(135deg, #ef4444, #dc2626)' :
+                              trip.PRIORITY.toLowerCase().includes('low') ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
+
             html += `
-                <div class="trip-card">
-                    <div class="trip-card-header">
-                        <div class="trip-card-id">${trip.TRIP_ID}</div>
-                        <div class="trip-card-priority ${priorityClass}">${trip.PRIORITY}</div>
-                    </div>
-                    <div class="trip-card-body">
-                        <div class="trip-card-field">
-                            <span class="trip-card-label">Trip Date</span>
-                            <span class="trip-card-value">${trip.TRIP_DATE}</span>
-                        </div>
-                        <div class="trip-card-field">
-                            <span class="trip-card-label">Lorry Number</span>
-                            <span class="trip-card-value">${trip.LORRY_NUMBER}</span>
-                        </div>
-                        <div class="trip-card-field">
-                            <span class="trip-card-label">Total Orders</span>
-                            <span class="trip-card-value">${trip.TOTAL_ORDERS}</span>
-                        </div>
-                    </div>
-                    
-                    <div style="padding: 0.5rem; border-top: 1px solid var(--gray-200); margin-top: 0.5rem;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: var(--gray-50); border-radius: 6px;">
-                            <div style="flex: 1;">
-                                <strong style="font-size: 0.75rem; color: var(--gray-700);">
-                                    <i class="fas fa-print" style="font-size: 0.7rem;"></i> Auto Print
-                                </strong>
-                                <div style="font-size: 0.65rem; color: var(--gray-500);">Auto download & print</div>
+                <div style="background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 3px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 3px 8px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';">
+                    <!-- Card Header -->
+                    <div style="padding: 0.5rem 0.75rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 5px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: white; font-size: 0.75rem;"></i>
                             </div>
-                            <label class="toggle-switch">
-                                <input type="checkbox" 
-                                       class="auto-print-toggle" 
+                            <div style="display: flex; flex-direction: column; gap: 0.1rem;">
+                                <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}</span>
+                                <span style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase;">${trip.STATUS || 'ACTIVE'}</span>
+                            </div>
+                        </div>
+                        <div style="background: ${priorityBg}; color: white; padding: 0.25rem 0.6rem; border-radius: 10px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase;">
+                            ${trip.PRIORITY}
+                        </div>
+                    </div>
+
+                    <!-- Card Body -->
+                    <div style="padding: 0.75rem;">
+                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
+                            <!-- Trip Date -->
+                            <div style="flex: 1; padding: 0.5rem; background: #f0f9ff; border-radius: 5px; border-left: 2px solid #3b82f6;">
+                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Date</div>
+                                <div style="font-size: 0.75rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
+                            </div>
+
+                            <!-- Lorry Number -->
+                            <div style="flex: 1; padding: 0.5rem; background: #f0fdf4; border-radius: 5px; border-left: 2px solid #10b981;">
+                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
+                                <div style="font-size: 0.75rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
+                            </div>
+
+                            <!-- Total Orders -->
+                            <div style="flex: 1; padding: 0.5rem; background: #fff7ed; border-radius: 5px; border-left: 2px solid #f59e0b;">
+                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            </div>
+                        </div>
+
+                        <!-- Auto Print Section -->
+                        <div style="padding: 0.4rem 0.5rem; background: #f8fafc; border-radius: 5px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                            <div style="display: flex; align-items: center; gap: 0.35rem;">
+                                <i class="fas fa-print" style="color: #667eea; font-size: 0.65rem;"></i>
+                                <span style="font-size: 0.65rem; color: #1e293b; font-weight: 600;">Auto Print</span>
+                            </div>
+                            <label class="toggle-switch" style="transform: scale(0.8);">
+                                <input type="checkbox"
+                                       class="auto-print-toggle"
                                        id="autoPrint_${trip.TRIP_ID}_${trip.TRIP_DATE}"
                                        data-trip-id="${trip.TRIP_ID}"
                                        data-trip-date="${trip.TRIP_DATE}"
@@ -2171,14 +2220,12 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <span class="toggle-slider"></span>
                             </label>
                         </div>
-                        <div class="auto-print-status" 
-                             id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}" 
-                             style="margin-top: 0.5rem; padding: 0.4rem; font-size: 0.65rem; border-radius: 4px; display: none;">
-                        </div>
+                        <div class="auto-print-status" id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}" style="margin-top: 0.35rem; padding: 0.3rem; font-size: 0.6rem; border-radius: 4px; display: none;"></div>
                     </div>
-                    
-                    <div class="trip-card-footer">
-                        <button class="btn" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+
+                    <!-- Card Footer -->
+                    <div style="padding: 0.45rem 0.65rem; background: #f8f9fc; border-top: 1px solid #e2e8f0;">
+                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}')" style="width: 100%; font-size: 0.65rem; padding: 0.4rem 0.6rem; justify-content: center;">
                             <i class="fas fa-eye"></i> View Details
                         </button>
                     </div>
@@ -2194,30 +2241,110 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Use stored tripMap for better data access
-    window.openTripDetails = function(tripId, tripDate, lorryNumber) {
+    window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard) {
         console.log('[JS] Opening trip details for:', tripId);
-        console.log('[JS] currentFullData length:', currentFullData.length);
 
-        // Check if data has been loaded
-        if (!currentFullData || currentFullData.length === 0) {
-            alert('No trip data loaded!\n\nPlease click "Fetch Trips" button first to load the data, then try viewing trip details again.');
+        // Collapse sidebar when opening trip details
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar && !sidebar.classList.contains('collapsed')) {
+            sidebar.classList.add('collapsed');
+            console.log('[JS] Sidebar collapsed for trip details view');
+        }
+
+        // Get instance from trip card data first, fallback to localStorage
+        let instance = instanceFromCard && instanceFromCard !== 'null' && instanceFromCard !== 'undefined' && instanceFromCard.trim() !== ''
+            ? instanceFromCard
+            : localStorage.getItem('fusionInstance');
+
+        if (!instance) {
+            alert('Instance not selected. Please select TEST or PROD from the instance selector in the toolbar.');
             return;
         }
 
-        // Filter trip data - match original logic (case-insensitive, trip_id OR TRIP_ID)
-        const tripData = currentFullData.filter(trip => {
-            const tripIdLower = (trip.trip_id || '').toString().toLowerCase();
-            const tripIdUpper = (trip.TRIP_ID || '').toString().toLowerCase();
-            const searchId = tripId.toString().toLowerCase();
-            return tripIdLower === searchId || tripIdUpper === searchId;
-        });
+        console.log('[JS] Using instance:', instance, '(from:', instanceFromCard ? 'trip card' : 'localStorage', ')');
 
-        console.log('[JS] Found', tripData.length, 'records for trip:', tripId);
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'trip-details-loading';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #667eea; margin-bottom: 1rem;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Loading Trip Details...</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">Trip ID: ${tripId}</div>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${instance}</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
 
-        if (tripData.length === 0) {
-            alert('No data found for trip: ' + tripId + '\n\nThe trip might not be in the current date range.\nPlease adjust the date range and click "Fetch Trips" again.');
-            return;
+        // Call GETTRIPDETAILS API
+        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${instance}`;
+
+        console.log('[JS] Calling GETTRIPDETAILS API:', GET_TRIP_DETAILS_API);
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: GET_TRIP_DETAILS_API
+            }, function(error, data) {
+                // Remove loading indicator
+                const loading = document.getElementById('trip-details-loading');
+                if (loading) loading.remove();
+
+                if (error) {
+                    console.error('[JS] Error loading trip details:', error);
+                    alert('Error loading trip details:\n' + error);
+                    return;
+                }
+
+                try {
+                    const result = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[JS] Trip details loaded from API:', result);
+
+                    if (result && result.items && result.items.length > 0) {
+                        const tripData = result.items;
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
+                    } else {
+                        alert('No data found for trip: ' + tripId);
+                    }
+                } catch (parseError) {
+                    console.error('[JS] Error parsing trip details response:', parseError);
+                    alert('Error processing trip details: ' + parseError.message);
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            fetch(GET_TRIP_DETAILS_API)
+                .then(response => response.json())
+                .then(result => {
+                    // Remove loading indicator
+                    const loading = document.getElementById('trip-details-loading');
+                    if (loading) loading.remove();
+
+                    console.log('[JS] Trip details loaded from API:', result);
+
+                    if (result && result.items && result.items.length > 0) {
+                        const tripData = result.items;
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
+                    } else {
+                        alert('No data found for trip: ' + tripId);
+                    }
+                })
+                .catch(error => {
+                    // Remove loading indicator
+                    const loading = document.getElementById('trip-details-loading');
+                    if (loading) loading.remove();
+
+                    console.error('[JS] Error loading trip details:', error);
+                    alert('Error loading trip details:\n' + error.message);
+                });
         }
+    };
+
+    // Helper function to open trip details with data
+    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber) {
+        console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId);
         
         // Create unique tab ID
         const tabId = 'trip-detail-' + tripId;
@@ -2263,57 +2390,138 @@ document.addEventListener('DOMContentLoaded', function() {
         tabPane.id = `trip-${tabId}-tab`;
         tabPane.innerHTML = `
             <div style="padding: 1rem;">
-                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                    <div>
-                        <h2 style="font-size: 1rem; font-weight: 700; color: var(--gray-900); margin-bottom: 0.3rem;">
-                            <i class="fas fa-route" style="color: var(--primary); font-size: 0.9rem;"></i> Trip: ${tripId}
-                        </h2>
-                        <p style="color: var(--gray-600); font-size: 0.75rem;">Complete order information for this trip</p>
+                <!-- Trip Summary Section -->
+                <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden;">
+                    <div onclick="toggleTripSummary('${tabId}')" style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: white; font-size: 1.2rem;"></i>
+                            </div>
+                            <div>
+                                <h2 style="font-size: 1.1rem; font-weight: 700; color: white; margin: 0;">Trip: ${tripId}</h2>
+                                <p style="color: rgba(255,255,255,0.9); font-size: 0.75rem; margin: 0.2rem 0 0 0;">Trip Summary & Statistics</p>
+                            </div>
+                        </div>
+                        <i class="fas fa-chevron-down" id="summary-icon-${tabId}" style="color: white; font-size: 1rem; transition: transform 0.3s ease;"></i>
+                    </div>
+
+                    <div id="trip-summary-${tabId}" style="padding: 0.75rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem;">
+                            <!-- Trip Date Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(99, 102, 241, 0.1); border-left: 3px solid #6366f1; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(99, 102, 241, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(99, 102, 241, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #6366f1, #4f46e5); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-calendar-alt" style="color: white; font-size: 0.7rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Trip Date</div>
+                                </div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${tripDate}</div>
+                            </div>
+
+                            <!-- Lorry Number Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(16, 185, 129, 0.1); border-left: 3px solid #10b981; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(16, 185, 129, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(16, 185, 129, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-truck" style="color: white; font-size: 0.7rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
+                                </div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${lorryNumber}</div>
+                            </div>
+
+                            <!-- Total Orders Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(245, 158, 11, 0.1); border-left: 3px solid #f59e0b; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(245, 158, 11, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(245, 158, 11, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-box" style="color: white; font-size: 0.7rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
+                                </div>
+                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalOrders}</div>
+                            </div>
+
+                            <!-- Customers Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(59, 130, 246, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(59, 130, 246, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-users" style="color: white; font-size: 0.7rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Customers</div>
+                                </div>
+                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
+                            </div>
+
+                            <!-- Total Quantity Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(139, 92, 246, 0.1); border-left: 3px solid #8b5cf6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(139, 92, 246, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(139, 92, 246, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-cubes" style="color: white; font-size: 0.7rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Quantity</div>
+                                </div>
+                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
+                            </div>
+
+                            <!-- Total Weight Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(236, 72, 153, 0.1); border-left: 3px solid #ec4899; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(236, 72, 153, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(236, 72, 153, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #ec4899, #db2777); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-weight" style="color: white; font-size: 0.7rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Weight</div>
+                                </div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalWeight.toFixed(2)} kg</div>
+                            </div>
+
+                            <!-- Products Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(20, 184, 166, 0.1); border-left: 3px solid #14b8a6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(20, 184, 166, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(20, 184, 166, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #14b8a6, #0d9488); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-boxes" style="color: white; font-size: 0.7rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Products</div>
+                                </div>
+                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueProducts}</div>
+                            </div>
+
+                            <!-- Priority Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1); border-left: 3px solid ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(239, 68, 68, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(239, 68, 68, 0.1)';">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, ${priority.toLowerCase().includes('high') ? '#ef4444, #dc2626' : priority.toLowerCase().includes('low') ? '#22c55e, #16a34a' : '#f59e0b, #d97706'}); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-flag" style="color: white; font-size: 0.7rem;"></i>
+                                    </div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Priority</div>
+                                </div>
+                                <div style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
+                            </div>
+                        </div>
                     </div>
                 </div>
-                
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.65rem; margin-bottom: 1rem;">
-                    <div style="background: linear-gradient(135deg, #6366f1, #4f46e5); color: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <div style="color: rgba(255,255,255,0.9); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Trip Date</div>
-                        <div style="font-size: 0.85rem; font-weight: 700;">${tripDate}</div>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <div style="color: rgba(255,255,255,0.9); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Lorry Number</div>
-                        <div style="font-size: 0.85rem; font-weight: 700;">${lorryNumber}</div>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <div style="color: rgba(255,255,255,0.9); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Total Orders</div>
-                        <div style="font-size: 1.1rem; font-weight: 800;">${totalOrders}</div>
-                    </div>
-                    <div style="background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                        <div style="color: rgba(255,255,255,0.9); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Customers</div>
-                        <div style="font-size: 1.1rem; font-weight: 800;">${uniqueCustomers}</div>
-                    </div>
-                    <div style="background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--gray-200);">
-                        <div style="color: var(--gray-500); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Total Quantity</div>
-                        <div style="font-size: 1.1rem; font-weight: 800; color: var(--gray-900);">${totalQuantity.toLocaleString()}</div>
-                    </div>
-                    <div style="background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--gray-200);">
-                        <div style="color: var(--gray-500); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Total Weight</div>
-                        <div style="font-size: 0.9rem; font-weight: 800; color: var(--gray-900);">${totalWeight.toFixed(2)} kg</div>
-                    </div>
-                    <div style="background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--gray-200);">
-                        <div style="color: var(--gray-500); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Products</div>
-                        <div style="font-size: 1.1rem; font-weight: 800; color: var(--gray-900);">${uniqueProducts}</div>
-                    </div>
-                    <div style="background: white; padding: 0.6rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid var(--gray-200);">
-                        <div style="color: var(--gray-500); font-size: 0.65rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.3px; margin-bottom: 0.25rem;">Priority</div>
-                        <div style="font-size: 1rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? 'var(--danger)' : priority.toLowerCase().includes('low') ? 'var(--success)' : 'var(--warning)'};">${priority}</div>
-                    </div>
-                </div>
-                
+
                 <div style="background: white; padding: 0.75rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                     <div style="margin-bottom: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="font-size: 0.85rem; font-weight: 600; margin: 0; color: var(--gray-800);">
                             <i class="fas fa-table" style="font-size: 0.75rem;"></i> Order Details
                         </h3>
-                        <div style="color: var(--gray-600); font-size: 0.7rem;">
-                            <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <div style="color: var(--gray-600); font-size: 0.7rem;">
+                                <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
+                            </div>
+                            <button class="btn btn-info" onclick="refreshTripDetails('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                            <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-user-check"></i> Assign Picker
+                            </button>
+                            <button class="btn btn-success" onclick="allocateLotsForS2V('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-boxes"></i> Allocate Lots for S2V
+                            </button>
+                            <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-truck-loading"></i> Pick Release All
+                            </button>
+                            <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-plus"></i> Add Orders
+                            </button>
                         </div>
                     </div>
                     <div id="grid-${tabId}" style="height: 500px;"></div>
@@ -2356,6 +2564,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             .replace(/^-|-$/g, '') || 'unknown';
                         $(container).html(`<span class="status-badge status-${safeClass}">${val}</span>`);
                     };
+                } else if (key === 'PICK_CONFIRM_ST' || key === 'pick_confirm_st' || key === 'SHIP_CONFIRM_ST' || key === 'ship_confirm_st') {
+                    col.alignment = 'center';
+                    col.caption = key.includes('PICK') || key.includes('pick') ? 'Pick Status' : 'Ship Status';
+                    // Show raw data value without icons
                 } else if (key.endsWith('_WEIGHT')) {
                     col.format = { type: 'fixedPoint', precision: 2 };
                     col.alignment = 'right';
@@ -2365,7 +2577,70 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 return col;
             });
-            
+
+            // Add Actions column at the beginning
+            columns.unshift({
+                caption: 'Actions',
+                width: 180,
+                alignment: 'center',
+                allowFiltering: false,
+                allowSorting: false,
+                cellTemplate: function(container, options) {
+                    const rowData = options.data;
+
+                    // Debug: Log all instance-related fields in rowData
+                    console.log('[Trip Details Grid] Instance fields in rowData:', {
+                        'instance_name': rowData.instance_name,
+                        'INSTANCE_NAME': rowData.INSTANCE_NAME,
+                        'instance': rowData.instance,
+                        'INSTANCE': rowData.INSTANCE,
+                        'sessionStorage': sessionStorage.getItem('loggedInInstance'),
+                        'localStorage': localStorage.getItem('fusionInstance')
+                    });
+
+                    // Get instance - try rowData first, then sessionStorage, then localStorage, finally fallback to TEST
+                    const instanceName = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE
+                        || sessionStorage.getItem('loggedInInstance')
+                        || localStorage.getItem('fusionInstance')
+                        || 'TEST';
+
+                    const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
+                    const tripIdFromRow = rowData.TRIP_ID || rowData.trip_id || '';
+                    const tripDateFromRow = rowData.TRIP_DATE || rowData.trip_date || '';
+
+                    console.log('[Trip Details Grid] Final Print button data:', {
+                        orderNumber: rowData.ORDER_NUMBER || rowData.order_number,
+                        instanceName: instanceName,
+                        orderType: orderType,
+                        tripId: tripIdFromRow,
+                        tripDate: tripDateFromRow
+                    });
+
+                    $(container).html(`
+                        <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                            <button class="icon-btn" onclick="openMRAProcessingPopup('${rowData.ORDER_NUMBER || rowData.order_number}')" title="MRA Interface">
+                                <i class="fas fa-file-invoice-dollar" style="color: #667eea;"></i>
+                            </button>
+                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
+                                <i class="fas fa-print" style="color: #8b5cf6;"></i>
+                            </button>
+                            <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
+                                <i class="fas fa-user-times" style="color: #ef4444;"></i>
+                            </button>
+                            <button class="icon-btn" onclick="pickRelease('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Pick Release">
+                                <i class="fas fa-check-circle" style="color: #10b981;"></i>
+                            </button>
+                            <button class="icon-btn" onclick='editTripOrder(${JSON.stringify(rowData)})' title="Edit">
+                                <i class="fas fa-edit" style="color: #3b82f6;"></i>
+                            </button>
+                            <button class="icon-btn" onclick="deleteTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Delete">
+                                <i class="fas fa-trash" style="color: #f59e0b;"></i>
+                            </button>
+                        </div>
+                    `);
+                }
+            });
+
             gridContainer.dxDataGrid({
                 dataSource: tripData,
                 columns: columns,
@@ -2414,18 +2689,3172 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.closeTripTab = function(tabId, event) {
         event.stopPropagation();
-        
+
         const tabItem = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
         const tabPane = document.getElementById(`trip-${tabId}-tab`);
-        
+
         const wasActive = tabItem && tabItem.classList.contains('active');
-        
+
         if (tabItem) tabItem.remove();
         if (tabPane) tabPane.remove();
-        
+
         if (wasActive) {
             activateTripTab('all-trips');
         }
+    };
+
+    // Open Add Orders modal for a trip from Trip Management
+    window.openAddOrdersModalForTrip = function(tripId) {
+        console.log('[Trip Management] Opening Add Orders modal for trip:', tripId);
+
+        // Check if trip-details.js functions are available
+        if (typeof window.openAddOrdersModal !== 'function') {
+            alert('Add Orders functionality not available. Please refresh the page.');
+            return;
+        }
+
+        // Find trip data from currentFullData
+        const tripRecords = currentFullData.filter(trip => {
+            const tripIdLower = (trip.trip_id || '').toString().toLowerCase();
+            const tripIdUpper = (trip.TRIP_ID || '').toString().toLowerCase();
+            const searchId = tripId.toString().toLowerCase();
+            return tripIdLower === searchId || tripIdUpper === searchId;
+        });
+
+        if (tripRecords.length === 0) {
+            alert('Trip data not found. Please try again.');
+            return;
+        }
+
+        const firstRecord = tripRecords[0];
+
+        // Set trip details data for trip-details.js to use
+        if (typeof window.setTripDetailsDataForModal === 'function') {
+            window.setTripDetailsDataForModal({
+                trip_id: tripId,
+                trip_date: firstRecord.TRIP_DATE || firstRecord.trip_date,
+                trip_lorry: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
+                trip_loading_bay: firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay,
+                trip_priority: firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY,
+                vehicle: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
+                status: firstRecord.TRIP_STATUS || firstRecord.trip_status || 'ACTIVE'
+            });
+        }
+
+        // Open the modal
+        window.openAddOrdersModal();
+    };
+
+    // Refresh Trip Management grid after adding orders
+    window.refreshTripManagementAfterAddOrders = function(tripId) {
+        console.log('[Trip Management] Refreshing grid after adding orders to trip:', tripId);
+
+        const tabId = 'trip-detail-' + tripId;
+        const gridContainer = $(`#grid-${tabId}`);
+
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Trip Management] Grid not found, might be on Co-Pilot page');
+            return;
+        }
+
+        // Get the grid instance
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        if (gridInstance) {
+            console.log('[Trip Management] Reloading grid data...');
+            gridInstance.refresh();
+        }
+
+        // Also refresh the trip cards to update totals
+        if (typeof window.fetchTripsData === 'function') {
+            console.log('[Trip Management] Refreshing trip cards...');
+            window.fetchTripsData();
+        }
+    };
+
+    // Toggle trip summary section
+    window.toggleTripSummary = function(tabId) {
+        const summaryContent = document.getElementById(`trip-summary-${tabId}`);
+        const summaryIcon = document.getElementById(`summary-icon-${tabId}`);
+
+        if (summaryContent && summaryIcon) {
+            if (summaryContent.style.display === 'none') {
+                summaryContent.style.display = 'block';
+                summaryIcon.style.transform = 'rotate(0deg)';
+            } else {
+                summaryContent.style.display = 'none';
+                summaryIcon.style.transform = 'rotate(-90deg)';
+            }
+        }
+    };
+
+    // Assign Picker to selected orders in a trip
+    window.assignPickerToTrip = function(tripId) {
+        console.log('[Assign Picker] Trip ID:', tripId);
+
+        // Get the grid instance - check both tab and dialog grids
+        const tabId = `trip-detail-${tripId}`;
+        const tabGridId = `grid-${tabId}`;
+        const dialogGridId = 'trip-dialog-grid';
+
+        console.log('[Assign Picker] Looking for grid:', tabGridId, 'or', dialogGridId);
+
+        // Try tab grid first, then dialog grid
+        let gridContainer = $(`#${tabGridId}`);
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Assign Picker] Tab grid not found, trying dialog grid...');
+            gridContainer = $(`#${dialogGridId}`);
+        }
+
+        console.log('[Assign Picker] Grid container found:', gridContainer.length);
+
+        if (!gridContainer || gridContainer.length === 0) {
+            console.error('[Assign Picker] ❌ Grid not found');
+            alert('Grid not found. Please try again.');
+            return;
+        }
+
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        if (!gridInstance) {
+            alert('Grid instance not found. Please try again.');
+            return;
+        }
+
+        // Get selected rows
+        const selectedRows = gridInstance.getSelectedRowsData();
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one order to assign a picker.');
+            return;
+        }
+
+        console.log('[Assign Picker] Selected orders:', selectedRows);
+
+        // Check if pickers data is loaded, if not load it first
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Assign Picker] Pickers not loaded, loading now...');
+
+            // Show loading message
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 10000; text-align: center;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #667eea; margin-bottom: 1rem;"></i><br><span style="color: #1f2937; font-weight: 600;">Loading pickers...</span>';
+            document.body.appendChild(loadingMsg);
+
+            // Load pickers
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                // Wait for pickers to load
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        // Remove loading message
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        // Open dialog
+                        openAssignPickerDialog(tripId, selectedRows);
+                    }
+                }, 500);
+
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again or visit the Pickers page first.');
+                    }
+                }, 10000);
+            } else {
+                const msg = document.getElementById('loading-pickers-msg');
+                if (msg) msg.remove();
+                alert('Pickers loading function not available. Please visit the Pickers page first to load picker data.');
+            }
+        } else {
+            // Pickers already loaded, open dialog directly
+            openAssignPickerDialog(tripId, selectedRows);
+        }
+    };
+
+    // Open Assign Picker Dialog
+    window.openAssignPickerDialog = function(tripId, selectedOrders) {
+        console.log('[Assign Picker] Opening dialog for', selectedOrders.length, 'orders');
+
+        // Build the list of selected order numbers
+        let orderListHtml = '';
+        selectedOrders.forEach((order, index) => {
+            const orderNumber = order.ORDER_NUMBER || order.order_number || order.ORDER || order.order || `Order ${index + 1}`;
+            const customerName = order.CUSTOMER_NAME || order.customer_name || order.CUSTOMER || order.customer || '';
+
+            orderListHtml += `
+                <div style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-weight: 600; color: #1f2937;">${orderNumber}</span>
+                        ${customerName ? `<span style="color: #64748b; font-size: 0.85rem; margin-left: 0.5rem;">- ${customerName}</span>` : ''}
+                    </div>
+                    <span style="color: #64748b; font-size: 0.75rem;">${index + 1} of ${selectedOrders.length}</span>
+                </div>
+            `;
+        });
+
+        // Build picker dropdown options
+        let pickerOptionsHtml = '<option value="">-- Select Picker --</option>';
+
+        if (window.pickersData && window.pickersData.length > 0) {
+            // Filter out deleted pickers
+            const activePickers = window.pickersData.filter(p => p.deleted !== 1);
+            activePickers.forEach(picker => {
+                const pickerId = picker.picker_id || picker.PICKER_ID || picker.id || picker.ID || '';
+                const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
+                const pickerType = picker.picker_type || picker.PICKER_TYPE || picker.type || picker.TYPE || '';
+
+                pickerOptionsHtml += `<option value="${pickerId}">${pickerName}${pickerType ? ' (' + pickerType + ')' : ''}</option>`;
+            });
+        } else {
+            pickerOptionsHtml += '<option value="" disabled>No pickers available</option>';
+        }
+
+        // Create modal HTML
+        const modalHtml = `
+            <div id="assign-picker-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                            <i class="fas fa-user-check"></i> Assign Picker
+                        </h3>
+                        <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
+                            Trip ID: ${tripId} • ${selectedOrders.length} order(s) selected
+                        </p>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
+                        <!-- Selected Orders Section -->
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-list"></i> Selected Orders
+                            </label>
+                            <div style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto; background: #f8f9fc;">
+                                ${orderListHtml}
+                            </div>
+                        </div>
+
+                        <!-- Picker Selection -->
+                        <div>
+                            <label for="assign-picker-select" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-user"></i> Select Picker <span style="color: #ef4444;">*</span>
+                            </label>
+                            <select id="assign-picker-select" style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; color: #1f2937;">
+                                ${pickerOptionsHtml}
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeAssignPickerDialog()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-primary" onclick="submitAssignPicker('${tripId}', ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})">
+                            <i class="fas fa-check"></i> Assign
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal to DOM
+        const existingModal = document.getElementById('assign-picker-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+
+    // Close Assign Picker Dialog
+    window.closeAssignPickerDialog = function() {
+        const modal = document.getElementById('assign-picker-modal');
+        if (modal) {
+            modal.remove();
+        }
+    };
+
+    // Submit Assign Picker (POST to API via C# backend)
+    window.submitAssignPicker = function(tripId, selectedOrders) {
+        const pickerSelect = document.getElementById('assign-picker-select');
+        const pickerId = pickerSelect.value;
+
+        if (!pickerId) {
+            alert('Please select a picker.');
+            return;
+        }
+
+        const pickerName = pickerSelect.options[pickerSelect.selectedIndex].text;
+
+        console.log('[Assign Picker] Assigning picker:', pickerId, pickerName);
+        console.log('[Assign Picker] To orders:', selectedOrders);
+        console.log('[Assign Picker] Trip ID:', tripId);
+
+        // Get instance from toolbar
+        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+        console.log('[Assign Picker] Instance:', instance);
+
+        // Get current date for assignment
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+
+        // Build orders array for API
+        const orders = selectedOrders.map(order => ({
+            orderNumber: order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || '',
+            accountNumber: order.ACCOUNT_NUMBER || order.account_number || '',
+            accountName: order.ACCOUNT_NAME || order.account_name || order.CUSTOMER_NAME || order.customer_name || '',
+            pickerName: pickerName,
+            loadingBay: order.LOADING_BAY || order.loading_bay || '',
+            orderTypeCode: order.ORDER_TYPE_CODE || order.order_type_code || order.ORDER_TYPE || order.order_type || '',
+            assignmentDate: today,
+            pickslip: order.PICKSLIP || order.pickslip || '',
+            pickwave: order.PICKWAVE || order.pickwave || '',
+            instance: instance
+        }));
+
+        const payload = { orders };
+
+        console.log('[Assign Picker] Payload:', payload);
+
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'assign-picker-loading';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #667eea; margin-bottom: 1rem;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Assigning Picker...</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">Processing ${orders.length} order(s)</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
+
+        const PICKER_ASSIGNMENT_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/pickerassignment';
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: PICKER_ASSIGNMENT_API,
+                body: JSON.stringify(payload)
+            }, function(error, data) {
+                // Remove loading indicator
+                const loading = document.getElementById('assign-picker-loading');
+                if (loading) loading.remove();
+
+                if (error) {
+                    console.error('[Assign Picker] Error:', error);
+                    alert('Error assigning picker:\n' + error);
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Assign Picker] API Response:', result);
+
+                        if (result.success === true || result.success === 'true') {
+                            // Success - show notification
+                            const notification = document.createElement('div');
+                            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                            notification.innerHTML = `
+                                <i class="fas fa-check-circle"></i>
+                                Successfully assigned <strong>${pickerName}</strong> to ${result.ordersAssigned || orders.length} order(s)
+                            `;
+                            document.body.appendChild(notification);
+
+                            setTimeout(() => notification.remove(), 4000);
+
+                            // Close dialog
+                            closeAssignPickerDialog();
+
+                            // Refresh the grid to show updated picker assignments
+                            const tabId = `trip-detail-${tripId}`;
+                            const gridId = `grid-${tabId}`;
+                            const gridContainer = $(`#${gridId}`);
+                            if (gridContainer && gridContainer.length > 0) {
+                                const gridInstance = gridContainer.dxDataGrid('instance');
+                                if (gridInstance) {
+                                    gridInstance.refresh();
+                                }
+                            }
+                        } else {
+                            // Error from API
+                            alert(`Failed to assign picker:\n${result.message || 'Unknown error'}`);
+                        }
+                    } catch (parseError) {
+                        console.error('[Assign Picker] Error parsing response:', parseError);
+                        alert('Error processing response: ' + parseError.message);
+                    }
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            fetch(PICKER_ASSIGNMENT_API, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(result => {
+                // Remove loading indicator
+                const loading = document.getElementById('assign-picker-loading');
+                if (loading) loading.remove();
+
+                console.log('[Assign Picker] API Response:', result);
+
+                if (result.success === true || result.success === 'true') {
+                    // Success - show notification
+                    const notification = document.createElement('div');
+                    notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                    notification.innerHTML = `
+                        <i class="fas fa-check-circle"></i>
+                        Successfully assigned <strong>${pickerName}</strong> to ${result.ordersAssigned || orders.length} order(s)
+                    `;
+                    document.body.appendChild(notification);
+
+                    setTimeout(() => notification.remove(), 4000);
+
+                    // Close dialog
+                    closeAssignPickerDialog();
+
+                    // Refresh the grid
+                    const tabId = `trip-detail-${tripId}`;
+                    const gridId = `grid-${tabId}`;
+                    const gridContainer = $(`#${gridId}`);
+                    if (gridContainer && gridContainer.length > 0) {
+                        const gridInstance = gridContainer.dxDataGrid('instance');
+                        if (gridInstance) {
+                            gridInstance.refresh();
+                        }
+                    }
+                } else {
+                    alert(`Failed to assign picker:\n${result.message || 'Unknown error'}`);
+                }
+            })
+            .catch(error => {
+                // Remove loading indicator
+                const loading = document.getElementById('assign-picker-loading');
+                if (loading) loading.remove();
+
+                console.error('[Assign Picker] Error:', error);
+                alert(`Error assigning picker:\n${error.message || 'Network error occurred'}`);
+            });
+        }
+    };
+
+    window.pickReleaseAll = function(tripId) {
+        console.log('[Trip Management] Pick release all for trip:', tripId);
+        alert('Pick Release All functionality - To be implemented');
+    };
+
+    // Allocate Lots for S2V - Process selected S2V orders
+    window.allocateLotsForS2V = function(tripId) {
+        console.log('[Allocate Lots S2V] Processing trip:', tripId);
+
+        // Get the grid instance - check both tab and dialog grids
+        const tabId = `trip-detail-${tripId}`;
+        const tabGridId = `grid-${tabId}`;
+        const dialogGridId = 'trip-dialog-grid';
+
+        console.log('[Allocate Lots S2V] Looking for grid:', tabGridId, 'or', dialogGridId);
+
+        // Try tab grid first, then dialog grid
+        let gridContainer = $(`#${tabGridId}`);
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Allocate Lots S2V] Tab grid not found, trying dialog grid...');
+            gridContainer = $(`#${dialogGridId}`);
+        }
+
+        if (!gridContainer || gridContainer.length === 0) {
+            console.error('[Allocate Lots S2V] ❌ Grid not found');
+            alert('Grid not found. Please refresh the page.');
+            return;
+        }
+
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        if (!gridInstance) {
+            alert('Grid instance not found. Please refresh the page.');
+            return;
+        }
+
+        // Get selected rows
+        const selectedRows = gridInstance.getSelectedRowsData();
+
+        if (selectedRows.length === 0) {
+            alert('Please select at least one order from the grid.');
+            return;
+        }
+
+        console.log('[Allocate Lots S2V] Selected rows:', selectedRows);
+
+        // Debug: Log all order types found in selected rows
+        selectedRows.forEach((row, idx) => {
+            const orderType = row.ORDER_TYPE_CODE || row.order_type_code || row.ORDER_TYPE || row.order_type || 'NOT_FOUND';
+            console.log(`[Allocate Lots S2V] Row ${idx + 1} Order Type:`, orderType);
+        });
+
+        // Filter only S2V/Store to Van order types
+        const s2vOrders = selectedRows.filter(row => {
+            const orderType = (row.ORDER_TYPE_CODE || row.order_type_code || row.ORDER_TYPE || row.order_type || '').toUpperCase();
+            return orderType === 'S2V' || orderType === 'STORE TO VAN' || orderType.includes('STORE TO VAN');
+        });
+
+        console.log('[Allocate Lots S2V] Filtered S2V orders:', s2vOrders.length, 'out of', selectedRows.length);
+
+        if (s2vOrders.length === 0) {
+            alert('No Store to Van orders selected. This function only works for Store to Van order types.');
+            return;
+        }
+
+        console.log('[Allocate Lots S2V] Store to Van orders found:', s2vOrders.length);
+
+        // Create progress dialog
+        const dialogHtml = `
+            <div id="s2v-allocate-dialog" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10002; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 90%; max-width: 800px; max-height: 80vh; display: flex; flex-direction: column;">
+                    <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">
+                            <i class="fas fa-boxes" style="color: #10b981;"></i> Allocate Lots for Store to Van Orders
+                        </h3>
+                        <button onclick="closeS2VDialog()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; padding: 0; width: 30px; height: 30px;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                        <div style="margin-bottom: 1rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px;">
+                            <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">Processing ${s2vOrders.length} Store to Van Order(s)</div>
+                            <div style="font-size: 0.875rem; color: #047857;">Calling Allocate Lots API for each transaction...</div>
+                        </div>
+                        <div id="s2v-progress-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                            ${s2vOrders.map((order, index) => {
+                                const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || 'Unknown';
+                                return `
+                                    <div id="s2v-item-${index}" style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                            <div style="font-weight: 600; color: #1f2937;">#${index + 1}: ${orderNumber}</div>
+                                            <div id="s2v-status-${index}" style="display: flex; align-items: center; gap: 0.5rem;">
+                                                <i class="fas fa-clock" style="color: #9ca3af;"></i>
+                                                <span style="color: #6b7280; font-size: 0.875rem;">Waiting...</span>
+                                            </div>
+                                        </div>
+                                        <div id="s2v-details-${index}" style="font-size: 0.875rem; color: #6b7280;"></div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
+                        <div id="s2v-summary" style="font-size: 0.875rem; color: #6b7280;">Ready to process...</div>
+                        <button onclick="closeS2VDialog()" class="btn btn-secondary" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add dialog to DOM
+        const dialogDiv = document.createElement('div');
+        dialogDiv.innerHTML = dialogHtml;
+        document.body.appendChild(dialogDiv);
+
+        // Process each S2V order
+        processS2VOrders(s2vOrders, 0);
+    };
+
+    // Close S2V Dialog
+    window.closeS2VDialog = function() {
+        const dialog = document.getElementById('s2v-allocate-dialog');
+        if (dialog) {
+            dialog.remove();
+        }
+    };
+
+    // Process S2V orders sequentially
+    function processS2VOrders(orders, index) {
+        if (index >= orders.length) {
+            // All done
+            document.getElementById('s2v-summary').innerHTML = '<span style="color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> All orders processed!</span>';
+            return;
+        }
+
+        const order = orders[index];
+        const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || 'Unknown';
+        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Update status to processing
+        const statusDiv = document.getElementById(`s2v-status-${index}`);
+        statusDiv.innerHTML = '<i class="fas fa-circle-notch fa-spin" style="color: #3b82f6;"></i><span style="color: #3b82f6; font-size: 0.875rem;">Processing...</span>';
+
+        // Update summary
+        document.getElementById('s2v-summary').innerHTML = `Processing ${index + 1} of ${orders.length}...`;
+
+        // Prepare POST data
+        const postData = {
+            p_trx_number: orderNumber,
+            p_instance_name: fusionInstance
+        };
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
+
+        console.log(`[Allocate Lots S2V] Processing order ${index + 1}/${orders.length}:`, orderNumber);
+
+        // Call API
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(postData)
+        }, function(error, data) {
+            const detailsDiv = document.getElementById(`s2v-details-${index}`);
+
+            if (error) {
+                // Error
+                statusDiv.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i><span style="color: #ef4444; font-size: 0.875rem;">Failed</span>';
+                detailsDiv.innerHTML = `<div style="color: #ef4444;">Error: ${error}</div>`;
+
+                // Process next order
+                setTimeout(() => processS2VOrders(orders, index + 1), 500);
+            } else {
+                try {
+                    const response = JSON.parse(data);
+
+                    if (response.success) {
+                        const recordCount = response.recordCount || 0;
+                        statusDiv.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i><span style="color: #10b981; font-size: 0.875rem;">Success</span>';
+                        detailsDiv.innerHTML = `
+                            <div style="color: #10b981;">✓ ${response.message || 'Success'}</div>
+                            <div style="color: #059669; margin-top: 0.25rem;"><strong>${recordCount}</strong> record(s) allocated</div>
+                        `;
+                    } else {
+                        statusDiv.innerHTML = '<i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i><span style="color: #f59e0b; font-size: 0.875rem;">Warning</span>';
+                        detailsDiv.innerHTML = `<div style="color: #f59e0b;">${response.message || 'Unknown error'}</div>`;
+                    }
+                } catch (parseError) {
+                    statusDiv.innerHTML = '<i class="fas fa-exclamation-circle" style="color: #f59e0b;"></i><span style="color: #f59e0b; font-size: 0.875rem;">Parse Error</span>';
+                    detailsDiv.innerHTML = `<div style="color: #f59e0b;">Parse Error: ${parseError.message}</div>`;
+                }
+
+                // Process next order
+                setTimeout(() => processS2VOrders(orders, index + 1), 500);
+            }
+        });
+    }
+
+    window.unassignPicker = function(tripId, orderNumber) {
+        console.log('[Trip Management] Unassign picker for order:', orderNumber);
+        alert('Unassign Picker functionality - To be implemented');
+    };
+
+    window.pickRelease = function(tripId, orderNumber) {
+        console.log('[Trip Management] Pick release for order:', orderNumber);
+        alert('Pick Release functionality - To be implemented');
+    };
+
+    // Print Store Transaction - calls C# Fusion PDF handler
+    window.printStoreTransaction = function(orderNumber, instanceFromRow, orderTypeFromRow, tripIdFromRow, tripDateFromRow) {
+        console.log('[Print Store Transaction] Printing for order:', orderNumber);
+
+        // Get instance from row data first, fallback to localStorage
+        const instance = instanceFromRow || localStorage.getItem('fusionInstance') || 'TEST';
+        console.log('[Print Store Transaction] Using instance:', instance, '(from:', instanceFromRow ? 'row data' : 'localStorage', ')');
+
+        // Get order type from parameter first, then fallback to global (for backward compatibility)
+        const orderType = (orderTypeFromRow || window.currentStoreTransOrderType || '').toUpperCase().trim();
+
+        // Debug: Show exact order type value
+        console.log('[Print Store Transaction] Order Type from row:', orderTypeFromRow);
+        console.log('[Print Store Transaction] Order Type from global:', window.currentStoreTransOrderType);
+        console.log('[Print Store Transaction] Final Order Type:', orderType, '(from:', orderTypeFromRow ? 'row data' : 'global variable', ')');
+        console.log('[Print Store Transaction] Order Type Length:', orderType.length);
+
+        // Determine report based on order type
+        let reportPath, parameterName, reportName;
+
+        // Check if ORDER_TYPE is Store to Van or Van to Store (including S2V, V2S abbreviations)
+        if (orderType === 'STORE TO VAN' || orderType === 'VAN TO STORE' || orderType === 'S2V' || orderType === 'V2S') {
+            // Store to Van / Van to Store - use Store Transaction report (Inventory Report)
+            reportPath = '/Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo';
+            parameterName = 'SOURCE_CODE';
+            reportName = 'Store Transaction Report (Inventory)';
+        } else {
+            // All other order types - use Sales Order report
+            reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+            parameterName = 'Order_Number';
+            reportName = 'Sales Order Report';
+        }
+
+        console.log('[Print Store Transaction] Order Type:', orderType);
+        console.log('[Print Store Transaction] Using:', reportName);
+        console.log('[Print Store Transaction] Report Path:', reportPath);
+        console.log('[Print Store Transaction] Parameter:', parameterName, '=', orderNumber);
+
+        // Build SOAP XML payload for debug display
+        const soapXmlPayload = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>${reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+           <v2:listOfParamNameValues>
+            <v2:item>
+              <v2:name>${parameterName}</v2:name>
+              <v2:values>
+                <v2:item>${orderNumber}</v2:item>
+              </v2:values>
+            </v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:reportData/>
+        <v2:reportOutputPath/>
+      </v2:reportRequest>
+      <v2:userID>[credentials]</v2:userID>
+      <v2:password>[credentials]</v2:password>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+        // Log to debug window
+        logDebugInfo(
+            `Print Report - ${reportName}`,
+            `${instance} - ${reportPath}`,
+            {
+                orderType: orderType,
+                reportPath: reportPath,
+                parameterName: parameterName,
+                parameterValue: orderNumber,
+                instance: instance,
+                soapPayload: soapXmlPayload
+            },
+            null,
+            null,
+            'SOAP'
+        );
+
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'print-loading-indicator';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #8b5cf6; margin-bottom: 1rem;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Generating PDF Report...</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">${reportName}</div>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Order: ${orderNumber}</div>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${instance}</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
+
+        // Get tripId and tripDate from parameters first, then fallback to globals (for backward compatibility)
+        const tripId = String(tripIdFromRow || window.currentStoreTransTripId || '');
+        const tripDate = String(tripDateFromRow || window.currentStoreTransTripDate || '');
+
+        console.log('[Print Store Transaction] TripId from row:', tripIdFromRow);
+        console.log('[Print Store Transaction] TripId from global:', window.currentStoreTransTripId);
+        console.log('[Print Store Transaction] Final TripId:', tripId, '(from:', tripIdFromRow ? 'row data' : 'global variable', ')');
+        console.log('[Print Store Transaction] TripDate from row:', tripDateFromRow);
+        console.log('[Print Store Transaction] TripDate from global:', window.currentStoreTransTripDate);
+        console.log('[Print Store Transaction] Final TripDate:', tripDate, '(from:', tripDateFromRow ? 'row data' : 'global variable', ')');
+
+        // Call C# handler
+        sendMessageToCSharp({
+            action: 'printStoreTransaction',
+            orderNumber: orderNumber,
+            instance: instance,
+            reportPath: reportPath,
+            parameterName: parameterName,
+            tripId: tripId,
+            tripDate: tripDate
+        }, function(error, data) {
+            // Remove loading indicator
+            const loading = document.getElementById('print-loading-indicator');
+            if (loading) loading.remove();
+
+            console.log('[Print Store Transaction] ===== RESPONSE RECEIVED =====');
+            console.log('[Print Store Transaction] Error:', error);
+            console.log('[Print Store Transaction] Data type:', typeof data);
+            console.log('[Print Store Transaction] Data value:', data);
+            console.log('[Print Store Transaction] ===============================');
+
+            if (error) {
+                // Log error to debug
+                logDebugInfo(
+                    `Print Report - ${reportName} - ERROR`,
+                    `${instance} - ${reportPath}`,
+                    { orderNumber, parameterName },
+                    null,
+                    error,
+                    'SOAP'
+                );
+                alert('Error generating report: ' + error);
+            } else {
+                try {
+                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[Print Store Transaction] Parsed JSON response:', response);
+
+                    // Log success to debug
+                    logDebugInfo(
+                        `Print Report - ${reportName} - SUCCESS`,
+                        `${instance} - ${reportPath}`,
+                        { orderNumber, parameterName },
+                        response,
+                        null,
+                        'SOAP'
+                    );
+
+                    if (response.success) {
+                        // Show PDF viewer dialog if pdfPath or filePath is available
+                        const pdfPath = response.pdfPath || response.filePath || response.path;
+                        if (pdfPath) {
+                            console.log('[Print Store Transaction] Opening PDF viewer with path:', pdfPath);
+                            showPdfViewer(pdfPath, orderNumber, reportName);
+                        } else {
+                            console.log('[Print Store Transaction] No PDF path in response');
+                            console.log('[Print Store Transaction] Response object:', JSON.stringify(response));
+                            alert('Report generated successfully and downloaded!\n\nNote: PDF path not found in response.\nChecked: pdfPath, filePath, path');
+                        }
+                    } else {
+                        alert('Failed to generate report: ' + (response.message || 'Unknown error'));
+                    }
+                } catch (parseError) {
+                    // If not JSON, check if it's a file path or success message
+                    console.log('[Print Store Transaction] ===== NON-JSON RESPONSE =====');
+                    console.log('[Print Store Transaction] Parse error:', parseError.message);
+                    console.log('[Print Store Transaction] Raw data:', data);
+                    console.log('[Print Store Transaction] Data type:', typeof data);
+                    console.log('[Print Store Transaction] =====================================');
+
+                    // Check if data looks like a file path (contains backslashes or .pdf)
+                    if (data && typeof data === 'string' && (data.includes('\\') || data.includes('.pdf') || data.includes('C:') || data.includes('/'))) {
+                        // Assume it's a PDF file path
+                        const pdfPath = data.trim();
+                        console.log('[Print Store Transaction] ✓ Detected as file path:', pdfPath);
+
+                        logDebugInfo(
+                            `Print Report - ${reportName} - SUCCESS`,
+                            `${instance} - ${reportPath}`,
+                            { orderNumber, parameterName },
+                            { success: true, pdfPath: pdfPath },
+                            null,
+                            'SOAP'
+                        );
+
+                        console.log('[Print Store Transaction] Opening PDF viewer with path:', pdfPath);
+                        // Show PDF viewer
+                        showPdfViewer(pdfPath, orderNumber, reportName);
+                    } else {
+                        // Just a success message
+                        console.log('[Print Store Transaction] Detected as success message, not a file path');
+                        logDebugInfo(
+                            `Print Report - ${reportName} - SUCCESS`,
+                            `${instance} - ${reportPath}`,
+                            { orderNumber, parameterName },
+                            { success: true, message: data },
+                            null,
+                            'SOAP'
+                        );
+                        alert('Report generated successfully!\n\nNote: PDF path not detected in response.\nResponse: ' + data);
+                    }
+                }
+            }
+        });
+    };
+
+    // Show PDF Viewer Dialog
+    window.showPdfViewer = function(pdfPath, orderNumber, reportName) {
+        console.log('[PDF Viewer] Opening PDF:', pdfPath);
+
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.id = 'pdf-viewer-modal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 30000; display: flex; align-items: center; justify-content: center; padding: 2rem;';
+
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 100%; max-width: 1200px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+                <!-- Header -->
+                <div style="padding: 1.25rem 1.5rem; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0;">
+                    <div>
+                        <div style="font-size: 1.2rem; font-weight: 700;">${reportName}</div>
+                        <div style="font-size: 0.85rem; opacity: 0.9; margin-top: 0.25rem;">Order: ${orderNumber}</div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button onclick="window.open('file:///${pdfPath.replace(/\\/g, '/')}')" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i class="fas fa-external-link-alt"></i> Open External
+                        </button>
+                        <button onclick="document.getElementById('pdf-viewer-modal').remove()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+
+                <!-- PDF Viewer Body -->
+                <div style="flex: 1; overflow: auto; background: #f1f5f9; display: flex; align-items: center; justify-content: center; padding: 1rem;">
+                    <iframe src="file:///${pdfPath.replace(/\\/g, '/')}" style="width: 100%; height: 100%; border: none; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-radius: 8px;"></iframe>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 0.75rem 1.5rem; background: #f8f9fc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 0.75rem; color: #64748b;">
+                        <i class="fas fa-file-pdf" style="color: #ef4444; margin-right: 0.5rem;"></i>
+                        ${pdfPath}
+                    </div>
+                    <button onclick="navigator.clipboard.writeText('${pdfPath}')" style="background: #667eea; border: none; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 600;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                        <i class="fas fa-copy"></i> Copy Path
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Close on overlay click
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    };
+
+    // XML Viewer - similar to PDF Viewer but for XML files
+    window.showXmlViewer = function(xmlPath, orderNumber, reportName) {
+        console.log('[XML Viewer] Opening XML:', xmlPath);
+
+        // Create modal overlay
+        const modal = document.createElement('div');
+        modal.id = 'xml-viewer-modal';
+        modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 30000; display: flex; align-items: center; justify-content: center; padding: 2rem;';
+
+        modal.innerHTML = `
+            <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 100%; max-width: 1200px; height: 90vh; display: flex; flex-direction: column; overflow: hidden;">
+                <!-- Header -->
+                <div style="padding: 1.25rem 1.5rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #e2e8f0;">
+                    <div>
+                        <div style="font-size: 1.2rem; font-weight: 700;">${reportName}</div>
+                        <div style="font-size: 0.85rem; opacity: 0.9; margin-top: 0.25rem;">Order: ${orderNumber}</div>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                        <button onclick="window.open('file:///${xmlPath.replace(/\\/g, '/')}')" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i class="fas fa-external-link-alt"></i> Open External
+                        </button>
+                        <button onclick="document.getElementById('xml-viewer-modal').remove()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+
+                <!-- XML Viewer Body -->
+                <div style="flex: 1; overflow: auto; background: #f1f5f9; display: flex; align-items: center; justify-content: center; padding: 1rem;">
+                    <iframe src="file:///${xmlPath.replace(/\\/g, '/')}" style="width: 100%; height: 100%; border: none; background: white; box-shadow: 0 2px 8px rgba(0,0,0,0.1); border-radius: 8px;"></iframe>
+                </div>
+
+                <!-- Footer -->
+                <div style="padding: 0.75rem 1.5rem; background: #f8f9fc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="font-size: 0.75rem; color: #64748b;">
+                        <i class="fas fa-file-code" style="color: #10b981; margin-right: 0.5rem;"></i>
+                        ${xmlPath}
+                    </div>
+                    <button onclick="navigator.clipboard.writeText('${xmlPath}')" style="background: #10b981; border: none; color: white; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: 600;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                        <i class="fas fa-copy"></i> Copy Path
+                    </button>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(modal);
+
+        // Close on overlay click
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                modal.remove();
+            }
+        });
+    };
+
+    // Refresh Trip Details - calls GET endpoint to reload trip data
+    window.refreshTripDetails = function(tripId) {
+        console.log('[Refresh Trip] Refreshing trip:', tripId);
+
+        // Get instance - try from trip data first, then fall back to toolbar
+        let instance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Check if we have trip data with instance - check both tab and dialog grids
+        const tabId = `trip-detail-${tripId}`;
+        const tabGridId = `grid-${tabId}`;
+        const dialogGridId = 'trip-dialog-grid';
+
+        // Try tab grid first, then dialog grid
+        let gridContainer = $(`#${tabGridId}`);
+        if (!gridContainer || gridContainer.length === 0) {
+            gridContainer = $(`#${dialogGridId}`);
+        }
+
+        if (gridContainer && gridContainer.length > 0) {
+            const gridInstance = gridContainer.dxDataGrid('instance');
+            if (gridInstance) {
+                const dataSource = gridInstance.option('dataSource');
+                if (dataSource && dataSource.length > 0 && dataSource[0].INSTANCE) {
+                    instance = dataSource[0].INSTANCE;
+                    console.log('[Refresh Trip] Using instance from trip data:', instance);
+                } else {
+                    console.log('[Refresh Trip] Using instance from toolbar:', instance);
+                }
+            }
+        }
+
+        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${instance}`;
+
+        console.log('[Refresh Trip] API URL:', GET_TRIP_DETAILS_API);
+
+        // Show loading indicator
+        const refreshBtn = event.target.closest('button');
+        const originalBtnHtml = refreshBtn.innerHTML;
+        refreshBtn.disabled = true;
+        refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: GET_TRIP_DETAILS_API
+            }, function(error, data) {
+                // Restore button
+                refreshBtn.disabled = false;
+                refreshBtn.innerHTML = originalBtnHtml;
+
+                if (error) {
+                    console.error('[Refresh Trip] Error:', error);
+                    alert('Error refreshing trip data:\n' + error);
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Refresh Trip] Data received:', result);
+
+                        if (result && result.items && result.items.length > 0) {
+                            // Update grid with new data - reuse gridContainer from earlier
+                            let updateGridContainer = $(`#${tabGridId}`);
+                            if (!updateGridContainer || updateGridContainer.length === 0) {
+                                updateGridContainer = $(`#${dialogGridId}`);
+                            }
+
+                            if (updateGridContainer && updateGridContainer.length > 0) {
+                                const gridInstance = updateGridContainer.dxDataGrid('instance');
+                                if (gridInstance) {
+                                    gridInstance.option('dataSource', result.items);
+                                    gridInstance.refresh();
+
+                                    // Update order count (for tab version)
+                                    const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                    if (orderCountDiv.length > 0) {
+                                        orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                    }
+
+                                    // Show success notification
+                                    const notification = document.createElement('div');
+                                    notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                                    notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
+                                    document.body.appendChild(notification);
+                                    setTimeout(() => notification.remove(), 3000);
+                                }
+                            }
+                        } else {
+                            alert('No data returned from API');
+                        }
+                    } catch (parseError) {
+                        console.error('[Refresh Trip] Error parsing response:', parseError);
+                        alert('Error processing response: ' + parseError.message);
+                    }
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            fetch(GET_TRIP_DETAILS_API)
+                .then(response => response.json())
+                .then(result => {
+                    // Restore button
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = originalBtnHtml;
+
+                    console.log('[Refresh Trip] Data received:', result);
+
+                    if (result && result.items && result.items.length > 0) {
+                        // Update grid with new data
+                        const gridContainer = $(`#${gridId}`);
+                        if (gridContainer && gridContainer.length > 0) {
+                            const gridInstance = gridContainer.dxDataGrid('instance');
+                            if (gridInstance) {
+                                gridInstance.option('dataSource', result.items);
+                                gridInstance.refresh();
+
+                                // Update order count
+                                const orderCountDiv = gridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                if (orderCountDiv.length > 0) {
+                                    orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                }
+
+                                // Show success notification
+                                const notification = document.createElement('div');
+                                notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                                notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
+                                document.body.appendChild(notification);
+                                setTimeout(() => notification.remove(), 3000);
+                            }
+                        }
+                    } else {
+                        alert('No data returned from API');
+                    }
+                })
+                .catch(error => {
+                    // Restore button
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = originalBtnHtml;
+
+                    console.error('[Refresh Trip] Error:', error);
+                    alert('Error refreshing trip data:\n' + error.message);
+                });
+        }
+    };
+
+    window.editTripOrder = function(rowData) {
+        console.log('[Trip Management] Edit order:', rowData);
+
+        const orderType = rowData.ORDER_TYPE || rowData.order_type || '';
+
+        // Check if order type is 'Store to Van' or 'Van to Store'
+        if (orderType === 'Store to Van' || orderType === 'Van to Store') {
+            openStoreTransactionsDialog(rowData);
+        } else {
+            // For other order types, open Order Transactions dialog
+            openOrderTransactionsDialog(rowData);
+        }
+    };
+
+    window.openStoreTransactionsDialog = function(rowData) {
+        console.log('[Store Transactions] Opening dialog for order:', rowData);
+
+        const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || '';
+        const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
+        const tripId = rowData.TRIP_ID || rowData.trip_id || '';
+        const tripDate = rowData.TRIP_DATE || rowData.trip_date || '';
+        const accountNumber = rowData.ACCOUNT_NUMBER || rowData.account_number || '';
+        const accountName = rowData.ACCOUNT_NAME || rowData.account_name || '';
+        const picker = rowData.PICKER || rowData.picker || '';
+        const lorry = rowData.LORRY_NUMBER || rowData.lorry_number || '';
+        const priority = rowData.PRIORITY || rowData.priority || '';
+        const pickConfirmSt = rowData.PICK_CONFIRM_ST || rowData.pick_confirm_st || '';
+        const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
+
+        // Debug: Log the exact ORDER_TYPE value
+        console.log('===========================================');
+        console.log('[Store Transactions] ORDER_TYPE from rowData:', orderType);
+        console.log('[Store Transactions] ORDER_TYPE length:', orderType.length);
+        console.log('[Store Transactions] ORDER_TYPE char codes:', Array.from(orderType).map(c => c.charCodeAt(0)));
+        console.log('===========================================');
+
+        // Store order type, tripId, and tripDate in globals for print function
+        window.currentStoreTransOrderType = orderType;
+        window.currentStoreTransTripId = String(tripId);  // Convert to string for C# handler
+        window.currentStoreTransTripDate = tripDate;
+
+        // Create modal HTML
+        const modalHtml = `
+            <div id="store-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 25000; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Modal Header -->
+                    <div style="padding: 0.75rem 1rem; border-bottom: 2px solid #e2e8f0; background: whitesmoke;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <h2 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
+                                    <i class="fas fa-exchange-alt" style="color: #667eea;"></i> Store Transactions
+                                </h2>
+                                <button id="store-trans-header-toggle" onclick="toggleStoreTransHeader()" style="background: transparent; border: none; cursor: pointer; color: #667eea; padding: 0.2rem 0.4rem; transition: all 0.2s;" title="Toggle Details">
+                                    <i class="fas fa-chevron-down" style="font-size: 0.9rem; transition: transform 0.3s;"></i>
+                                </button>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}', '${tripId}', '${tripDate}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.75rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
+                                    <i class="fas fa-print"></i> Print
+                                </button>
+                                <button onclick="closeStoreTransactionsModal()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 20px; cursor: pointer; color: #64748b; padding: 0; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px; transition: all 0.2s;" onmouseover="this.style.background='#e2e8f0'; this.style.color='#1e293b';" onmouseout="this.style.background='transparent'; this.style.color='#64748b';">
+                                    ×
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Header Details (Collapsible, Default Collapsed) -->
+                        <div id="store-trans-header-details" style="display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.4rem; padding: 0.5rem; background: white; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 0.5rem; transition: all 0.3s;">
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip ID:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripId}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Instance:</span><br><strong style="color: #8b5cf6; font-size: 0.75rem; font-weight: 700;">${instance}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Date:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripDate}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Name:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountName}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Picker:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${picker}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Pick Confirm St:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${pickConfirmSt}</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Header -->
+                    <div style="display: flex; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #f8f9fc; border-bottom: 2px solid #e2e8f0;">
+                        <button class="store-trans-tab active" data-tab="transaction-details" onclick="switchStoreTransTab('transaction-details')" style="padding: 0.5rem 1.5rem; border: none; background: white; border-radius: 6px; cursor: pointer; font-weight: 600; color: #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                            Transaction Details
+                        </button>
+                        <button class="store-trans-tab" data-tab="qoh-details" onclick="switchStoreTransTab('qoh-details')" style="padding: 0.5rem 1.5rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b;">
+                            QOH Details
+                        </button>
+                        <button class="store-trans-tab" data-tab="allocated-lots" onclick="switchStoreTransTab('allocated-lots')" style="padding: 0.5rem 1.5rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b;">
+                            Allocated Lots
+                        </button>
+                        <button class="store-trans-tab" data-tab="debug" onclick="switchStoreTransTab('debug')" style="padding: 0.5rem 1.5rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b;">
+                            <i class="fas fa-bug"></i> Debug
+                        </button>
+                    </div>
+
+                    <!-- Tab Content -->
+                    <div style="flex: 1; overflow: hidden; position: relative;">
+                        <!-- Tab 1: Transaction Details -->
+                        <div id="store-trans-transaction-details" class="store-trans-tab-content active" style="height: 100%; overflow: auto; padding: 1rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshTransactionDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn btn-primary" onclick="fetchLotDetails('${orderNumber}')" id="fetch-lot-btn" style="display: none;">
+                                    <i class="fas fa-list"></i> Fetch Lot Details
+                                </button>
+                            </div>
+                            <div id="transaction-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="transaction-details-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: QOH Details -->
+                        <div id="store-trans-qoh-details" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshQOHDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="qoh-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="qoh-details-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 3: Allocated Lots -->
+                        <div id="store-trans-allocated-lots" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <button class="btn btn-secondary" onclick="refreshAllocatedLots('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn btn-primary" onclick="processTransaction('${orderNumber}')">
+                                    <i class="fas fa-cogs"></i> Process Transaction
+                                </button>
+                                <button class="btn btn-secondary" onclick="setData('${orderNumber}')">
+                                    <i class="fas fa-database"></i> Set Data
+                                </button>
+                                <button class="btn btn-info" onclick="checkFusionStatus('${orderNumber}')">
+                                    <i class="fas fa-check-circle"></i> Check Fusion Status
+                                </button>
+                            </div>
+                            <div id="allocated-lots-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="allocated-lots-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 4: Debug -->
+                        <div id="store-trans-debug" class="store-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; justify-content: space-between; align-items: center;">
+                                <h3 style="margin: 0; font-size: 0.9rem; color: #1e293b;">
+                                    <i class="fas fa-bug"></i> Debug Log
+                                </h3>
+                                <button class="btn btn-secondary" onclick="clearDebugLog()" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                    <i class="fas fa-trash"></i> Clear Log
+                                </button>
+                            </div>
+                            <div id="debug-log-content" style="background: #1e293b; border-radius: 8px; padding: 1rem; font-family: 'Courier New', monospace; font-size: 0.75rem; color: #10b981; height: calc(100% - 3rem); overflow: auto;">
+                                <div style="color: #64748b; text-align: center; padding: 2rem;">
+                                    <i class="fas fa-info-circle" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                                    <p>Debug log will appear here when you click any button</p>
+                                    <p style="font-size: 0.7rem; margin-top: 0.5rem;">Endpoints, JSON payloads, and responses will be logged</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal to body
+        const existingModal = document.getElementById('store-transactions-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Auto-load all tabs data
+        console.log('[Store Transactions] Auto-loading all tab data for order:', orderNumber);
+        setTimeout(() => {
+            refreshTransactionDetails(orderNumber);
+            refreshQOHDetails(orderNumber);
+            refreshAllocatedLots(orderNumber);
+        }, 100);
+    };
+
+    window.closeStoreTransactionsModal = function() {
+        const modal = document.getElementById('store-transactions-modal');
+        if (modal) {
+            modal.remove();
+        }
+    };
+
+    // ============================================================================
+    // ORDER TRANSACTIONS DIALOG (Non-S2V/V2S Orders)
+    // ============================================================================
+
+    function openOrderTransactionsDialog(rowData) {
+        console.log('[Order Transactions] Opening dialog for order:', rowData);
+
+        const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || '';
+        const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
+        const orderDate = rowData.ORDER_DATE || rowData.order_date || '';
+        const tripId = rowData.TRIP_ID || rowData.trip_id || '';
+        const tripDate = rowData.TRIP_DATE || rowData.trip_date || '';
+        const accountNumber = rowData.ACCOUNT_NUMBER || rowData.account_number || '';
+        const accountName = rowData.ACCOUNT_NAME || rowData.account_name || rowData.CUSTOMER_NAME || rowData.customer_name || '';
+        const picker = rowData.PICKER || rowData.picker || '';
+        const lorry = rowData.LORRY_NUMBER || rowData.lorry_number || '';
+        const priority = rowData.PRIORITY || rowData.priority || '';
+        const lineStatus = rowData.LINE_STATUS || rowData.line_status || '';
+        const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
+
+        console.log('[Order Transactions] ORDER_NUMBER:', orderNumber, 'ORDER_TYPE:', orderType);
+
+        // Create modal HTML
+        const modalHtml = `
+            <div id="order-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 25000; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Modal Header -->
+                    <div style="padding: 0.75rem 1rem; border-bottom: 2px solid #e2e8f0; background: whitesmoke;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <h2 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
+                                    <i class="fas fa-file-invoice" style="color: #667eea;"></i> Order Transactions
+                                </h2>
+                                <button id="order-trans-header-toggle" onclick="toggleOrderTransHeader()" style="background: transparent; border: none; cursor: pointer; color: #667eea; padding: 0.2rem 0.4rem; transition: all 0.2s;" title="Toggle Details">
+                                    <i class="fas fa-chevron-down" style="font-size: 0.9rem; transition: transform 0.3s;"></i>
+                                </button>
+                            </div>
+                            <button onclick="closeOrderTransactionsModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #64748b; transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px;" onmouseover="this.style.background='#fee2e2'; this.style.color='#dc2626';" onmouseout="this.style.background='none'; this.style.color='#64748b';">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+
+                        <!-- Collapsible Header Details (Default: Collapsed) -->
+                        <div id="order-trans-header-details" style="display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.4rem; padding: 0.5rem; background: white; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 0.5rem; transition: all 0.3s;">
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Date:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderDate}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Type:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderType}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Name:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountName}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip ID:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripId}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip Date:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripDate}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Picker:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${picker}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Status:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lineStatus}</strong></div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Header -->
+                    <div style="display: flex; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #f8f9fc; border-bottom: 2px solid #e2e8f0; overflow-x: auto;">
+                        <button class="order-trans-tab active" data-tab="pick-release" onclick="switchOrderTransTab('pick-release')" style="padding: 0.5rem 1.2rem; border: none; background: white; border-radius: 6px; cursor: pointer; font-weight: 600; color: #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-box-open"></i> Pick Release Details
+                        </button>
+                        <button class="order-trans-tab" data-tab="sales-order-lines" onclick="switchOrderTransTab('sales-order-lines')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-shopping-cart"></i> Sales Order Lines
+                        </button>
+                        <button class="order-trans-tab" data-tab="lot-details" onclick="switchOrderTransTab('lot-details')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-barcode"></i> Lot Details
+                        </button>
+                        <button class="order-trans-tab" data-tab="shipment-details" onclick="switchOrderTransTab('shipment-details')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-shipping-fast"></i> Shipment Details
+                        </button>
+                        <button class="order-trans-tab" data-tab="pick-confirm-responses" onclick="switchOrderTransTab('pick-confirm-responses')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-check-double"></i> Pick Confirm Responses
+                        </button>
+                        <button class="order-trans-tab" data-tab="ship-confirm-responses" onclick="switchOrderTransTab('ship-confirm-responses')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-truck-loading"></i> Ship Confirm Responses
+                        </button>
+                    </div>
+
+                    <!-- Tab Content -->
+                    <div style="flex: 1; overflow: hidden; position: relative;">
+                        <!-- Tab 1: Pick Release Details -->
+                        <div id="order-trans-pick-release" class="order-trans-tab-content active" style="height: 100%; overflow: auto; padding: 1rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshPickReleaseDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="pick-release-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="pick-release-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: Sales Order Lines -->
+                        <div id="order-trans-sales-order-lines" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshSalesOrderLines('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="sales-order-lines-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="sales-order-lines-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 3: Lot Details -->
+                        <div id="order-trans-lot-details" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshLotDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="lot-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="lot-details-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 4: Shipment Details -->
+                        <div id="order-trans-shipment-details" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshShipmentDetails('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="shipment-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="shipment-details-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 5: Pick Confirmation Responses -->
+                        <div id="order-trans-pick-confirm-responses" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshPickConfirmResponses('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="pick-confirm-responses-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="pick-confirm-responses-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 6: Shipment Confirmation Responses -->
+                        <div id="order-trans-ship-confirm-responses" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                                <button class="btn btn-secondary" onclick="refreshShipConfirmResponses('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div id="ship-confirm-responses-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="ship-confirm-responses-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Add modal to body
+        const existingModal = document.getElementById('order-transactions-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Auto-load first tab data
+        console.log('[Order Transactions] Auto-loading Pick Release Details for order:', orderNumber);
+        setTimeout(() => {
+            refreshPickReleaseDetails(orderNumber);
+        }, 100);
+    }
+
+    window.closeOrderTransactionsModal = function() {
+        const modal = document.getElementById('order-transactions-modal');
+        if (modal) {
+            modal.remove();
+        }
+    };
+
+    // Toggle Order Transactions Header Details
+    window.toggleOrderTransHeader = function() {
+        const details = document.getElementById('order-trans-header-details');
+        const toggleBtn = document.getElementById('order-trans-header-toggle');
+        const icon = toggleBtn.querySelector('i');
+
+        if (details.style.display === 'none' || details.style.display === '') {
+            details.style.display = 'grid';
+            icon.style.transform = 'rotate(180deg)';
+        } else {
+            details.style.display = 'none';
+            icon.style.transform = 'rotate(0deg)';
+        }
+    };
+
+    window.switchOrderTransTab = function(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.order-trans-tab').forEach(tab => {
+            if (tab.dataset.tab === tabName) {
+                tab.style.background = 'white';
+                tab.style.color = '#667eea';
+                tab.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            } else {
+                tab.style.background = 'transparent';
+                tab.style.color = '#64748b';
+                tab.style.boxShadow = 'none';
+            }
+        });
+
+        // Update tab content
+        document.querySelectorAll('.order-trans-tab-content').forEach(content => {
+            content.style.display = 'none';
+        });
+        const activeContent = document.getElementById(`order-trans-${tabName}`);
+        if (activeContent) {
+            activeContent.style.display = 'block';
+        }
+    };
+
+    // Placeholder refresh functions for Order Transactions tabs
+    window.refreshPickReleaseDetails = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Pick Release Details for:', orderNumber);
+        const gridContainer = document.getElementById('pick-release-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Pick Release Details will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshSalesOrderLines = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Sales Order Lines for:', orderNumber);
+        const gridContainer = document.getElementById('sales-order-lines-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Sales Order Lines will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshLotDetails = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Lot Details for:', orderNumber);
+        const gridContainer = document.getElementById('lot-details-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Lot Details will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshShipmentDetails = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Shipment Details for:', orderNumber);
+        const gridContainer = document.getElementById('shipment-details-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Shipment Details will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshPickConfirmResponses = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Pick Confirmation Responses for:', orderNumber);
+        const gridContainer = document.getElementById('pick-confirm-responses-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Pick Confirmation Responses will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    window.refreshShipConfirmResponses = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Shipment Confirmation Responses for:', orderNumber);
+        const gridContainer = document.getElementById('ship-confirm-responses-grid');
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Shipment Confirmation Responses will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    // Toggle Store Transactions Header Details
+    window.toggleStoreTransHeader = function() {
+        const details = document.getElementById('store-trans-header-details');
+        const toggleBtn = document.getElementById('store-trans-header-toggle');
+        const icon = toggleBtn.querySelector('i');
+
+        if (details.style.display === 'none' || details.style.display === '') {
+            details.style.display = 'grid';
+            icon.style.transform = 'rotate(180deg)';
+        } else {
+            details.style.display = 'none';
+            icon.style.transform = 'rotate(0deg)';
+        }
+    };
+
+    window.switchStoreTransTab = function(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.store-trans-tab').forEach(tab => {
+            if (tab.dataset.tab === tabName) {
+                tab.style.background = 'white';
+                tab.style.color = '#667eea';
+                tab.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            } else {
+                tab.style.background = 'transparent';
+                tab.style.color = '#64748b';
+                tab.style.boxShadow = 'none';
+            }
+        });
+
+        // Update tab content
+        document.querySelectorAll('.store-trans-tab-content').forEach(content => {
+            content.style.display = 'none';
+        });
+        const activeContent = document.getElementById(`store-trans-${tabName}`);
+        if (activeContent) {
+            activeContent.style.display = 'block';
+        }
+    };
+
+    // Debug logging function
+    window.logDebugInfo = function(action, endpoint, payload, response, error, method) {
+        const debugContent = document.getElementById('debug-log-content');
+        if (!debugContent) return;
+
+        // Clear welcome message if it exists
+        const welcomeMsg = debugContent.querySelector('div[style*="text-align: center"]');
+        if (welcomeMsg) {
+            debugContent.innerHTML = '';
+        }
+
+        const timestamp = new Date().toLocaleTimeString();
+        const logEntry = document.createElement('div');
+        logEntry.style.cssText = 'margin-bottom: 1.5rem; padding: 1rem; background: #0f172a; border-radius: 6px; border-left: 4px solid #667eea;';
+
+        let html = `
+            <div style="color: #10b981; font-weight: 700; margin-bottom: 0.5rem;">
+                [${timestamp}] ${action}
+            </div>
+        `;
+
+        if (method) {
+            const methodColor = method === 'POST' ? '#f59e0b' : (method === 'SOAP' ? '#a855f7' : '#06b6d4');
+            html += `
+                <div style="display: inline-block; background: ${methodColor}; color: white; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.7rem; font-weight: 700; margin-bottom: 0.5rem;">
+                    ${method}
+                </div>
+            `;
+        }
+
+        if (endpoint) {
+            html += `
+                <div style="color: #60a5fa; margin-bottom: 0.5rem; margin-top: 0.5rem;">
+                    <strong>Endpoint:</strong>
+                </div>
+                <div style="color: #cbd5e1; margin-bottom: 0.75rem; word-break: break-all; font-size: 0.7rem;">
+                    ${endpoint}
+                </div>
+            `;
+        }
+
+        if (payload) {
+            html += `
+                <div style="color: #fbbf24; margin-bottom: 0.5rem;">
+                    <strong>Payload:</strong>
+                </div>
+            `;
+
+            // Special handling for SOAP XML
+            if (method === 'SOAP' && payload.soapPayload) {
+                // Show SOAP XML with syntax highlighting
+                const escapedXml = payload.soapPayload
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+
+                html += `
+                    <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; margin-bottom: 0.75rem; max-height: 300px;">${escapedXml}</pre>
+                `;
+
+                // Show other fields except soapPayload
+                const { soapPayload, ...otherFields } = payload;
+                if (Object.keys(otherFields).length > 0) {
+                    html += `
+                        <div style="color: #fbbf24; margin-bottom: 0.5rem; margin-top: 0.5rem;">
+                            <strong>Parameters:</strong>
+                        </div>
+                        <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; margin-bottom: 0.75rem;">${JSON.stringify(otherFields, null, 2)}</pre>
+                    `;
+                }
+            } else {
+                // Regular JSON display
+                html += `
+                    <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem; margin-bottom: 0.75rem;">${JSON.stringify(payload, null, 2)}</pre>
+                `;
+            }
+        }
+
+        if (response) {
+            html += `
+                <div style="color: #34d399; margin-bottom: 0.5rem;">
+                    <strong>Response:</strong>
+                </div>
+                <pre style="color: #e2e8f0; background: #1e293b; padding: 0.5rem; border-radius: 4px; overflow-x: auto; font-size: 0.7rem;">${JSON.stringify(response, null, 2)}</pre>
+            `;
+        }
+
+        if (error) {
+            html += `
+                <div style="color: #f87171; margin-bottom: 0.5rem;">
+                    <strong>Error:</strong>
+                </div>
+                <div style="color: #fca5a5; background: #7f1d1d; padding: 0.5rem; border-radius: 4px; font-size: 0.7rem;">
+                    ${error}
+                </div>
+            `;
+        }
+
+        logEntry.innerHTML = html;
+        debugContent.insertBefore(logEntry, debugContent.firstChild);
+    };
+
+    // Clear debug log
+    window.clearDebugLog = function() {
+        const debugContent = document.getElementById('debug-log-content');
+        if (debugContent) {
+            debugContent.innerHTML = `
+                <div style="color: #64748b; text-align: center; padding: 2rem;">
+                    <i class="fas fa-info-circle" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                    <p>Debug log cleared</p>
+                    <p style="font-size: 0.7rem; margin-top: 0.5rem;">New actions will be logged here</p>
+                </div>
+            `;
+        }
+    };
+
+    window.refreshTransactionDetails = async function(orderNumber) {
+        console.log('[Store Transactions] Refreshing transaction details for:', orderNumber);
+
+        const gridContainer = document.getElementById('transaction-details-grid');
+        if (!gridContainer) {
+            console.error('[Store Transactions] Grid container not found');
+            return;
+        }
+
+        // Show loading indicator
+        gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
+
+        const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
+
+        // Log debug info
+        logDebugInfo('Refresh Transaction Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
+
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            console.log('[Store Transactions] Callback - Error:', error, 'Data:', data);
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Refresh Transaction Details - Error', apiUrl, null, null, error, 'GET');
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
+                return;
+            } else {
+                logDebugInfo('Refresh Transaction Details - Success', apiUrl, null, data, null, 'GET');
+            }
+
+            try {
+                const response = JSON.parse(data);
+                console.log('[Store Transactions] Parsed Response:', response);
+
+                if (response && response.items && response.items.length > 0) {
+                    // Clear loading message
+                    gridContainer.innerHTML = '';
+
+                    // Destroy existing grid if present
+                    if (transactionDetailsGrid) {
+                        try {
+                            transactionDetailsGrid.dispose();
+                        } catch (e) {
+                            console.warn('[Store Transactions] Error disposing grid:', e);
+                        }
+                    }
+
+                    // Get keys from first item to create columns dynamically
+                    const keys = Object.keys(response.items[0]);
+                    const columns = keys.map(key => ({
+                        dataField: key,
+                        caption: key.replace(/_/g, ' ').toUpperCase(),
+                        width: 'auto'
+                    }));
+
+                    // Initialize DevExpress DataGrid
+                    transactionDetailsGrid = $('#transaction-details-grid').dxDataGrid({
+                        dataSource: response.items,
+                        showBorders: true,
+                        showRowLines: true,
+                        showColumnLines: true,
+                        rowAlternationEnabled: true,
+                        columnAutoWidth: false,
+                        allowColumnReordering: true,
+                        allowColumnResizing: true,
+                        wordWrapEnabled: false,
+                        hoverStateEnabled: true,
+                        scrolling: {
+                            mode: 'standard',
+                            columnRenderingMode: 'virtual',
+                            useNative: true
+                        },
+                        columnFixing: {
+                            enabled: true
+                        },
+                        sorting: {
+                            mode: 'multiple'
+                        },
+                        columns: columns,
+                        paging: {
+                            pageSize: 50
+                        },
+                        pager: {
+                            visible: true,
+                            showPageSizeSelector: true,
+                            allowedPageSizes: [20, 50, 100, 200],
+                            showInfo: true,
+                            showNavigationButtons: true
+                        },
+                        filterRow: {
+                            visible: true,
+                            applyFilter: 'auto'
+                        },
+                        headerFilter: {
+                            visible: true
+                        },
+                        searchPanel: {
+                            visible: true,
+                            width: 240,
+                            placeholder: 'Search...'
+                        },
+                        columnChooser: {
+                            enabled: true,
+                            mode: 'select'
+                        },
+                        export: {
+                            enabled: true,
+                            allowExportSelectedData: false
+                        },
+                        onExporting: function(e) {
+                            const workbook = new ExcelJS.Workbook();
+                            const worksheet = workbook.addWorksheet('Transaction Details');
+
+                            DevExpress.excelExporter.exportDataGrid({
+                                component: e.component,
+                                worksheet: worksheet,
+                                autoFilterEnabled: true
+                            }).then(function() {
+                                workbook.xlsx.writeBuffer().then(function(buffer) {
+                                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'TransactionDetails.xlsx');
+                                });
+                            });
+                            e.cancel = true;
+                        },
+                        onContentReady: function(e) {
+                            console.log('[Store Transactions] Transaction Details Grid loaded, row count:', e.component.totalCount());
+                        }
+                    }).dxDataGrid('instance');
+
+                    // Show Fetch Lot Details button
+                    document.getElementById('fetch-lot-btn').style.display = 'inline-flex';
+                } else {
+                    gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No data found for this order</p>';
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+            }
+        });
+    };
+
+
+    window.fetchLotDetails = function(orderNumber) {
+        console.log('[Store Transactions] Fetching lot details for:', orderNumber);
+
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to fetch lot details for transaction ${orderNumber}?`)) {
+            console.log('[Store Transactions] Fetch lot details cancelled by user');
+            return;
+        }
+
+        // Get fusion instance from localStorage
+        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Show loading state
+        const fetchBtn = document.getElementById('fetch-lot-btn');
+        if (fetchBtn) {
+            fetchBtn.disabled = true;
+            fetchBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Fetching...';
+        }
+
+        // Prepare POST data
+        const postData = {
+            p_trx_number: orderNumber,
+            p_instance_name: fusionInstance
+        };
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
+
+        console.log('[Store Transactions] Calling fetch lot details API:', apiUrl, postData);
+
+        // Log debug info
+        logDebugInfo('Fetch Lot Details', apiUrl, postData, null, null, 'POST');
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(postData)
+        }, function(error, data) {
+            console.log('[Store Transactions] Fetch Lot Details Response - Error:', error, 'Data:', data);
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Fetch Lot Details - Error', apiUrl, postData, null, error, 'POST');
+            } else {
+                try {
+                    const response = JSON.parse(data);
+                    logDebugInfo('Fetch Lot Details - Success', apiUrl, postData, response, null, 'POST');
+                } catch (e) {
+                    logDebugInfo('Fetch Lot Details - Success', apiUrl, postData, data, null, 'POST');
+                }
+            }
+
+            // Re-enable button
+            if (fetchBtn) {
+                fetchBtn.disabled = false;
+                fetchBtn.innerHTML = '<i class="fas fa-list"></i> Fetch Lot Details';
+            }
+
+            if (error) {
+                alert('Error fetching lot details: ' + error);
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+                console.log('[Store Transactions] Parsed response:', response);
+
+                if (response.success) {
+                    const recordCount = response.recordCount || 0;
+                    const countMsg = recordCount > 0 ? ` - ${recordCount} record(s) processed` : '';
+                    alert('Success: ' + (response.message || 'Lot details fetched successfully') + countMsg);
+
+                    // Refresh the transaction details to show updated data
+                    refreshTransactionDetails(orderNumber);
+                } else {
+                    alert('Failed: ' + (response.message || 'Unknown error occurred'));
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                alert('Error parsing response: ' + parseError.message);
+            }
+        });
+    };
+
+    // Refresh Allocated Lots (Tab 3)
+    window.refreshAllocatedLots = async function(orderNumber) {
+        console.log('[Store Transactions] Refreshing allocated lots for:', orderNumber);
+
+        const gridContainer = document.getElementById('allocated-lots-grid');
+        if (!gridContainer) {
+            console.error('[Store Transactions] Allocated Lots Grid container not found');
+            return;
+        }
+
+        // Show loading indicator
+        gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading allocated lots...</p></div>';
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}`;
+
+        // Log debug info
+        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber }, null, null, 'GET');
+
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            console.log('[Store Transactions] Allocated Lots Callback - Error:', error, 'Data:', data);
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Refresh Allocated Lots - Error', apiUrl, null, null, error, 'GET');
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
+                return;
+            } else {
+                try {
+                    const response = JSON.parse(data);
+                    logDebugInfo('Refresh Allocated Lots - Success', apiUrl, null, response, null, 'GET');
+                } catch (e) {
+                    logDebugInfo('Refresh Allocated Lots - Success', apiUrl, null, data, null, 'GET');
+                }
+            }
+
+            try {
+                const response = JSON.parse(data);
+
+                if (response && response.items && response.items.length > 0) {
+                    // Store items globally for access when setting data
+                    window.allocatedLotsData = response.items;
+
+                    // Debug: Log first item structure
+                    console.log('[Store Transactions] Allocated Lots - First item:', response.items[0]);
+                    console.log('[Store Transactions] Allocated Lots - Total items:', response.items.length);
+
+                    // Clear loading message
+                    gridContainer.innerHTML = '';
+
+                    // Destroy existing grid if present
+                    if (allocatedLotsGrid) {
+                        try {
+                            allocatedLotsGrid.dispose();
+                        } catch (e) {
+                            console.warn('[Store Transactions] Error disposing Allocated Lots grid:', e);
+                        }
+                    }
+
+                    // Helper function to check if column is status
+                    const isStatusColumn = (key) => {
+                        const lowerKey = key.toLowerCase();
+                        const upperKey = key.toUpperCase();
+                        return lowerKey.includes('status') ||
+                            lowerKey.includes('_st') ||
+                            upperKey === 'PICKED_ST' ||
+                            upperKey === 'CANCELED_ST' ||
+                            upperKey === 'SHIPED_ST' ||
+                            lowerKey === 'picked_status' ||
+                            lowerKey === 'canceled_status' ||
+                            lowerKey === 'ship_confirm_st';
+                    };
+
+                    // Get keys from first item to create columns dynamically
+                    const keys = Object.keys(response.items[0]);
+                    console.log('[Store Transactions] Allocated Lots - Column keys:', keys);
+
+                    const columns = keys.map(key => {
+                        const column = {
+                            dataField: key,
+                            caption: key.replace(/_/g, ' ').toUpperCase(),
+                            width: 'auto',
+                            allowFiltering: true,
+                            allowSorting: true
+                        };
+
+                        // Add custom cell template ONLY for status columns
+                        if (isStatusColumn(key)) {
+                            console.log('[Store Transactions] Status column detected:', key);
+                            column.cellTemplate = function(container, options) {
+                                const value = options.value;
+                                console.log('[Store Transactions] Rendering status cell:', key, '=', value, 'Type:', typeof value);
+
+                                // Create wrapper div
+                                const wrapper = document.createElement('div');
+                                wrapper.style.textAlign = 'center';
+
+                                // Create icon element using DOM methods
+                                const icon = document.createElement('i');
+                                icon.style.fontSize = '0.9rem';
+
+                                if (value === 'Y' || value === 'Yes' || value === 'YES') {
+                                    icon.className = 'fas fa-check-circle';
+                                    icon.style.color = '#10b981';
+                                    icon.title = 'Yes';
+                                    console.log('[Store Transactions] Matched YES condition - creating green check');
+                                } else {
+                                    // Show red X for NO, null, or empty values
+                                    icon.className = 'fas fa-times-circle';
+                                    icon.style.color = '#ef4444';
+                                    icon.title = 'No';
+                                    console.log('[Store Transactions] Matched NO condition - creating red X');
+                                }
+
+                                wrapper.appendChild(icon);
+                                $(container).empty().append(wrapper);
+                                console.log('[Store Transactions] Icon element appended to container');
+                            };
+                            column.alignment = 'center';
+                        }
+                        // For non-status columns, let DevExpress handle default rendering (no cellTemplate)
+
+                        return column;
+                    });
+
+                    // Initialize DevExpress DataGrid with selection
+                    allocatedLotsGrid = $('#allocated-lots-grid').dxDataGrid({
+                        dataSource: response.items,
+                        showBorders: true,
+                        showRowLines: true,
+                        showColumnLines: true,
+                        rowAlternationEnabled: true,
+                        columnAutoWidth: false,
+                        allowColumnReordering: true,
+                        allowColumnResizing: true,
+                        wordWrapEnabled: false,
+                        hoverStateEnabled: true,
+                        scrolling: {
+                            mode: 'standard',
+                            columnRenderingMode: 'virtual',
+                            useNative: true
+                        },
+                        columnFixing: {
+                            enabled: true
+                        },
+                        sorting: {
+                            mode: 'multiple'
+                        },
+                        selection: {
+                            mode: 'multiple',
+                            showCheckBoxesMode: 'always'
+                        },
+                        columns: columns,
+                        paging: {
+                            pageSize: 50
+                        },
+                        pager: {
+                            visible: true,
+                            showPageSizeSelector: true,
+                            allowedPageSizes: [20, 50, 100, 200],
+                            showInfo: true,
+                            showNavigationButtons: true
+                        },
+                        filterRow: {
+                            visible: true,
+                            applyFilter: 'auto'
+                        },
+                        headerFilter: {
+                            visible: true
+                        },
+                        searchPanel: {
+                            visible: true,
+                            width: 240,
+                            placeholder: 'Search...'
+                        },
+                        columnChooser: {
+                            enabled: true,
+                            mode: 'select'
+                        },
+                        export: {
+                            enabled: true,
+                            allowExportSelectedData: true
+                        },
+                        onExporting: function(e) {
+                            const workbook = new ExcelJS.Workbook();
+                            const worksheet = workbook.addWorksheet('Allocated Lots');
+
+                            DevExpress.excelExporter.exportDataGrid({
+                                component: e.component,
+                                worksheet: worksheet,
+                                autoFilterEnabled: true
+                            }).then(function() {
+                                workbook.xlsx.writeBuffer().then(function(buffer) {
+                                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'AllocatedLots.xlsx');
+                                });
+                            });
+                            e.cancel = true;
+                        },
+                        onSelectionChanged: function(e) {
+                            const selectedCount = e.selectedRowsData.length;
+                            console.log('[Store Transactions] Selected rows:', selectedCount);
+                        },
+                        onContentReady: function(e) {
+                            console.log('[Store Transactions] Allocated Lots Grid loaded, row count:', e.component.totalCount());
+                            // Force grid to recalculate dimensions on first load only
+                            if (!this._firstLoadComplete) {
+                                this._firstLoadComplete = true;
+                                setTimeout(() => {
+                                    e.component.repaint();
+                                }, 100);
+                            }
+                        }
+                    }).dxDataGrid('instance');
+                } else {
+                    gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No allocated lots found for this order</p>';
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+            }
+        });
+    };
+
+
+    // Refresh QOH Details (Tab 2)
+    window.refreshQOHDetails = async function(orderNumber) {
+        console.log('[Store Transactions] Refreshing QOH details for:', orderNumber);
+
+        const gridContainer = document.getElementById('qoh-details-grid');
+        if (!gridContainer) {
+            console.error('[Store Transactions] QOH Grid container not found');
+            return;
+        }
+
+        // Show loading indicator
+        gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading QOH details...</p></div>';
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}`;
+
+        // Log debug info
+        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber }, null, null, 'GET');
+
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            console.log('[Store Transactions] QOH Details Callback - Error:', error, 'Data:', data);
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Refresh QOH Details - Error', apiUrl, null, null, error, 'GET');
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error: ${error}</p>`;
+                return;
+            } else {
+                try {
+                    const response = JSON.parse(data);
+                    logDebugInfo('Refresh QOH Details - Success', apiUrl, null, response, null, 'GET');
+                } catch (e) {
+                    logDebugInfo('Refresh QOH Details - Success', apiUrl, null, data, null, 'GET');
+                }
+            }
+
+            try {
+                const response = JSON.parse(data);
+
+                if (response && response.items && response.items.length > 0) {
+                    // Store QOH data globally for lot number lookup
+                    window.qohData = response.items;
+
+                    // Clear loading message
+                    gridContainer.innerHTML = '';
+
+                    // Destroy existing grid if present
+                    if (qohDetailsGrid) {
+                        try {
+                            qohDetailsGrid.dispose();
+                        } catch (e) {
+                            console.warn('[Store Transactions] Error disposing QOH grid:', e);
+                        }
+                    }
+
+                    // Get keys from first item to create columns dynamically
+                    const keys = Object.keys(response.items[0]);
+                    const columns = keys.map(key => ({
+                        dataField: key,
+                        caption: key.replace(/_/g, ' ').toUpperCase(),
+                        width: 'auto'
+                    }));
+
+                    // Initialize DevExpress DataGrid
+                    qohDetailsGrid = $('#qoh-details-grid').dxDataGrid({
+                        dataSource: response.items,
+                        showBorders: true,
+                        showRowLines: true,
+                        showColumnLines: true,
+                        rowAlternationEnabled: true,
+                        columnAutoWidth: false,
+                        allowColumnReordering: true,
+                        allowColumnResizing: true,
+                        wordWrapEnabled: false,
+                        hoverStateEnabled: true,
+                        scrolling: {
+                            mode: 'standard',
+                            columnRenderingMode: 'virtual',
+                            useNative: true
+                        },
+                        columnFixing: {
+                            enabled: true
+                        },
+                        sorting: {
+                            mode: 'multiple'
+                        },
+                        columns: columns,
+                        paging: {
+                            pageSize: 50
+                        },
+                        pager: {
+                            visible: true,
+                            showPageSizeSelector: true,
+                            allowedPageSizes: [20, 50, 100, 200],
+                            showInfo: true,
+                            showNavigationButtons: true
+                        },
+                        filterRow: {
+                            visible: true,
+                            applyFilter: 'auto'
+                        },
+                        headerFilter: {
+                            visible: true
+                        },
+                        searchPanel: {
+                            visible: true,
+                            width: 240,
+                            placeholder: 'Search...'
+                        },
+                        columnChooser: {
+                            enabled: true,
+                            mode: 'select'
+                        },
+                        export: {
+                            enabled: true,
+                            allowExportSelectedData: false
+                        },
+                        onExporting: function(e) {
+                            const workbook = new ExcelJS.Workbook();
+                            const worksheet = workbook.addWorksheet('QOH Details');
+
+                            DevExpress.excelExporter.exportDataGrid({
+                                component: e.component,
+                                worksheet: worksheet,
+                                autoFilterEnabled: true
+                            }).then(function() {
+                                workbook.xlsx.writeBuffer().then(function(buffer) {
+                                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'QOHDetails.xlsx');
+                                });
+                            });
+                            e.cancel = true;
+                        },
+                        onContentReady: function(e) {
+                            console.log('[Store Transactions] QOH Details Grid loaded, row count:', e.component.totalCount());
+                            // Force grid to recalculate dimensions on first load only
+                            if (!this._firstLoadComplete) {
+                                this._firstLoadComplete = true;
+                                setTimeout(() => {
+                                    e.component.repaint();
+                                }, 100);
+                            }
+                        }
+                    }).dxDataGrid('instance');
+                } else {
+                    gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No QOH data found for this order</p>';
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                gridContainer.innerHTML = `<p style="color: #ef4444; text-align: center; padding: 2rem;">Error parsing data: ${parseError.message}</p>`;
+            }
+        });
+    };
+
+
+    // Get selected rows from Allocated Lots grid (for use in setData and other functions)
+    window.getSelectedAllocatedLots = function() {
+        console.log('[Store Transactions] getSelectedAllocatedLots called');
+        console.log('[Store Transactions] allocatedLotsGrid exists:', !!allocatedLotsGrid);
+
+        if (allocatedLotsGrid) {
+            console.log('[Store Transactions] allocatedLotsGrid type:', typeof allocatedLotsGrid);
+            console.log('[Store Transactions] allocatedLotsGrid has getSelectedRowsData:', typeof allocatedLotsGrid.getSelectedRowsData);
+
+            try {
+                const selectedData = allocatedLotsGrid.getSelectedRowsData();
+                console.log('[Store Transactions] Selected rows count:', selectedData.length);
+                console.log('[Store Transactions] Selected rows data:', selectedData);
+                return selectedData;
+            } catch (error) {
+                console.error('[Store Transactions] Error getting selected rows:', error);
+                return [];
+            }
+        } else {
+            console.warn('[Store Transactions] allocatedLotsGrid is null/undefined');
+        }
+        return [];
+    };
+
+    window.processTransaction = function(orderNumber) {
+        console.log('[Store Transactions] Processing transaction for:', orderNumber);
+
+        // Show confirmation dialog
+        if (!confirm(`Are you sure you want to process transaction ${orderNumber}?`)) {
+            console.log('[Store Transactions] Process transaction cancelled by user');
+            return;
+        }
+
+        // Get fusion instance from localStorage
+        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Prepare POST data
+        const postData = {
+            p_trx_number: orderNumber,
+            p_instance_name: fusionInstance
+        };
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/processs2v';
+
+        console.log('[Store Transactions] Calling process transaction API:', apiUrl, postData);
+
+        // Log debug info
+        logDebugInfo('Process Transaction', apiUrl, postData, null, null, 'POST');
+
+        // Show loading dialog
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'process-transaction-loading';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #667eea; margin-bottom: 1rem;"></i>
+                <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Processing Transaction...</div>
+                <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">Order: ${orderNumber}</div>
+                <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${fusionInstance}</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(postData)
+        }, function(error, data) {
+            console.log('[Store Transactions] Process Transaction Response - Error:', error, 'Data:', data);
+
+            // Remove loading dialog
+            const loading = document.getElementById('process-transaction-loading');
+            if (loading) loading.remove();
+
+            // Log response or error
+            if (error) {
+                logDebugInfo('Process Transaction - Error', apiUrl, postData, null, error, 'POST');
+                alert('Error processing transaction: ' + error);
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+                logDebugInfo('Process Transaction - Success', apiUrl, postData, response, null, 'POST');
+
+                console.log('[Store Transactions] Parsed response:', response);
+
+                if (response.success) {
+                    alert('Success: ' + (response.message || 'Transaction processed successfully'));
+
+                    // Refresh the transaction details and allocated lots to show updated data
+                    refreshTransactionDetails(orderNumber);
+                    refreshAllocatedLots(orderNumber);
+                } else {
+                    alert('Failed: ' + (response.message || 'Unknown error occurred'));
+                }
+            } catch (parseError) {
+                console.error('[Store Transactions] Parse Error:', parseError);
+                logDebugInfo('Process Transaction - Success', apiUrl, postData, data, null, 'POST');
+                alert('Transaction response: ' + data);
+            }
+        });
+    };
+
+    window.setData = function(orderNumber) {
+        console.log('[Store Transactions] Set data for:', orderNumber);
+
+        // Get selected rows from DevExpress grid
+        const selectedItems = getSelectedAllocatedLots();
+
+        if (selectedItems.length === 0) {
+            alert('Please select at least one record to set data');
+            return;
+        }
+
+        console.log('[Store Transactions] Selected items:', selectedItems);
+
+        // Open Set Data dialog
+        openSetDataDialog(orderNumber, selectedItems);
+    };
+
+    // Open Set Data Dialog
+    function openSetDataDialog(orderNumber, selectedItems) {
+        const isSingleSelection = selectedItems.length === 1;
+        let modalHtml = '';
+
+        if (isSingleSelection) {
+            // Single selection mode - Form with input + datalist
+            const item = selectedItems[0];
+            const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || item.itemnumber || item.ITEMNUMBER || '';
+            const itemDescription = item.ITEM_DESCRIPTION || item.item_description || item.DESCRIPTION || item.description || item.DESC || item.desc || '';
+
+            console.log('[Set Data] Single selection - Item:', itemNumber);
+            console.log('[Set Data] Single selection - Full item data:', item);
+
+            // Get available lots for this item from QOH data
+            const availableLots = window.qohData ? window.qohData.filter(qoh => {
+                // QOH uses ITEMNUMBER (no underscore)
+                const qohItem = qoh.ITEMNUMBER || qoh.itemnumber || qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
+                const match = qohItem === itemNumber || qohItem.trim() === itemNumber.trim();
+                if (match) {
+                    console.log('[Set Data] Matched QOH item:', qohItem, 'with allocated item:', itemNumber);
+                }
+                return match;
+            }) : [];
+
+            console.log('[Set Data] Single selection - Found', availableLots.length, 'lots:', availableLots);
+            if (window.qohData && window.qohData.length > 0) {
+                console.log('[Set Data] Sample QOH record:', window.qohData[0]);
+            }
+
+            // Get allocated quantity from item
+            const allocatedQty = item.ALLOCATED_QTY || item.allocated_qty || item.QTY || item.qty || item.QUANTITY || item.quantity || '';
+
+            // Build datalist options with quantity
+            let lotDatalistOptions = '';
+            const singleLotExpirationMap = {};
+            availableLots.forEach(lot => {
+                const lotNum = lot.LOT_NUMBER || lot.lot_number || lot.LOT || lot.lot || '';
+                const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || lot.EXPIRE_DATE || lot.expire_date || '';
+                const lotQty = lot.primaryquantity || lot.PRIMARYQUANTITY || lot.QTY || lot.qty || lot.QUANTITY || lot.quantity || lot.QOH || lot.qoh || '';
+                if (lotNum) {
+                    // Show lot number with quantity in dropdown
+                    lotDatalistOptions += `<option value="${lotNum}" label="Lot: ${lotNum} | Qty: ${lotQty}">`;
+                    singleLotExpirationMap[lotNum] = lotExp;
+                }
+            });
+
+            // Store expiration map globally
+            window.singleLotExpirationMap = singleLotExpirationMap;
+
+            modalHtml = `
+                <div id="set-data-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                    <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                        <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                                <i class="fas fa-edit"></i> Set Data for Item
+                            </h3>
+                            <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem; line-height: 1.5;">
+                                <strong>Item:</strong> ${itemNumber}<br>
+                                ${itemDescription ? `<span style="font-size: 0.75rem; opacity: 0.9;">${itemDescription}</span><br>` : ''}
+                                <span style="font-size: 0.75rem;">${availableLots.length} lot(s) available</span>
+                            </p>
+                        </div>
+
+                        <div style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
+                            <form id="set-data-form" style="display: grid; gap: 1rem;">
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Lot Number
+                                    </label>
+                                    <input type="text" list="single-lot-datalist" id="set-lot-number"
+                                        onchange="onLotNumberChangeInput()" oninput="onLotNumberChangeInput()"
+                                        placeholder="Type or select lot number"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                    <datalist id="single-lot-datalist">
+                                        ${lotDatalistOptions}
+                                    </datalist>
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Lot Expiration Date
+                                    </label>
+                                    <input type="date" id="set-lot-exp-date" readonly
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem; background: #f8f9fc;">
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Picked Qty
+                                    </label>
+                                    <input type="number" id="set-picked-qty" step="0.01" value="${allocatedQty}"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;"
+                                        placeholder="Enter picked quantity">
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Ship Confirm Status
+                                    </label>
+                                    <select id="set-ship-confirm-status"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                        <option value="">-- Select --</option>
+                                        <option value="YES">YES</option>
+                                        <option value="NO">NO</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Pick Confirm Status
+                                    </label>
+                                    <select id="set-pick-confirm-status"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                        <option value="">-- Select --</option>
+                                        <option value="YES">YES</option>
+                                        <option value="NO">NO</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #475569; margin-bottom: 0.4rem;">
+                                        Cancelled Status
+                                    </label>
+                                    <select id="set-cancelled-status"
+                                        style="width: 100%; padding: 0.6rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                                        <option value="">-- Select --</option>
+                                        <option value="YES">YES</option>
+                                        <option value="NO">NO</option>
+                                    </select>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="closeSetDataDialog()">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button class="btn btn-primary" onclick="submitSetData('${orderNumber}', ${JSON.stringify(selectedItems).replace(/"/g, '&quot;')})">
+                                <i class="fas fa-save"></i> Set Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else {
+            // Multiple selection mode - Grid view
+            let gridRows = '';
+            selectedItems.forEach((item, index) => {
+                const itemNumber = item.ITEM_NUMBER || item.item_number || item.ITEM || item.item || item.itemnumber || item.ITEMNUMBER || '';
+                const itemDescription = item.ITEM_DESCRIPTION || item.item_description || item.DESCRIPTION || item.description || item.DESC || item.desc || '';
+                const lineNumber = item.LINE_NUMBER || item.line_number || item.LINE || item.line || index + 1;
+
+                console.log(`[Set Data] Row ${index} - Item: ${itemNumber}`);
+                console.log(`[Set Data] Row ${index} - Full item data:`, item);
+
+                // Get available lots for this item
+                const availableLots = window.qohData ? window.qohData.filter(qoh => {
+                    // QOH uses ITEMNUMBER (no underscore)
+                    const qohItem = qoh.ITEMNUMBER || qoh.itemnumber || qoh.ITEM_NUMBER || qoh.item_number || qoh.ITEM || qoh.item || '';
+                    const match = qohItem === itemNumber || qohItem.trim() === itemNumber.trim();
+                    if (match) {
+                        console.log(`[Set Data] Row ${index} - Matched QOH item: ${qohItem} with allocated item: ${itemNumber}`);
+                    }
+                    return match;
+                }) : [];
+
+                console.log(`[Set Data] Row ${index} - Found ${availableLots.length} lots:`, availableLots);
+                if (index === 0 && window.qohData && window.qohData.length > 0) {
+                    console.log('[Set Data] Sample QOH record:', window.qohData[0]);
+                }
+
+                // Get allocated quantity from item
+                const allocatedQty = item.ALLOCATED_QTY || item.allocated_qty || item.QTY || item.qty || item.QUANTITY || item.quantity || '';
+
+                // Build datalist options for autocomplete with quantity
+                let lotDatalistId = `lot-datalist-${index}`;
+                let lotDatalistOptions = '';
+                const lotExpirationMap = {};
+
+                availableLots.forEach(lot => {
+                    const lotNum = lot.LOT_NUMBER || lot.lot_number || lot.LOT || lot.lot || '';
+                    const lotExp = lot.LOT_EXPIRATION_DATE || lot.lot_expiration_date || lot.EXPIRATION_DATE || lot.expiration_date || lot.EXPIRE_DATE || lot.expire_date || '';
+                    const lotQty = lot.primaryquantity || lot.PRIMARYQUANTITY || lot.QTY || lot.qty || lot.QUANTITY || lot.quantity || lot.QOH || lot.qoh || '';
+                    if (lotNum) {
+                        // Show lot number with quantity in dropdown
+                        lotDatalistOptions += `<option value="${lotNum}" label="Lot: ${lotNum} | Qty: ${lotQty}">`;
+                        lotExpirationMap[lotNum] = lotExp;
+                    }
+                });
+
+                // Store expiration map globally for this row
+                if (!window.lotExpirationMaps) window.lotExpirationMaps = {};
+                window.lotExpirationMaps[index] = lotExpirationMap;
+
+                gridRows += `
+                    <tr style="border-bottom: 1px solid #e2e8f0;">
+                        <td style="padding: 0.5rem; font-size: 0.75rem; white-space: nowrap;">${lineNumber}</td>
+                        <td style="padding: 0.5rem; font-size: 0.75rem;">
+                            <div style="font-weight: 500;">${itemNumber}</div>
+                            ${itemDescription ? `<div style="font-size: 0.65rem; color: #64748b; margin-top: 0.2rem; line-height: 1.2;">${itemDescription}</div>` : ''}
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <input type="text" list="${lotDatalistId}" class="grid-lot-number" data-row="${index}"
+                                onchange="onGridLotChangeInput(${index})" oninput="onGridLotChangeInput(${index})"
+                                placeholder="Type or select lot"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                            <datalist id="${lotDatalistId}">
+                                ${lotDatalistOptions}
+                            </datalist>
+                            <small style="color: #64748b; font-size: 0.65rem;">${availableLots.length} lot(s) available</small>
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <input type="date" class="grid-lot-exp" data-row="${index}" readonly
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem; background: #f8f9fc;">
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <input type="number" class="grid-picked-qty" data-row="${index}" step="0.01" value="${allocatedQty}"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <select class="grid-ship-status" data-row="${index}"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                                <option value="">--</option>
+                                <option value="YES">YES</option>
+                                <option value="NO">NO</option>
+                            </select>
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <select class="grid-pick-status" data-row="${index}"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                                <option value="">--</option>
+                                <option value="YES">YES</option>
+                                <option value="NO">NO</option>
+                            </select>
+                        </td>
+                        <td style="padding: 0.5rem;">
+                            <select class="grid-cancel-status" data-row="${index}"
+                                style="width: 100%; padding: 0.4rem; border: 1px solid #e2e8f0; border-radius: 4px; font-size: 0.75rem;">
+                                <option value="">--</option>
+                                <option value="YES">YES</option>
+                                <option value="NO">NO</option>
+                            </select>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            modalHtml = `
+                <div id="set-data-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                    <div style="background: white; width: 95%; max-width: 1200px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                        <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                            <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                                <i class="fas fa-edit"></i> Set Data for Multiple Records
+                            </h3>
+                            <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.8rem;">
+                                ${selectedItems.length} records selected
+                            </p>
+                        </div>
+
+                        <div style="padding: 1rem; overflow-y: auto; max-height: 70vh;">
+                            <div style="overflow-x: auto;">
+                                <table style="width: 100%; border-collapse: collapse;">
+                                    <thead style="position: sticky; top: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); z-index: 10;">
+                                        <tr>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Line</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Item Number</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Lot Number</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Lot Exp Date</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Picked Qty</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Ship Confirm</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Pick Confirm</th>
+                                            <th style="padding: 0.6rem; color: white; font-size: 0.75rem; white-space: nowrap; text-align: left;">Cancelled</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${gridRows}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                            <button class="btn btn-secondary" onclick="closeSetDataDialog()">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button class="btn btn-primary" onclick="submitSetDataGrid('${orderNumber}', ${JSON.stringify(selectedItems).replace(/"/g, '&quot;')})">
+                                <i class="fas fa-save"></i> Set Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // Remove existing modal if any
+        const existingModal = document.getElementById('set-data-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Send Store transactions modal to back when Set Data opens
+        const storeTransModal = document.getElementById('store-transactions-modal');
+        if (storeTransModal) {
+            console.log('[Set Data] Sending Store transactions modal to back (lowering z-index)');
+            storeTransModal.style.zIndex = '100';  // Lower z-index to send to back
+        }
+    }
+
+    window.closeSetDataDialog = function() {
+        const modal = document.getElementById('set-data-modal');
+        if (modal) {
+            modal.remove();
+        }
+
+        // Restore Store transactions modal z-index when Set Data closes
+        const storeTransModal = document.getElementById('store-transactions-modal');
+        if (storeTransModal) {
+            console.log('[Set Data] Restoring Store transactions modal z-index to front');
+            storeTransModal.style.zIndex = '25000';  // Restore original z-index
+        }
+    };
+
+    window.submitSetData = async function(orderNumber, selectedItems) {
+        console.log('[Store Transactions] Submitting set data for:', orderNumber, selectedItems);
+
+        // Get form values
+        const lotNumber = document.getElementById('set-lot-number').value.trim();
+        const lotExpDate = document.getElementById('set-lot-exp-date').value;
+        const pickedQty = document.getElementById('set-picked-qty').value;
+        const shipConfirmStatus = document.getElementById('set-ship-confirm-status').value;
+        const pickConfirmStatus = document.getElementById('set-pick-confirm-status').value;
+        const cancelledStatus = document.getElementById('set-cancelled-status').value;
+
+        // Validate at least one field is filled
+        if (!lotNumber && !lotExpDate && !pickedQty && !shipConfirmStatus && !pickConfirmStatus && !cancelledStatus) {
+            alert('Please fill at least one field to update');
+            return;
+        }
+
+        // Build records array for the API (always multiple records format)
+        const records = [];
+
+        // For single selection, still send as array with one record
+        selectedItems.forEach(item => {
+            const record = {
+                lid: item.LID || item.lid || item.ID || item.id
+            };
+
+            // Only include fields that have values
+            if (lotNumber) record.lot_number = lotNumber;
+            if (lotExpDate) record.lot_expiration_date = lotExpDate;
+            if (pickedQty) record.picked_qty = parseFloat(pickedQty);
+            if (shipConfirmStatus) record.ship_confirm_status = shipConfirmStatus;
+            if (pickConfirmStatus) record.pick_confirm_status = pickConfirmStatus;
+            if (cancelledStatus) record.cancelled_status = cancelledStatus;
+
+            records.push(record);
+        });
+
+        const payload = { records };
+
+        console.log('[Set Data] API Payload:', JSON.stringify(payload, null, 2));
+
+        // ORDS endpoint URL
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/sets2vdata';
+
+        // Log debug info before request
+        logDebugInfo('Set Data (Single)', apiUrl, payload, null, null, 'POST');
+
+        try {
+            // Make POST request via C# (to handle CORS)
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(payload),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }, function(error, data) {
+                console.log('[Set Data] Response received');
+                console.log('[Set Data] Error:', error);
+                console.log('[Set Data] Data type:', typeof data);
+                console.log('[Set Data] Data length:', data ? data.length : 0);
+                console.log('[Set Data] Raw data:', data);
+                console.log('[Set Data] First 200 chars:', data ? data.substring(0, 200) : 'null');
+
+                if (error) {
+                    // Log error to debug
+                    logDebugInfo('Set Data (Single) - Error', apiUrl, payload, null, error, 'POST');
+                    alert('Failed to set data: ' + error);
+                    return;
+                }
+
+                // Parse response
+                try {
+                    // Clean the data - remove any whitespace/newlines and try to extract JSON
+                    let cleanData = data;
+                    if (typeof data === 'string') {
+                        // Log original for debugging
+                        console.log('[Set Data] Original response (with escape chars):', JSON.stringify(data));
+
+                        // Handle multiple concatenated JSON objects (e.g., }{)
+                        // Split by }{ and try to find the valid response object
+                        if (data.includes('}{')) {
+                            console.log('[Set Data] Multiple JSON objects detected, splitting...');
+                            const parts = data.split('}{');
+
+                            // Try to parse each part (add back the braces)
+                            for (let i = parts.length - 1; i >= 0; i--) {
+                                let part = parts[i];
+                                if (i > 0) part = '{' + part; // Add opening brace
+                                if (i < parts.length - 1) part = part + '}'; // Add closing brace
+
+                                try {
+                                    const parsed = JSON.parse(part);
+                                    // Use the first valid JSON that has a 'success' field (the actual response)
+                                    if (parsed.hasOwnProperty('success')) {
+                                        cleanData = part;
+                                        console.log('[Set Data] Found valid response object:', cleanData);
+                                        break;
+                                    }
+                                } catch (e) {
+                                    console.log('[Set Data] Part ' + i + ' is not valid JSON, skipping');
+                                }
+                            }
+                        } else {
+                            // Try to extract JSON if response has extra content
+                            const jsonMatch = data.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) {
+                                cleanData = jsonMatch[0];
+                                console.log('[Set Data] Extracted JSON:', cleanData);
+                            }
+                        }
+                    }
+
+                    const response = typeof cleanData === 'string' ? JSON.parse(cleanData) : cleanData;
+                    console.log('[Set Data] Parsed response:', response);
+
+                    // Log success to debug
+                    logDebugInfo('Set Data (Single) - Success', apiUrl, payload, response, null, 'POST');
+
+                    if (response.success) {
+                        alert(`Success! Updated ${response.successCount} record(s).\n\n${response.message}`);
+                        closeSetDataDialog();
+                        // Refresh the allocated lots grid to show updated data
+                        refreshAllocatedLots(orderNumber);
+                    } else {
+                        const errorMsg = response.errorDetails || response.message || 'Unknown error';
+                        alert(`Failed to set data:\n\n${errorMsg}`);
+                    }
+                } catch (parseError) {
+                    console.error('[Set Data] Parse error:', parseError);
+                    console.error('[Set Data] Failed to parse data:', data);
+
+                    // Log with raw data for debugging
+                    const debugData = {
+                        rawResponse: data,
+                        responseType: typeof data,
+                        responseLength: data ? data.length : 0,
+                        first100chars: data ? data.substring(0, 100) : null
+                    };
+                    logDebugInfo('Set Data (Single) - Parse Error', apiUrl, payload, debugData, parseError.message, 'POST');
+
+                    alert(`Error parsing response: ${parseError.message}\n\nRaw response (first 200 chars):\n${data ? data.substring(0, 200) : 'null'}\n\nCheck Debug Log for full details.`);
+                }
+            });
+
+        } catch (error) {
+            console.error('[Set Data] Error:', error);
+            logDebugInfo('Set Data (Single) - Exception', apiUrl, payload, null, error.message, 'POST');
+            alert('Error submitting data: ' + error.message);
+        }
+    };
+
+    // Handle lot number change for single selection (input field with datalist)
+    window.onLotNumberChangeInput = function() {
+        const lotInput = document.getElementById('set-lot-number');
+        const expDateInput = document.getElementById('set-lot-exp-date');
+
+        const lotNumber = lotInput.value.trim();
+
+        // Check if this lot number has an expiration date in our map
+        if (window.singleLotExpirationMap && window.singleLotExpirationMap[lotNumber]) {
+            const expiration = window.singleLotExpirationMap[lotNumber];
+            if (expiration) {
+                const formattedDate = expiration.split('T')[0]; // Handle ISO date format
+                expDateInput.value = formattedDate;
+            } else {
+                expDateInput.value = '';
+            }
+        } else {
+            expDateInput.value = '';
+        }
+    };
+
+    // Keep old function for backward compatibility
+    window.onLotNumberChange = function() {
+        onLotNumberChangeInput();
+    };
+
+    // Handle lot number change for grid rows (input field with datalist)
+    window.onGridLotChangeInput = function(rowIndex) {
+        const lotInput = document.querySelector(`.grid-lot-number[data-row="${rowIndex}"]`);
+        const expDateInput = document.querySelector(`.grid-lot-exp[data-row="${rowIndex}"]`);
+
+        const lotNumber = lotInput.value.trim();
+
+        // Check if this lot number has an expiration date in our map
+        if (window.lotExpirationMaps && window.lotExpirationMaps[rowIndex]) {
+            const expiration = window.lotExpirationMaps[rowIndex][lotNumber];
+            if (expiration) {
+                const formattedDate = expiration.split('T')[0];
+                expDateInput.value = formattedDate;
+            } else {
+                expDateInput.value = '';
+            }
+        } else {
+            expDateInput.value = '';
+        }
+    };
+
+    // Keep old function for backward compatibility
+    window.onGridLotChange = function(rowIndex) {
+        onGridLotChangeInput(rowIndex);
+    };
+
+    // Submit grid data for multiple selections
+    window.submitSetDataGrid = async function(orderNumber, selectedItems) {
+        console.log('[Store Transactions] Submitting grid set data for:', orderNumber);
+
+        // Build records array for the API
+        const records = [];
+
+        selectedItems.forEach((item, index) => {
+            const lotNumber = document.querySelector(`.grid-lot-number[data-row="${index}"]`).value.trim();
+            const lotExpDate = document.querySelector(`.grid-lot-exp[data-row="${index}"]`).value;
+            const pickedQty = document.querySelector(`.grid-picked-qty[data-row="${index}"]`).value;
+            const shipStatus = document.querySelector(`.grid-ship-status[data-row="${index}"]`).value;
+            const pickStatus = document.querySelector(`.grid-pick-status[data-row="${index}"]`).value;
+            const cancelStatus = document.querySelector(`.grid-cancel-status[data-row="${index}"]`).value;
+
+            // Build record with lid
+            const record = {
+                lid: item.LID || item.lid || item.ID || item.id
+            };
+
+            // Only include fields that have values
+            if (lotNumber) record.lot_number = lotNumber;
+            if (lotExpDate) record.lot_expiration_date = lotExpDate;
+            if (pickedQty) record.picked_qty = parseFloat(pickedQty);
+            if (shipStatus) record.ship_confirm_status = shipStatus;
+            if (pickStatus) record.pick_confirm_status = pickStatus;
+            if (cancelStatus) record.cancelled_status = cancelStatus;
+
+            records.push(record);
+        });
+
+        const payload = { records };
+
+        console.log('[Set Data Grid] API Payload:', JSON.stringify(payload, null, 2));
+
+        // ORDS endpoint URL
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/sets2vdata';
+
+        // Log debug info before request
+        logDebugInfo('Set Data (Multiple)', apiUrl, payload, null, null, 'POST');
+
+        try {
+            // Make POST request via C# (to handle CORS)
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(payload),
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            }, function(error, data) {
+                console.log('[Set Data Grid] Response received');
+                console.log('[Set Data Grid] Error:', error);
+                console.log('[Set Data Grid] Data type:', typeof data);
+                console.log('[Set Data Grid] Data length:', data ? data.length : 0);
+                console.log('[Set Data Grid] Raw data:', data);
+                console.log('[Set Data Grid] First 200 chars:', data ? data.substring(0, 200) : 'null');
+
+                if (error) {
+                    // Log error to debug
+                    logDebugInfo('Set Data (Multiple) - Error', apiUrl, payload, null, error, 'POST');
+                    alert('Failed to set data: ' + error);
+                    return;
+                }
+
+                // Parse response
+                try {
+                    // Clean the data - remove any whitespace/newlines and try to extract JSON
+                    let cleanData = data;
+                    if (typeof data === 'string') {
+                        // Log original for debugging
+                        console.log('[Set Data Grid] Original response (with escape chars):', JSON.stringify(data));
+
+                        // Handle multiple concatenated JSON objects (e.g., }{)
+                        // Split by }{ and try to find the valid response object
+                        if (data.includes('}{')) {
+                            console.log('[Set Data Grid] Multiple JSON objects detected, splitting...');
+                            const parts = data.split('}{');
+
+                            // Try to parse each part (add back the braces)
+                            for (let i = parts.length - 1; i >= 0; i--) {
+                                let part = parts[i];
+                                if (i > 0) part = '{' + part; // Add opening brace
+                                if (i < parts.length - 1) part = part + '}'; // Add closing brace
+
+                                try {
+                                    const parsed = JSON.parse(part);
+                                    // Use the first valid JSON that has a 'success' field (the actual response)
+                                    if (parsed.hasOwnProperty('success')) {
+                                        cleanData = part;
+                                        console.log('[Set Data Grid] Found valid response object:', cleanData);
+                                        break;
+                                    }
+                                } catch (e) {
+                                    console.log('[Set Data Grid] Part ' + i + ' is not valid JSON, skipping');
+                                }
+                            }
+                        } else {
+                            // Try to extract JSON if response has extra content
+                            const jsonMatch = data.match(/\{[\s\S]*\}/);
+                            if (jsonMatch) {
+                                cleanData = jsonMatch[0];
+                                console.log('[Set Data Grid] Extracted JSON:', cleanData);
+                            }
+                        }
+                    }
+
+                    const response = typeof cleanData === 'string' ? JSON.parse(cleanData) : cleanData;
+                    console.log('[Set Data Grid] Parsed response:', response);
+
+                    // Log success to debug
+                    logDebugInfo('Set Data (Multiple) - Success', apiUrl, payload, response, null, 'POST');
+
+                    if (response.success) {
+                        const message = `Success! Updated ${response.successCount} record(s).\n\n${response.message}`;
+                        if (response.errorCount > 0) {
+                            alert(`${message}\n\nErrors: ${response.errorCount}\nDetails: ${response.errorDetails}`);
+                        } else {
+                            alert(message);
+                        }
+                        closeSetDataDialog();
+                        // Refresh the allocated lots grid to show updated data
+                        refreshAllocatedLots(orderNumber);
+                    } else {
+                        const errorMsg = response.errorDetails || response.message || 'Unknown error';
+                        alert(`Failed to set data:\n\n${errorMsg}`);
+                    }
+                } catch (parseError) {
+                    console.error('[Set Data Grid] Parse error:', parseError);
+                    console.error('[Set Data Grid] Failed to parse data:', data);
+
+                    // Log with raw data for debugging
+                    const debugData = {
+                        rawResponse: data,
+                        responseType: typeof data,
+                        responseLength: data ? data.length : 0,
+                        first100chars: data ? data.substring(0, 100) : null
+                    };
+                    logDebugInfo('Set Data (Multiple) - Parse Error', apiUrl, payload, debugData, parseError.message, 'POST');
+
+                    alert(`Error parsing response: ${parseError.message}\n\nRaw response (first 200 chars):\n${data ? data.substring(0, 200) : 'null'}\n\nCheck Debug Log for full details.`);
+                }
+            });
+
+        } catch (error) {
+            console.error('[Set Data Grid] Error:', error);
+            logDebugInfo('Set Data (Multiple) - Exception', apiUrl, payload, null, error.message, 'POST');
+            alert('Error submitting data: ' + error.message);
+        }
+    };
+
+    window.checkFusionStatus = function(orderNumber) {
+        console.log('[Store Transactions] Check fusion status for:', orderNumber);
+        alert('Check Fusion Status functionality - To be implemented');
+    };
+
+    window.deleteTripOrder = function(tripId, orderNumber) {
+        console.log('[Trip Management] Delete order:', orderNumber);
+        alert('Delete Order functionality - To be implemented');
     };
 
     function activateTripTab(tabId) {

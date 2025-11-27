@@ -1429,6 +1429,7 @@ namespace WMSApp
                             string action = root.GetProperty("action").GetString();
                             string requestId = root.GetProperty("requestId").GetString();
 
+
                             System.Diagnostics.Debug.WriteLine($"[C#] Action: {action}, RequestId: {requestId}");
 
                             switch (action)

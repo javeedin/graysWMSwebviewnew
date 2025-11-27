@@ -9,8 +9,8 @@ console.log('[Distribution] ========================================');
 
 let distributionConfig = {
     distributionFolder: 'C:\\fusion\\fusionclientweb\\wms',
-    // TESTING: Using current feature branch - CHANGE TO 'main' after merging this branch
-    githubReleaseAPI: 'https://raw.githubusercontent.com/javeedin/graysWMSwebviewnew/claude/fix-monitor-printing-caching-011CUsuWNCyAa4XEbjUB4kCJ/latest-release.json',
+    // Use GitHub Releases API to automatically get latest release
+    githubReleaseAPI: 'https://api.github.com/repos/javeedin/graysWMSwebviewnew/releases/latest',
     isDownloading: false
 };
 
@@ -85,14 +85,31 @@ async function downloadNewVersion() {
             throw new Error(`Failed to fetch release info: ${response.status}`);
         }
 
-        const releaseInfo = await response.json();
-        console.log('[Distribution] Step 4: Release info received:');
-        console.log('[Distribution] - Version:', releaseInfo.version);
-        console.log('[Distribution] - Package URL:', releaseInfo.html_package_url);
-        console.log('[Distribution] - Release date:', releaseInfo.release_date);
+        const githubRelease = await response.json();
+        console.log('[Distribution] Step 4: GitHub Release info received:');
+        console.log('[Distribution] - Full response:', githubRelease);
+
+        // Parse GitHub API response
+        const version = githubRelease.tag_name?.replace('v', '') || githubRelease.tag_name;
+        const releaseDate = githubRelease.published_at;
+
+        // Find the ZIP asset (wms-webview-html-*.zip)
+        const zipAsset = githubRelease.assets?.find(asset =>
+            asset.name.includes('wms-webview-html') && asset.name.endsWith('.zip')
+        );
+
+        if (!zipAsset) {
+            throw new Error('No WMS ZIP file found in release assets');
+        }
+
+        const packageUrl = zipAsset.browser_download_url;
+
+        console.log('[Distribution] - Version:', version);
+        console.log('[Distribution] - Package URL:', packageUrl);
+        console.log('[Distribution] - Release date:', releaseDate);
 
         // Confirm download with user
-        const confirmMsg = `Download WMS version ${releaseInfo.version}?\n\n` +
+        const confirmMsg = `Download WMS version ${version}?\n\n` +
                           `This will download and install the latest version to:\n` +
                           `${distributionConfig.distributionFolder}\n\n` +
                           `Size: ~2MB\nTime: ~30 seconds`;
@@ -116,8 +133,8 @@ async function downloadNewVersion() {
 
         const downloadMessage = {
             action: 'download-distribution',
-            version: releaseInfo.version,
-            packageUrl: releaseInfo.html_package_url,
+            version: version,
+            packageUrl: packageUrl,
             extractTo: distributionConfig.distributionFolder,
             requestId: requestId
         };
@@ -132,7 +149,7 @@ async function downloadNewVersion() {
 
             // Show progress message
             console.log('[Distribution] Step 8: Showing progress overlay...');
-            showDownloadProgress(releaseInfo.version);
+            showDownloadProgress(version);
         } else {
             console.error('[Distribution] WebView2 NOT available!');
             throw new Error('WebView2 not available');

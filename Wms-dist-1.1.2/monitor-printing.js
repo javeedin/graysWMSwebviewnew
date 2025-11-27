@@ -23,6 +23,12 @@ let isPrintQueueProcessing = false;
 window.showPrinterSelectionModal = async function(tripId, tripDate, orderCount, orders) {
     console.log('[Monitor] Showing printer selection modal for trip:', tripId);
 
+    // Close instance dropdown if open
+    const instanceMenu = document.getElementById('instance-dropdown-menu');
+    if (instanceMenu) {
+        instanceMenu.style.display = 'none';
+    }
+
     currentTripForPrinterSelection = {
         tripId: tripId,
         tripDate: tripDate,
@@ -35,11 +41,24 @@ window.showPrinterSelectionModal = async function(tripId, tripDate, orderCount, 
     document.getElementById('modal-trip-date').textContent = tripDate;
     document.getElementById('modal-order-count').textContent = `${orderCount} orders`;
 
-    // Load printers
-    await loadPrintersForSelection();
+    // Show modal FIRST (before loading printers)
+    const modal = document.getElementById('printer-selection-modal');
+    console.log('[Monitor] Setting modal display to flex');
+    modal.style.display = 'flex';
 
-    // Show modal
-    document.getElementById('printer-selection-modal').style.display = 'flex';
+    // Force reflow to ensure display change is applied
+    modal.offsetHeight;
+    console.log('[Monitor] Modal should now be visible');
+
+    // Load printers (async, with error handling)
+    try {
+        await loadPrintersForSelection();
+    } catch (error) {
+        console.error('[Monitor] Error loading printers:', error);
+        // Modal is already shown, just update the select with error message
+        const select = document.getElementById('modal-printer-select');
+        select.innerHTML = '<option value="">-- Error loading printers, please refresh --</option>';
+    }
 };
 
 window.closePrinterSelectionModal = function() {
@@ -61,33 +80,59 @@ window.closePrinterSelectionModal = function() {
 };
 
 async function loadPrintersForSelection() {
+    const select = document.getElementById('modal-printer-select');
+
     try {
         console.log('[Monitor] Loading printers for selection...');
+        select.innerHTML = '<option value="">-- Loading printers... --</option>';
 
         const data = await callApexAPINew('/printers/all', 'GET');
         allPrintersForSelection = data.items || [];
 
-        const select = document.getElementById('modal-printer-select');
+        console.log('[Monitor] API returned data:', data);
+        console.log('[Monitor] Printers count:', allPrintersForSelection.length);
+
+        if (allPrintersForSelection.length === 0) {
+            select.innerHTML = '<option value="">-- No printers found --</option>';
+            console.warn('[Monitor] No printers found in response');
+            return;
+        }
+
         select.innerHTML = '<option value="">-- Select a printer --</option>';
 
         allPrintersForSelection.forEach(printer => {
-            const option = document.createElement('option');
-            option.value = printer.configId;
-            option.textContent = `${printer.printerName}${printer.isActive === 'Y' ? ' (Active)' : ''}`;
-            if (printer.isActive === 'Y') {
-                option.selected = true;
+            try {
+                const option = document.createElement('option');
+                option.value = printer.configId;
+                option.textContent = `${printer.printerName}${printer.isActive === 'Y' ? ' (Active)' : ''}`;
+                if (printer.isActive === 'Y') {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            } catch (printerError) {
+                console.error('[Monitor] Error processing printer:', printer, printerError);
             }
-            select.appendChild(option);
         });
 
-        console.log('[Monitor] Loaded', allPrintersForSelection.length, 'printers');
+        console.log('[Monitor] Loaded', allPrintersForSelection.length, 'printers successfully');
     } catch (error) {
         console.error('[Monitor] Failed to load printers:', error);
-        const select = document.getElementById('modal-printer-select');
-        select.innerHTML = '<option value="">-- Error loading printers --</option>';
+        console.error('[Monitor] Error details:', {
+            message: error.message,
+            stack: error.stack
+        });
+        select.innerHTML = '<option value="">-- Error loading printers (check console) --</option>';
+
+        // Show error in modal
+        const errorDiv = document.getElementById('printer-selection-error');
+        if (errorDiv) {
+            errorDiv.textContent = `Failed to load printers: ${error.message}. Check browser console (F12) for details.`;
+            errorDiv.style.display = 'block';
+        }
     }
 }
 
+// For trip cards - enable auto-print and save to database
 window.confirmPrinterSelection = async function() {
     const errorDiv = document.getElementById('printer-selection-error');
     errorDiv.style.display = 'none';
@@ -119,7 +164,7 @@ window.confirmPrinterSelection = async function() {
             orderCount: currentTripForPrinterSelection.orderCount,
             printerConfigId: printerConfigId,
             printerName: selectedPrinter?.printerName || 'Unknown',
-            orders: currentTripForPrinterSelection.orders  // ✅ Include order details
+            orders: currentTripForPrinterSelection.orders
         });
 
         console.log('[Monitor] Auto-print enabled successfully:', response);
@@ -610,6 +655,37 @@ function getOrderGridColumns(tripId) {
             dataField: 'customerName',
             caption: 'Customer Name',
             width: 200
+        },
+        {
+            dataField: 'printerName',
+            caption: 'Printer',
+            width: 180,
+            cellTemplate: function(container, options) {
+                const printerName = options.value;
+                if (printerName) {
+                    container.append(
+                        $('<span>')
+                            .css({
+                                color: '#059669',
+                                fontWeight: '600',
+                                fontSize: '12px',
+                                background: '#d1fae5',
+                                padding: '4px 8px',
+                                borderRadius: '4px',
+                                display: 'inline-block'
+                            })
+                            .html('<i class="fas fa-print"></i> ' + printerName)
+                            .attr('title', 'Auto-print enabled with: ' + printerName)
+                    );
+                } else {
+                    container.append(
+                        $('<span>')
+                            .css({ color: '#999', fontStyle: 'italic', fontSize: '12px' })
+                            .text('No printer set')
+                            .attr('title', 'Auto-print not enabled for this trip')
+                    );
+                }
+            }
         },
         {
             dataField: 'accountNumber',
@@ -1542,26 +1618,8 @@ async function printAllOrdersPDF(tripId) {
         return;
     }
 
-    const confirmed = confirm(`Add ${downloadedOrders.length} orders to print queue and start printing?\n\nYou can monitor progress in the Print Queue tab.`);
-
-    if (!confirmed) {
-        return;
-    }
-
-    console.log(`[Monitor] Adding ${downloadedOrders.length} orders to print queue...`);
-
-    // Add all orders to queue
-    for (const order of downloadedOrders) {
-        addToPrintQueue(tripId, order);
-    }
-
-    console.log(`[Monitor] ✅ ${downloadedOrders.length} jobs added to print queue`);
-
-    // Show message
-    alert(`${downloadedOrders.length} jobs added to Print Queue!\n\nClick OK to start printing.`);
-
-    // Start processing the queue
-    await processPrintQueue();
+    // Show Print All printer selection modal (separate from auto-print modal)
+    await showPrintAllPrinterModal(tripId, downloadedOrders.length, downloadedOrders);
 }
 
 async function refreshOrdersStatus(tripId) {
@@ -2304,6 +2362,142 @@ window.toggleDiagnosticToolbar = function() {
     if (toolbar) {
         toolbar.style.display = toolbar.style.display === 'none' ? 'flex' : 'none';
     }
+};
+
+// Function to show system printer queue
+window.showPrinterQueue = async function() {
+    const status = document.getElementById('diagnostic-status');
+    status.textContent = 'Loading Printer Queue...';
+    status.style.color = '#ffc107';
+
+    try {
+        // Use existing APEX API to get printer list
+        const data = await callApexAPINew('/printers/all', 'GET');
+
+        if (data && data.printers && Array.isArray(data.printers)) {
+            // Transform the data to include queue information
+            const printerQueue = data.printers.map(printer => ({
+                name: printer.printer_name || printer.name || 'Unknown',
+                status: printer.is_active ? 'Ready' : 'Inactive',
+                jobCount: 0, // This would need to come from Windows API
+                location: printer.fusion_instance || 'N/A',
+                paperSize: printer.paper_size || 'N/A',
+                orientation: printer.orientation || 'N/A'
+            }));
+
+            displayPrinterQueueModal(printerQueue);
+        } else {
+            // If no printers found, show empty state
+            displayPrinterQueueModal([]);
+        }
+    } catch (error) {
+        console.error('[Printer Queue] Error:', error);
+        alert('Unable to retrieve printer queue information.\n\nError: ' + error.message);
+        status.textContent = 'Error';
+        status.style.color = '#dc3545';
+    }
+};
+
+function displayPrinterQueueModal(queueData) {
+    const status = document.getElementById('diagnostic-status');
+
+    // Create modal HTML
+    const modalHTML = `
+        <div id="printer-queue-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+            <div style="background: white; width: 90%; max-width: 900px; max-height: 80vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+                <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <h3 style="margin: 0; font-size: 18px; color: #333;">
+                        <i class="fas fa-print" style="color: #667eea;"></i> System Printer Queue
+                    </h3>
+                    <button onclick="closePrinterQueueModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666;">×</button>
+                </div>
+                <div style="flex: 1; overflow-y: auto; padding: 1.5rem;">
+                    <div id="printer-queue-content" style="min-height: 200px;"></div>
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                    <button class="btn btn-secondary" onclick="closePrinterQueueModal()">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                    <button class="btn btn-primary" onclick="refreshPrinterQueue()">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Remove existing modal if present
+    const existingModal = document.getElementById('printer-queue-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // Add modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    // Populate queue data
+    const content = document.getElementById('printer-queue-content');
+    if (queueData && queueData.length > 0) {
+        content.innerHTML = `
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f7fafc; border-bottom: 2px solid #e2e8f0;">
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #2d3748;">Printer Name</th>
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #2d3748;">Status</th>
+                        <th style="padding: 12px; text-align: center; font-weight: 600; color: #2d3748;">Jobs</th>
+                        <th style="padding: 12px; text-align: left; font-weight: 600; color: #2d3748;">Location</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${queueData.map((printer, index) => `
+                        <tr style="border-bottom: 1px solid #e2e8f0; ${index % 2 === 0 ? 'background: #ffffff;' : 'background: #f7fafc;'}">
+                            <td style="padding: 12px;">
+                                <i class="fas fa-print" style="color: #667eea; margin-right: 8px;"></i>
+                                <strong>${printer.name || 'Unknown'}</strong>
+                            </td>
+                            <td style="padding: 12px;">
+                                <span style="padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600;
+                                    ${printer.status === 'Ready' ? 'background: #d4edda; color: #155724;' :
+                                      printer.status === 'Offline' ? 'background: #f8d7da; color: #721c24;' :
+                                      'background: #fff3cd; color: #856404;'}">
+                                    ${printer.status || 'Unknown'}
+                                </span>
+                            </td>
+                            <td style="padding: 12px; text-align: center;">
+                                ${printer.jobCount > 0 ?
+                                    `<span style="background: #667eea; color: white; padding: 4px 8px; border-radius: 12px; font-weight: 600; font-size: 12px;">${printer.jobCount}</span>` :
+                                    '<span style="color: #999;">0</span>'}
+                            </td>
+                            <td style="padding: 12px; color: #718096; font-size: 14px;">${printer.location || 'N/A'}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        `;
+    } else {
+        content.innerHTML = `
+            <div style="text-align: center; padding: 3rem; color: #666;">
+                <i class="fas fa-info-circle" style="font-size: 48px; color: #cbd5e0; margin-bottom: 1rem;"></i>
+                <p style="font-size: 16px; margin: 0;">No printer queue information available.</p>
+                <p style="font-size: 14px; margin-top: 0.5rem; color: #999;">Please ensure printers are configured and accessible.</p>
+            </div>
+        `;
+    }
+
+    status.textContent = 'Queue Loaded';
+    status.style.color = '#00ff88';
+}
+
+window.closePrinterQueueModal = function() {
+    const modal = document.getElementById('printer-queue-modal');
+    if (modal) {
+        modal.remove();
+    }
+};
+
+window.refreshPrinterQueue = function() {
+    closePrinterQueueModal();
+    showPrinterQueue();
 };
 
 console.log('[Monitor] monitor-printing.js loaded');
