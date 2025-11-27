@@ -232,6 +232,12 @@ function fetchAutoInventoryData() {
 
 // Group transactions by trip
 function groupTransactionsByTrip() {
+    console.log('=== groupTransactionsByTrip ===');
+    console.log('autoProcessingData length:', autoProcessingData ? autoProcessingData.length : 'undefined');
+    if (autoProcessingData && autoProcessingData.length > 0) {
+        console.log('First autoProcessingData item:', JSON.stringify(autoProcessingData[0], null, 2).substring(0, 500));
+    }
+
     const grouped = {};
 
     autoProcessingData.forEach(item => {
@@ -252,7 +258,9 @@ function groupTransactionsByTrip() {
         grouped[tripId].transactions.push(item);
     });
 
-    return Object.values(grouped);
+    const result = Object.values(grouped);
+    console.log('groupTransactionsByTrip result count:', result.length);
+    return result;
 }
 
 // Display grouped trips
@@ -678,6 +686,10 @@ function toggleTripDetails(index) {
 
 // Toggle trip selection for processing
 function toggleTripSelection(tripId, index) {
+    console.log('=== toggleTripSelection ===');
+    console.log('tripId:', tripId, 'type:', typeof tripId);
+    console.log('index:', index);
+
     const btn = document.getElementById(`trip-select-btn-${index}`);
     const tripCard = document.getElementById(`trip-card-${index}`);
 
@@ -771,6 +783,10 @@ function updateSelectionCount() {
 
 // Recalculate the global selectedTripsSummary based on selected trips
 function recalculateSelectedTripsSummary() {
+    console.log('=== recalculateSelectedTripsSummary START ===');
+    console.log('selectedTripsForProcessing:', Array.from(selectedTripsForProcessing));
+    console.log('selectedTripsForProcessing.size:', selectedTripsForProcessing.size);
+
     // Reset summary
     selectedTripsSummary = {
         totalTrips: 0,
@@ -783,13 +799,24 @@ function recalculateSelectedTripsSummary() {
     };
 
     if (selectedTripsForProcessing.size === 0) {
+        console.log('No trips selected, returning early');
         return;
     }
 
     const groupedTrips = groupTransactionsByTrip();
+    console.log('groupedTrips count:', groupedTrips.length);
+    console.log('groupedTrips trip_ids:', groupedTrips.map(t => t.trip_id));
+    if (groupedTrips.length > 0) {
+        console.log('First grouped trip sample:', JSON.stringify(groupedTrips[0], null, 2).substring(0, 500));
+    }
 
     selectedTripsForProcessing.forEach(tripId => {
-        const trip = groupedTrips.find(t => t.trip_id === tripId);
+        console.log('Looking for tripId:', tripId, 'type:', typeof tripId);
+        const trip = groupedTrips.find(t => {
+            console.log('Comparing with:', t.trip_id, 'type:', typeof t.trip_id, 'match:', t.trip_id === tripId || t.trip_id == tripId);
+            return t.trip_id === tripId || t.trip_id == tripId;
+        });
+        console.log('Found trip:', trip ? 'YES' : 'NO');
         if (trip) {
             // Group transactions by order
             const orderGroups = {};
@@ -5089,18 +5116,24 @@ window.handleOutlookEmail = function(email, error) {
 
 // Generate message preview (for both Teams and Email)
 function generateTeamsMessagePreview() {
+    console.log('=== generateTeamsMessagePreview START ===');
     const preview = document.getElementById('send-message-preview');
     const groupedTrips = groupTransactionsByTrip();
+    console.log('Preview - groupedTrips count:', groupedTrips.length);
+    console.log('Preview - selectedTripsForProcessing:', Array.from(selectedTripsForProcessing));
 
     let html = '<div style="font-family: Segoe UI, sans-serif;">';
     html += '<div style="font-size: 16px; font-weight: 600; color: #1e3a5f; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;"><i class="fas fa-truck"></i> WMS Trip Summary</div>';
 
     let totalOrders = 0;
     let totalLines = 0;
+    let tripsFound = 0;
 
     selectedTripsForProcessing.forEach(tripId => {
-        const trip = groupedTrips.find(t => t.trip_id === tripId);
+        const trip = groupedTrips.find(t => t.trip_id === tripId || t.trip_id == tripId);
+        console.log('Preview - Looking for tripId:', tripId, 'Found:', trip ? 'YES' : 'NO');
         if (trip) {
+            tripsFound++;
             // Get priority color
             const pri = trip.trip_priority;
             let priColor = '#666';
@@ -5605,7 +5638,13 @@ window.postToTeams = async function() {
 
     try {
         // Use pre-calculated summary data from selectedTripsSummary
+        console.log('=== postToTeams: Using selectedTripsSummary ===');
+        console.log('selectedTripsSummary:', JSON.stringify(selectedTripsSummary, null, 2));
         const summary = selectedTripsSummary;
+        console.log('summary.totalTrips:', summary.totalTrips);
+        console.log('summary.totalOrders:', summary.totalOrders);
+        console.log('summary.totalLines:', summary.totalLines);
+        console.log('summary.trips.length:', summary.trips.length);
         const tripCards = [];
 
         // Build trip cards from pre-calculated summary
