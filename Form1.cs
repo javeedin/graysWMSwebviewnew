@@ -107,19 +107,20 @@ namespace WMSApp
         /// </summary>
         private string GetWebFilesBasePath()
         {
-            // Check if files are installed at fixed location
-            if (Directory.Exists(Path.Combine(INSTALL_PATH, "wms")))
-            {
-                System.Diagnostics.Debug.WriteLine($"[Path] Using installed path: {INSTALL_PATH}");
-                return INSTALL_PATH;
-            }
-
-            // Development mode - go up from bin/Debug/net8.0-windows to repo root
+            // PRIORITY 1: Check for development mode first (running from source)
+            // Go up from bin/Debug/net8.0-windows to repo root
             string devPath = Path.GetFullPath(Path.Combine(Application.StartupPath, "..", "..", ".."));
             if (Directory.Exists(Path.Combine(devPath, "wms")))
             {
                 System.Diagnostics.Debug.WriteLine($"[Path] Using development path: {devPath}");
                 return devPath;
+            }
+
+            // PRIORITY 2: Check if files are installed at fixed location
+            if (Directory.Exists(Path.Combine(INSTALL_PATH, "wms")))
+            {
+                System.Diagnostics.Debug.WriteLine($"[Path] Using installed path: {INSTALL_PATH}");
+                return INSTALL_PATH;
             }
 
             // Check if files are in AppContext.BaseDirectory (single-file extracted to temp)
