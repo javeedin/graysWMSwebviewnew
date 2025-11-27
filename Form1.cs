@@ -632,7 +632,7 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] repoRoot: {repoRoot}");
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] WMS index: {Path.Combine(repoRoot, "wms", "index.html")}");
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] Login page: {Path.Combine(repoRoot, "login.html")}");
-                System.Diagnostics.Debug.WriteLine($"[DEBUG] Instance name: {_instanceName}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Instance name: {_loggedInInstance}");
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] =====================================");
 
                 // Check if user is logged in for WMS, if not navigate to HTML login page
@@ -757,7 +757,7 @@ namespace WMSApp
                     if (result == DialogResult.Yes)
                     {
                         // Navigate to local WMS page which has the distribution manager
-                        string repoRoot = GetWebFilesBasePath();
+                        repoRoot = GetWebFilesBasePath();
                         string launcherPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
                         if (File.Exists(launcherPath))
                         {
