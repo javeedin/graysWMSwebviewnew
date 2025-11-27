@@ -91,22 +91,40 @@ function initializeAutoProcessing() {
     addLogEntry('System', 'Auto Inventory Processing initialized', 'success');
 }
 
-// Load Oracle Fusion Cloud credentials from localStorage (set during login)
+// Fetch Oracle Fusion Cloud credentials from API
 function fetchFusionCloudCredentials() {
-    console.log('[Auto Processing] Loading Fusion Cloud credentials from localStorage...');
-    addLogEntry('System', 'Loading Oracle Fusion Cloud credentials...', 'info');
+    const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
 
-    // Get credentials from localStorage (set during C# login)
-    fusionCloudUsername = localStorage.getItem('fusionCloudUsername') || localStorage.getItem('username') || '';
-    fusionCloudPassword = localStorage.getItem('fusionCloudPassword') || localStorage.getItem('password') || '';
+    console.log('[Auto Processing] Fetching Fusion Cloud credentials...');
+    addLogEntry('System', 'Fetching Oracle Fusion Cloud credentials...', 'info');
 
-    if (fusionCloudUsername && fusionCloudPassword) {
-        console.log('[Auto Processing] Fusion Cloud credentials loaded:', fusionCloudUsername);
-        addLogEntry('System', `Fusion Cloud credentials loaded for user: ${fusionCloudUsername}`, 'success');
-    } else {
-        console.error('[Auto Processing] No credentials found in localStorage');
-        addLogEntry('Error', 'No login credentials found. Please login first.', 'error');
-    }
+    sendMessageToCSharp({
+        action: "executeGet",
+        fullUrl: credentialsUrl
+    }, function(error, data) {
+        if (error) {
+            console.error('[Auto Processing] Failed to fetch credentials:', error);
+            addLogEntry('Error', `Failed to fetch Fusion Cloud credentials: ${error}`, 'error');
+            return;
+        }
+
+        try {
+            const response = JSON.parse(data);
+            if (response.items && response.items.length > 0) {
+                fusionCloudUsername = response.items[0].user_name || '';
+                fusionCloudPassword = response.items[0].passwordd || '';
+
+                console.log('[Auto Processing] Fusion Cloud credentials loaded:', fusionCloudUsername);
+                addLogEntry('System', `Fusion Cloud credentials loaded for user: ${fusionCloudUsername}`, 'success');
+            } else {
+                console.error('[Auto Processing] No credentials found in response');
+                addLogEntry('Error', 'No Fusion Cloud credentials found in API response', 'error');
+            }
+        } catch (parseError) {
+            console.error('[Auto Processing] Failed to parse credentials:', parseError);
+            addLogEntry('Error', `Failed to parse Fusion Cloud credentials: ${parseError.message}`, 'error');
+        }
+    });
 }
 
 // Fetch auto inventory data from API using WebView REST handler
@@ -4932,30 +4950,77 @@ window.postToTeams = async function() {
             "spacing": "medium"
         });
 
-        // Send to Teams via webhook
-        const response = await fetch(webhook.url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(card)
-        });
+        // Send to Teams via C# backend to avoid CORS issues
+        if (window.chrome && window.chrome.webview) {
+            // Use C# backend for Teams posting
+            window._teamsPostBtn = btn;
+            window._teamsWebhookName = webhook.name;
 
-        if (response.ok) {
-            addLogEntry('Teams', `Message posted to ${webhook.name}`, 'success');
-            alert('Message posted to Teams successfully!');
-            closeTeamsModal();
+            window.chrome.webview.postMessage({
+                action: 'postToTeams',
+                webhookUrl: webhook.url,
+                cardPayload: card
+            });
+
+            // Result will be handled by handleTeamsPostResult callback
+            console.log('[Teams] Message sent to C# backend for posting');
         } else {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // Fallback to direct fetch (may fail due to CORS)
+            console.log('[Teams] No WebView2 detected, attempting direct fetch...');
+            const response = await fetch(webhook.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(card)
+            });
+
+            if (response.ok) {
+                addLogEntry('Teams', `Message posted to ${webhook.name}`, 'success');
+                alert('Message posted to Teams successfully!');
+                closeTeamsModal();
+            } else {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
         }
 
     } catch (error) {
         console.error('[Teams] Failed to post:', error);
         addLogEntry('Teams', `Failed to post: ${error.message}`, 'error');
-        alert('Failed to post to Teams: ' + error.message + '\n\nNote: If you see a CORS error, Teams webhooks may need to be called from a backend server.');
-    } finally {
+        alert('Failed to post to Teams: ' + error.message);
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
+    }
+};
+
+// Callback for C# backend Teams post result
+window.handleTeamsPostResult = function(success, message) {
+    console.log('[Teams] C# backend result:', success, message);
+
+    const btn = window._teamsPostBtn;
+    const webhookName = window._teamsWebhookName || 'Teams';
+
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
+    }
+
+    if (success) {
+        if (typeof addLogEntry === 'function') {
+            addLogEntry('Teams', `Message posted to ${webhookName}`, 'success');
+        }
+        alert('Message posted to Teams successfully!');
+        if (typeof closeTeamsModal === 'function') {
+            closeTeamsModal();
+        }
+    } else {
+        if (typeof addLogEntry === 'function') {
+            addLogEntry('Teams', `Failed to post: ${message}`, 'error');
+        }
+        alert('Failed to post to Teams: ' + message);
     }
 };
 
