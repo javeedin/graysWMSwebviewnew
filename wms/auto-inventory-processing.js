@@ -4476,4 +4476,506 @@ window.openStoreTransactionsFromOrder = openStoreTransactionsFromOrder;
 window.closeProcessingStatusFloat = closeProcessingStatusFloat;
 window.stopProcessing = stopProcessing;
 
+// ============================================================================
+// TEAMS INTEGRATION
+// ============================================================================
+
+// Teams webhook configuration storage
+let teamsWebhooks = JSON.parse(localStorage.getItem('teamsWebhooks') || '[]');
+
+// Initialize Teams floating button
+function initTeamsIntegration() {
+    // Create floating Teams button if not exists
+    if (!document.getElementById('teams-floating-btn')) {
+        const floatingBtn = document.createElement('div');
+        floatingBtn.id = 'teams-floating-btn';
+        floatingBtn.innerHTML = `
+            <button onclick="openTeamsModal()" style="
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #5558AF 0%, #6B73D4 100%);
+                border: none;
+                color: white;
+                cursor: pointer;
+                box-shadow: 0 4px 15px rgba(85, 88, 175, 0.4);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s;
+            " onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="Send to Teams">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                    <path d="M19.2 6.4H15.6V4.8C15.6 3.47 14.53 2.4 13.2 2.4H10.8C9.47 2.4 8.4 3.47 8.4 4.8V6.4H4.8C3.47 6.4 2.4 7.47 2.4 8.8V18C2.4 19.33 3.47 20.4 4.8 20.4H19.2C20.53 20.4 21.6 19.33 21.6 18V8.8C21.6 7.47 20.53 6.4 19.2 6.4ZM10.8 4.8H13.2V6.4H10.8V4.8ZM19.2 18H4.8V8.8H19.2V18ZM12 10.8C10.67 10.8 9.6 11.87 9.6 13.2C9.6 14.53 10.67 15.6 12 15.6C13.33 15.6 14.4 14.53 14.4 13.2C14.4 11.87 13.33 10.8 12 10.8Z"/>
+                </svg>
+            </button>
+            <span id="teams-selected-count" style="
+                position: absolute;
+                top: -5px;
+                right: -5px;
+                background: #ef4444;
+                color: white;
+                font-size: 11px;
+                font-weight: 700;
+                min-width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+            ">0</span>
+        `;
+        floatingBtn.style.cssText = `
+            position: fixed;
+            bottom: 100px;
+            right: 30px;
+            z-index: 9999;
+        `;
+        document.body.appendChild(floatingBtn);
+    }
+
+    // Create Teams modal if not exists
+    if (!document.getElementById('teams-modal')) {
+        const modal = document.createElement('div');
+        modal.id = 'teams-modal';
+        modal.innerHTML = `
+            <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                <div style="background: white; border-radius: 12px; width: 90%; max-width: 700px; max-height: 90vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.25);">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #5558AF 0%, #6B73D4 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                                <path d="M19.2 6.4H15.6V4.8C15.6 3.47 14.53 2.4 13.2 2.4H10.8C9.47 2.4 8.4 3.47 8.4 4.8V6.4H4.8C3.47 6.4 2.4 7.47 2.4 8.8V18C2.4 19.33 3.47 20.4 4.8 20.4H19.2C20.53 20.4 21.6 19.33 21.6 18V8.8C21.6 7.47 20.53 6.4 19.2 6.4ZM10.8 4.8H13.2V6.4H10.8V4.8ZM19.2 18H4.8V8.8H19.2V18Z"/>
+                            </svg>
+                            <span style="font-size: 18px; font-weight: 600;">Send to Microsoft Teams</span>
+                        </div>
+                        <button onclick="closeTeamsModal()" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px; padding: 0;">&times;</button>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="padding: 20px; max-height: 60vh; overflow-y: auto;">
+                        <!-- Channel Selection -->
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">Select Channel/Webhook</label>
+                            <div style="display: flex; gap: 8px;">
+                                <select id="teams-channel-select" style="flex: 1; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                                    <option value="">-- Select Channel --</option>
+                                </select>
+                                <button onclick="openTeamsWebhookSettings()" style="padding: 10px 16px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;" title="Manage Webhooks">
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Message Preview -->
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">Message Preview</label>
+                            <div id="teams-message-preview" style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; font-family: 'Segoe UI', sans-serif; font-size: 13px; max-height: 200px; overflow-y: auto;">
+                                <!-- Preview content will be generated here -->
+                            </div>
+                        </div>
+
+                        <!-- Additional Comments -->
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">Additional Comments</label>
+                            <textarea id="teams-comments" placeholder="Add any additional comments or notes..." style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; min-height: 80px; resize: vertical; box-sizing: border-box;"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 16px 20px; background: #f8f9fa; border-top: 1px solid #e0e0e0; display: flex; justify-content: flex-end; gap: 12px;">
+                        <button onclick="closeTeamsModal()" style="padding: 10px 20px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Cancel</button>
+                        <button onclick="postToTeams()" id="teams-post-btn" style="padding: 10px 20px; background: linear-gradient(135deg, #5558AF 0%, #6B73D4 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-paper-plane"></i> Post to Teams
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        modal.style.display = 'none';
+        document.body.appendChild(modal);
+    }
+
+    // Create webhook settings modal
+    if (!document.getElementById('teams-webhook-modal')) {
+        const webhookModal = document.createElement('div');
+        webhookModal.id = 'teams-webhook-modal';
+        webhookModal.innerHTML = `
+            <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10001;">
+                <div style="background: white; border-radius: 12px; width: 90%; max-width: 500px; max-height: 80vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.25);">
+                    <div style="background: #333; color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 16px; font-weight: 600;"><i class="fas fa-cog"></i> Manage Teams Webhooks</span>
+                        <button onclick="closeTeamsWebhookSettings()" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px;">&times;</button>
+                    </div>
+                    <div style="padding: 20px; max-height: 50vh; overflow-y: auto;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Add New Webhook</label>
+                            <input type="text" id="webhook-name" placeholder="Channel Name (e.g., WMS Alerts)" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 8px; box-sizing: border-box;">
+                            <input type="text" id="webhook-url" placeholder="Webhook URL" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 8px; box-sizing: border-box;">
+                            <button onclick="addTeamsWebhook()" style="padding: 10px 20px; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Add Webhook</button>
+                        </div>
+                        <div>
+                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Saved Webhooks</label>
+                            <div id="webhook-list" style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                                <!-- Webhook list will be rendered here -->
+                            </div>
+                        </div>
+                    </div>
+                    <div style="padding: 16px 20px; background: #f8f9fa; border-top: 1px solid #e0e0e0;">
+                        <p style="font-size: 12px; color: #666; margin: 0;">
+                            <i class="fas fa-info-circle"></i> To get a webhook URL, go to your Teams channel → Click "..." → Connectors → Incoming Webhook → Configure
+                        </p>
+                    </div>
+                </div>
+            </div>
+        `;
+        webhookModal.style.display = 'none';
+        document.body.appendChild(webhookModal);
+    }
+
+    // Update floating button count when trips are selected
+    updateTeamsButtonCount();
+}
+
+// Update the Teams button badge count
+function updateTeamsButtonCount() {
+    const countEl = document.getElementById('teams-selected-count');
+    if (countEl) {
+        const count = selectedTripsForProcessing.size;
+        countEl.textContent = count;
+        countEl.style.display = count > 0 ? 'flex' : 'none';
+    }
+}
+
+// Open Teams modal
+window.openTeamsModal = function() {
+    if (selectedTripsForProcessing.size === 0) {
+        alert('Please select at least one trip to send to Teams.\n\nClick the "Select" button on each trip you want to share.');
+        return;
+    }
+
+    const modal = document.getElementById('teams-modal');
+    modal.style.display = 'block';
+
+    // Populate channel dropdown
+    populateChannelDropdown();
+
+    // Generate message preview
+    generateTeamsMessagePreview();
+};
+
+// Close Teams modal
+window.closeTeamsModal = function() {
+    document.getElementById('teams-modal').style.display = 'none';
+    document.getElementById('teams-comments').value = '';
+};
+
+// Populate channel dropdown
+function populateChannelDropdown() {
+    const select = document.getElementById('teams-channel-select');
+    select.innerHTML = '<option value="">-- Select Channel --</option>';
+
+    teamsWebhooks.forEach((webhook, index) => {
+        const option = document.createElement('option');
+        option.value = index;
+        option.textContent = webhook.name;
+        select.appendChild(option);
+    });
+}
+
+// Generate Teams message preview
+function generateTeamsMessagePreview() {
+    const preview = document.getElementById('teams-message-preview');
+    const groupedTrips = groupTransactionsByTrip();
+
+    let html = '<div style="font-family: Segoe UI, sans-serif;">';
+    html += '<div style="font-size: 16px; font-weight: 600; color: #5558AF; margin-bottom: 12px;">📦 WMS Trip Update</div>';
+
+    let totalOrders = 0;
+    let totalLines = 0;
+
+    selectedTripsForProcessing.forEach(tripId => {
+        const trip = groupedTrips.find(t => t.trip_id === tripId);
+        if (trip) {
+            const orderCount = new Set(trip.transactions.map(t => t.source_order)).size;
+            totalOrders += orderCount;
+            totalLines += trip.transactions.length;
+
+            html += `
+                <div style="background: #f0f4ff; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #5558AF;">
+                    <div style="font-weight: 600; color: #333; margin-bottom: 6px;">Trip: ${trip.trip_id}</div>
+                    <div style="font-size: 12px; color: #666; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px;">
+                        <span>📅 Date: ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</span>
+                        <span>🚚 Lorry: ${trip.trip_lorry || '-'}</span>
+                        <span>📍 Bay: ${trip.trip_loading_bay || '-'}</span>
+                        <span>⚡ Priority: ${trip.trip_priority || '-'}</span>
+                        <span>👤 Picker: ${trip.picker || '-'}</span>
+                        <span>📦 Orders: ${orderCount}</span>
+                        <span>📋 Lines: ${trip.transactions.length}</span>
+                    </div>
+                </div>
+            `;
+        }
+    });
+
+    html += `
+        <div style="background: #e8f5e9; border-radius: 8px; padding: 10px; margin-top: 12px;">
+            <strong>Summary:</strong> ${selectedTripsForProcessing.size} trip(s), ${totalOrders} order(s), ${totalLines} line(s)
+        </div>
+    `;
+
+    html += '</div>';
+    preview.innerHTML = html;
+}
+
+// Open webhook settings
+window.openTeamsWebhookSettings = function() {
+    document.getElementById('teams-webhook-modal').style.display = 'block';
+    renderWebhookList();
+};
+
+// Close webhook settings
+window.closeTeamsWebhookSettings = function() {
+    document.getElementById('teams-webhook-modal').style.display = 'none';
+};
+
+// Add new webhook
+window.addTeamsWebhook = function() {
+    const name = document.getElementById('webhook-name').value.trim();
+    const url = document.getElementById('webhook-url').value.trim();
+
+    if (!name || !url) {
+        alert('Please enter both channel name and webhook URL');
+        return;
+    }
+
+    if (!url.includes('webhook.office.com')) {
+        alert('Invalid webhook URL. Please use a valid Microsoft Teams webhook URL.');
+        return;
+    }
+
+    teamsWebhooks.push({ name, url });
+    localStorage.setItem('teamsWebhooks', JSON.stringify(teamsWebhooks));
+
+    document.getElementById('webhook-name').value = '';
+    document.getElementById('webhook-url').value = '';
+
+    renderWebhookList();
+    populateChannelDropdown();
+
+    addLogEntry('Teams', `Added webhook: ${name}`, 'success');
+};
+
+// Delete webhook
+window.deleteTeamsWebhook = function(index) {
+    if (confirm(`Delete webhook "${teamsWebhooks[index].name}"?`)) {
+        teamsWebhooks.splice(index, 1);
+        localStorage.setItem('teamsWebhooks', JSON.stringify(teamsWebhooks));
+        renderWebhookList();
+        populateChannelDropdown();
+    }
+};
+
+// Render webhook list
+function renderWebhookList() {
+    const list = document.getElementById('webhook-list');
+
+    if (teamsWebhooks.length === 0) {
+        list.innerHTML = '<div style="padding: 16px; text-align: center; color: #888;">No webhooks configured</div>';
+        return;
+    }
+
+    list.innerHTML = teamsWebhooks.map((webhook, index) => `
+        <div style="padding: 12px 16px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <div style="font-weight: 600;">${webhook.name}</div>
+                <div style="font-size: 11px; color: #888; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${webhook.url}</div>
+            </div>
+            <button onclick="deleteTeamsWebhook(${index})" style="background: #fee2e2; color: #dc2626; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+// Post to Teams
+window.postToTeams = async function() {
+    const channelIndex = document.getElementById('teams-channel-select').value;
+    const comments = document.getElementById('teams-comments').value.trim();
+
+    if (channelIndex === '') {
+        alert('Please select a Teams channel');
+        return;
+    }
+
+    const webhook = teamsWebhooks[channelIndex];
+    if (!webhook) {
+        alert('Invalid channel selected');
+        return;
+    }
+
+    const btn = document.getElementById('teams-post-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
+
+    try {
+        // Build Adaptive Card payload
+        const groupedTrips = groupTransactionsByTrip();
+        const tripDetails = [];
+        let totalOrders = 0;
+        let totalLines = 0;
+
+        selectedTripsForProcessing.forEach(tripId => {
+            const trip = groupedTrips.find(t => t.trip_id === tripId);
+            if (trip) {
+                const orderCount = new Set(trip.transactions.map(t => t.source_order)).size;
+                totalOrders += orderCount;
+                totalLines += trip.transactions.length;
+
+                tripDetails.push({
+                    trip_id: trip.trip_id,
+                    trip_date: trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A',
+                    trip_lorry: trip.trip_lorry || '-',
+                    trip_loading_bay: trip.trip_loading_bay || '-',
+                    trip_priority: trip.trip_priority || '-',
+                    picker: trip.picker || '-',
+                    orderCount: orderCount,
+                    lineCount: trip.transactions.length
+                });
+            }
+        });
+
+        // Build Adaptive Card
+        const card = {
+            type: "message",
+            attachments: [{
+                contentType: "application/vnd.microsoft.card.adaptive",
+                content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": "📦 WMS Trip Update",
+                            "weight": "bolder",
+                            "size": "large",
+                            "color": "accent"
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": `${selectedTripsForProcessing.size} trip(s) | ${totalOrders} order(s) | ${totalLines} line(s)`,
+                            "spacing": "none",
+                            "isSubtle": true
+                        },
+                        {
+                            "type": "Container",
+                            "items": tripDetails.map(trip => ({
+                                "type": "Container",
+                                "style": "emphasis",
+                                "items": [
+                                    {
+                                        "type": "TextBlock",
+                                        "text": `Trip: ${trip.trip_id}`,
+                                        "weight": "bolder"
+                                    },
+                                    {
+                                        "type": "ColumnSet",
+                                        "columns": [
+                                            {
+                                                "type": "Column",
+                                                "items": [
+                                                    { "type": "TextBlock", "text": `📅 ${trip.trip_date}`, "size": "small" },
+                                                    { "type": "TextBlock", "text": `🚚 ${trip.trip_lorry}`, "size": "small", "spacing": "none" }
+                                                ]
+                                            },
+                                            {
+                                                "type": "Column",
+                                                "items": [
+                                                    { "type": "TextBlock", "text": `📍 Bay: ${trip.trip_loading_bay}`, "size": "small" },
+                                                    { "type": "TextBlock", "text": `⚡ Pri: ${trip.trip_priority}`, "size": "small", "spacing": "none" }
+                                                ]
+                                            },
+                                            {
+                                                "type": "Column",
+                                                "items": [
+                                                    { "type": "TextBlock", "text": `👤 ${trip.picker}`, "size": "small" },
+                                                    { "type": "TextBlock", "text": `📦 ${trip.orderCount} orders, ${trip.lineCount} lines`, "size": "small", "spacing": "none" }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "spacing": "medium"
+                            }))
+                        }
+                    ]
+                }
+            }]
+        };
+
+        // Add comments if provided
+        if (comments) {
+            card.attachments[0].content.body.push({
+                "type": "TextBlock",
+                "text": `💬 **Comments:** ${comments}`,
+                "wrap": true,
+                "spacing": "medium"
+            });
+        }
+
+        // Add timestamp
+        card.attachments[0].content.body.push({
+            "type": "TextBlock",
+            "text": `Sent at ${new Date().toLocaleString()}`,
+            "size": "small",
+            "isSubtle": true,
+            "spacing": "medium"
+        });
+
+        // Send to Teams via webhook
+        const response = await fetch(webhook.url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(card)
+        });
+
+        if (response.ok) {
+            addLogEntry('Teams', `Message posted to ${webhook.name}`, 'success');
+            alert('Message posted to Teams successfully!');
+            closeTeamsModal();
+        } else {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+    } catch (error) {
+        console.error('[Teams] Failed to post:', error);
+        addLogEntry('Teams', `Failed to post: ${error.message}`, 'error');
+        alert('Failed to post to Teams: ' + error.message + '\n\nNote: If you see a CORS error, Teams webhooks may need to be called from a backend server.');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
+    }
+};
+
+// Override toggleTripSelection to also update Teams button
+const originalToggleTripSelection = toggleTripSelection;
+toggleTripSelection = function(tripId, index) {
+    originalToggleTripSelection(tripId, index);
+    updateTeamsButtonCount();
+};
+
+// Initialize Teams integration when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Delay to ensure page is loaded
+    setTimeout(initTeamsIntegration, 1000);
+});
+
+// Also initialize when script loads (for dynamic loading)
+if (document.readyState === 'complete') {
+    setTimeout(initTeamsIntegration, 500);
+}
+
 console.log('[Auto Processing] Script loaded successfully');
+console.log('[Auto Processing] Teams integration ready');
