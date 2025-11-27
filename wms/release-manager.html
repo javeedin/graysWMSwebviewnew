@@ -822,7 +822,16 @@
         // Version Management
         async function refreshVersionInfo() {
             try {
-                // Try multiple paths for version.json
+                if (isWebView2) {
+                    // Use C# backend to read version.json
+                    addProgressLine('Requesting version info from C# backend...', 'info');
+                    window.chrome.webview.postMessage({
+                        action: 'getVersionInfo'
+                    });
+                    return; // handleVersionInfo will be called by C#
+                }
+
+                // Fallback: Try multiple paths for version.json (for browser testing)
                 const paths = [
                     '../version.json',
                     './version.json',
@@ -848,12 +857,7 @@
 
                 if (data) {
                     console.log('Loaded version.json from:', successPath, data);
-                    currentVersion = data.version;
-                    document.getElementById('currentVersion').textContent = data.version || '-';
-                    document.getElementById('buildDate').textContent = data.build_date || '-';
-                    document.getElementById('changelog').value = data.changelog || '';
-                    updateNewVersion();
-                    addProgressLine(`Loaded version info: v${data.version} (${data.build_date})`, 'success');
+                    applyVersionInfo(data);
                 } else {
                     throw new Error('Could not load version.json from any path');
                 }
@@ -863,6 +867,30 @@
                 document.getElementById('buildDate').textContent = 'Error';
                 addProgressLine('Failed to load version.json: ' + e.message, 'error');
             }
+        }
+
+        // Called by C# backend with version info
+        window.handleVersionInfo = function(data, error) {
+            if (error) {
+                console.error('Version info error:', error);
+                document.getElementById('currentVersion').textContent = 'Error';
+                document.getElementById('buildDate').textContent = 'Error';
+                addProgressLine('Failed to load version.json: ' + error, 'error');
+                return;
+            }
+
+            if (data) {
+                applyVersionInfo(data);
+            }
+        };
+
+        function applyVersionInfo(data) {
+            currentVersion = data.version;
+            document.getElementById('currentVersion').textContent = data.version || '-';
+            document.getElementById('buildDate').textContent = data.build_date || '-';
+            document.getElementById('changelog').value = data.changelog || '';
+            updateNewVersion();
+            addProgressLine(`Loaded version info: v${data.version} (${data.build_date})`, 'success');
         }
 
         function updateNewVersion() {

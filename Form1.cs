@@ -1581,6 +1581,10 @@ namespace WMSApp
                                     await HandleCreateRelease(wv, messageJson, requestId);
                                     break;
 
+                                case "getVersionInfo":
+                                    await HandleGetVersionInfo(wv, messageJson, requestId);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -4260,6 +4264,55 @@ namespace WMSApp
                 }
 
                 return output;
+            }
+        }
+
+        private async Task HandleGetVersionInfo(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                string repoRoot = FindRepoRoot();
+                if (string.IsNullOrEmpty(repoRoot))
+                {
+                    await wv.CoreWebView2.ExecuteScriptAsync($@"
+                        if (typeof window.handleVersionInfo === 'function') {{
+                            window.handleVersionInfo(null, 'Could not find repository root');
+                        }}
+                    ");
+                    return;
+                }
+
+                string versionFilePath = Path.Combine(repoRoot, "version.json");
+                if (!File.Exists(versionFilePath))
+                {
+                    await wv.CoreWebView2.ExecuteScriptAsync($@"
+                        if (typeof window.handleVersionInfo === 'function') {{
+                            window.handleVersionInfo(null, 'version.json not found at: {versionFilePath.Replace("\\", "\\\\")}');
+                        }}
+                    ");
+                    return;
+                }
+
+                string versionJson = File.ReadAllText(versionFilePath);
+                string escapedJson = versionJson.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
+
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleVersionInfo === 'function') {{
+                        window.handleVersionInfo({versionJson}, null);
+                    }}
+                ");
+
+                System.Diagnostics.Debug.WriteLine($"[VERSION INFO] Sent version info from: {versionFilePath}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[VERSION INFO ERROR] {ex.Message}");
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleVersionInfo === 'function') {{
+                        window.handleVersionInfo(null, '{escapedError}');
+                    }}
+                ");
             }
         }
 
