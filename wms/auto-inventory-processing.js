@@ -5536,6 +5536,17 @@ window.postToTeams = async function() {
                 let priText = pri ? `P${pri}` : '-';
                 let priColor = pri == 1 ? 'attention' : (pri == 2 ? 'warning' : 'default');
 
+                // Calculate trip-level pick percentage
+                const tripPickedCount = orders.reduce((sum, o) => sum + o.pickedCount, 0);
+                const tripTotalCount = orders.reduce((sum, o) => sum + o.totalCount, 0);
+                const tripPickPct = tripTotalCount > 0 ? Math.round((tripPickedCount / tripTotalCount) * 100) : 0;
+                const tripStatusIcon = tripPickPct === 100 ? '🟢' : (tripPickPct > 0 ? '🟡' : '🔴');
+
+                // Unique ID for this trip's order details
+                const orderDetailsId = `orderDetails_${trip.trip_id}`;
+                const expandBtnId = `expandBtn_${trip.trip_id}`;
+                const collapseBtnId = `collapseBtn_${trip.trip_id}`;
+
                 // Build order facts for this trip
                 const orderFacts = orders.map(order => {
                     const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
@@ -5571,7 +5582,7 @@ window.postToTeams = async function() {
                     };
                 });
 
-                // Trip card
+                // Trip card with expand/collapse functionality
                 tripCards.push({
                     "type": "Container",
                     "style": "emphasis",
@@ -5611,36 +5622,72 @@ window.postToTeams = async function() {
                                 }
                             ]
                         },
-                        // Trip Details Row
+                        // Trip Details Row with Pick Status
                         {
                             "type": "ColumnSet",
                             "spacing": "small",
                             "columns": [
                                 { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚛 ${trip.trip_lorry || '-'}`, "size": "small", "isSubtle": true }] },
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `📍 Bay ${trip.trip_loading_bay || '-'}`, "size": "small", "isSubtle": true }] }
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `📍 Bay ${trip.trip_loading_bay || '-'}`, "size": "small", "isSubtle": true }] },
+                                { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": `${tripStatusIcon} ${tripPickPct}% Picked`, "size": "small", "weight": "bolder" }] }
                             ]
                         },
-                        // Divider
+                        // Expand Button (visible by default)
                         {
-                            "type": "TextBlock",
-                            "text": "───────────────────────",
-                            "size": "small",
-                            "isSubtle": true,
+                            "type": "ActionSet",
+                            "id": expandBtnId,
+                            "actions": [
+                                {
+                                    "type": "Action.ToggleVisibility",
+                                    "title": "▼ Show Orders",
+                                    "targetElements": [orderDetailsId, expandBtnId, collapseBtnId]
+                                }
+                            ],
                             "spacing": "small"
                         },
-                        // Order Header
+                        // Collapse Button (hidden by default)
                         {
-                            "type": "ColumnSet",
-                            "spacing": "small",
-                            "columns": [
-                                { "type": "Column", "width": "40px", "items": [{ "type": "TextBlock", "text": "", "size": "small" }] },
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "ORDER", "size": "small", "weight": "bolder", "isSubtle": true }] },
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "PICKER", "size": "small", "weight": "bolder", "isSubtle": true }] },
-                                { "type": "Column", "width": "80px", "items": [{ "type": "TextBlock", "text": "STATUS", "size": "small", "weight": "bolder", "isSubtle": true, "horizontalAlignment": "right" }] }
-                            ]
+                            "type": "ActionSet",
+                            "id": collapseBtnId,
+                            "isVisible": false,
+                            "actions": [
+                                {
+                                    "type": "Action.ToggleVisibility",
+                                    "title": "▲ Hide Orders",
+                                    "targetElements": [orderDetailsId, expandBtnId, collapseBtnId]
+                                }
+                            ],
+                            "spacing": "small"
                         },
-                        // Orders
-                        ...orderFacts
+                        // Order Details Container (hidden by default)
+                        {
+                            "type": "Container",
+                            "id": orderDetailsId,
+                            "isVisible": false,
+                            "items": [
+                                // Divider
+                                {
+                                    "type": "TextBlock",
+                                    "text": "───────────────────────",
+                                    "size": "small",
+                                    "isSubtle": true,
+                                    "spacing": "small"
+                                },
+                                // Order Header
+                                {
+                                    "type": "ColumnSet",
+                                    "spacing": "small",
+                                    "columns": [
+                                        { "type": "Column", "width": "40px", "items": [{ "type": "TextBlock", "text": "", "size": "small" }] },
+                                        { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "ORDER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                        { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "PICKER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                        { "type": "Column", "width": "80px", "items": [{ "type": "TextBlock", "text": "STATUS", "size": "small", "weight": "bolder", "isSubtle": true, "horizontalAlignment": "right" }] }
+                                    ]
+                                },
+                                // Orders
+                                ...orderFacts
+                            ]
+                        }
                     ],
                     "spacing": "medium"
                 });
