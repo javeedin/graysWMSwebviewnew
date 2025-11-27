@@ -447,6 +447,10 @@
             'TEST': 'https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT'
         };
 
+        // Check if running in WebView2
+        const isWebView2 = !!(window.chrome && window.chrome.webview);
+        console.log('[PICKER-VIEW] WebView2 available:', isWebView2);
+
         let allData = [];
         let filteredData = [];
 
@@ -472,6 +476,30 @@
             document.getElementById('loadingOverlay').classList.toggle('show', show);
         }
 
+        // Global callback function for C# backend response
+        window.handlePickersViewData = function(data, error) {
+            console.log('[PICKER-VIEW] Received data from C# backend');
+            showLoading(false);
+
+            if (error) {
+                console.error('[PICKER-VIEW] Error:', error);
+                alert('Failed to load data: ' + error);
+                document.getElementById('resultsContainer').innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>
+                        <p>Error: ${error}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            allData = data.items || [];
+            console.log('[PICKER-VIEW] Loaded', allData.length, 'items');
+
+            populateFilters();
+            applyFilters();
+        };
+
         async function loadData() {
             const fromDate = document.getElementById('fromDate').value;
             const instance = document.getElementById('instance').value;
@@ -483,11 +511,25 @@
 
             showLoading(true);
 
+            if (isWebView2) {
+                // Use C# backend to avoid CORS issues
+                console.log('[PICKER-VIEW] Requesting data via C# backend...');
+                window.chrome.webview.postMessage({
+                    action: 'getPickersView',
+                    requestId: 'pickersview_' + Date.now(),
+                    fromDate: fromDate,
+                    instance: instance
+                });
+                // Response will be handled by window.handlePickersViewData callback
+                return;
+            }
+
+            // Fallback for browser testing (will likely fail due to CORS)
             try {
                 const baseUrl = API_BASE[instance];
                 const url = `${baseUrl}/trip/getpickersview?fromDate=${fromDate}&instance=${instance}`;
 
-                console.log('Fetching:', url);
+                console.log('[PICKER-VIEW] Fetching directly:', url);
 
                 const response = await fetch(url, {
                     method: 'GET',
@@ -501,13 +543,13 @@
                 const data = await response.json();
                 allData = data.items || [];
 
-                console.log('Loaded', allData.length, 'items');
+                console.log('[PICKER-VIEW] Loaded', allData.length, 'items');
 
                 populateFilters();
                 applyFilters();
 
             } catch (error) {
-                console.error('Error loading data:', error);
+                console.error('[PICKER-VIEW] Error loading data:', error);
                 alert('Failed to load data: ' + error.message);
                 document.getElementById('resultsContainer').innerHTML = `
                     <div class="no-data">

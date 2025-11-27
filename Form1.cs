@@ -1585,6 +1585,10 @@ namespace WMSApp
                                     await HandleGetVersionInfo(wv, messageJson, requestId);
                                     break;
 
+                                case "getPickersView":
+                                    await HandleGetPickersView(wv, messageJson, requestId);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -4264,6 +4268,70 @@ namespace WMSApp
                 }
 
                 return output;
+            }
+        }
+
+        private async Task HandleGetPickersView(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string fromDate = root.TryGetProperty("fromDate", out var fd) ? fd.GetString() : "";
+                    string instance = root.TryGetProperty("instance", out var inst) ? inst.GetString() : "PROD";
+
+                    System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] Loading data for date: {fromDate}, instance: {instance}");
+
+                    var instanceUrls = new Dictionary<string, string>
+                    {
+                        { "PROD", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" },
+                        { "TEST", "https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" }
+                    };
+
+                    string baseUrl = instanceUrls.ContainsKey(instance) ? instanceUrls[instance] : instanceUrls["PROD"];
+                    string apiUrl = $"{baseUrl}/trip/getpickersview?fromDate={fromDate}&instance={instance}";
+
+                    System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] API URL: {apiUrl}");
+
+                    using (var httpClient = new HttpClient())
+                    {
+                        httpClient.Timeout = TimeSpan.FromSeconds(60);
+                        var response = await httpClient.GetAsync(apiUrl);
+                        string responseContent = await response.Content.ReadAsStringAsync();
+
+                        System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] Response status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            // Send data back to JavaScript
+                            string escapedJson = responseContent.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handlePickersViewData === 'function') {{
+                                    window.handlePickersViewData({responseContent}, null);
+                                }}
+                            ");
+                        }
+                        else
+                        {
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handlePickersViewData === 'function') {{
+                                    window.handlePickersViewData(null, 'HTTP {(int)response.StatusCode}: {response.ReasonPhrase}');
+                                }}
+                            ");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW ERROR] {ex.Message}");
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handlePickersViewData === 'function') {{
+                        window.handlePickersViewData(null, '{escapedError}');
+                    }}
+                ");
             }
         }
 
