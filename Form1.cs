@@ -1571,6 +1571,11 @@ namespace WMSApp
                                     await HandleProcessMRAInterface(wv, messageJson, requestId);
                                     break;
 
+                                // Release Manager
+                                case "createRelease":
+                                    await HandleCreateRelease(wv, messageJson, requestId);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -3981,6 +3986,297 @@ namespace WMSApp
         {
             e.Handled = true;
             AddNewTab(e.Uri);
+        }
+
+        // ========== RELEASE MANAGER HANDLER ==========
+        private async Task HandleCreateRelease(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string versionBump = root.TryGetProperty("versionBump", out var vb) ? vb.GetString() : "patch";
+                    string changelog = root.TryGetProperty("changelog", out var cl) ? cl.GetString() : "";
+                    string githubToken = root.TryGetProperty("githubToken", out var gt) ? gt.GetString() : "";
+                    string repoOwner = root.TryGetProperty("repoOwner", out var ro) ? ro.GetString() : "javeedin";
+                    string repoName = root.TryGetProperty("repoName", out var rn) ? rn.GetString() : "graysWMSwebviewnew";
+
+                    System.Diagnostics.Debug.WriteLine($"[RELEASE] Starting release process - bump: {versionBump}");
+
+                    // Send progress to frontend
+                    await SendReleaseProgress(wv, 1, "Reading current version...", "info");
+
+                    // Get the repo root directory
+                    string repoRoot = FindRepoRoot();
+                    if (string.IsNullOrEmpty(repoRoot))
+                    {
+                        await SendReleaseError(wv, "Could not find repository root directory");
+                        return;
+                    }
+
+                    string versionFilePath = Path.Combine(repoRoot, "version.json");
+                    if (!File.Exists(versionFilePath))
+                    {
+                        await SendReleaseError(wv, "version.json not found");
+                        return;
+                    }
+
+                    // Read current version
+                    string versionJson = File.ReadAllText(versionFilePath);
+                    using (var versionDoc = JsonDocument.Parse(versionJson))
+                    {
+                        string currentVersion = versionDoc.RootElement.GetProperty("version").GetString();
+                        string[] parts = currentVersion.Split('.');
+                        int major = int.Parse(parts[0]);
+                        int minor = int.Parse(parts[1]);
+                        int patch = int.Parse(parts[2]);
+
+                        // Bump version
+                        switch (versionBump)
+                        {
+                            case "major": major++; minor = 0; patch = 0; break;
+                            case "minor": minor++; patch = 0; break;
+                            case "patch": patch++; break;
+                        }
+
+                        string newVersion = $"{major}.{minor}.{patch}";
+                        await SendReleaseProgress(wv, 1, $"Version: {currentVersion} → {newVersion}", "success");
+
+                        // Step 2: Run PowerShell script
+                        await SendReleaseProgress(wv, 2, "Running release script...", "info");
+
+                        string psScriptPath = Path.Combine(repoRoot, "create-release.ps1");
+                        if (!File.Exists(psScriptPath))
+                        {
+                            await SendReleaseError(wv, "create-release.ps1 not found");
+                            return;
+                        }
+
+                        // Run PowerShell script
+                        var psi = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "powershell.exe",
+                            Arguments = $"-ExecutionPolicy Bypass -File \"{psScriptPath}\" -VersionBump {versionBump} -SkipGitPush",
+                            WorkingDirectory = repoRoot,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+
+                        using (var process = new System.Diagnostics.Process { StartInfo = psi })
+                        {
+                            process.Start();
+                            string output = await process.StandardOutput.ReadToEndAsync();
+                            string error = await process.StandardError.ReadToEndAsync();
+                            await process.WaitForExitAsync();
+
+                            if (process.ExitCode != 0)
+                            {
+                                await SendReleaseError(wv, $"Release script failed: {error}");
+                                return;
+                            }
+
+                            System.Diagnostics.Debug.WriteLine($"[RELEASE] PowerShell output: {output}");
+                        }
+
+                        await SendReleaseProgress(wv, 2, "Distribution folder and ZIP created", "success");
+
+                        // Step 3: Verify ZIP file exists
+                        await SendReleaseProgress(wv, 3, "Verifying ZIP file...", "info");
+                        string zipFileName = $"wms-webview-html-{newVersion}.zip";
+                        string zipFilePath = Path.Combine(repoRoot, zipFileName);
+
+                        if (!File.Exists(zipFilePath))
+                        {
+                            await SendReleaseError(wv, $"ZIP file not found: {zipFileName}");
+                            return;
+                        }
+
+                        var zipInfo = new FileInfo(zipFilePath);
+                        await SendReleaseProgress(wv, 3, $"ZIP created: {zipFileName} ({zipInfo.Length / 1024 / 1024:F2} MB)", "success");
+
+                        // Step 4: Git commit and push
+                        await SendReleaseProgress(wv, 4, "Committing changes to Git...", "info");
+
+                        // Git add and commit
+                        await RunGitCommand(repoRoot, "add version.json latest-release.json");
+                        await RunGitCommand(repoRoot, $"commit -m \"Release: WMS v{newVersion}\"");
+
+                        // Get current branch and push
+                        string branch = await RunGitCommand(repoRoot, "rev-parse --abbrev-ref HEAD");
+                        branch = branch.Trim();
+                        await RunGitCommand(repoRoot, $"push origin {branch}");
+
+                        await SendReleaseProgress(wv, 4, $"Pushed to branch: {branch}", "success");
+
+                        // Step 5: Create GitHub Release
+                        await SendReleaseProgress(wv, 5, "Creating GitHub release...", "info");
+
+                        using (var httpClient = new HttpClient())
+                        {
+                            httpClient.DefaultRequestHeaders.Add("Authorization", $"token {githubToken}");
+                            httpClient.DefaultRequestHeaders.Add("User-Agent", "WMS-Release-Manager");
+                            httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
+
+                            var releasePayload = new
+                            {
+                                tag_name = $"v{newVersion}",
+                                name = $"WMS WebView HTML Package v{newVersion}",
+                                body = changelog,
+                                draft = false,
+                                prerelease = false
+                            };
+
+                            string releaseJson = JsonSerializer.Serialize(releasePayload);
+                            var content = new StringContent(releaseJson, System.Text.Encoding.UTF8, "application/json");
+
+                            var releaseResponse = await httpClient.PostAsync(
+                                $"https://api.github.com/repos/{repoOwner}/{repoName}/releases",
+                                content
+                            );
+
+                            string releaseResponseBody = await releaseResponse.Content.ReadAsStringAsync();
+
+                            if (!releaseResponse.IsSuccessStatusCode)
+                            {
+                                await SendReleaseError(wv, $"Failed to create release: {releaseResponseBody}");
+                                return;
+                            }
+
+                            using (var releaseDoc = JsonDocument.Parse(releaseResponseBody))
+                            {
+                                string uploadUrl = releaseDoc.RootElement.GetProperty("upload_url").GetString();
+                                uploadUrl = uploadUrl.Replace("{?name,label}", "");
+                                string releaseUrl = releaseDoc.RootElement.GetProperty("html_url").GetString();
+
+                                await SendReleaseProgress(wv, 5, $"Release created: {releaseUrl}", "success");
+
+                                // Step 6: Upload ZIP file
+                                await SendReleaseProgress(wv, 6, "Uploading ZIP file...", "info");
+
+                                byte[] zipBytes = File.ReadAllBytes(zipFilePath);
+                                var uploadContent = new ByteArrayContent(zipBytes);
+                                uploadContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/zip");
+
+                                var uploadResponse = await httpClient.PostAsync(
+                                    $"{uploadUrl}?name={Uri.EscapeDataString(zipFileName)}",
+                                    uploadContent
+                                );
+
+                                if (!uploadResponse.IsSuccessStatusCode)
+                                {
+                                    string uploadError = await uploadResponse.Content.ReadAsStringAsync();
+                                    await SendReleaseError(wv, $"Failed to upload ZIP: {uploadError}");
+                                    return;
+                                }
+
+                                await SendReleaseProgress(wv, 6, "ZIP file uploaded successfully!", "success");
+
+                                // Complete
+                                await SendReleaseComplete(wv, newVersion);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RELEASE ERROR] {ex.Message}");
+                await SendReleaseError(wv, ex.Message);
+            }
+        }
+
+        private async Task<string> RunGitCommand(string workingDir, string args)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "git",
+                Arguments = args,
+                WorkingDirectory = workingDir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = new System.Diagnostics.Process { StartInfo = psi })
+            {
+                process.Start();
+                string output = await process.StandardOutput.ReadToEndAsync();
+                string error = await process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode != 0 && !string.IsNullOrEmpty(error))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[GIT] Error: {error}");
+                }
+
+                return output;
+            }
+        }
+
+        private string FindRepoRoot()
+        {
+            // Try common locations
+            string[] possiblePaths = new[]
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos", "javeedin", "graysWMSwebviewnew"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos", "graysWMSwebviewnew"),
+                @"C:\fusion\fusionclientweb\graysWMSwebviewnew",
+                Path.GetDirectoryName(Application.ExecutablePath)
+            };
+
+            foreach (var path in possiblePaths)
+            {
+                if (Directory.Exists(path) && File.Exists(Path.Combine(path, "version.json")))
+                {
+                    return path;
+                }
+            }
+
+            // Try to find from current executable location
+            string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
+            while (!string.IsNullOrEmpty(exeDir))
+            {
+                if (File.Exists(Path.Combine(exeDir, "version.json")))
+                {
+                    return exeDir;
+                }
+                exeDir = Path.GetDirectoryName(exeDir);
+            }
+
+            return null;
+        }
+
+        private async Task SendReleaseProgress(WebView2 wv, int step, string message, string type)
+        {
+            string escapedMessage = message.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n");
+            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                if (typeof window.handleReleaseProgress === 'function') {{
+                    window.handleReleaseProgress({step}, '{escapedMessage}', '{type}');
+                }}
+            ");
+        }
+
+        private async Task SendReleaseComplete(WebView2 wv, string version)
+        {
+            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                if (typeof window.handleReleaseComplete === 'function') {{
+                    window.handleReleaseComplete('{version}');
+                }}
+            ");
+        }
+
+        private async Task SendReleaseError(WebView2 wv, string error)
+        {
+            string escapedError = error.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n");
+            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                if (typeof window.handleReleaseError === 'function') {{
+                    window.handleReleaseError('{escapedError}');
+                }}
+            ");
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
