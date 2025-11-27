@@ -219,25 +219,34 @@
         .data-table {
             width: 100%;
             border-collapse: collapse;
-            font-size: 11px;
+            font-size: 10px;
         }
 
         .data-table th {
             background: #f8f9fa;
-            padding: 6px 10px;
+            padding: 4px 6px;
             text-align: left;
             font-weight: 600;
             color: #555;
             border-bottom: 1px solid #e0e0e0;
             position: sticky;
             top: 0;
-            font-size: 10px;
+            font-size: 9px;
+            white-space: nowrap;
         }
 
         .data-table td {
-            padding: 6px 10px;
+            padding: 4px 6px;
             border-bottom: 1px solid #f0f0f0;
             color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 150px;
+        }
+
+        .data-table td.desc-col {
+            max-width: 120px;
         }
 
         .data-table tr:hover {
@@ -250,9 +259,9 @@
 
         .priority-badge {
             display: inline-block;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 10px;
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 9px;
             font-weight: 600;
         }
 
@@ -262,9 +271,9 @@
 
         .bay-badge {
             display: inline-block;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 10px;
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 9px;
             font-weight: 600;
             background: #dbeafe;
             color: #2563eb;
@@ -272,9 +281,9 @@
 
         .lorry-badge {
             display: inline-block;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 10px;
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 9px;
             font-weight: 600;
             background: #f3e8ff;
             color: #7c3aed;
@@ -338,9 +347,9 @@
 
         .disc-badge {
             display: inline-block;
-            padding: 2px 6px;
-            border-radius: 8px;
-            font-size: 10px;
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 9px;
             font-weight: 600;
         }
 
@@ -349,7 +358,7 @@
         .disc-high { background: #fee2e2; color: #dc2626; }
 
         .status-icon {
-            font-size: 12px;
+            font-size: 11px;
             font-weight: bold;
         }
         .status-yes { color: #059669; }
@@ -366,6 +375,103 @@
             padding: 6px 12px;
             font-size: 11px;
         }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab-btn {
+            padding: 12px 24px;
+            border: none;
+            background: transparent;
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: #667eea;
+            background: #f8f9fa;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Summary Table */
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .summary-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 11px;
+        }
+
+        .summary-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .summary-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .summary-table .total-row {
+            background: #f0f0f0;
+            font-weight: 700;
+        }
+
+        .summary-table .picker-row {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .summary-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .summary-card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .summary-card-body {
+            padding: 0;
+        }
+
+        .qty-picked { color: #059669; font-weight: 600; }
+        .qty-not-picked { color: #dc2626; font-weight: 600; }
     </style>
 </head>
 <body style="background: #f5f7fa; min-height: 100vh;">
@@ -468,11 +574,32 @@
             </div>
         </div>
 
-        <!-- Results -->
-        <div id="resultsContainer">
-            <div class="no-data">
-                <i class="fas fa-users"></i>
-                <p>Select a date and click "Load Data" to view picker assignments</p>
+        <!-- Tab Navigation -->
+        <div class="tab-nav" id="tabNav" style="display: none;">
+            <button class="tab-btn active" onclick="switchTab('details')">
+                <i class="fas fa-list"></i> All Picking Details
+            </button>
+            <button class="tab-btn" onclick="switchTab('summary')">
+                <i class="fas fa-chart-bar"></i> Summary
+            </button>
+        </div>
+
+        <!-- Tab Contents -->
+        <div id="tabDetails" class="tab-content active">
+            <div id="resultsContainer">
+                <div class="no-data">
+                    <i class="fas fa-users"></i>
+                    <p>Select a date and click "Load Data" to view picker assignments</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="tabSummary" class="tab-content">
+            <div id="summaryContainer">
+                <div class="no-data">
+                    <i class="fas fa-chart-bar"></i>
+                    <p>Load data to view summary</p>
+                </div>
             </div>
         </div>
     </div>
@@ -645,8 +772,22 @@
                 return true;
             });
 
+            // Show tab nav if we have data
+            document.getElementById('tabNav').style.display = filteredData.length > 0 ? 'flex' : 'none';
+
             updateStats();
             renderResults();
+            renderSummary();
+        }
+
+        function switchTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.closest('.tab-btn').classList.add('active');
+
+            // Update tab content
+            document.getElementById('tabDetails').classList.toggle('active', tab === 'details');
+            document.getElementById('tabSummary').classList.toggle('active', tab === 'summary');
         }
 
         function updateStats() {
@@ -742,17 +883,17 @@
                             <table class="data-table">
                                 <thead>
                                     <tr>
-                                        <th style="text-align:center">Picked</th>
-                                        <th>Order #</th>
+                                        <th style="text-align:center;width:30px">P</th>
+                                        <th>Order</th>
                                         <th>Item</th>
-                                        <th>Description</th>
+                                        <th>Desc</th>
                                         <th>Qty</th>
                                         <th>Customer</th>
-                                        <th>Priority</th>
+                                        <th>Pri</th>
                                         <th>Bay</th>
                                         <th>Lorry</th>
-                                        <th>Disc%</th>
-                                        <th>Pick Date</th>
+                                        <th>D%</th>
+                                        <th>Date</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -761,14 +902,14 @@
                                             <td style="text-align:center">${getPickedStatus(item.pick_confirm_status)}</td>
                                             <td><strong>${item.source_order_number || '-'}</strong></td>
                                             <td>${item.item_number || '-'}</td>
-                                            <td>${item.description || '-'}</td>
+                                            <td class="desc-col" title="${(item.description || '').replace(/"/g, '&quot;')}">${item.description || '-'}</td>
                                             <td><strong>${item.qty || 0}</strong></td>
-                                            <td>${item.account_name || '-'}</td>
+                                            <td class="desc-col" title="${(item.account_name || '').replace(/"/g, '&quot;')}">${item.account_name || '-'}</td>
                                             <td>${getPriorityBadge(item.order_priority)}</td>
                                             <td>${item.loading_bay ? `<span class="bay-badge">${item.loading_bay}</span>` : '-'}</td>
                                             <td>${item.lorry_number ? `<span class="lorry-badge">${item.lorry_number}</span>` : '-'}</td>
                                             <td>${getDiscBadge(item.disc_per)}</td>
-                                            <td>${formatDate(item.pick_release_date)}</td>
+                                            <td>${formatDateShort(item.pick_release_date)}</td>
                                         </tr>
                                     `).join('')}
                                 </tbody>
@@ -777,6 +918,124 @@
                     </div>
                 `;
             });
+
+            container.innerHTML = html;
+        }
+
+        function renderSummary() {
+            const container = document.getElementById('summaryContainer');
+
+            if (filteredData.length === 0) {
+                container.innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-chart-bar"></i>
+                        <p>No data found for the selected criteria</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Build picker-wise summary
+            const pickerSummary = {};
+            let grandTotalPicked = 0;
+            let grandTotalNotPicked = 0;
+
+            filteredData.forEach(item => {
+                const picker = item.picker_name || 'Unassigned';
+                const order = item.source_order_number || 'Unknown';
+                const qty = Number(item.qty) || 0;
+                const isPicked = (item.pick_confirm_status || '').toUpperCase() === 'YES';
+
+                if (!pickerSummary[picker]) {
+                    pickerSummary[picker] = { orders: {}, totalPicked: 0, totalNotPicked: 0 };
+                }
+
+                if (!pickerSummary[picker].orders[order]) {
+                    pickerSummary[picker].orders[order] = { pickedQty: 0, notPickedQty: 0 };
+                }
+
+                if (isPicked) {
+                    pickerSummary[picker].orders[order].pickedQty += qty;
+                    pickerSummary[picker].totalPicked += qty;
+                    grandTotalPicked += qty;
+                } else {
+                    pickerSummary[picker].orders[order].notPickedQty += qty;
+                    pickerSummary[picker].totalNotPicked += qty;
+                    grandTotalNotPicked += qty;
+                }
+            });
+
+            // Build HTML
+            let html = '';
+
+            // Picker-wise summary card
+            html += `
+                <div class="summary-card">
+                    <div class="summary-card-header">
+                        <i class="fas fa-user"></i> Picker-wise Summary
+                    </div>
+                    <div class="summary-card-body">
+                        <table class="summary-table">
+                            <thead>
+                                <tr>
+                                    <th>Picker</th>
+                                    <th>Order #</th>
+                                    <th style="text-align:right">Picked Qty</th>
+                                    <th style="text-align:right">Not Picked Qty</th>
+                                    <th style="text-align:right">Total Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+
+            const sortedPickers = Object.keys(pickerSummary).sort();
+            sortedPickers.forEach(picker => {
+                const data = pickerSummary[picker];
+                const sortedOrders = Object.keys(data.orders).sort();
+                const pickerTotal = data.totalPicked + data.totalNotPicked;
+
+                // Picker header row
+                html += `
+                    <tr class="picker-row">
+                        <td><strong>${picker}</strong></td>
+                        <td></td>
+                        <td style="text-align:right" class="qty-picked">${data.totalPicked.toLocaleString()}</td>
+                        <td style="text-align:right" class="qty-not-picked">${data.totalNotPicked.toLocaleString()}</td>
+                        <td style="text-align:right"><strong>${pickerTotal.toLocaleString()}</strong></td>
+                    </tr>
+                `;
+
+                // Order rows for this picker
+                sortedOrders.forEach(order => {
+                    const orderData = data.orders[order];
+                    const orderTotal = orderData.pickedQty + orderData.notPickedQty;
+                    html += `
+                        <tr>
+                            <td></td>
+                            <td>${order}</td>
+                            <td style="text-align:right" class="qty-picked">${orderData.pickedQty > 0 ? orderData.pickedQty.toLocaleString() : '-'}</td>
+                            <td style="text-align:right" class="qty-not-picked">${orderData.notPickedQty > 0 ? orderData.notPickedQty.toLocaleString() : '-'}</td>
+                            <td style="text-align:right">${orderTotal.toLocaleString()}</td>
+                        </tr>
+                    `;
+                });
+            });
+
+            // Grand total row
+            const grandTotal = grandTotalPicked + grandTotalNotPicked;
+            html += `
+                            <tr class="total-row">
+                                <td><strong>GRAND TOTAL</strong></td>
+                                <td></td>
+                                <td style="text-align:right" class="qty-picked"><strong>${grandTotalPicked.toLocaleString()}</strong></td>
+                                <td style="text-align:right" class="qty-not-picked"><strong>${grandTotalNotPicked.toLocaleString()}</strong></td>
+                                <td style="text-align:right"><strong>${grandTotal.toLocaleString()}</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            `;
 
             container.innerHTML = html;
         }
@@ -825,6 +1084,18 @@
             try {
                 const date = new Date(dateStr);
                 return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            } catch {
+                return dateStr;
+            }
+        }
+
+        function formatDateShort(dateStr) {
+            if (!dateStr) return '-';
+            try {
+                const date = new Date(dateStr);
+                const d = date.getDate().toString().padStart(2, '0');
+                const m = (date.getMonth() + 1).toString().padStart(2, '0');
+                return `${d}/${m}`;
             } catch {
                 return dateStr;
             }
