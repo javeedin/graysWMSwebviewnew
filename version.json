@@ -1,13 +1,13 @@
 {
-    "version":  "1.2.0",
+    "version":  "1.2.1",
     "build_date":  "2025-11-27",
     "files":  {
-                  "index.html":  "2025-11-27T10:57:56Z",
-                  "app.js":  "2025-11-27T10:57:56Z",
-                  "monitor-printing.js":  "2025-11-27T10:57:56Z",
-                  "styles.css":  "2025-11-27T10:57:56Z",
-                  "mra-processor.js":  "2025-11-27T10:57:56Z",
-                  "trip-details.js":  "2025-11-27T10:57:56Z"
+                  "index.html":  "2025-11-27T18:28:09Z",
+                  "app.js":  "2025-11-27T18:28:09Z",
+                  "monitor-printing.js":  "2025-11-27T18:28:09Z",
+                  "styles.css":  "2025-11-27T18:28:09Z",
+                  "mra-processor.js":  "2025-11-27T18:28:09Z",
+                  "trip-details.js":  "2025-11-27T18:28:09Z"
               },
     "changelog":  "Major Feature: MRA (Mauritius Revenue Authority) Interface - Automated invoice submission from Trip Details with 6-step processing workflow, real-time progress tracking, and comprehensive validation"
 }
