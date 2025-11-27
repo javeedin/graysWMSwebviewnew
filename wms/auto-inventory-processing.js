@@ -4557,45 +4557,85 @@ function initTeamsIntegration() {
         modal.id = 'teams-modal';
         modal.innerHTML = `
             <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
-                <div style="background: white; border-radius: 12px; width: 90%; max-width: 700px; max-height: 90vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.25);">
+                <div style="background: white; border-radius: 12px; width: 95%; max-width: 850px; max-height: 90vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.25);">
                     <!-- Header -->
-                    <div style="background: linear-gradient(135deg, #5558AF 0%, #6B73D4 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
-                                <path d="M19.2 6.4H15.6V4.8C15.6 3.47 14.53 2.4 13.2 2.4H10.8C9.47 2.4 8.4 3.47 8.4 4.8V6.4H4.8C3.47 6.4 2.4 7.47 2.4 8.8V18C2.4 19.33 3.47 20.4 4.8 20.4H19.2C20.53 20.4 21.6 19.33 21.6 18V8.8C21.6 7.47 20.53 6.4 19.2 6.4ZM10.8 4.8H13.2V6.4H10.8V4.8ZM19.2 18H4.8V8.8H19.2V18Z"/>
-                            </svg>
-                            <span style="font-size: 18px; font-weight: 600;">Send to Microsoft Teams</span>
+                            <i class="fas fa-share-alt" style="font-size: 20px;"></i>
+                            <span style="font-size: 18px; font-weight: 600;">Send Trip Details</span>
                         </div>
                         <button onclick="closeTeamsModal()" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px; padding: 0;">&times;</button>
                     </div>
 
-                    <!-- Body -->
-                    <div style="padding: 20px; max-height: 60vh; overflow-y: auto;">
-                        <!-- Channel Selection -->
-                        <div style="margin-bottom: 16px;">
-                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">Select Channel/Webhook</label>
-                            <div style="display: flex; gap: 8px;">
-                                <select id="teams-channel-select" style="flex: 1; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
-                                    <option value="">-- Select Channel --</option>
-                                </select>
-                                <button onclick="openTeamsWebhookSettings()" style="padding: 10px 16px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;" title="Manage Webhooks">
-                                    <i class="fas fa-cog"></i>
-                                </button>
-                            </div>
-                        </div>
+                    <!-- Tabs -->
+                    <div style="display: flex; border-bottom: 2px solid #e0e0e0; background: #f8f9fa;">
+                        <button id="tab-teams" onclick="switchSendTab('teams')" style="flex: 1; padding: 12px 20px; background: white; border: none; border-bottom: 3px solid #5558AF; cursor: pointer; font-weight: 600; color: #5558AF; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="#5558AF"><path d="M19.2 6.4H15.6V4.8C15.6 3.47 14.53 2.4 13.2 2.4H10.8C9.47 2.4 8.4 3.47 8.4 4.8V6.4H4.8C3.47 6.4 2.4 7.47 2.4 8.8V18C2.4 19.33 3.47 20.4 4.8 20.4H19.2C20.53 20.4 21.6 19.33 21.6 18V8.8C21.6 7.47 20.53 6.4 19.2 6.4ZM10.8 4.8H13.2V6.4H10.8V4.8ZM19.2 18H4.8V8.8H19.2V18Z"/></svg>
+                            Microsoft Teams
+                        </button>
+                        <button id="tab-email" onclick="switchSendTab('email')" style="flex: 1; padding: 12px 20px; background: #f8f9fa; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: 600; color: #666; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <i class="fas fa-envelope" style="font-size: 18px;"></i>
+                            Email
+                        </button>
+                    </div>
 
-                        <!-- Message Preview -->
+                    <!-- Body -->
+                    <div style="padding: 20px; max-height: 55vh; overflow-y: auto;">
+                        <!-- Trip Data Preview (shared) -->
                         <div style="margin-bottom: 16px;">
-                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">Message Preview</label>
-                            <div id="teams-message-preview" style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; font-family: 'Segoe UI', sans-serif; font-size: 13px; max-height: 200px; overflow-y: auto;">
+                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                <i class="fas fa-truck"></i> Trip Details Preview
+                            </label>
+                            <div id="send-message-preview" style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; font-family: 'Segoe UI', sans-serif; font-size: 13px; max-height: 250px; overflow-y: auto;">
                                 <!-- Preview content will be generated here -->
                             </div>
                         </div>
 
-                        <!-- Additional Comments -->
+                        <!-- Teams Section -->
+                        <div id="send-teams-section">
+                            <div style="margin-bottom: 16px;">
+                                <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                    <i class="fas fa-hashtag"></i> Select Channel/Webhook
+                                </label>
+                                <div style="display: flex; gap: 8px;">
+                                    <select id="teams-channel-select" style="flex: 1; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                                        <option value="">-- Select Channel --</option>
+                                    </select>
+                                    <button onclick="openTeamsWebhookSettings()" style="padding: 10px 16px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;" title="Manage Webhooks">
+                                        <i class="fas fa-cog"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Email Section (hidden by default) -->
+                        <div id="send-email-section" style="display: none;">
+                            <div style="margin-bottom: 16px;">
+                                <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                    <i class="fas fa-user"></i> From
+                                </label>
+                                <input type="email" id="email-from" readonly style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; background: #f0f0f0; box-sizing: border-box;" placeholder="Loading from Outlook...">
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                    <i class="fas fa-users"></i> To (separate multiple emails with comma)
+                                </label>
+                                <input type="text" id="email-to" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; box-sizing: border-box;" placeholder="email@example.com, another@example.com">
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                    <i class="fas fa-heading"></i> Subject
+                                </label>
+                                <input type="text" id="email-subject" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; box-sizing: border-box;" placeholder="WMS Trip Update">
+                            </div>
+                        </div>
+
+                        <!-- Additional Comments (shared) -->
                         <div style="margin-bottom: 16px;">
-                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">Additional Comments</label>
-                            <textarea id="teams-comments" placeholder="Add any additional comments or notes..." style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; min-height: 80px; resize: vertical; box-sizing: border-box;"></textarea>
+                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                <i class="fas fa-comment"></i> Additional Comments
+                            </label>
+                            <textarea id="teams-comments" placeholder="Add any additional comments or notes..." style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; min-height: 70px; resize: vertical; box-sizing: border-box;"></textarea>
                         </div>
                     </div>
 
@@ -4604,6 +4644,9 @@ function initTeamsIntegration() {
                         <button onclick="closeTeamsModal()" style="padding: 10px 20px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Cancel</button>
                         <button onclick="postToTeams()" id="teams-post-btn" style="padding: 10px 20px; background: linear-gradient(135deg, #5558AF 0%, #6B73D4 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
                             <i class="fas fa-paper-plane"></i> Post to Teams
+                        </button>
+                        <button onclick="sendEmail()" id="email-send-btn" style="display: none; padding: 10px 20px; background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: none; align-items: center; gap: 8px;">
+                            <i class="fas fa-envelope"></i> Send Email
                         </button>
                     </div>
                 </div>
@@ -4700,13 +4743,363 @@ function populateChannelDropdown() {
     });
 }
 
-// Generate Teams message preview
+// Current send tab
+let currentSendTab = 'teams';
+
+// Switch between Teams and Email tabs
+window.switchSendTab = function(tab) {
+    currentSendTab = tab;
+
+    const tabTeams = document.getElementById('tab-teams');
+    const tabEmail = document.getElementById('tab-email');
+    const sectionTeams = document.getElementById('send-teams-section');
+    const sectionEmail = document.getElementById('send-email-section');
+    const btnTeams = document.getElementById('teams-post-btn');
+    const btnEmail = document.getElementById('email-send-btn');
+
+    if (tab === 'teams') {
+        tabTeams.style.background = 'white';
+        tabTeams.style.borderBottom = '3px solid #5558AF';
+        tabTeams.style.color = '#5558AF';
+        tabEmail.style.background = '#f8f9fa';
+        tabEmail.style.borderBottom = '3px solid transparent';
+        tabEmail.style.color = '#666';
+        sectionTeams.style.display = 'block';
+        sectionEmail.style.display = 'none';
+        btnTeams.style.display = 'flex';
+        btnEmail.style.display = 'none';
+    } else {
+        tabEmail.style.background = 'white';
+        tabEmail.style.borderBottom = '3px solid #0078d4';
+        tabEmail.style.color = '#0078d4';
+        tabTeams.style.background = '#f8f9fa';
+        tabTeams.style.borderBottom = '3px solid transparent';
+        tabTeams.style.color = '#666';
+        sectionTeams.style.display = 'none';
+        sectionEmail.style.display = 'block';
+        btnTeams.style.display = 'none';
+        btnEmail.style.display = 'flex';
+
+        // Load Outlook email when switching to email tab
+        loadOutlookEmail();
+
+        // Set default subject
+        const subjectInput = document.getElementById('email-subject');
+        if (!subjectInput.value) {
+            subjectInput.value = `WMS Trip Update - ${selectedTripsForProcessing.size} Trip(s) - ${new Date().toLocaleDateString()}`;
+        }
+    }
+};
+
+// Load Outlook email address
+function loadOutlookEmail() {
+    const fromInput = document.getElementById('email-from');
+    if (fromInput.value && fromInput.value !== 'Loading from Outlook...') {
+        return; // Already loaded
+    }
+
+    fromInput.value = 'Loading from Outlook...';
+
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({
+            action: 'getOutlookEmail'
+        });
+    } else {
+        fromInput.value = 'user@company.com';
+    }
+}
+
+// Callback for Outlook email
+window.handleOutlookEmail = function(email, error) {
+    const fromInput = document.getElementById('email-from');
+    if (error) {
+        console.error('[Email] Failed to get Outlook email:', error);
+        fromInput.value = 'Could not load - enter manually';
+        fromInput.readOnly = false;
+    } else {
+        fromInput.value = email || 'user@company.com';
+    }
+};
+
+// Generate message preview (for both Teams and Email)
 function generateTeamsMessagePreview() {
-    const preview = document.getElementById('teams-message-preview');
+    const preview = document.getElementById('send-message-preview');
     const groupedTrips = groupTransactionsByTrip();
 
     let html = '<div style="font-family: Segoe UI, sans-serif;">';
-    html += '<div style="font-size: 16px; font-weight: 600; color: #5558AF; margin-bottom: 12px;">📦 WMS Trip Update</div>';
+    html += '<div style="font-size: 16px; font-weight: 600; color: #1e3a5f; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;"><i class="fas fa-truck"></i> WMS Trip Update</div>';
+
+    let totalOrders = 0;
+    let totalLines = 0;
+    let totalQty = 0;
+
+    selectedTripsForProcessing.forEach(tripId => {
+        const trip = groupedTrips.find(t => t.trip_id === tripId);
+        if (trip) {
+            const orderCount = new Set(trip.transactions.map(t => t.source_order)).size;
+            const tripQty = trip.transactions.reduce((sum, t) => sum + (parseFloat(t.quantity) || 0), 0);
+            totalOrders += orderCount;
+            totalLines += trip.transactions.length;
+            totalQty += tripQty;
+
+            // Get priority color
+            const pri = trip.trip_priority;
+            let priColor = '#666';
+            if (pri == 1) priColor = '#dc2626';
+            else if (pri == 2) priColor = '#f97316';
+            else if (pri == 3) priColor = '#eab308';
+
+            html += `
+                <div style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-radius: 10px; padding: 14px; margin-bottom: 12px; border-left: 5px solid #1e3a5f; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="font-weight: 700; color: #1e3a5f; font-size: 15px;">🚚 Trip: ${trip.trip_id}</span>
+                        <span style="background: ${priColor}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;">Priority ${pri || '-'}</span>
+                    </div>
+                    <table style="width: 100%; font-size: 12px; color: #475569;">
+                        <tr>
+                            <td style="padding: 3px 0;"><strong>📅 Date:</strong> ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</td>
+                            <td style="padding: 3px 0;"><strong>🚛 Lorry:</strong> ${trip.trip_lorry || '-'}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 3px 0;"><strong>📍 Bay:</strong> ${trip.trip_loading_bay || '-'}</td>
+                            <td style="padding: 3px 0;"><strong>👤 Picker:</strong> ${trip.picker || '-'}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 3px 0;"><strong>📦 Orders:</strong> ${orderCount}</td>
+                            <td style="padding: 3px 0;"><strong>📋 Lines:</strong> ${trip.transactions.length}</td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" style="padding: 3px 0;"><strong>📊 Total Qty:</strong> ${tripQty.toLocaleString()}</td>
+                        </tr>
+                    </table>
+                </div>
+            `;
+        }
+    });
+
+    html += `
+        <div style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-radius: 10px; padding: 14px; margin-top: 14px; color: white;">
+            <div style="font-weight: 700; font-size: 14px; margin-bottom: 8px;">📊 Summary</div>
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; text-align: center;">
+                <div>
+                    <div style="font-size: 20px; font-weight: 700;">${selectedTripsForProcessing.size}</div>
+                    <div style="font-size: 11px; opacity: 0.9;">Trips</div>
+                </div>
+                <div>
+                    <div style="font-size: 20px; font-weight: 700;">${totalOrders}</div>
+                    <div style="font-size: 11px; opacity: 0.9;">Orders</div>
+                </div>
+                <div>
+                    <div style="font-size: 20px; font-weight: 700;">${totalLines}</div>
+                    <div style="font-size: 11px; opacity: 0.9;">Lines</div>
+                </div>
+                <div>
+                    <div style="font-size: 20px; font-weight: 700;">${totalQty.toLocaleString()}</div>
+                    <div style="font-size: 11px; opacity: 0.9;">Total Qty</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    html += '</div>';
+    preview.innerHTML = html;
+}
+
+// Send Email via Outlook
+window.sendEmail = async function() {
+    const toEmails = document.getElementById('email-to').value.trim();
+    const fromEmail = document.getElementById('email-from').value.trim();
+    const subject = document.getElementById('email-subject').value.trim();
+    const comments = document.getElementById('teams-comments').value.trim();
+
+    if (!toEmails) {
+        alert('Please enter at least one recipient email address');
+        return;
+    }
+
+    if (!subject) {
+        alert('Please enter a subject');
+        return;
+    }
+
+    const btn = document.getElementById('email-send-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+    try {
+        // Build HTML email body
+        const emailBody = generateEmailHtmlBody(comments);
+
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.postMessage({
+                action: 'sendOutlookEmail',
+                to: toEmails,
+                subject: subject,
+                htmlBody: emailBody
+            });
+
+            console.log('[Email] Sent to C# backend');
+        } else {
+            // Fallback - open mailto link
+            const plainText = generateEmailPlainText(comments);
+            const mailtoLink = `mailto:${encodeURIComponent(toEmails)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(plainText)}`;
+            window.open(mailtoLink);
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-envelope"></i> Send Email';
+            alert('Email client opened. Please send the email manually.');
+        }
+    } catch (error) {
+        console.error('[Email] Failed:', error);
+        alert('Failed to send email: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-envelope"></i> Send Email';
+    }
+};
+
+// Callback for email send result
+window.handleEmailSendResult = function(success, message) {
+    const btn = document.getElementById('email-send-btn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-envelope"></i> Send Email';
+
+    if (success) {
+        addLogEntry('Email', 'Email sent successfully', 'success');
+        alert('Email sent successfully!');
+        closeTeamsModal();
+    } else {
+        addLogEntry('Email', `Failed to send: ${message}`, 'error');
+        alert('Failed to send email: ' + message);
+    }
+};
+
+// Generate HTML email body
+function generateEmailHtmlBody(comments) {
+    const groupedTrips = groupTransactionsByTrip();
+    let totalOrders = 0;
+    let totalLines = 0;
+    let totalQty = 0;
+
+    let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .container { max-width: 700px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 24px; text-align: center; }
+            .header h1 { margin: 0; font-size: 24px; }
+            .header p { margin: 8px 0 0; opacity: 0.9; }
+            .content { padding: 24px; }
+            .trip-card { background: #f8fafc; border-radius: 10px; padding: 16px; margin-bottom: 16px; border-left: 5px solid #1e3a5f; }
+            .trip-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+            .trip-id { font-weight: 700; color: #1e3a5f; font-size: 16px; }
+            .priority { padding: 4px 12px; border-radius: 12px; color: white; font-size: 12px; font-weight: 600; }
+            .trip-details { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 13px; color: #475569; }
+            .summary { background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-radius: 10px; padding: 20px; color: white; text-align: center; margin-top: 20px; }
+            .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 12px; }
+            .summary-item { text-align: center; }
+            .summary-value { font-size: 28px; font-weight: 700; }
+            .summary-label { font-size: 12px; opacity: 0.9; }
+            .comments { background: #fff8e1; border-left: 4px solid #ffc107; padding: 16px; margin-top: 20px; border-radius: 0 8px 8px 0; }
+            .footer { background: #f8f9fa; padding: 16px 24px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e0e0e0; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🚚 WMS Trip Update</h1>
+                <p>${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+            </div>
+            <div class="content">
+    `;
+
+    selectedTripsForProcessing.forEach(tripId => {
+        const trip = groupedTrips.find(t => t.trip_id === tripId);
+        if (trip) {
+            const orderCount = new Set(trip.transactions.map(t => t.source_order)).size;
+            const tripQty = trip.transactions.reduce((sum, t) => sum + (parseFloat(t.quantity) || 0), 0);
+            totalOrders += orderCount;
+            totalLines += trip.transactions.length;
+            totalQty += tripQty;
+
+            const pri = trip.trip_priority;
+            let priColor = '#666';
+            if (pri == 1) priColor = '#dc2626';
+            else if (pri == 2) priColor = '#f97316';
+            else if (pri == 3) priColor = '#eab308';
+
+            html += `
+                <div class="trip-card">
+                    <div class="trip-header">
+                        <span class="trip-id">Trip: ${trip.trip_id}</span>
+                        <span class="priority" style="background: ${priColor};">Priority ${pri || '-'}</span>
+                    </div>
+                    <div class="trip-details">
+                        <div><strong>📅 Date:</strong> ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</div>
+                        <div><strong>🚛 Lorry:</strong> ${trip.trip_lorry || '-'}</div>
+                        <div><strong>📍 Bay:</strong> ${trip.trip_loading_bay || '-'}</div>
+                        <div><strong>👤 Picker:</strong> ${trip.picker || '-'}</div>
+                        <div><strong>📦 Orders:</strong> ${orderCount}</div>
+                        <div><strong>📋 Lines:</strong> ${trip.transactions.length}</div>
+                        <div><strong>📊 Total Qty:</strong> ${tripQty.toLocaleString()}</div>
+                    </div>
+                </div>
+            `;
+        }
+    });
+
+    html += `
+                <div class="summary">
+                    <strong style="font-size: 16px;">📊 Summary</strong>
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <div class="summary-value">${selectedTripsForProcessing.size}</div>
+                            <div class="summary-label">Trips</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-value">${totalOrders}</div>
+                            <div class="summary-label">Orders</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-value">${totalLines}</div>
+                            <div class="summary-label">Lines</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-value">${totalQty.toLocaleString()}</div>
+                            <div class="summary-label">Total Qty</div>
+                        </div>
+                    </div>
+                </div>
+    `;
+
+    if (comments) {
+        html += `
+                <div class="comments">
+                    <strong>💬 Comments:</strong><br>
+                    ${comments.replace(/\n/g, '<br>')}
+                </div>
+        `;
+    }
+
+    html += `
+            </div>
+            <div class="footer">
+                Sent from Gray's WMS System
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+
+    return html;
+}
+
+// Generate plain text for mailto fallback
+function generateEmailPlainText(comments) {
+    const groupedTrips = groupTransactionsByTrip();
+    let text = 'WMS TRIP UPDATE\n';
+    text += '================\n\n';
 
     let totalOrders = 0;
     let totalLines = 0;
@@ -4718,31 +5111,23 @@ function generateTeamsMessagePreview() {
             totalOrders += orderCount;
             totalLines += trip.transactions.length;
 
-            html += `
-                <div style="background: #f0f4ff; border-radius: 8px; padding: 12px; margin-bottom: 10px; border-left: 4px solid #5558AF;">
-                    <div style="font-weight: 600; color: #333; margin-bottom: 6px;">Trip: ${trip.trip_id}</div>
-                    <div style="font-size: 12px; color: #666; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px;">
-                        <span>📅 Date: ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</span>
-                        <span>🚚 Lorry: ${trip.trip_lorry || '-'}</span>
-                        <span>📍 Bay: ${trip.trip_loading_bay || '-'}</span>
-                        <span>⚡ Priority: ${trip.trip_priority || '-'}</span>
-                        <span>👤 Picker: ${trip.picker || '-'}</span>
-                        <span>📦 Orders: ${orderCount}</span>
-                        <span>📋 Lines: ${trip.transactions.length}</span>
-                    </div>
-                </div>
-            `;
+            text += `TRIP: ${trip.trip_id}\n`;
+            text += `  Date: ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}\n`;
+            text += `  Lorry: ${trip.trip_lorry || '-'}\n`;
+            text += `  Bay: ${trip.trip_loading_bay || '-'}\n`;
+            text += `  Priority: ${trip.trip_priority || '-'}\n`;
+            text += `  Picker: ${trip.picker || '-'}\n`;
+            text += `  Orders: ${orderCount}, Lines: ${trip.transactions.length}\n\n`;
         }
     });
 
-    html += `
-        <div style="background: #e8f5e9; border-radius: 8px; padding: 10px; margin-top: 12px;">
-            <strong>Summary:</strong> ${selectedTripsForProcessing.size} trip(s), ${totalOrders} order(s), ${totalLines} line(s)
-        </div>
-    `;
+    text += `SUMMARY: ${selectedTripsForProcessing.size} trip(s), ${totalOrders} order(s), ${totalLines} line(s)\n\n`;
 
-    html += '</div>';
-    preview.innerHTML = html;
+    if (comments) {
+        text += `COMMENTS:\n${comments}\n`;
+    }
+
+    return text;
 }
 
 // Open webhook settings
