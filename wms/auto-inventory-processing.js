@@ -821,7 +821,7 @@ function recalculateSelectedTripsSummary() {
             // Group transactions by order
             const orderGroups = {};
             trip.transactions.forEach(trx => {
-                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                const orderNum = trx.trx_number || trx.TRX_NUMBER || 'Unknown';
                 if (!orderGroups[orderNum]) {
                     orderGroups[orderNum] = {
                         orderNumber: orderNum,
@@ -5144,7 +5144,7 @@ function generateTeamsMessagePreview() {
             // Group transactions by order
             const orderGroups = {};
             trip.transactions.forEach(trx => {
-                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                const orderNum = trx.trx_number || trx.TRX_NUMBER || 'Unknown';
                 if (!orderGroups[orderNum]) {
                     orderGroups[orderNum] = {
                         orderNumber: orderNum,
@@ -5392,7 +5392,7 @@ function generateEmailHtmlBody(comments) {
             // Group transactions by order
             const orderGroups = {};
             trip.transactions.forEach(trx => {
-                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                const orderNum = trx.trx_number || trx.TRX_NUMBER || 'Unknown';
                 if (!orderGroups[orderNum]) {
                     orderGroups[orderNum] = {
                         orderNumber: orderNum,
