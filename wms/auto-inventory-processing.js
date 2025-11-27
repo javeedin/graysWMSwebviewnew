@@ -4544,7 +4544,7 @@ function initTeamsIntegration() {
         `;
         floatingBtn.style.cssText = `
             position: fixed;
-            bottom: 100px;
+            bottom: 170px;
             right: 30px;
             z-index: 9999;
         `;
@@ -4613,8 +4613,11 @@ function initTeamsIntegration() {
                             <div style="margin-bottom: 16px;">
                                 <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
                                     <i class="fas fa-user"></i> From
+                                    <button onclick="openEmailSettings()" style="margin-left: 8px; padding: 2px 8px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Configure Email Settings">
+                                        <i class="fas fa-cog"></i> Settings
+                                    </button>
                                 </label>
-                                <input type="email" id="email-from" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; box-sizing: border-box;" placeholder="Loading from Outlook...">
+                                <input type="email" id="email-from" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; box-sizing: border-box;" placeholder="your.email@company.com">
                             </div>
                             <div style="margin-bottom: 16px;">
                                 <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
@@ -4693,9 +4696,154 @@ function initTeamsIntegration() {
         document.body.appendChild(webhookModal);
     }
 
+    // Create Email Settings modal if not exists
+    if (!document.getElementById('email-settings-modal')) {
+        const emailModal = document.createElement('div');
+        emailModal.id = 'email-settings-modal';
+        emailModal.innerHTML = `
+            <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10002;">
+                <div style="background: white; border-radius: 12px; width: 90%; max-width: 500px; max-height: 80vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.25);">
+                    <div style="background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 16px; font-weight: 600;"><i class="fas fa-envelope-open-text"></i> Email Configuration</span>
+                        <button onclick="closeEmailSettings()" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px;">&times;</button>
+                    </div>
+                    <div style="padding: 20px; max-height: 55vh; overflow-y: auto;">
+                        <div style="background: #e3f2fd; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #1565c0;">
+                            <i class="fas fa-info-circle"></i> Configure your email settings. For Office 365, use <strong>smtp.office365.com</strong> with port <strong>587</strong>.
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 6px;">SMTP Server</label>
+                            <input type="text" id="smtp-server" value="smtp.office365.com" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; box-sizing: border-box;" placeholder="smtp.office365.com">
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 6px;">Port</label>
+                            <input type="number" id="smtp-port" value="587" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; box-sizing: border-box;" placeholder="587">
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 6px;">Email Address (Username)</label>
+                            <input type="email" id="smtp-username" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; box-sizing: border-box;" placeholder="your.email@company.com">
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 6px;">Password / App Password</label>
+                            <input type="password" id="smtp-password" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; box-sizing: border-box;" placeholder="Your email password or app password">
+                            <div style="font-size: 11px; color: #666; margin-top: 4px;">
+                                <i class="fas fa-shield-alt"></i> For Office 365 with MFA, use an <a href="https://support.microsoft.com/en-us/account-billing/manage-app-passwords-for-two-step-verification" target="_blank" style="color: #0078d4;">App Password</a>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="smtp-use-ssl" checked style="width: 18px; height: 18px;">
+                                <span style="font-weight: 600;">Use TLS/SSL</span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="testEmailSettings()" style="flex: 1; padding: 10px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-vial"></i> Test Connection
+                            </button>
+                            <button onclick="saveEmailSettings()" style="flex: 1; padding: 10px; background: #0078d4; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-save"></i> Save Settings
+                            </button>
+                        </div>
+                    </div>
+                    <div style="padding: 12px 20px; background: #f8f9fa; border-top: 1px solid #e0e0e0; font-size: 11px; color: #666;">
+                        <i class="fas fa-lock"></i> Your credentials are stored locally and never sent to any third party.
+                    </div>
+                </div>
+            </div>
+        `;
+        emailModal.style.display = 'none';
+        document.body.appendChild(emailModal);
+    }
+
     // Update floating button count when trips are selected
     updateTeamsButtonCount();
 }
+
+// Email settings storage
+let emailConfig = JSON.parse(localStorage.getItem('emailConfig') || '{}');
+
+// Open email settings modal
+window.openEmailSettings = function() {
+    const modal = document.getElementById('email-settings-modal');
+    modal.style.display = 'block';
+
+    // Load saved settings
+    document.getElementById('smtp-server').value = emailConfig.smtpServer || 'smtp.office365.com';
+    document.getElementById('smtp-port').value = emailConfig.smtpPort || '587';
+    document.getElementById('smtp-username').value = emailConfig.username || '';
+    document.getElementById('smtp-password').value = emailConfig.password || '';
+    document.getElementById('smtp-use-ssl').checked = emailConfig.useSsl !== false;
+};
+
+// Close email settings modal
+window.closeEmailSettings = function() {
+    document.getElementById('email-settings-modal').style.display = 'none';
+};
+
+// Save email settings
+window.saveEmailSettings = function() {
+    emailConfig = {
+        smtpServer: document.getElementById('smtp-server').value.trim(),
+        smtpPort: document.getElementById('smtp-port').value.trim(),
+        username: document.getElementById('smtp-username').value.trim(),
+        password: document.getElementById('smtp-password').value,
+        useSsl: document.getElementById('smtp-use-ssl').checked
+    };
+
+    localStorage.setItem('emailConfig', JSON.stringify(emailConfig));
+
+    // Update the From field
+    if (emailConfig.username) {
+        document.getElementById('email-from').value = emailConfig.username;
+    }
+
+    alert('Email settings saved successfully!');
+    closeEmailSettings();
+};
+
+// Test email settings
+window.testEmailSettings = function() {
+    const server = document.getElementById('smtp-server').value.trim();
+    const port = document.getElementById('smtp-port').value.trim();
+    const username = document.getElementById('smtp-username').value.trim();
+    const password = document.getElementById('smtp-password').value;
+    const useSsl = document.getElementById('smtp-use-ssl').checked;
+
+    if (!server || !port || !username || !password) {
+        alert('Please fill in all fields before testing.');
+        return;
+    }
+
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({
+            action: 'testSmtpConnection',
+            smtpServer: server,
+            smtpPort: parseInt(port),
+            username: username,
+            password: password,
+            useSsl: useSsl
+        });
+
+        alert('Testing connection... Please wait.');
+    } else {
+        alert('SMTP test is only available in the desktop application.');
+    }
+};
+
+// Callback for SMTP test result
+window.handleSmtpTestResult = function(success, message) {
+    if (success) {
+        alert('✓ Connection successful!\n\n' + message);
+    } else {
+        alert('✗ Connection failed!\n\n' + message);
+    }
+};
 
 // Update the Teams button badge count
 function updateTeamsButtonCount() {
@@ -4791,15 +4939,24 @@ window.switchSendTab = function(tab) {
     }
 };
 
-// Load Outlook email address
+// Load email address from saved settings or Outlook
 function loadOutlookEmail() {
     const fromInput = document.getElementById('email-from');
-    if (fromInput.value && fromInput.value !== 'Loading from Outlook...') {
+    if (fromInput.value && fromInput.value !== 'Loading...' && fromInput.value !== '') {
         return; // Already loaded
     }
 
-    fromInput.value = 'Loading from Outlook...';
+    // First check if we have saved email settings
+    const savedConfig = JSON.parse(localStorage.getItem('emailConfig') || '{}');
+    if (savedConfig.username) {
+        fromInput.value = savedConfig.username;
+        console.log('[Email] Using saved email:', savedConfig.username);
+        return;
+    }
 
+    fromInput.value = 'Loading...';
+
+    // Fall back to Outlook
     if (window.chrome && window.chrome.webview) {
         window.chrome.webview.postMessage({
             action: 'getOutlookEmail'
@@ -4943,7 +5100,7 @@ function generateTeamsMessagePreview() {
     preview.innerHTML = html;
 }
 
-// Send Email via Outlook
+// Send Email via SMTP or Outlook
 window.sendEmail = async function() {
     const toEmails = document.getElementById('email-to').value.trim();
     const fromEmail = document.getElementById('email-from').value.trim();
@@ -4968,14 +5125,36 @@ window.sendEmail = async function() {
         // Build HTML email body
         const emailBody = generateEmailHtmlBody(comments);
 
-        if (window.chrome && window.chrome.webview) {
-            window.chrome.webview.postMessage({
-                action: 'sendOutlookEmail',
-                to: toEmails,
-                subject: subject,
-                htmlBody: emailBody
-            });
+        // Check if SMTP settings are configured
+        const smtpConfig = JSON.parse(localStorage.getItem('emailConfig') || '{}');
+        const useSmtp = smtpConfig.smtpServer && smtpConfig.username && smtpConfig.password;
 
+        if (window.chrome && window.chrome.webview) {
+            if (useSmtp) {
+                // Use SMTP
+                console.log('[Email] Using SMTP to send email');
+                window.chrome.webview.postMessage({
+                    action: 'sendSmtpEmail',
+                    smtpServer: smtpConfig.smtpServer,
+                    smtpPort: parseInt(smtpConfig.smtpPort) || 587,
+                    username: smtpConfig.username,
+                    password: smtpConfig.password,
+                    useSsl: smtpConfig.useSsl !== false,
+                    from: fromEmail || smtpConfig.username,
+                    to: toEmails,
+                    subject: subject,
+                    htmlBody: emailBody
+                });
+            } else {
+                // Use Outlook COM
+                console.log('[Email] Using Outlook to send email');
+                window.chrome.webview.postMessage({
+                    action: 'sendOutlookEmail',
+                    to: toEmails,
+                    subject: subject,
+                    htmlBody: emailBody
+                });
+            }
             console.log('[Email] Sent to C# backend');
         } else {
             // Fallback - open mailto link
@@ -5321,6 +5500,8 @@ window.postToTeams = async function() {
         const tripCards = [];
         let totalOrders = 0;
         let totalLines = 0;
+        let totalPicked = 0;
+        let totalNotPicked = 0;
 
         selectedTripsForProcessing.forEach(tripId => {
             const trip = groupedTrips.find(t => t.trip_id === tripId);
@@ -5340,6 +5521,9 @@ window.postToTeams = async function() {
                     orderGroups[orderNum].totalCount++;
                     if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
                         orderGroups[orderNum].pickedCount++;
+                        totalPicked++;
+                    } else {
+                        totalNotPicked++;
                     }
                 });
 
@@ -5347,56 +5531,124 @@ window.postToTeams = async function() {
                 totalOrders += orders.length;
                 totalLines += trip.transactions.length;
 
-                // Build order rows for this trip
-                const orderRows = orders.map(order => {
+                // Get priority info
+                const pri = trip.trip_priority;
+                let priText = pri ? `P${pri}` : '-';
+                let priColor = pri == 1 ? 'attention' : (pri == 2 ? 'warning' : 'default');
+
+                // Build order facts for this trip
+                const orderFacts = orders.map(order => {
                     const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
-                    let statusText = '❌ Not Picked';
-                    if (pickPct === 100) statusText = '✅ Picked';
-                    else if (pickPct > 0) statusText = `🟡 ${pickPct}%`;
+                    let statusIcon = '🔴';
+                    if (pickPct === 100) statusIcon = '🟢';
+                    else if (pickPct > 0) statusIcon = '🟡';
 
                     return {
                         "type": "ColumnSet",
+                        "spacing": "small",
                         "columns": [
-                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": order.orderNumber, "size": "small", "weight": "bolder" }] },
-                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": order.picker, "size": "small" }] },
-                            { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": statusText, "size": "small" }] }
+                            {
+                                "type": "Column",
+                                "width": "40px",
+                                "items": [{ "type": "TextBlock", "text": statusIcon, "size": "small" }]
+                            },
+                            {
+                                "type": "Column",
+                                "width": "stretch",
+                                "items": [{ "type": "TextBlock", "text": order.orderNumber, "size": "small", "weight": "bolder" }]
+                            },
+                            {
+                                "type": "Column",
+                                "width": "stretch",
+                                "items": [{ "type": "TextBlock", "text": order.picker || '-', "size": "small", "isSubtle": true }]
+                            },
+                            {
+                                "type": "Column",
+                                "width": "80px",
+                                "items": [{ "type": "TextBlock", "text": pickPct === 100 ? 'Picked' : (pickPct > 0 ? `${pickPct}%` : 'Pending'), "size": "small", "horizontalAlignment": "right" }]
+                            }
                         ]
                     };
                 });
 
+                // Trip card
                 tripCards.push({
                     "type": "Container",
                     "style": "emphasis",
+                    "bleed": true,
                     "items": [
+                        // Trip Header
                         {
                             "type": "ColumnSet",
                             "columns": [
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚚 Trip: ${trip.trip_id}`, "weight": "bolder", "size": "medium" }] },
-                                { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": `Pri ${trip.trip_priority || '-'}`, "size": "small", "color": trip.trip_priority == 1 ? "attention" : "default" }] }
+                                {
+                                    "type": "Column",
+                                    "width": "auto",
+                                    "items": [{
+                                        "type": "TextBlock",
+                                        "text": "🚚",
+                                        "size": "large"
+                                    }]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": `Trip ${trip.trip_id}`, "weight": "bolder", "size": "medium", "spacing": "none" },
+                                        { "type": "TextBlock", "text": `${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : ''} • ${orders.length} orders`, "size": "small", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "auto",
+                                    "items": [{
+                                        "type": "TextBlock",
+                                        "text": priText,
+                                        "size": "small",
+                                        "weight": "bolder",
+                                        "color": priColor
+                                    }]
+                                }
                             ]
                         },
-                        {
-                            "type": "TextBlock",
-                            "text": `📅 ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'} | 🚛 ${trip.trip_lorry || '-'} | 📍 Bay ${trip.trip_loading_bay || '-'}`,
-                            "size": "small",
-                            "isSubtle": true,
-                            "spacing": "none"
-                        },
+                        // Trip Details Row
                         {
                             "type": "ColumnSet",
+                            "spacing": "small",
                             "columns": [
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "**Order #**", "size": "small" }] },
-                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "**Picker**", "size": "small" }] },
-                                { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": "**Status**", "size": "small" }] }
-                            ],
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚛 ${trip.trip_lorry || '-'}`, "size": "small", "isSubtle": true }] },
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `📍 Bay ${trip.trip_loading_bay || '-'}`, "size": "small", "isSubtle": true }] }
+                            ]
+                        },
+                        // Divider
+                        {
+                            "type": "TextBlock",
+                            "text": "───────────────────────",
+                            "size": "small",
+                            "isSubtle": true,
                             "spacing": "small"
                         },
-                        ...orderRows
+                        // Order Header
+                        {
+                            "type": "ColumnSet",
+                            "spacing": "small",
+                            "columns": [
+                                { "type": "Column", "width": "40px", "items": [{ "type": "TextBlock", "text": "", "size": "small" }] },
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "ORDER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "PICKER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                { "type": "Column", "width": "80px", "items": [{ "type": "TextBlock", "text": "STATUS", "size": "small", "weight": "bolder", "isSubtle": true, "horizontalAlignment": "right" }] }
+                            ]
+                        },
+                        // Orders
+                        ...orderFacts
                     ],
                     "spacing": "medium"
                 });
             }
         });
+
+        // Calculate pick percentage
+        const pickPct = totalLines > 0 ? Math.round((totalPicked / totalLines) * 100) : 0;
 
         // Build Adaptive Card
         const card = {
@@ -5408,43 +5660,112 @@ window.postToTeams = async function() {
                     "type": "AdaptiveCard",
                     "version": "1.4",
                     "body": [
+                        // Header
                         {
-                            "type": "TextBlock",
-                            "text": "🚚 WMS Trip Summary",
-                            "weight": "bolder",
-                            "size": "large",
-                            "color": "accent"
+                            "type": "Container",
+                            "style": "accent",
+                            "bleed": true,
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": "📦 WMS Trip Summary",
+                                    "weight": "bolder",
+                                    "size": "large",
+                                    "color": "light"
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": new Date().toLocaleString(),
+                                    "size": "small",
+                                    "color": "light",
+                                    "isSubtle": true,
+                                    "spacing": "none"
+                                }
+                            ]
                         },
+                        // Summary Stats
                         {
-                            "type": "TextBlock",
-                            "text": `${selectedTripsForProcessing.size} trip(s) | ${totalOrders} order(s) | ${totalLines} line(s)`,
-                            "spacing": "none",
-                            "isSubtle": true
+                            "type": "ColumnSet",
+                            "spacing": "medium",
+                            "columns": [
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": selectedTripsForProcessing.size.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Trips", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": totalOrders.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Orders", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": totalLines.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Lines", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": `${pickPct}%`, "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center", "color": pickPct === 100 ? "good" : (pickPct > 50 ? "warning" : "attention") },
+                                        { "type": "TextBlock", "text": "Picked", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                }
+                            ]
                         },
+                        // Trip Cards
                         ...tripCards
                     ]
                 }
             }]
         };
 
+        // Add legend
+        card.attachments[0].content.body.push({
+            "type": "Container",
+            "spacing": "medium",
+            "items": [
+                {
+                    "type": "TextBlock",
+                    "text": "🟢 Picked  🟡 Partial  🔴 Pending",
+                    "size": "small",
+                    "isSubtle": true,
+                    "horizontalAlignment": "center"
+                }
+            ]
+        });
+
         // Add comments if provided
         if (comments) {
             card.attachments[0].content.body.push({
-                "type": "TextBlock",
-                "text": `💬 **Comments:** ${comments}`,
-                "wrap": true,
+                "type": "Container",
+                "style": "warning",
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": "💬 Comments",
+                        "weight": "bolder",
+                        "size": "small"
+                    },
+                    {
+                        "type": "TextBlock",
+                        "text": comments,
+                        "wrap": true,
+                        "size": "small"
+                    }
+                ],
                 "spacing": "medium"
             });
         }
-
-        // Add timestamp
-        card.attachments[0].content.body.push({
-            "type": "TextBlock",
-            "text": `Sent at ${new Date().toLocaleString()}`,
-            "size": "small",
-            "isSubtle": true,
-            "spacing": "medium"
-        });
 
         // Send to Teams via C# backend to avoid CORS issues
         if (window.chrome && window.chrome.webview) {
