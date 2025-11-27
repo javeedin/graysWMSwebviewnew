@@ -59,6 +59,7 @@ namespace WMSApp
 
         // User Session Fields
         private string _loggedInUsername;
+        private string _loggedInPassword;
         private string _loggedInInstance;
         private string _loggedInDateTime;
         private bool _isLoggedIn = false;
@@ -91,7 +92,7 @@ namespace WMSApp
 
         private void InitializeComponent1()
         {
-            this.Text = "Gray's WMS v1.2.0 - MRA Tabbed Popup | Released 25-Nov-2025";
+            this.Text = "Gray's WMS v1.2.0 - MRA Tabbed Popup | Released 25-Nov-2025 | ✓ GOOD VERSION";
             this.Size = new Size(1200, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(240, 240, 240);
@@ -106,19 +107,20 @@ namespace WMSApp
         /// </summary>
         private string GetWebFilesBasePath()
         {
-            // Check if files are installed at fixed location
-            if (Directory.Exists(Path.Combine(INSTALL_PATH, "wms")))
-            {
-                System.Diagnostics.Debug.WriteLine($"[Path] Using installed path: {INSTALL_PATH}");
-                return INSTALL_PATH;
-            }
-
-            // Development mode - go up from bin/Debug/net8.0-windows to repo root
+            // PRIORITY 1: Check for development mode first (running from source)
+            // Go up from bin/Debug/net8.0-windows to repo root
             string devPath = Path.GetFullPath(Path.Combine(Application.StartupPath, "..", "..", ".."));
             if (Directory.Exists(Path.Combine(devPath, "wms")))
             {
                 System.Diagnostics.Debug.WriteLine($"[Path] Using development path: {devPath}");
                 return devPath;
+            }
+
+            // PRIORITY 2: Check if files are installed at fixed location
+            if (Directory.Exists(Path.Combine(INSTALL_PATH, "wms")))
+            {
+                System.Diagnostics.Debug.WriteLine($"[Path] Using installed path: {INSTALL_PATH}");
+                return INSTALL_PATH;
             }
 
             // Check if files are in AppContext.BaseDirectory (single-file extracted to temp)
@@ -208,11 +210,21 @@ namespace WMSApp
 
         private bool ShowLoginForm()
         {
+            System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+            System.Diagnostics.Debug.WriteLine("[DEBUG] ShowLoginForm() CALLED");
+            System.Diagnostics.Debug.WriteLine("[DEBUG] Creating LoginForm instance...");
+
             using (LoginForm loginForm = new LoginForm())
             {
-                if (loginForm.ShowDialog() == DialogResult.OK && loginForm.LoginSuccessful)
+                System.Diagnostics.Debug.WriteLine("[DEBUG] LoginForm instance created, calling ShowDialog()...");
+                var dialogResult = loginForm.ShowDialog();
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] ShowDialog returned: {dialogResult}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] LoginSuccessful: {loginForm.LoginSuccessful}");
+
+                if (dialogResult == DialogResult.OK && loginForm.LoginSuccessful)
                 {
                     _loggedInUsername = loginForm.Username;
+                    _loggedInPassword = loginForm.Password;
                     _loggedInInstance = loginForm.InstanceName;
                     _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
                     _isLoggedIn = true;
@@ -231,10 +243,205 @@ namespace WMSApp
             // Clear session variables
             _isLoggedIn = false;
             _loggedInUsername = null;
+            _loggedInPassword = null;
             _loggedInInstance = null;
             _loggedInDateTime = null;
 
             System.Diagnostics.Debug.WriteLine("[LOGOUT] User session cleared successfully");
+        }
+
+        private async Task ClearWebViewLoginStateAsync()
+        {
+            // Clear localStorage login state in WebView2 before navigating to WMS
+            // This ensures fresh authentication is required each session
+            var wv = GetCurrentWebView();
+            if (wv?.CoreWebView2 != null)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOGIN] Clearing localStorage login state before WMS navigation...");
+                    await wv.CoreWebView2.ExecuteScriptAsync(@"
+                        localStorage.removeItem('loggedIn');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('password');
+                        localStorage.removeItem('instanceName');
+                        localStorage.removeItem('loginTime');
+                        localStorage.removeItem('fusionCloudUsername');
+                        localStorage.removeItem('fusionCloudPassword');
+                        localStorage.removeItem('fusionInstance');
+                        console.log('[C# CLEAR] localStorage login state cleared');
+                    ");
+                    System.Diagnostics.Debug.WriteLine("[LOGIN] ✅ localStorage login state cleared");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Warning: Could not clear localStorage: {ex.Message}");
+                }
+            }
+        }
+
+        private void NavigateToWmsIndex(string repoRoot)
+        {
+            string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+
+            if (File.Exists(indexPath))
+            {
+                System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
+                // Clear any stale localStorage login state before navigation
+                _ = ClearWebViewLoginStateAsync();
+                string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                Navigate(fileUrl);
+            }
+            else
+            {
+                MessageBox.Show(
+                    "Local WMS development files not found at:\n" + indexPath,
+                    "WMS Dev Not Found",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private void HandleLoginSuccess(JsonElement root)
+        {
+            try
+            {
+                _loggedInUsername = root.TryGetProperty("username", out var userProp) ? userProp.GetString() : "Unknown";
+                _loggedInInstance = root.TryGetProperty("instanceName", out var instProp) ? instProp.GetString() : "PROD";
+                _loggedInDateTime = root.TryGetProperty("loginTime", out var timeProp) ? timeProp.GetString() : DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
+                _isLoggedIn = true;
+
+                System.Diagnostics.Debug.WriteLine($"[LOGIN SUCCESS] User: {_loggedInUsername}, Instance: {_loggedInInstance}, DateTime: {_loggedInDateTime}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LOGIN ERROR] Failed to process login: {ex.Message}");
+            }
+        }
+
+        private async Task HandleValidateLogin(WebView2 wv, JsonElement root, string requestId)
+        {
+            string username = "";
+            string instanceName = "PROD";
+
+            try
+            {
+                username = root.TryGetProperty("username", out var userProp) ? userProp.GetString() : "";
+                string password = root.TryGetProperty("password", out var passProp) ? passProp.GetString() : "";
+                instanceName = root.TryGetProperty("instanceName", out var instProp) ? instProp.GetString() : "PROD";
+
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Username: {username}");
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Instance: {instanceName}");
+
+                // Instance URLs
+                var instanceUrls = new Dictionary<string, string>
+                {
+                    { "PROD", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" },
+                    { "TEST", "https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" }
+                };
+
+                if (!instanceUrls.TryGetValue(instanceName, out string baseUrl))
+                {
+                    baseUrl = instanceUrls["PROD"];
+                }
+
+                // Fetch user details from API
+                string apiUrl = $"{baseUrl}/trip/fusionuserdetails";
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Fetching users from: {apiUrl}");
+
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    var response = await client.GetAsync(apiUrl);
+
+                    System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Response status: {response.StatusCode}");
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string jsonResponse = await response.Content.ReadAsStringAsync();
+                        System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Response length: {jsonResponse.Length}");
+
+                        // Parse JSON to find user
+                        using (var doc = JsonDocument.Parse(jsonResponse))
+                        {
+                            var items = doc.RootElement.GetProperty("items");
+                            bool userFound = false;
+
+                            foreach (var item in items.EnumerateArray())
+                            {
+                                string apiUsername = item.TryGetProperty("user_name", out var uProp) ? uProp.GetString() : "";
+                                string apiPassword = item.TryGetProperty("passwordd", out var pProp) ? pProp.GetString() : "";
+
+                                if (!string.IsNullOrEmpty(apiUsername) &&
+                                    apiUsername.Equals(username, StringComparison.OrdinalIgnoreCase) &&
+                                    apiPassword == password)
+                                {
+                                    userFound = true;
+                                    break;
+                                }
+                            }
+
+                            if (userFound)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] SUCCESS - User validated!");
+
+                                // Set session
+                                _loggedInUsername = username;
+                                _loggedInInstance = instanceName;
+                                _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
+                                _isLoggedIn = true;
+
+                                // Send success response to JavaScript by calling the global function directly
+                                string escapedUsername = username.Replace("\\", "\\\\").Replace("'", "\\'");
+                                string escapedInstance = instanceName.Replace("\\", "\\\\").Replace("'", "\\'");
+
+                                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                    console.log('[C# -> JS] Calling handleLoginResponse with success...');
+                                    if (typeof window.handleLoginResponse === 'function') {{
+                                        window.handleLoginResponse(true, '{escapedUsername}', '{escapedInstance}', '');
+                                    }} else {{
+                                        console.error('[C# -> JS] handleLoginResponse function not found!');
+                                    }}
+                                ");
+
+                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Sent success response to JS");
+                            }
+                            else
+                            {
+                                throw new Exception("Invalid username or password");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        throw new Exception($"Server error: {response.StatusCode}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] FAILED - {ex.Message}");
+
+                // Send error response to JavaScript by calling the global function directly
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
+                string escapedUsername = username.Replace("\\", "\\\\").Replace("'", "\\'");
+                string escapedInstance = instanceName.Replace("\\", "\\\\").Replace("'", "\\'");
+
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    console.log('[C# -> JS] Calling handleLoginResponse with error...');
+                    if (typeof window.handleLoginResponse === 'function') {{
+                        window.handleLoginResponse(false, '{escapedUsername}', '{escapedInstance}', '{escapedError}');
+                    }} else {{
+                        console.error('[C# -> JS] handleLoginResponse function not found!');
+                        alert('Login failed: {escapedError}');
+                    }}
+                ");
+
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Sent error response to JS");
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] ========================================");
         }
 
         private void SetupUI()
@@ -413,36 +620,51 @@ namespace WMSApp
             wmsDevButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 240, 180);
             wmsDevButton.Click += (s, e) =>
             {
-                // Check if user is logged in for WMS, if not show login form
+                System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+                System.Diagnostics.Debug.WriteLine("[DEBUG] WMS DEV BUTTON CLICKED!");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
+
+                // Hardcoded path for WMS Dev - always points to local development folder
+                string repoRoot = @"C:\Users\Javeed Shaik\source\repos\javeedin\graysWMSwebviewnew";
+
+                // Debug: Show all paths being used
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] ========== WMS DEV PATHS ==========");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] repoRoot: {repoRoot}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] WMS index: {Path.Combine(repoRoot, "wms", "index.html")}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Login page: {Path.Combine(repoRoot, "login.html")}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Instance name: {_instanceName}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] =====================================");
+
+                // Check if user is logged in for WMS, if not navigate to HTML login page
                 if (!_isLoggedIn)
                 {
-                    if (!ShowLoginForm())
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, navigating to login page...");
+
+                    // Navigate to HTML login page
+                    string loginPath = Path.GetFullPath(Path.Combine(repoRoot, "login.html"));
+                    if (File.Exists(loginPath))
                     {
-                        // User cancelled login
-                        System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
-                        return;
+                        // Clear any stale localStorage login state before navigation
+                        _ = ClearWebViewLoginStateAsync();
+                        string loginUrl = "file:///" + loginPath.Replace("\\", "/");
+                        System.Diagnostics.Debug.WriteLine($"[WMS Dev] Navigating to login: {loginUrl}");
+                        Navigate(loginUrl);
                     }
-                }
-
-                // Load local development version from repository root
-                // Navigate from bin/debug/net8.0 up to repository root
-                string repoRoot = GetWebFilesBasePath();
-                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
-
-                if (File.Exists(indexPath))
-                {
-                    System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
-                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
-                    Navigate(fileUrl);
-                    // Send user session after navigation completes (handled in NavigationCompleted event)
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WMS Dev] Login page not found at: {loginPath}");
+                        // Fallback to C# login form
+                        if (!ShowLoginForm())
+                        {
+                            return;
+                        }
+                        NavigateToWmsIndex(repoRoot);
+                    }
                 }
                 else
                 {
-                    MessageBox.Show(
-                        "Local WMS development files not found at:\n" + indexPath,
-                        "WMS Dev Not Found",
-                        MessageBoxButtons.OK,
-                        MessageBoxIcon.Warning);
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, going directly to WMS");
+                    NavigateToWmsIndex(repoRoot);
                 }
             };
             moduleToolTip.SetToolTip(wmsDevButton, "WMS Development - Local Version");
@@ -468,15 +690,42 @@ namespace WMSApp
             wmsProdButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
             wmsProdButton.Click += (s, e) =>
             {
-                // Check if user is logged in for WMS, if not show login form
+                System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+                System.Diagnostics.Debug.WriteLine("[DEBUG] WMS PROD BUTTON CLICKED!");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
+
+                // Get repo root path
+                string repoRoot = GetWebFilesBasePath();
+
+                // Check if user is logged in for WMS, if not navigate to HTML login page
                 if (!_isLoggedIn)
                 {
-                    if (!ShowLoginForm())
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, navigating to login page...");
+
+                    // Navigate to HTML login page
+                    string loginPath = Path.GetFullPath(Path.Combine(repoRoot, "login.html"));
+                    if (File.Exists(loginPath))
                     {
-                        // User cancelled login
-                        System.Diagnostics.Debug.WriteLine("[WMS Login] User cancelled login");
-                        return;
+                        // Clear any stale localStorage login state before navigation
+                        _ = ClearWebViewLoginStateAsync();
+                        string loginUrl = "file:///" + loginPath.Replace("\\", "/");
+                        System.Diagnostics.Debug.WriteLine($"[WMS Prod] Navigating to login: {loginUrl}");
+                        Navigate(loginUrl);
+                        return; // Exit - user will be redirected to WMS after login
                     }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WMS Prod] Login page not found at: {loginPath}");
+                        // Fallback to C# login form
+                        if (!ShowLoginForm())
+                        {
+                            return;
+                        }
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, going directly to WMS");
                 }
 
                 // Check if distribution folder exists
@@ -487,6 +736,8 @@ namespace WMSApp
                 {
                     // Distribution exists - navigate to it
                     System.Diagnostics.Debug.WriteLine($"[WMS Prod] Launching from distribution: {indexPath}");
+                    // Clear any stale localStorage login state before navigation
+                    _ = ClearWebViewLoginStateAsync();
                     string fileUrl = "file:///" + indexPath.Replace("\\", "/");
                     Navigate(fileUrl);
                 }
@@ -510,6 +761,8 @@ namespace WMSApp
                         string launcherPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
                         if (File.Exists(launcherPath))
                         {
+                            // Clear any stale localStorage login state before navigation
+                            _ = ClearWebViewLoginStateAsync();
                             string launcherUrl = "file:///" + launcherPath.Replace("\\", "/");
                             Navigate(launcherUrl);
 
@@ -1146,14 +1399,13 @@ namespace WMSApp
             {
                 await wv.EnsureCoreWebView2Async(null);
 
-                // CACHE FIX: Clear browser cache to ensure tabs load properly
+                // CACHE FIX: Clear browser cache to ensure tabs load properly (preserve localStorage for login state)
                 try
                 {
                     await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
-                        CoreWebView2BrowsingDataKinds.AllDomStorage |
                         CoreWebView2BrowsingDataKinds.CacheStorage |
                         CoreWebView2BrowsingDataKinds.DiskCache);
-                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully");
+                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully (localStorage preserved)");
                 }
                 catch (Exception cacheEx)
                 {
@@ -1181,6 +1433,14 @@ namespace WMSApp
 
                             switch (action)
                             {
+                                case "loginSuccess":
+                                    HandleLoginSuccess(root);
+                                    break;
+
+                                case "validateLogin":
+                                    await HandleValidateLogin(wv, root, requestId);
+                                    break;
+
                                 case "executeGet":
                                     await HandleRestApiRequest(wv, messageJson, requestId);
                                     break;
@@ -3532,10 +3792,9 @@ namespace WMSApp
                 {
                     try
                     {
-                        // AGGRESSIVE CACHE CLEARING - Clear ALL cache before loading local files
-                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing ALL cache before loading local file...");
+                        // Clear cache before loading local files (preserve localStorage for login state)
+                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing cache before loading local file (preserving localStorage)...");
                         await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
-                            CoreWebView2BrowsingDataKinds.AllDomStorage |
                             CoreWebView2BrowsingDataKinds.CacheStorage |
                             CoreWebView2BrowsingDataKinds.DiskCache);
                         System.Diagnostics.Debug.WriteLine("[CACHE] ✅ Cache cleared successfully!");
@@ -3596,33 +3855,93 @@ namespace WMSApp
 
                 // Send user session to WMS pages after navigation completes
                 string source = wv.Source.ToLower();
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Navigation completed: {source}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] _isLoggedIn: {_isLoggedIn}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Contains wms/index.html: {source.Contains("/wms/index.html") || source.Contains("\\wms\\index.html")}");
+
                 if (_isLoggedIn && (source.Contains("/wms/index.html") || source.Contains("\\wms\\index.html")))
                 {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] Conditions met! Sending session to WebView...");
                     // Add a small delay to ensure JavaScript is fully loaded
                     await System.Threading.Tasks.Task.Delay(500);
                     SendUserSessionToWebView(wv);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] Conditions NOT met for sending session");
                 }
             }
         }
 
         private async void SendUserSessionToWebView(CoreWebView2 wv)
         {
+            System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] ========================================");
+            System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] SendUserSessionToWebView CALLED");
+
             try
             {
                 // Escape strings for JavaScript
                 string username = _loggedInUsername?.Replace("'", "\\'") ?? "";
+                string password = _loggedInPassword?.Replace("'", "\\'") ?? "";
                 string instance = _loggedInInstance?.Replace("'", "\\'") ?? "";
                 string loginDateTime = ("Logged in: " + _loggedInDateTime)?.Replace("'", "\\'") ?? "";
 
-                // Call the JavaScript function directly
-                string script = $"if (typeof setLoggedInUser === 'function') {{ setLoggedInUser('{username}', '{instance}', '{loginDateTime}'); }}";
-                await wv.ExecuteScriptAsync(script);
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Username: {username}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Instance: {instance}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] LoginDateTime: {loginDateTime}");
 
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Sent user session to WebView: {username} ({instance}) - {loginDateTime}");
+                // Set localStorage values for login state (required for web page auth check)
+                // Also set fusionCloudUsername/Password for API calls
+                string setLocalStorageScript = $@"
+                    console.log('[C# INJECT] Setting localStorage values...');
+                    localStorage.setItem('loggedIn', 'true');
+                    localStorage.setItem('username', '{username}');
+                    localStorage.setItem('password', '{password}');
+                    localStorage.setItem('instanceName', '{instance}');
+                    localStorage.setItem('loginTime', '{loginDateTime}');
+                    localStorage.setItem('fusionCloudUsername', '{username}');
+                    localStorage.setItem('fusionCloudPassword', '{password}');
+                    localStorage.setItem('fusionInstance', '{instance}');
+                    console.log('[C# INJECT] localStorage values set:');
+                    console.log('[C# INJECT] loggedIn:', localStorage.getItem('loggedIn'));
+                    console.log('[C# INJECT] username:', localStorage.getItem('username'));
+                    console.log('[C# INJECT] instanceName:', localStorage.getItem('instanceName'));
+                    console.log('[C# INJECT] fusionCloudUsername:', localStorage.getItem('fusionCloudUsername'));
+                ";
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Executing localStorage script...");
+                await wv.ExecuteScriptAsync(setLocalStorageScript);
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] localStorage script executed");
+
+                // Call the JavaScript function to update UI
+                string script = $@"
+                    console.log('[C# INJECT] Calling setLoggedInUser...');
+                    if (typeof setLoggedInUser === 'function') {{
+                        setLoggedInUser('{username}', '{instance}', '{loginDateTime}');
+                        console.log('[C# INJECT] setLoggedInUser called successfully');
+                    }} else {{
+                        console.log('[C# INJECT] WARNING: setLoggedInUser function NOT FOUND!');
+                    }}
+                ";
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Executing setLoggedInUser script...");
+                await wv.ExecuteScriptAsync(script);
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] setLoggedInUser script executed");
+
+                // Remove auth-pending class to show page content
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Removing auth-pending class...");
+                await wv.ExecuteScriptAsync(@"
+                    console.log('[C# INJECT] Removing auth-pending class...');
+                    document.body.classList.remove('auth-pending');
+                    console.log('[C# INJECT] auth-pending class removed, body should be visible');
+                ");
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] auth-pending class removed");
+
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] ✅ SUCCESS - Sent session to WebView");
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] ========================================");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[LOGIN] Error sending user session: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] ❌ ERROR: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Stack: {ex.StackTrace}");
             }
         }
 

@@ -91,40 +91,22 @@ function initializeAutoProcessing() {
     addLogEntry('System', 'Auto Inventory Processing initialized', 'success');
 }
 
-// Fetch Oracle Fusion Cloud credentials
+// Load Oracle Fusion Cloud credentials from localStorage (set during login)
 function fetchFusionCloudCredentials() {
-    const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
+    console.log('[Auto Processing] Loading Fusion Cloud credentials from localStorage...');
+    addLogEntry('System', 'Loading Oracle Fusion Cloud credentials...', 'info');
 
-    console.log('[Auto Processing] Fetching Fusion Cloud credentials...');
-    addLogEntry('System', 'Fetching Oracle Fusion Cloud credentials...', 'info');
+    // Get credentials from localStorage (set during C# login)
+    fusionCloudUsername = localStorage.getItem('fusionCloudUsername') || localStorage.getItem('username') || '';
+    fusionCloudPassword = localStorage.getItem('fusionCloudPassword') || localStorage.getItem('password') || '';
 
-    sendMessageToCSharp({
-        action: "executeGet",
-        fullUrl: credentialsUrl
-    }, function(error, data) {
-        if (error) {
-            console.error('[Auto Processing] Failed to fetch credentials:', error);
-            addLogEntry('Error', `Failed to fetch Fusion Cloud credentials: ${error}`, 'error');
-            return;
-        }
-
-        try {
-            const response = JSON.parse(data);
-            if (response.items && response.items.length > 0) {
-                fusionCloudUsername = response.items[0].user_name || '';
-                fusionCloudPassword = response.items[0].passwordd || '';
-
-                console.log('[Auto Processing] Fusion Cloud credentials loaded:', fusionCloudUsername);
-                addLogEntry('System', `Fusion Cloud credentials loaded for user: ${fusionCloudUsername}`, 'success');
-            } else {
-                console.error('[Auto Processing] No credentials found in response');
-                addLogEntry('Error', 'No Fusion Cloud credentials found in API response', 'error');
-            }
-        } catch (parseError) {
-            console.error('[Auto Processing] Failed to parse credentials:', parseError);
-            addLogEntry('Error', `Failed to parse Fusion Cloud credentials: ${parseError.message}`, 'error');
-        }
-    });
+    if (fusionCloudUsername && fusionCloudPassword) {
+        console.log('[Auto Processing] Fusion Cloud credentials loaded:', fusionCloudUsername);
+        addLogEntry('System', `Fusion Cloud credentials loaded for user: ${fusionCloudUsername}`, 'success');
+    } else {
+        console.error('[Auto Processing] No credentials found in localStorage');
+        addLogEntry('Error', 'No login credentials found. Please login first.', 'error');
+    }
 }
 
 // Fetch auto inventory data from API using WebView REST handler
