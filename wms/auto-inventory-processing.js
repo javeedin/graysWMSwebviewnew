@@ -4932,30 +4932,77 @@ window.postToTeams = async function() {
             "spacing": "medium"
         });
 
-        // Send to Teams via webhook
-        const response = await fetch(webhook.url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(card)
-        });
+        // Send to Teams via C# backend to avoid CORS issues
+        if (window.chrome && window.chrome.webview) {
+            // Use C# backend for Teams posting
+            window._teamsPostBtn = btn;
+            window._teamsWebhookName = webhook.name;
 
-        if (response.ok) {
-            addLogEntry('Teams', `Message posted to ${webhook.name}`, 'success');
-            alert('Message posted to Teams successfully!');
-            closeTeamsModal();
+            window.chrome.webview.postMessage({
+                action: 'postToTeams',
+                webhookUrl: webhook.url,
+                cardPayload: card
+            });
+
+            // Result will be handled by handleTeamsPostResult callback
+            console.log('[Teams] Message sent to C# backend for posting');
         } else {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // Fallback to direct fetch (may fail due to CORS)
+            console.log('[Teams] No WebView2 detected, attempting direct fetch...');
+            const response = await fetch(webhook.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(card)
+            });
+
+            if (response.ok) {
+                addLogEntry('Teams', `Message posted to ${webhook.name}`, 'success');
+                alert('Message posted to Teams successfully!');
+                closeTeamsModal();
+            } else {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
         }
 
     } catch (error) {
         console.error('[Teams] Failed to post:', error);
         addLogEntry('Teams', `Failed to post: ${error.message}`, 'error');
-        alert('Failed to post to Teams: ' + error.message + '\n\nNote: If you see a CORS error, Teams webhooks may need to be called from a backend server.');
-    } finally {
+        alert('Failed to post to Teams: ' + error.message);
         btn.disabled = false;
         btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
+    }
+};
+
+// Callback for C# backend Teams post result
+window.handleTeamsPostResult = function(success, message) {
+    console.log('[Teams] C# backend result:', success, message);
+
+    const btn = window._teamsPostBtn;
+    const webhookName = window._teamsWebhookName || 'Teams';
+
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
+    }
+
+    if (success) {
+        if (typeof addLogEntry === 'function') {
+            addLogEntry('Teams', `Message posted to ${webhookName}`, 'success');
+        }
+        alert('Message posted to Teams successfully!');
+        if (typeof closeTeamsModal === 'function') {
+            closeTeamsModal();
+        }
+    } else {
+        if (typeof addLogEntry === 'function') {
+            addLogEntry('Teams', `Failed to post: ${message}`, 'error');
+        }
+        alert('Failed to post to Teams: ' + message);
     }
 };
 

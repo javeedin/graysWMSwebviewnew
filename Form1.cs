@@ -1589,6 +1589,10 @@ namespace WMSApp
                                     await HandleGetPickersView(wv, messageJson, requestId);
                                     break;
 
+                                case "postToTeams":
+                                    await HandlePostToTeams(wv, messageJson, requestId);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -4330,6 +4334,86 @@ namespace WMSApp
                 await wv.CoreWebView2.ExecuteScriptAsync($@"
                     if (typeof window.handlePickersViewData === 'function') {{
                         window.handlePickersViewData(null, '{escapedError}');
+                    }}
+                ");
+            }
+        }
+
+        /// <summary>
+        /// Posts a message to Microsoft Teams via Incoming Webhook
+        /// </summary>
+        private async Task HandlePostToTeams(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string webhookUrl = root.TryGetProperty("webhookUrl", out var wh) ? wh.GetString() : "";
+                    string cardJson = root.TryGetProperty("cardPayload", out var cp) ? cp.GetRawText() : "";
+
+                    System.Diagnostics.Debug.WriteLine($"[TEAMS] Posting to Teams webhook...");
+                    System.Diagnostics.Debug.WriteLine($"[TEAMS] Webhook URL: {webhookUrl?.Substring(0, Math.Min(50, webhookUrl?.Length ?? 0))}...");
+                    System.Diagnostics.Debug.WriteLine($"[TEAMS] Card JSON length: {cardJson?.Length}");
+
+                    if (string.IsNullOrEmpty(webhookUrl))
+                    {
+                        await wv.CoreWebView2.ExecuteScriptAsync($@"
+                            if (typeof window.handleTeamsPostResult === 'function') {{
+                                window.handleTeamsPostResult(false, 'Webhook URL is required');
+                            }}
+                        ");
+                        return;
+                    }
+
+                    if (string.IsNullOrEmpty(cardJson))
+                    {
+                        await wv.CoreWebView2.ExecuteScriptAsync($@"
+                            if (typeof window.handleTeamsPostResult === 'function') {{
+                                window.handleTeamsPostResult(false, 'Card payload is required');
+                            }}
+                        ");
+                        return;
+                    }
+
+                    using (var httpClient = new HttpClient())
+                    {
+                        httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+                        var content = new StringContent(cardJson, Encoding.UTF8, "application/json");
+                        var response = await httpClient.PostAsync(webhookUrl, content);
+                        string responseContent = await response.Content.ReadAsStringAsync();
+
+                        System.Diagnostics.Debug.WriteLine($"[TEAMS] Response status: {response.StatusCode}");
+                        System.Diagnostics.Debug.WriteLine($"[TEAMS] Response content: {responseContent}");
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handleTeamsPostResult === 'function') {{
+                                    window.handleTeamsPostResult(true, 'Message posted successfully to Teams');
+                                }}
+                            ");
+                        }
+                        else
+                        {
+                            string escapedError = responseContent.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handleTeamsPostResult === 'function') {{
+                                    window.handleTeamsPostResult(false, 'HTTP {(int)response.StatusCode}: {escapedError}');
+                                }}
+                            ");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TEAMS ERROR] {ex.Message}");
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleTeamsPostResult === 'function') {{
+                        window.handleTeamsPostResult(false, '{escapedError}');
                     }}
                 ");
             }
