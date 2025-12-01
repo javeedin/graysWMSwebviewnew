@@ -1695,18 +1695,23 @@ document.addEventListener('DOMContentLoaded', function() {
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
-            // Set minimum widths based on column type
+            // Set widths based on column type for better auto-sizing
             const keyLower = key.toLowerCase();
             if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
-                col.minWidth = 200;
-            } else if (keyLower.includes('number') || keyLower.includes('id')) {
-                col.minWidth = 140;
-            } else if (keyLower.includes('date')) {
-                col.minWidth = 130;
-            } else if (keyLower.includes('status')) {
+                col.width = 200;
                 col.minWidth = 120;
+            } else if (keyLower.includes('number') || keyLower.includes('id')) {
+                col.width = 140;
+                col.minWidth = 100;
+            } else if (keyLower.includes('date')) {
+                col.width = 130;
+                col.minWidth = 100;
+            } else if (keyLower.includes('status')) {
+                col.width = 120;
+                col.minWidth = 80;
             } else {
-                col.minWidth = 110;
+                col.width = 110;
+                col.minWidth = 80;
             }
 
             // ORDER_NUMBER hyperlink - opens dialog similar to All Trip Details
@@ -1800,7 +1805,7 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             allowColumnReordering: true,
             allowColumnResizing: true,
-            columnResizingMode: 'nextColumn',
+            columnResizingMode: 'widget',
             rowAlternationEnabled: true,
             selection: {
                 mode: 'multiple',
@@ -1996,20 +2001,26 @@ document.addEventListener('DOMContentLoaded', function() {
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
-            // Set minimum widths based on column type
+            // Set widths based on column type for better display and prevent freezing
             const keyLower = key.toLowerCase();
             if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
-                col.minWidth = 200;
+                col.width = 180;
+                col.minWidth = 100;
             } else if (keyLower.includes('number') || keyLower.includes('id')) {
-                col.minWidth = 140;
+                col.width = 120;
+                col.minWidth = 80;
             } else if (keyLower.includes('date')) {
-                col.minWidth = 130;
+                col.width = 110;
+                col.minWidth = 90;
             } else if (keyLower.includes('status')) {
-                col.minWidth = 120;
+                col.width = 100;
+                col.minWidth = 80;
             } else if (keyLower.includes('weight') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
-                col.minWidth = 120;
+                col.width = 100;
+                col.minWidth = 70;
             } else {
-                col.minWidth = 110;
+                col.width = 90;
+                col.minWidth = 70;
             }
 
             // ORDER_NUMBER hyperlink - opens Store Transactions for S2V, Order Details for others
@@ -2177,7 +2188,7 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             allowColumnReordering: true,
             allowColumnResizing: true,
-            columnResizingMode: 'nextColumn',
+            columnResizingMode: 'widget',
             rowAlternationEnabled: true,
             columnChooser: {
                 enabled: true,
