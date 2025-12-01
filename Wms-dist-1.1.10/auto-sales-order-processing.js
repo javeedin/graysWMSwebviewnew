@@ -412,10 +412,10 @@ function renderSOTripTransactions(transactions, tripIndex) {
 
     let html = `
         <!-- Order Actions Toolbar -->
-        <div id="so-order-actions-toolbar-${tripIndex}" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
+        <div id="so-order-actions-toolbar-${tripIndex}" style="display: none; background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); border: 1px solid #d1d5db;">
             <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
-                    <span style="color: white; font-size: 12px; font-weight: 600;">
+                    <span style="color: #1f2937; font-size: 12px; font-weight: 600;">
                         <i class="fas fa-check-square"></i> <span id="so-selected-orders-count-${tripIndex}">0</span> Orders Selected
                     </span>
                 </div>
@@ -423,13 +423,13 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     <button onclick="soPickReleaseSelected(${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
                         <i class="fas fa-box-open"></i> Pick Release
                     </button>
-                    <button onclick="soAssignPickerSelected(${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                    <button onclick="soAssignPickerSelected(${tripIndex})" style="background: #8b5cf6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'">
                         <i class="fas fa-user-plus"></i> Assign Picker
                     </button>
                     <button onclick="soCancelScheduledLinesSelected(${tripIndex})" style="background: #ef4444; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
                         <i class="fas fa-ban"></i> Cancel Scheduled Lines
                     </button>
-                    <button onclick="soDeselectAllOrders(${tripIndex})" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                    <button onclick="soDeselectAllOrders(${tripIndex})" style="background: #6b7280; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#4b5563'" onmouseout="this.style.background='#6b7280'">
                         <i class="fas fa-times"></i> Clear Selection
                     </button>
                 </div>
@@ -2541,10 +2541,10 @@ function soCallPickReleaseAPI(orderNumber) {
 }
 
 // ============================================================================
-// ORDER ACTION BUTTONS
+// ASSIGN PICKER MODAL AND API
 // ============================================================================
 
-// Assign Picker for selected orders
+// Assign Picker for selected orders - Show modal
 function soAssignPickerSelected(tripIndex) {
     const selectedOrders = soGetSelectedOrders(tripIndex);
 
@@ -2559,72 +2559,304 @@ function soAssignPickerSelected(tripIndex) {
     soShowPickerAssignmentModal(tripIndex, selectedOrders);
 }
 
-// Show Picker Assignment Modal
+// Show Picker Assignment Modal with dropdown
 function soShowPickerAssignmentModal(tripIndex, selectedOrders) {
     // Remove existing modal if any
     const existingModal = document.getElementById('so-picker-assignment-modal');
     if (existingModal) existingModal.remove();
 
+    // Build picker options from window.pickersData
+    let pickerOptionsHtml = '<option value="">-- Select a Picker --</option>';
+
+    if (window.pickersData && window.pickersData.length > 0) {
+        // Filter out deleted pickers
+        const activePickers = window.pickersData.filter(p => p.deleted !== 1);
+        activePickers.forEach(picker => {
+            const pickerId = picker.picker_id || picker.PICKER_ID || picker.id || picker.ID || '';
+            const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
+            pickerOptionsHtml += `<option value="${pickerId}" data-name="${pickerName}">${pickerName}</option>`;
+        });
+    } else {
+        pickerOptionsHtml += '<option value="" disabled>No pickers available - load pickers first</option>';
+    }
+
+    // Build orders list HTML
+    let ordersListHtml = '';
+    selectedOrders.forEach((orderNum, idx) => {
+        ordersListHtml += `
+            <div id="so-assign-picker-order-${idx}" style="display: flex; align-items: center; justify-content: space-between; padding: 0.5rem 0.6rem; background: #f8f9fa; border-radius: 6px; margin-bottom: 0.4rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-shopping-cart" style="color: #667eea; font-size: 12px;"></i>
+                    <span style="font-weight: 600; color: #1e293b; font-size: 12px;">${orderNum}</span>
+                </div>
+                <div id="so-assign-picker-status-${idx}" style="display: flex; align-items: center; gap: 0.3rem;">
+                    <span style="background: #e2e8f0; color: #64748b; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 600;">
+                        <i class="fas fa-clock"></i> Pending
+                    </span>
+                </div>
+            </div>
+        `;
+    });
+
     const modal = document.createElement('div');
     modal.id = 'so-picker-assignment-modal';
     modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 20000; display: flex; align-items: center; justify-content: center;';
     modal.innerHTML = `
-        <div style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); max-width: 400px; width: 90%;">
+        <div style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); max-width: 500px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                 <h3 style="margin: 0; font-size: 1.1rem; color: #1e293b;">
-                    <i class="fas fa-user-plus" style="color: #3b82f6; margin-right: 0.5rem;"></i>
+                    <i class="fas fa-user-check" style="color: #8b5cf6; margin-right: 0.5rem;"></i>
                     Assign Picker
                 </h3>
-                <button onclick="document.getElementById('so-picker-assignment-modal').remove()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">&times;</button>
+                <button onclick="soClosePickerAssignmentModal()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">&times;</button>
             </div>
+
+            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd;">
+                <div style="font-size: 0.85rem; color: #0369a1;">
+                    <i class="fas fa-info-circle"></i> Assigning picker to <strong>${selectedOrders.length}</strong> selected order(s)
+                </div>
+            </div>
+
             <div style="margin-bottom: 1rem;">
-                <p style="font-size: 0.9rem; color: #64748b; margin: 0 0 0.5rem 0;">
-                    Assign picker to ${selectedOrders.length} order(s):
-                </p>
-                <p style="font-size: 0.85rem; color: #1e293b; font-weight: 600; margin: 0;">
-                    ${selectedOrders.join(', ')}
-                </p>
+                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #374151; font-size: 0.875rem;">Select Picker:</label>
+                <select id="so-picker-select" style="width: 100%; padding: 0.75rem; border: 1px solid #d1d5db; border-radius: 8px; font-size: 0.875rem; box-sizing: border-box;">
+                    ${pickerOptionsHtml}
+                </select>
             </div>
-            <div style="margin-bottom: 1rem;">
-                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.3rem;">Select Picker:</label>
-                <input type="text" id="so-picker-name-input" placeholder="Enter picker name..." style="width: 100%; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; box-sizing: border-box;">
+
+            <!-- Orders List -->
+            <div id="so-assign-picker-orders-list" style="flex: 1; overflow-y: auto; max-height: 200px; margin-bottom: 1rem;">
+                ${ordersListHtml}
             </div>
+
+            <!-- Progress Bar (hidden initially) -->
+            <div id="so-assign-picker-progress-container" style="display: none; margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.3rem;">
+                    <span style="font-size: 0.8rem; color: #64748b;">Progress</span>
+                    <span id="so-assign-picker-progress-text" style="font-size: 0.8rem; color: #1e293b; font-weight: 600;">0 / ${selectedOrders.length}</span>
+                </div>
+                <div style="background: #e2e8f0; border-radius: 10px; height: 8px; overflow: hidden;">
+                    <div id="so-assign-picker-progress-bar" style="background: linear-gradient(90deg, #8b5cf6, #7c3aed); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+
+            <!-- Summary (hidden initially) -->
+            <div id="so-assign-picker-summary" style="display: none; padding: 0.75rem; background: #f5f3ff; border: 1px solid #c4b5fd; border-radius: 8px; margin-bottom: 1rem;">
+                <div style="display: flex; gap: 1rem; justify-content: center;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: #10b981;" id="so-assign-picker-success-count">0</div>
+                        <div style="font-size: 0.7rem; color: #64748b;">Success</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: #ef4444;" id="so-assign-picker-failed-count">0</div>
+                        <div style="font-size: 0.7rem; color: #64748b;">Failed</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Buttons -->
             <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
-                <button onclick="document.getElementById('so-picker-assignment-modal').remove()" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                <button id="so-assign-picker-cancel-btn" onclick="soClosePickerAssignmentModal()" style="background: #94a3b8; color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
                     Cancel
                 </button>
-                <button onclick="soConfirmPickerAssignment(${tripIndex}, ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})" style="background: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                <button id="so-assign-picker-execute-btn" onclick="soExecuteAssignPicker(${tripIndex}, ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})" style="background: #8b5cf6; color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
                     <i class="fas fa-check"></i> Assign
                 </button>
             </div>
         </div>
     `;
     document.body.appendChild(modal);
-
-    // Focus on input
-    document.getElementById('so-picker-name-input').focus();
 }
 
-// Confirm Picker Assignment
-function soConfirmPickerAssignment(tripIndex, selectedOrders) {
-    const pickerName = document.getElementById('so-picker-name-input').value.trim();
+// Close Picker Assignment Modal
+function soClosePickerAssignmentModal() {
+    const modal = document.getElementById('so-picker-assignment-modal');
+    if (modal) modal.remove();
+}
 
-    if (!pickerName) {
-        alert('Please enter a picker name');
+// Execute Assign Picker for all selected orders
+async function soExecuteAssignPicker(tripIndex, selectedOrders) {
+    const pickerSelect = document.getElementById('so-picker-select');
+    const selectedOption = pickerSelect.options[pickerSelect.selectedIndex];
+    const pickerId = pickerSelect.value;
+    const pickerName = selectedOption?.getAttribute('data-name') || '';
+
+    if (!pickerId) {
+        alert('Please select a picker');
         return;
     }
 
-    console.log('[SO Actions] Assign Picker:', pickerName, 'to orders:', selectedOrders);
-    addSOLogEntry('Assign Picker', `Assigning "${pickerName}" to orders: ${selectedOrders.join(', ')}`, 'success');
+    console.log('[Assign Picker] Starting for orders:', selectedOrders, 'Picker:', pickerName, '(', pickerId, ')');
+    addSOLogEntry('Assign Picker', `Assigning "${pickerName}" to ${selectedOrders.length} orders`, 'info');
 
-    // TODO: Implement API call when provided
+    // Disable buttons
+    const executeBtn = document.getElementById('so-assign-picker-execute-btn');
+    const cancelBtn = document.getElementById('so-assign-picker-cancel-btn');
+    const pickerSelectEl = document.getElementById('so-picker-select');
 
-    // Close modal
-    document.getElementById('so-picker-assignment-modal').remove();
+    if (executeBtn) {
+        executeBtn.disabled = true;
+        executeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        executeBtn.style.background = '#9ca3af';
+    }
+    if (cancelBtn) cancelBtn.disabled = true;
+    if (pickerSelectEl) pickerSelectEl.disabled = true;
 
-    // Clear selection
+    // Show progress
+    const progressContainer = document.getElementById('so-assign-picker-progress-container');
+    if (progressContainer) progressContainer.style.display = 'block';
+
+    const fusionInstance = localStorage.getItem('fusionInstance') || 'PROD';
+    let successCount = 0;
+    let failedCount = 0;
+
+    // Process each order
+    for (let i = 0; i < selectedOrders.length; i++) {
+        const orderNumber = selectedOrders[i];
+        const statusEl = document.getElementById(`so-assign-picker-status-${i}`);
+        const orderEl = document.getElementById(`so-assign-picker-order-${i}`);
+
+        // Update status to processing
+        if (statusEl) {
+            statusEl.innerHTML = `
+                <span style="background: #fef3c7; color: #d97706; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 600;">
+                    <i class="fas fa-spinner fa-spin"></i> Processing...
+                </span>
+            `;
+        }
+        if (orderEl) orderEl.style.background = '#fef3c7';
+
+        try {
+            // Call Assign Picker API
+            const result = await soCallAssignPickerAPI(orderNumber, pickerId, pickerName, fusionInstance);
+
+            if (result.success) {
+                successCount++;
+                if (statusEl) {
+                    statusEl.innerHTML = `
+                        <span style="background: #d1fae5; color: #059669; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 600;">
+                            <i class="fas fa-check-circle"></i> Success
+                        </span>
+                    `;
+                }
+                if (orderEl) orderEl.style.background = '#d1fae5';
+                addSOLogEntry('Assign Picker', `Order ${orderNumber}: Assigned to ${pickerName}`, 'success');
+            } else {
+                failedCount++;
+                if (statusEl) {
+                    statusEl.innerHTML = `
+                        <span style="background: #fee2e2; color: #dc2626; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 600;" title="${result.error || 'Unknown error'}">
+                            <i class="fas fa-times-circle"></i> Failed
+                        </span>
+                    `;
+                }
+                if (orderEl) orderEl.style.background = '#fee2e2';
+                addSOLogEntry('Assign Picker', `Order ${orderNumber}: Failed - ${result.error}`, 'error');
+            }
+        } catch (error) {
+            failedCount++;
+            if (statusEl) {
+                statusEl.innerHTML = `
+                    <span style="background: #fee2e2; color: #dc2626; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 600;" title="${error.message}">
+                        <i class="fas fa-times-circle"></i> Error
+                    </span>
+                `;
+            }
+            if (orderEl) orderEl.style.background = '#fee2e2';
+            addSOLogEntry('Assign Picker', `Order ${orderNumber}: Error - ${error.message}`, 'error');
+        }
+
+        // Update progress
+        const progressBar = document.getElementById('so-assign-picker-progress-bar');
+        const progressText = document.getElementById('so-assign-picker-progress-text');
+        const progress = ((i + 1) / selectedOrders.length) * 100;
+
+        if (progressBar) progressBar.style.width = `${progress}%`;
+        if (progressText) progressText.textContent = `${i + 1} / ${selectedOrders.length}`;
+
+        // Small delay between requests
+        if (i < selectedOrders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+    }
+
+    // Show summary
+    const summaryEl = document.getElementById('so-assign-picker-summary');
+    const successCountEl = document.getElementById('so-assign-picker-success-count');
+    const failedCountEl = document.getElementById('so-assign-picker-failed-count');
+
+    if (summaryEl) {
+        summaryEl.style.display = 'block';
+        if (failedCount > 0) {
+            summaryEl.style.background = '#fef2f2';
+            summaryEl.style.borderColor = '#fca5a5';
+        }
+    }
+    if (successCountEl) successCountEl.textContent = successCount;
+    if (failedCountEl) failedCountEl.textContent = failedCount;
+
+    // Update buttons
+    if (executeBtn) executeBtn.style.display = 'none';
+    if (cancelBtn) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Close';
+        cancelBtn.style.background = '#667eea';
+    }
+
+    // Log completion
+    addSOLogEntry('Assign Picker', `Completed: ${successCount} success, ${failedCount} failed`, successCount > 0 && failedCount === 0 ? 'success' : 'warning');
+
+    // Clear selection after completion
     soDeselectAllOrders(tripIndex);
 }
+
+// Call Assign Picker API for a single order
+function soCallAssignPickerAPI(orderNumber, pickerId, pickerName, instanceName) {
+    return new Promise((resolve, reject) => {
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/assignpicker';
+
+        const payload = {
+            p_trx_number: orderNumber,
+            p_picker_id: pickerId,
+            p_picker_name: pickerName,
+            p_instance_name: instanceName
+        };
+
+        console.log('[Assign Picker] Calling API for order:', orderNumber, 'Payload:', payload);
+
+        // Use C# WebView REST handler
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(payload)
+        }, function(error, data) {
+            if (error) {
+                console.error('[Assign Picker] API Error for order', orderNumber, ':', error);
+                resolve({ success: false, error: error });
+            } else {
+                try {
+                    console.log('[Assign Picker] API Response for order', orderNumber, ':', data);
+                    const response = JSON.parse(data);
+
+                    // Check if response indicates success
+                    if (response.status === 'error' || response.error) {
+                        resolve({ success: false, error: response.message || response.error || 'API returned error' });
+                    } else {
+                        resolve({ success: true, data: response });
+                    }
+                } catch (e) {
+                    console.error('[Assign Picker] Parse error for order', orderNumber, ':', e);
+                    // If we can't parse, assume success if no error
+                    resolve({ success: true, data: data });
+                }
+            }
+        });
+    });
+}
+
+// ============================================================================
+// OTHER ORDER ACTION BUTTONS
+// ============================================================================
 
 // Cancel Scheduled Lines for selected orders
 function soCancelScheduledLinesSelected(tripIndex) {
