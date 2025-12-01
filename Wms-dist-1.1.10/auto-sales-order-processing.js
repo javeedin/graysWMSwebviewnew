@@ -208,6 +208,10 @@ function groupSOTransactionsByTrip() {
             grouped[tripId] = {
                 trip_id: tripId,
                 trip_date: item.trip_date,
+                trip_lorry: item.trip_lorry,
+                trip_loading_bay: item.trip_loading_bay,
+                trip_priority: item.trip_priority,
+                picker: item.picker,
                 customer: item.customer,
                 transactions: []
             };
@@ -292,34 +296,49 @@ function displaySOGroupedTrips() {
             <div id="so-trip-card-${index}" style="background: white; ${cardBorderStyle} border-radius: 8px; margin-bottom: 0.75rem; overflow: hidden; transition: all 0.3s;">
                 <!-- Trip Header -->
                 <div class="so-trip-group-header" onclick="toggleSOTripDetails(${index})" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;" onmouseover="this.style.background='linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #f8f9fa 0%, #e2e8f0 100%)'">
-                    <div style="display: flex; gap: 1.5rem; align-items: center; flex: 1;">
+                    <div style="display: flex; gap: 1rem; align-items: center; flex: 1; flex-wrap: wrap;">
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
-                            <i class="fas fa-truck so-trip-group-icon" style="color: #667eea; font-size: 16px;"></i>
+                            <i class="fas fa-truck so-trip-group-icon" style="color: #667eea; font-size: 14px;"></i>
                             <div>
-                                <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">TRIP ID</div>
-                                <div class="so-trip-group-value" style="font-size: 13px; font-weight: 700; color: #1e293b;">${trip.trip_id}</div>
+                                <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">TRIP</div>
+                                <div class="so-trip-group-value" style="font-size: 11px; font-weight: 700; color: #1e293b;">${trip.trip_id}</div>
                             </div>
                         </div>
                         <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">DATE</div>
-                            <div class="so-trip-group-value-sm" style="font-size: 11px; font-weight: 600; color: #1e293b;">${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">LORRY</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #7c3aed;">${trip.trip_lorry || '-'}</div>
                         </div>
                         <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">ORDERS</div>
-                            <div class="so-trip-group-value" style="font-size: 13px; font-weight: 700; color: #667eea;">${orderCount}</div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">BAY</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #2563eb;">${trip.trip_loading_bay || '-'}</div>
                         </div>
                         <div>
-                            <div class="so-trip-group-label" style="font-size: 8px; color: #64748b; font-weight: 600;">LINES</div>
-                            <div class="so-trip-group-value" style="font-size: 13px; font-weight: 700; color: #667eea;">${trip.transactions.length}</div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">PRI</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 700; color: ${trip.trip_priority <= 3 ? '#dc2626' : trip.trip_priority <= 6 ? '#d97706' : '#059669'};">${trip.trip_priority || '-'}</div>
                         </div>
-                        <div class="so-trip-stats-badges" style="display: flex; gap: 0.4rem;">
-                            ${successCount > 0 ? `<span class="so-trip-stats-badge" style="background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${successCount} ✓</span>` : ''}
-                            ${processingCount > 0 ? `<span class="so-trip-stats-badge" style="background: #f59e0b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
-                            ${pendingCount > 0 ? `<span class="so-trip-stats-badge" style="background: #3b82f6; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
-                            ${cancelledCount > 0 ? `<span class="so-trip-stats-badge" style="background: #6b7280; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
-                            ${failedCount > 0 ? `<span class="so-trip-stats-badge" style="background: #ef4444; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px; font-weight: 700;">${failedCount} ✗</span>` : ''}
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">DATE</div>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #1e293b;">${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : '-'}</div>
+                        </div>
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">ORD</div>
+                            <div class="so-trip-group-value" style="font-size: 11px; font-weight: 700; color: #667eea;">${orderCount}</div>
+                        </div>
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">LINES</div>
+                            <div class="so-trip-group-value" style="font-size: 11px; font-weight: 700; color: #667eea;">${trip.transactions.length}</div>
+                        </div>
+                        <div class="so-trip-stats-badges" style="display: flex; gap: 0.3rem;">
+                            ${successCount > 0 ? `<span class="so-trip-stats-badge" style="background: #10b981; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${successCount} ✓</span>` : ''}
+                            ${processingCount > 0 ? `<span class="so-trip-stats-badge" style="background: #f59e0b; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;"><i class="fas fa-spinner fa-spin"></i> ${processingCount}</span>` : ''}
+                            ${pendingCount > 0 ? `<span class="so-trip-stats-badge" style="background: #3b82f6; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${pendingCount} ⏳</span>` : ''}
+                            ${cancelledCount > 0 ? `<span class="so-trip-stats-badge" style="background: #6b7280; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${cancelledCount} ⊘</span>` : ''}
+                            ${failedCount > 0 ? `<span class="so-trip-stats-badge" style="background: #ef4444; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${failedCount} ✗</span>` : ''}
                         </div>
                     </div>
+                    <button onclick="event.stopPropagation(); openSOTripPrintModal('${trip.trip_id}', '${trip.trip_date}', ${orderCount}, ${index})" style="background: #10b981; color: white; border: none; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-right: 0.5rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Print all orders in this trip">
+                        <i class="fas fa-print"></i> Print Trip
+                    </button>
                     <button id="so-trip-select-btn-${index}" onclick="event.stopPropagation(); toggleSOTripSelection('${trip.trip_id}', ${index})" style="${selectBtnStyle} color: white; padding: 0.4rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; margin-right: 0.75rem; transition: all 0.2s;" title="Select for processing">
                         ${selectBtnText}
                     </button>
@@ -366,6 +385,7 @@ function renderSOTripTransactions(transactions, tripIndex) {
             orderGroups[orderNum] = {
                 source_order: orderNum,
                 customer: trx.customer,
+                picker: trx.picker || '',
                 items: [],
                 totalRequestedQty: 0,
                 totalPickedQty: 0,
@@ -391,13 +411,44 @@ function renderSOTripTransactions(transactions, tripIndex) {
     const orders = Object.values(orderGroups);
 
     let html = `
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem; gap: 0.5rem;">
-            <button onclick="expandAllSOOrders(${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
-                <i class="fas fa-expand-alt"></i> Expand All
-            </button>
-            <button onclick="collapseAllSOOrders(${tripIndex})" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
-                <i class="fas fa-compress-alt"></i> Collapse All
-            </button>
+        <!-- Order Actions Toolbar -->
+        <div id="so-order-actions-toolbar-${tripIndex}" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="color: white; font-size: 12px; font-weight: 600;">
+                        <i class="fas fa-check-square"></i> <span id="so-selected-orders-count-${tripIndex}">0</span> Orders Selected
+                    </span>
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button onclick="soPickReleaseSelected(${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                        <i class="fas fa-box-open"></i> Pick Release
+                    </button>
+                    <button onclick="soAssignPickerSelected(${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                        <i class="fas fa-user-plus"></i> Assign Picker
+                    </button>
+                    <button onclick="soCancelScheduledLinesSelected(${tripIndex})" style="background: #ef4444; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                        <i class="fas fa-ban"></i> Cancel Scheduled Lines
+                    </button>
+                    <button onclick="soDeselectAllOrders(${tripIndex})" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                        <i class="fas fa-times"></i> Clear Selection
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 0.5rem;">
+            <div style="display: flex; gap: 0.5rem;">
+                <button onclick="soSelectAllOrders(${tripIndex})" style="background: #f59e0b; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                    <i class="fas fa-check-double"></i> Select All Orders
+                </button>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <button onclick="expandAllSOOrders(${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                    <i class="fas fa-expand-alt"></i> Expand All
+                </button>
+                <button onclick="collapseAllSOOrders(${tripIndex})" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                    <i class="fas fa-compress-alt"></i> Collapse All
+                </button>
+            </div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 1rem;">
     `;
@@ -425,10 +476,14 @@ function renderSOTripTransactions(transactions, tripIndex) {
         const orderId = `so-trip-${tripIndex}-order-${orderIdx}`;
 
         html += `
-            <div style="background: white; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;" data-so-order-container="${tripIndex}">
+            <div id="so-order-card-${orderId}" style="background: white; border: 2px solid #e2e8f0; border-radius: 6px; overflow: hidden; transition: all 0.2s;" data-so-order-container="${tripIndex}" data-order-number="${order.source_order}">
                 <!-- Order Header -->
                 <div class="so-order-group-header" onclick="toggleSOOrderDetails('${orderId}')" style="padding: 0.5rem 0.75rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border-left: 3px solid #667eea;" onmouseover="this.style.background='linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'">
                     <div style="display: flex; gap: 1rem; align-items: center; flex: 1;">
+                        <!-- Checkbox for selection -->
+                        <div onclick="event.stopPropagation();" style="display: flex; align-items: center;">
+                            <input type="checkbox" id="so-order-checkbox-${orderId}" onchange="soToggleOrderSelection('${orderId}', '${order.source_order}', ${tripIndex})" style="width: 18px; height: 18px; cursor: pointer; accent-color: #667eea;">
+                        </div>
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
                             <i class="fas fa-shopping-cart so-order-group-icon" style="color: #667eea; font-size: 14px;"></i>
                             <div>
@@ -442,6 +497,10 @@ function renderSOTripTransactions(transactions, tripIndex) {
                         <div>
                             <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Customer</div>
                             <div class="so-order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #475569; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${order.customer || 'N/A'}">${order.customer || 'N/A'}</div>
+                        </div>
+                        <div>
+                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Picker</div>
+                            <div class="so-order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #7c3aed; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${order.picker || ''}">${order.picker || '-'}</div>
                         </div>
                         <div>
                             <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Lines</div>
@@ -469,6 +528,9 @@ function renderSOTripTransactions(transactions, tripIndex) {
                             </span>
                         </div>
                         <div style="display: flex; gap: 0.4rem; margin-left: auto;">
+                            <button onclick="event.stopPropagation(); printSOOrder('${order.source_order}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                <i class="fas fa-print"></i> Print
+                            </button>
                             <button onclick="event.stopPropagation(); processSOSingleOrder('${order.source_order}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
                                 <i class="fas fa-play"></i> Process
                             </button>
@@ -541,9 +603,15 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-action-cell-${tripIndex}-${item.originalIndex}">
                         ${itemStatus === 'FAILED' ? `
-                            <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                            <div style="display: flex; gap: 0.3rem; justify-content: center; flex-wrap: wrap;">
+                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Retry processing">
                                     <i class="fas fa-redo"></i> Retry
+                                </button>
+                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
+                                    <i class="fas fa-hand-pointer"></i> Pick
+                                </button>
+                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
+                                    <i class="fas fa-ban"></i> Cancel
                                 </button>
                             </div>
                         ` : itemStatus === 'PROCESSING' ? `
@@ -553,9 +621,17 @@ function renderSOTripTransactions(transactions, tripIndex) {
                         ` : itemStatus === 'CANCELLED' ? `
                             <span style="color: #6b7280; font-size: 10px;"><i class="fas fa-ban"></i> Cancelled</span>
                         ` : `
-                            <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
-                                <i class="fas fa-play"></i> Process
-                            </button>
+                            <div style="display: flex; gap: 0.3rem; justify-content: center; flex-wrap: wrap;">
+                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Process Line">
+                                    <i class="fas fa-play"></i> Process
+                                </button>
+                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
+                                    <i class="fas fa-hand-pointer"></i> Pick
+                                </button>
+                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
+                                    <i class="fas fa-ban"></i> Cancel
+                                </button>
+                            </div>
                         `}
                     </td>
                 </tr>
@@ -1325,6 +1401,1009 @@ function applySOFontSize() {
     document.querySelectorAll('.so-order-group-icon').forEach(el => {
         el.style.fontSize = `${14 * soTripOrderFontSizeMultiplier}px`;
     });
+}
+
+// ============================================================================
+// PRINT FUNCTIONALITY
+// ============================================================================
+
+// Global state for print modal
+let currentSOTripPrintData = null;
+
+// Print single order
+function printSOOrder(orderNumber, tripIndex) {
+    addSOLogEntry('Print', `Printing Order ${orderNumber}...`, 'info');
+
+    const groupedTrips = groupSOTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        addSOLogEntry('Error', `Trip at index ${tripIndex} not found`, 'error');
+        alert('Trip not found');
+        return;
+    }
+
+    // Get all transactions for this order
+    const orderTransactions = trip.transactions.filter(t => t.source_order === orderNumber);
+
+    if (orderTransactions.length === 0) {
+        addSOLogEntry('Error', `No transactions found for order ${orderNumber}`, 'error');
+        alert('Order not found');
+        return;
+    }
+
+    // Get instance name, trip_id, and trip_date from first transaction
+    const instance = orderTransactions[0].instance_name || orderTransactions[0].INSTANCE_NAME || 'PROD';
+    const tripId = orderTransactions[0].trip_id || '';
+    let tripDate = orderTransactions[0].trip_date || '';
+    const orderType = orderTransactions[0].order_type || orderTransactions[0].ORDER_TYPE || 'Sales Order';
+
+    // Format tripDate to YYYY-MM-DD format
+    if (tripDate) {
+        try {
+            const dateObj = new Date(tripDate);
+            tripDate = dateObj.toISOString().split('T')[0];
+        } catch (e) {
+            if (tripDate.includes('T')) {
+                tripDate = tripDate.split('T')[0];
+            }
+        }
+    }
+
+    // Sales Order reports use a different path than Store Transaction reports
+    // The report path will be determined by the order type value
+    const reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+    const parameterName = 'Order_Number';
+    const reportName = 'Sales Order Report';
+
+    // Show loading indicator
+    const loadingDiv = document.createElement('div');
+    loadingDiv.id = 'so-print-loading-indicator';
+    loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;';
+    loadingDiv.innerHTML = `
+        <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); text-align: center;">
+            <i class="fas fa-spinner fa-spin" style="font-size: 2.5rem; color: #8b5cf6; margin-bottom: 1rem;"></i>
+            <div style="font-size: 1.1rem; font-weight: 600; color: #1f2937;">Generating PDF Report...</div>
+            <div style="font-size: 0.9rem; color: #64748b; margin-top: 0.5rem;">${reportName}</div>
+            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Order: ${orderNumber}</div>
+            <div style="font-size: 0.85rem; color: #64748b; margin-top: 0.25rem;">Instance: ${instance}</div>
+            <div style="font-size: 0.85rem; color: #10b981; margin-top: 0.25rem;">Order Type: ${orderType}</div>
+        </div>
+    `;
+    document.body.appendChild(loadingDiv);
+
+    // Call C# handler to generate PDF from Oracle Fusion Cloud
+    const message = {
+        action: 'printSalesOrder',
+        orderNumber: String(orderNumber),
+        instance: String(instance),
+        reportPath: String(reportPath),
+        parameterName: String(parameterName),
+        tripId: String(tripId),
+        tripDate: String(tripDate),
+        orderType: String(orderType)
+    };
+
+    const printStartTime = Date.now();
+    console.log('[Order Print] ════════════════════════════════════════════════════════');
+    console.log('[Order Print] 📤 SENDING PRINT REQUEST TO C#');
+    console.log('[Order Print] Order Number:', orderNumber);
+    console.log('[Order Print] Instance:', instance);
+    console.log('[Order Print] Report Path:', reportPath);
+    console.log('[Order Print] Parameter Name:', parameterName);
+    console.log('[Order Print] Trip ID:', tripId);
+    console.log('[Order Print] Trip Date:', tripDate);
+    console.log('[Order Print] Order Type:', orderType);
+    console.log('[Order Print] Full message:', JSON.stringify(message, null, 2));
+    console.log('[Order Print] ⏱️ Started at:', new Date(printStartTime).toISOString());
+    console.log('[Order Print] ════════════════════════════════════════════════════════');
+
+    sendMessageToCSharp(message, function(error, data) {
+        const elapsed = Date.now() - printStartTime;
+        console.log('[Order Print] ════════════════════════════════════════════════════════');
+        console.log('[Order Print] 📨 CALLBACK RECEIVED');
+        console.log('[Order Print] ⏱️ Elapsed time:', elapsed, 'ms');
+        console.log('[Order Print] Error:', error);
+        console.log('[Order Print] Data type:', typeof data);
+        console.log('[Order Print] Data:', JSON.stringify(data, null, 2));
+        console.log('[Order Print] ════════════════════════════════════════════════════════');
+
+        const loading = document.getElementById('so-print-loading-indicator');
+        if (loading) loading.remove();
+
+        if (error) {
+            console.error('[Order Print] ❌ Error received:', error);
+            addSOLogEntry('Error', `Failed to generate PDF report: ${error}`, 'error');
+            alert('Error generating report: ' + error);
+        } else {
+            try {
+                const response = typeof data === 'string' ? JSON.parse(data) : data;
+                console.log('[Order Print] ✅ Parsed response:', JSON.stringify(response, null, 2));
+                addSOLogEntry('Print', `Response received: ${JSON.stringify(response)}`, 'info');
+
+                if (response.success) {
+                    const pdfPath = response.pdfPath || response.filePath || response.path;
+                    console.log('[Order Print] PDF Path found:', pdfPath);
+                    if (pdfPath) {
+                        addSOLogEntry('Print', `PDF generated successfully: ${pdfPath}`, 'success');
+                        // Open PDF viewer
+                        if (typeof window.showPdfViewer === 'function') {
+                            console.log('[Order Print] Opening PDF viewer for:', pdfPath);
+                            window.showPdfViewer(pdfPath, orderNumber, reportName);
+                        } else {
+                            console.log('[Order Print] PDF viewer not available, showing alert');
+                            alert(`PDF report generated successfully!\n\nFile: ${pdfPath}`);
+                        }
+                    } else {
+                        console.warn('[Order Print] ⚠️ Response success but no path returned');
+                        addSOLogEntry('Print', `PDF generated but no path returned`, 'warning');
+                    }
+                } else {
+                    console.error('[Order Print] ❌ Response not successful:', response.message);
+                    addSOLogEntry('Error', `PDF generation failed: ${response.message || 'Unknown error'}`, 'error');
+                    alert('Error generating report: ' + (response.message || 'Unknown error'));
+                }
+            } catch (parseError) {
+                console.log('[Order Print] ⚠️ Parse error, checking if raw path:', parseError.message);
+                // Handle non-JSON responses
+                if (data && typeof data === 'string' &&
+                    (data.includes('\\') || data.includes('.pdf') || data.includes('C:') || data.includes('/'))) {
+                    const pdfPath = data.trim();
+                    console.log('[Order Print] ✅ Data is a file path:', pdfPath);
+                    addSOLogEntry('Print', `PDF generated: ${pdfPath}`, 'success');
+                    if (typeof window.showPdfViewer === 'function') {
+                        window.showPdfViewer(pdfPath, orderNumber, reportName);
+                    } else {
+                        alert(`PDF report generated successfully!\n\nFile: ${pdfPath}`);
+                    }
+                } else {
+                    console.error('[Order Print] ❌ Cannot parse response:', data);
+                    addSOLogEntry('Error', `Failed to parse response: ${parseError.message}`, 'error');
+                }
+            }
+        }
+    }, 90000); // 90 second timeout
+}
+
+// Open Trip Print Modal
+window.openSOTripPrintModal = async function(tripId, tripDate, orderCount, tripIndex) {
+    console.log('[SO Trip Print] Opening modal for trip:', tripId);
+
+    // Format tripDate to YYYY-MM-DD
+    let formattedTripDate = tripDate;
+    if (tripDate) {
+        try {
+            const dateObj = new Date(tripDate);
+            formattedTripDate = dateObj.toISOString().split('T')[0];
+        } catch (e) {
+            if (String(tripDate).includes('T')) {
+                formattedTripDate = String(tripDate).split('T')[0];
+            }
+        }
+    }
+
+    // Get trip data
+    const groupedTrips = groupSOTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        alert('Trip not found');
+        return;
+    }
+
+    // Get unique orders from trip
+    const uniqueOrders = [...new Set(trip.transactions.map(t => t.source_order))];
+    const orders = uniqueOrders.map(orderNum => {
+        const orderTransactions = trip.transactions.filter(t => t.source_order === orderNum);
+        const firstTrx = orderTransactions[0];
+        return {
+            orderNumber: orderNum,
+            tripId: tripId,
+            tripDate: formattedTripDate,
+            instance: firstTrx.instance_name || firstTrx.INSTANCE_NAME || 'PROD',
+            orderType: firstTrx.order_type || firstTrx.ORDER_TYPE || 'Sales Order',
+            customer: firstTrx.customer || 'N/A',
+            downloadStatus: 'PENDING',
+            printStatus: 'PENDING',
+            pdfPath: null,
+            error: null
+        };
+    });
+
+    // Sales Order Report
+    let reportName = 'Sales Order Report';
+    let instanceName = 'PROD';
+    let orderTypeName = 'Sales Order';
+
+    if (orders.length > 0) {
+        instanceName = orders[0].instance;
+        orderTypeName = orders[0].orderType;
+        console.log('[SO Trip Print] Order Type:', orderTypeName);
+        console.log('[SO Trip Print] Report:', reportName);
+    }
+
+    // Store current trip print data
+    currentSOTripPrintData = {
+        tripId: tripId,
+        tripDate: formattedTripDate,
+        orderCount: orders.length,
+        orders: orders,
+        tripIndex: tripIndex,
+        reportName: reportName,
+        instanceName: instanceName,
+        orderTypeName: orderTypeName,
+        reportPath: '/Custom/OQ/GR_SalesOrder_Rep.xdo',
+        parameterName: 'Order_Number'
+    };
+
+    // Populate modal fields
+    document.getElementById('so-trip-print-trip-id').textContent = tripId;
+    document.getElementById('so-trip-print-instance-name').textContent = instanceName;
+    document.getElementById('so-trip-print-order-type').textContent = orderTypeName;
+    document.getElementById('so-trip-print-order-count').textContent = orders.length;
+    document.getElementById('so-trip-print-report-name').textContent = reportName;
+    document.getElementById('so-trip-print-status').textContent = 'Ready';
+    document.getElementById('so-trip-print-status').style.color = '#10b981';
+
+    // Update debug info
+    document.getElementById('so-debug-report-name').textContent = reportName;
+    document.getElementById('so-debug-report-path').textContent = currentSOTripPrintData.reportPath;
+    document.getElementById('so-debug-param-name').textContent = currentSOTripPrintData.parameterName;
+    document.getElementById('so-debug-order-type-sent').textContent = orderTypeName;
+    document.getElementById('so-debug-trip-date-sent').textContent = formattedTripDate;
+    document.getElementById('so-debug-path-format').textContent = `C:/fusion/${formattedTripDate}/${tripId}/{orderNumber}.pdf`;
+    document.getElementById('so-debug-current-order').textContent = '-';
+
+    // Generate and display SOAP XML that will be sent to Oracle Fusion
+    const sampleOrderNumber = orders.length > 0 ? orders[0].orderNumber : '1234567';
+    const soapXML = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>${currentSOTripPrintData.reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+          <v2:listOfParamNameValues>
+            <v2:item>
+              <v2:name>${currentSOTripPrintData.parameterName}</v2:name>
+              <v2:values>
+                <v2:item>${sampleOrderNumber}</v2:item>
+              </v2:values>
+            </v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:sizeOfDataChunkDownload>-1</v2:sizeOfDataChunkDownload>
+      </v2:reportRequest>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+    document.getElementById('so-debug-soap-xml').textContent = soapXML;
+
+    // Reset buttons
+    document.getElementById('so-trip-print-download-btn').style.display = 'inline-flex';
+    document.getElementById('so-trip-print-download-btn').disabled = false;
+    document.getElementById('so-trip-print-print-btn').style.display = 'none';
+    document.getElementById('so-trip-print-retry-all-btn').style.display = 'none';
+    document.getElementById('so-trip-print-error').style.display = 'none';
+
+    // Render orders list
+    renderSOTripPrintOrders();
+
+    // Load printers
+    loadSOTripPrinters();
+
+    // Show modal
+    const modal = document.getElementById('so-trip-print-modal');
+    modal.style.display = 'flex';
+
+    addSOLogEntry('Print', `Opened print modal for Trip ${tripId} with ${orders.length} orders`, 'info');
+};
+
+// Close Trip Print Modal
+window.closeSOTripPrintModal = function() {
+    const modal = document.getElementById('so-trip-print-modal');
+    modal.style.display = 'none';
+    currentSOTripPrintData = null;
+};
+
+// Toggle Debug Section
+window.toggleSOTripPrintDebug = function() {
+    const content = document.getElementById('so-trip-debug-content');
+    const icon = document.getElementById('so-trip-debug-toggle-icon');
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-up');
+    } else {
+        content.style.display = 'none';
+        icon.classList.remove('fa-chevron-up');
+        icon.classList.add('fa-chevron-down');
+    }
+};
+
+// Update debug SOAP XML for specific order (called during processing)
+function updateSODebugXMLForOrder(orderNumber) {
+    if (!currentSOTripPrintData) return;
+
+    const soapXML = `<?xml version="1.0" encoding="utf-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+                  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2">
+  <soapenv:Header/>
+  <soapenv:Body>
+    <v2:runReport>
+      <v2:reportRequest>
+        <v2:reportAbsolutePath>${currentSOTripPrintData.reportPath}</v2:reportAbsolutePath>
+        <v2:parameterNameValues>
+          <v2:listOfParamNameValues>
+            <v2:item>
+              <v2:name>${currentSOTripPrintData.parameterName}</v2:name>
+              <v2:values>
+                <v2:item>${orderNumber}</v2:item>
+              </v2:values>
+            </v2:item>
+          </v2:listOfParamNameValues>
+        </v2:parameterNameValues>
+        <v2:sizeOfDataChunkDownload>-1</v2:sizeOfDataChunkDownload>
+      </v2:reportRequest>
+    </v2:runReport>
+  </soapenv:Body>
+</soapenv:Envelope>`;
+
+    document.getElementById('so-debug-soap-xml').textContent = soapXML;
+    document.getElementById('so-debug-current-order').textContent = orderNumber;
+}
+
+// Load printers for modal
+async function loadSOTripPrinters() {
+    const select = document.getElementById('so-trip-print-printer-select');
+    select.innerHTML = '<option value="">-- Loading printers... --</option>';
+
+    try {
+        // Use the same API as auto-inventory-processing
+        const response = await new Promise((resolve, reject) => {
+            const requestId = 'req_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+            if (!window.pendingRequests) {
+                window.pendingRequests = {};
+            }
+
+            window.pendingRequests[requestId] = (error, data) => {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    try {
+                        const parsedData = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve(parsedData);
+                    } catch (parseError) {
+                        reject(new Error(`JSON Parse Error: ${parseError.message}`));
+                    }
+                }
+            };
+
+            window.chrome.webview.postMessage({
+                action: 'executeGet',
+                requestId: requestId,
+                fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/printers/all'
+            });
+
+            setTimeout(() => {
+                if (window.pendingRequests[requestId]) {
+                    delete window.pendingRequests[requestId];
+                    reject(new Error('Request timeout'));
+                }
+            }, 30000);
+        });
+
+        const printers = response.items || [];
+
+        select.innerHTML = '<option value="">-- Select a printer --</option>';
+        printers.forEach(printer => {
+            const option = document.createElement('option');
+            option.value = printer.PRINTER_NAME || printer.printer_name;
+            option.textContent = `${printer.PRINTER_NAME || printer.printer_name} (${printer.LOCATION || printer.location || 'Unknown'})`;
+            select.appendChild(option);
+        });
+
+        console.log('[SO Trip Print] Loaded', printers.length, 'printers');
+    } catch (error) {
+        console.error('[SO Trip Print] Failed to load printers:', error);
+        select.innerHTML = '<option value="">-- Failed to load printers --</option>';
+    }
+}
+
+// Render orders list in modal
+function renderSOTripPrintOrders() {
+    const container = document.getElementById('so-trip-print-orders-list');
+
+    if (!currentSOTripPrintData || !currentSOTripPrintData.orders) {
+        container.innerHTML = '<p style="color: #94a3b8;">No orders to display</p>';
+        return;
+    }
+
+    let html = '';
+    currentSOTripPrintData.orders.forEach((order, index) => {
+        const downloadStatusColor = order.downloadStatus === 'DOWNLOADED' ? '#10b981' :
+                                   order.downloadStatus === 'DOWNLOADING' ? '#f59e0b' :
+                                   order.downloadStatus === 'FAILED' ? '#ef4444' :
+                                   '#94a3b8';
+
+        const downloadStatusIcon = order.downloadStatus === 'DOWNLOADED' ? 'check-circle' :
+                                  order.downloadStatus === 'DOWNLOADING' ? 'spinner fa-spin' :
+                                  order.downloadStatus === 'FAILED' ? 'times-circle' :
+                                  'clock';
+
+        const printStatusColor = order.printStatus === 'PRINTED' ? '#10b981' :
+                                order.printStatus === 'PRINTING' ? '#f59e0b' :
+                                order.printStatus === 'FAILED' ? '#ef4444' :
+                                '#94a3b8';
+
+        const printStatusIcon = order.printStatus === 'PRINTED' ? 'check-circle' :
+                               order.printStatus === 'PRINTING' ? 'spinner fa-spin' :
+                               order.printStatus === 'FAILED' ? 'times-circle' :
+                               'clock';
+
+        html += `
+            <div style="display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #667eea;">
+                <div style="flex: 1;">
+                    <div style="font-weight: 700; color: #1e293b; font-size: 13px;">${order.orderNumber}</div>
+                    <div style="font-size: 11px; color: #64748b;">${order.customer}</div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <div style="text-align: center; min-width: 80px;">
+                        <div style="font-size: 9px; color: #64748b; font-weight: 600;">DOWNLOAD</div>
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${downloadStatusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                            <i class="fas fa-${downloadStatusIcon}"></i> ${order.downloadStatus}
+                        </span>
+                    </div>
+                    <div style="text-align: center; min-width: 80px;">
+                        <div style="font-size: 9px; color: #64748b; font-weight: 600;">PRINT</div>
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${printStatusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                            <i class="fas fa-${printStatusIcon}"></i> ${order.printStatus}
+                        </span>
+                    </div>
+                </div>
+                ${order.error ? `<div style="font-size: 10px; color: #ef4444; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${order.error}">${order.error}</div>` : ''}
+            </div>
+        `;
+    });
+
+    container.innerHTML = html;
+}
+
+// Start downloading PDFs for all orders in trip
+window.startSOTripDownload = async function() {
+    if (!currentSOTripPrintData) return;
+
+    console.log('[SO Trip Print] Starting download for all orders...');
+    addSOLogEntry('Print', `Starting PDF download for ${currentSOTripPrintData.orders.length} orders`, 'info');
+
+    // Update status
+    document.getElementById('so-trip-print-status').textContent = 'Downloading...';
+    document.getElementById('so-trip-print-status').style.color = '#f59e0b';
+
+    // Disable download button
+    document.getElementById('so-trip-print-download-btn').disabled = true;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Download each order
+    for (let i = 0; i < currentSOTripPrintData.orders.length; i++) {
+        const order = currentSOTripPrintData.orders[i];
+
+        console.log(`[SO Trip Print] Downloading ${i + 1}/${currentSOTripPrintData.orders.length}: ${order.orderNumber}`);
+        console.log(`[SO Trip Print] Order Type: ${order.orderType}`);
+
+        // Update debug info and SOAP XML display
+        updateSODebugXMLForOrder(order.orderNumber);
+
+        // Update status to DOWNLOADING
+        order.downloadStatus = 'DOWNLOADING';
+        renderSOTripPrintOrders();
+
+        try {
+            // Use printSalesOrder action for Sales Order Processing
+            const message = {
+                action: 'printSalesOrder',
+                orderNumber: order.orderNumber,
+                instance: order.instance,
+                reportPath: currentSOTripPrintData.reportPath,
+                parameterName: currentSOTripPrintData.parameterName,
+                tripId: order.tripId,
+                tripDate: order.tripDate,
+                orderType: order.orderType
+            };
+
+            console.log('[SO Trip Print] ════════════════════════════════════════════════════════');
+            console.log('[SO Trip Print] 📤 SENDING TO C#');
+            console.log('[SO Trip Print] Action:', message.action);
+            console.log('[SO Trip Print] Report Path:', message.reportPath);
+            console.log('[SO Trip Print] Parameter Name:', message.parameterName);
+            console.log('[SO Trip Print] Order Number:', message.orderNumber);
+            console.log('[SO Trip Print] Order Type:', message.orderType);
+            console.log('[SO Trip Print] Instance:', message.instance);
+            console.log('[SO Trip Print] tripId:', message.tripId);
+            console.log('[SO Trip Print] tripDate:', message.tripDate);
+            console.log('[SO Trip Print] Full message:', JSON.stringify(message, null, 2));
+            console.log('[SO Trip Print] ════════════════════════════════════════════════════════');
+
+            const downloadStartTime = Date.now();
+            console.log('[SO Trip Print] ⏱️ Download started at:', new Date(downloadStartTime).toISOString());
+
+            const response = await new Promise((resolve, reject) => {
+                console.log('[SO Trip Print] 🔄 Calling sendMessageToCSharp...');
+                sendMessageToCSharp(message, function(error, response) {
+                    const elapsed = Date.now() - downloadStartTime;
+                    console.log('[SO Trip Print] ════════════════════════════════════════════════════════');
+                    console.log('[SO Trip Print] 📨 CALLBACK RECEIVED');
+                    console.log('[SO Trip Print] ⏱️ Elapsed time:', elapsed, 'ms');
+                    console.log('[SO Trip Print] Error:', error);
+                    console.log('[SO Trip Print] Response type:', typeof response);
+                    console.log('[SO Trip Print] Response:', JSON.stringify(response, null, 2));
+                    console.log('[SO Trip Print] ════════════════════════════════════════════════════════');
+
+                    if (error) {
+                        console.error('[SO Trip Print] ❌ Error in callback:', error);
+                        reject(new Error(error));
+                    } else {
+                        try {
+                            const parsed = typeof response === 'string' ? JSON.parse(response) : response;
+                            console.log('[SO Trip Print] ✅ Parsed response:', JSON.stringify(parsed, null, 2));
+                            resolve(parsed);
+                        } catch (e) {
+                            console.log('[SO Trip Print] ⚠️ Response not JSON, checking if path string...');
+                            // If response is a path string
+                            if (response && typeof response === 'string' &&
+                                (response.includes('\\') || response.includes('.pdf'))) {
+                                console.log('[SO Trip Print] ✅ Response is a file path:', response);
+                                resolve({ success: true, filePath: response.trim() });
+                            } else {
+                                console.error('[SO Trip Print] ❌ Invalid response format:', response);
+                                reject(new Error('Invalid response format'));
+                            }
+                        }
+                    }
+                }, 90000); // 90 second timeout for PDF downloads
+            });
+
+            console.log('[SO Trip Print] 🔍 Checking response for success...');
+            console.log('[SO Trip Print] response.success:', response.success);
+            console.log('[SO Trip Print] response.filePath:', response.filePath);
+            console.log('[SO Trip Print] response.pdfPath:', response.pdfPath);
+
+            if (response.success && (response.filePath || response.pdfPath)) {
+                order.downloadStatus = 'DOWNLOADED';
+                order.pdfPath = response.filePath || response.pdfPath;
+                order.error = null;
+                successCount++;
+                console.log(`[SO Trip Print] ✅ Downloaded: ${order.orderNumber} to ${order.pdfPath}`);
+                addSOLogEntry('Print', `Downloaded: ${order.orderNumber}`, 'success');
+            } else {
+                console.error('[SO Trip Print] ❌ Response missing success or file path');
+                console.error('[SO Trip Print] Full response:', JSON.stringify(response, null, 2));
+                throw new Error(response.message || 'Download failed - no file path in response');
+            }
+
+        } catch (error) {
+            console.error(`[SO Trip Print] ❌ Failed to download ${order.orderNumber}:`, error);
+            order.downloadStatus = 'FAILED';
+            order.error = error.message;
+            failCount++;
+            addSOLogEntry('Error', `Failed to download ${order.orderNumber}: ${error.message}`, 'error');
+        }
+
+        renderSOTripPrintOrders();
+
+        // Add delay between downloads
+        if (i < currentSOTripPrintData.orders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    }
+
+    // Update final status
+    if (failCount === 0) {
+        document.getElementById('so-trip-print-status').textContent = 'All Downloaded ✓';
+        document.getElementById('so-trip-print-status').style.color = '#10b981';
+        document.getElementById('so-trip-print-download-btn').style.display = 'none';
+        document.getElementById('so-trip-print-print-btn').style.display = 'inline-flex';
+        addSOLogEntry('Print', `All ${successCount} orders downloaded successfully`, 'success');
+    } else {
+        document.getElementById('so-trip-print-status').textContent = `${successCount} OK, ${failCount} Failed`;
+        document.getElementById('so-trip-print-status').style.color = '#ef4444';
+        document.getElementById('so-trip-print-retry-all-btn').style.display = 'inline-flex';
+        document.getElementById('so-trip-print-download-btn').disabled = false;
+
+        if (successCount > 0) {
+            document.getElementById('so-trip-print-print-btn').style.display = 'inline-flex';
+        }
+        addSOLogEntry('Print', `Download complete: ${successCount} success, ${failCount} failed`, 'warning');
+    }
+};
+
+// Retry failed downloads
+window.retryAllSOTripDownloads = async function() {
+    if (!currentSOTripPrintData) return;
+
+    // Reset failed orders
+    currentSOTripPrintData.orders.forEach(order => {
+        if (order.downloadStatus === 'FAILED') {
+            order.downloadStatus = 'PENDING';
+            order.error = null;
+        }
+    });
+
+    renderSOTripPrintOrders();
+    document.getElementById('so-trip-print-retry-all-btn').style.display = 'none';
+
+    // Start download again
+    await startSOTripDownload();
+};
+
+// Start printing all downloaded PDFs
+window.startSOTripPrinting = async function() {
+    if (!currentSOTripPrintData) return;
+
+    const printerName = document.getElementById('so-trip-print-printer-select').value;
+    const errorDiv = document.getElementById('so-trip-print-error');
+
+    if (!printerName) {
+        errorDiv.textContent = 'Please select a printer';
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    errorDiv.style.display = 'none';
+
+    console.log('[SO Trip Print] Starting printing for all orders with printer:', printerName);
+    addSOLogEntry('Print', `Starting print to ${printerName}`, 'info');
+
+    // Update status
+    document.getElementById('so-trip-print-status').textContent = 'Printing...';
+    document.getElementById('so-trip-print-status').style.color = '#f59e0b';
+
+    // Disable print button
+    document.getElementById('so-trip-print-print-btn').disabled = true;
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Print each downloaded order
+    const downloadedOrders = currentSOTripPrintData.orders.filter(o => o.downloadStatus === 'DOWNLOADED');
+
+    for (let i = 0; i < downloadedOrders.length; i++) {
+        const order = downloadedOrders[i];
+
+        console.log(`[SO Trip Print] Printing ${i + 1}/${downloadedOrders.length}: ${order.orderNumber}`);
+
+        // Update status to PRINTING
+        order.printStatus = 'PRINTING';
+        renderSOTripPrintOrders();
+
+        try {
+            // Print PDF via C#
+            const message = {
+                action: 'printOrder',
+                orderNumber: order.orderNumber,
+                tripId: order.tripId,
+                tripDate: order.tripDate,
+                printerName: printerName
+            };
+
+            const response = await new Promise((resolve, reject) => {
+                sendMessageToCSharp(message, function(error, response) {
+                    if (error) {
+                        reject(new Error(error));
+                    } else {
+                        try {
+                            const parsed = typeof response === 'string' ? JSON.parse(response) : response;
+                            resolve(parsed);
+                        } catch (e) {
+                            resolve({ success: true });
+                        }
+                    }
+                });
+            });
+
+            if (response.success) {
+                order.printStatus = 'PRINTED';
+                order.error = null;
+                successCount++;
+                console.log(`[SO Trip Print] ✅ Printed: ${order.orderNumber}`);
+                addSOLogEntry('Print', `Printed: ${order.orderNumber}`, 'success');
+            } else {
+                throw new Error(response.message || 'Print failed');
+            }
+
+        } catch (error) {
+            console.error(`[SO Trip Print] ❌ Failed to print ${order.orderNumber}:`, error);
+            order.printStatus = 'FAILED';
+            order.error = error.message;
+            failCount++;
+            addSOLogEntry('Error', `Failed to print ${order.orderNumber}: ${error.message}`, 'error');
+        }
+
+        renderSOTripPrintOrders();
+
+        // Add delay between prints
+        if (i < downloadedOrders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+    }
+
+    // Update final status
+    if (failCount === 0) {
+        document.getElementById('so-trip-print-status').textContent = 'All Printed ✓';
+        document.getElementById('so-trip-print-status').style.color = '#10b981';
+        document.getElementById('so-trip-print-print-btn').style.display = 'none';
+        addSOLogEntry('Print', `All ${successCount} orders printed successfully`, 'success');
+    } else {
+        document.getElementById('so-trip-print-status').textContent = `${successCount} Printed, ${failCount} Failed`;
+        document.getElementById('so-trip-print-status').style.color = '#ef4444';
+        addSOLogEntry('Print', `Print complete: ${successCount} success, ${failCount} failed`, 'warning');
+    }
+
+    document.getElementById('so-trip-print-print-btn').disabled = false;
+
+    console.log(`[SO Trip Print] Printing complete: ${successCount} succeeded, ${failCount} failed`);
+};
+
+// ============================================================================
+// ORDER SELECTION AND ACTION FUNCTIONS
+// ============================================================================
+
+// Track selected orders per trip: Map<tripIndex, Set<orderNumber>>
+let selectedSOOrders = new Map();
+
+// Toggle order selection
+function soToggleOrderSelection(orderId, orderNumber, tripIndex) {
+    if (!selectedSOOrders.has(tripIndex)) {
+        selectedSOOrders.set(tripIndex, new Set());
+    }
+
+    const tripOrders = selectedSOOrders.get(tripIndex);
+    const checkbox = document.getElementById(`so-order-checkbox-${orderId}`);
+    const orderCard = document.getElementById(`so-order-card-${orderId}`);
+
+    if (tripOrders.has(orderNumber)) {
+        // Deselect
+        tripOrders.delete(orderNumber);
+        if (orderCard) {
+            orderCard.style.borderColor = '#e2e8f0';
+            orderCard.style.boxShadow = 'none';
+        }
+    } else {
+        // Select
+        tripOrders.add(orderNumber);
+        if (orderCard) {
+            orderCard.style.borderColor = '#667eea';
+            orderCard.style.boxShadow = '0 0 0 2px rgba(102, 126, 234, 0.2)';
+        }
+    }
+
+    soUpdateOrderSelectionUI(tripIndex);
+}
+
+// Select all orders in a trip
+function soSelectAllOrders(tripIndex) {
+    const containers = document.querySelectorAll(`[data-so-order-container="${tripIndex}"]`);
+
+    if (!selectedSOOrders.has(tripIndex)) {
+        selectedSOOrders.set(tripIndex, new Set());
+    }
+
+    const tripOrders = selectedSOOrders.get(tripIndex);
+
+    containers.forEach(container => {
+        const orderNumber = container.getAttribute('data-order-number');
+        const orderId = container.id.replace('so-order-card-', '');
+        const checkbox = document.getElementById(`so-order-checkbox-${orderId}`);
+
+        if (orderNumber) {
+            tripOrders.add(orderNumber);
+            if (checkbox) checkbox.checked = true;
+            container.style.borderColor = '#667eea';
+            container.style.boxShadow = '0 0 0 2px rgba(102, 126, 234, 0.2)';
+        }
+    });
+
+    soUpdateOrderSelectionUI(tripIndex);
+    addSOLogEntry('Selection', `Selected all orders in trip`, 'info');
+}
+
+// Deselect all orders in a trip
+function soDeselectAllOrders(tripIndex) {
+    const containers = document.querySelectorAll(`[data-so-order-container="${tripIndex}"]`);
+
+    if (selectedSOOrders.has(tripIndex)) {
+        selectedSOOrders.get(tripIndex).clear();
+    }
+
+    containers.forEach(container => {
+        const orderId = container.id.replace('so-order-card-', '');
+        const checkbox = document.getElementById(`so-order-checkbox-${orderId}`);
+
+        if (checkbox) checkbox.checked = false;
+        container.style.borderColor = '#e2e8f0';
+        container.style.boxShadow = 'none';
+    });
+
+    soUpdateOrderSelectionUI(tripIndex);
+    addSOLogEntry('Selection', `Cleared order selection`, 'info');
+}
+
+// Update order selection UI (toolbar visibility and count)
+function soUpdateOrderSelectionUI(tripIndex) {
+    const tripOrders = selectedSOOrders.get(tripIndex) || new Set();
+    const count = tripOrders.size;
+
+    const toolbar = document.getElementById(`so-order-actions-toolbar-${tripIndex}`);
+    const countSpan = document.getElementById(`so-selected-orders-count-${tripIndex}`);
+
+    if (toolbar) {
+        toolbar.style.display = count > 0 ? 'block' : 'none';
+    }
+
+    if (countSpan) {
+        countSpan.textContent = count;
+    }
+}
+
+// Get selected orders for a trip
+function soGetSelectedOrders(tripIndex) {
+    return Array.from(selectedSOOrders.get(tripIndex) || new Set());
+}
+
+// ============================================================================
+// ORDER ACTION BUTTONS (Placeholder functions - API to be provided)
+// ============================================================================
+
+// Pick Release for selected orders
+function soPickReleaseSelected(tripIndex) {
+    const selectedOrders = soGetSelectedOrders(tripIndex);
+
+    if (selectedOrders.length === 0) {
+        alert('No orders selected');
+        return;
+    }
+
+    addSOLogEntry('Pick Release', `Initiating Pick Release for ${selectedOrders.length} orders: ${selectedOrders.join(', ')}`, 'info');
+
+    // TODO: Implement API call when provided
+    // For now, show confirmation
+    if (confirm(`Pick Release ${selectedOrders.length} order(s)?\n\nOrders: ${selectedOrders.join(', ')}`)) {
+        console.log('[SO Actions] Pick Release orders:', selectedOrders);
+        addSOLogEntry('Pick Release', `Pick Release requested for orders: ${selectedOrders.join(', ')}`, 'success');
+        // API call will be added here
+    }
+}
+
+// Assign Picker for selected orders
+function soAssignPickerSelected(tripIndex) {
+    const selectedOrders = soGetSelectedOrders(tripIndex);
+
+    if (selectedOrders.length === 0) {
+        alert('No orders selected');
+        return;
+    }
+
+    addSOLogEntry('Assign Picker', `Opening picker assignment for ${selectedOrders.length} orders`, 'info');
+
+    // Show picker selection modal
+    soShowPickerAssignmentModal(tripIndex, selectedOrders);
+}
+
+// Show Picker Assignment Modal
+function soShowPickerAssignmentModal(tripIndex, selectedOrders) {
+    // Remove existing modal if any
+    const existingModal = document.getElementById('so-picker-assignment-modal');
+    if (existingModal) existingModal.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'so-picker-assignment-modal';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 20000; display: flex; align-items: center; justify-content: center;';
+    modal.innerHTML = `
+        <div style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); max-width: 400px; width: 90%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: #1e293b;">
+                    <i class="fas fa-user-plus" style="color: #3b82f6; margin-right: 0.5rem;"></i>
+                    Assign Picker
+                </h3>
+                <button onclick="document.getElementById('so-picker-assignment-modal').remove()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">&times;</button>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <p style="font-size: 0.9rem; color: #64748b; margin: 0 0 0.5rem 0;">
+                    Assign picker to ${selectedOrders.length} order(s):
+                </p>
+                <p style="font-size: 0.85rem; color: #1e293b; font-weight: 600; margin: 0;">
+                    ${selectedOrders.join(', ')}
+                </p>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.3rem;">Select Picker:</label>
+                <input type="text" id="so-picker-name-input" placeholder="Enter picker name..." style="width: 100%; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; box-sizing: border-box;">
+            </div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button onclick="document.getElementById('so-picker-assignment-modal').remove()" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    Cancel
+                </button>
+                <button onclick="soConfirmPickerAssignment(${tripIndex}, ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})" style="background: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    <i class="fas fa-check"></i> Assign
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Focus on input
+    document.getElementById('so-picker-name-input').focus();
+}
+
+// Confirm Picker Assignment
+function soConfirmPickerAssignment(tripIndex, selectedOrders) {
+    const pickerName = document.getElementById('so-picker-name-input').value.trim();
+
+    if (!pickerName) {
+        alert('Please enter a picker name');
+        return;
+    }
+
+    console.log('[SO Actions] Assign Picker:', pickerName, 'to orders:', selectedOrders);
+    addSOLogEntry('Assign Picker', `Assigning "${pickerName}" to orders: ${selectedOrders.join(', ')}`, 'success');
+
+    // TODO: Implement API call when provided
+
+    // Close modal
+    document.getElementById('so-picker-assignment-modal').remove();
+
+    // Clear selection
+    soDeselectAllOrders(tripIndex);
+}
+
+// Cancel Scheduled Lines for selected orders
+function soCancelScheduledLinesSelected(tripIndex) {
+    const selectedOrders = soGetSelectedOrders(tripIndex);
+
+    if (selectedOrders.length === 0) {
+        alert('No orders selected');
+        return;
+    }
+
+    addSOLogEntry('Cancel Lines', `Initiating Cancel Scheduled Lines for ${selectedOrders.length} orders`, 'info');
+
+    if (confirm(`Cancel all scheduled lines for ${selectedOrders.length} order(s)?\n\nOrders: ${selectedOrders.join(', ')}\n\nThis action cannot be undone.`)) {
+        console.log('[SO Actions] Cancel Scheduled Lines for orders:', selectedOrders);
+        addSOLogEntry('Cancel Lines', `Cancel Scheduled Lines requested for orders: ${selectedOrders.join(', ')}`, 'warning');
+        // TODO: Implement API call when provided
+    }
+}
+
+// ============================================================================
+// LINE ACTION BUTTONS (Placeholder functions - API to be provided)
+// ============================================================================
+
+// Pick a single line
+function soPickLine(tripIndex, lineIndex, pickSlip, pickSlipLine) {
+    console.log('[SO Actions] Pick Line:', { tripIndex, lineIndex, pickSlip, pickSlipLine });
+    addSOLogEntry('Pick Line', `Picking line: Pick Slip ${pickSlip}, Line ${pickSlipLine}`, 'info');
+
+    if (confirm(`Pick this line?\n\nPick Slip: ${pickSlip}\nLine: ${pickSlipLine}`)) {
+        // TODO: Implement API call when provided
+        addSOLogEntry('Pick Line', `Pick Line requested: ${pickSlip}-${pickSlipLine}`, 'success');
+    }
+}
+
+// Cancel a single line
+function soCancelLine(tripIndex, lineIndex, pickSlip, pickSlipLine) {
+    console.log('[SO Actions] Cancel Line:', { tripIndex, lineIndex, pickSlip, pickSlipLine });
+    addSOLogEntry('Cancel Line', `Cancelling line: Pick Slip ${pickSlip}, Line ${pickSlipLine}`, 'info');
+
+    if (confirm(`Cancel this line?\n\nPick Slip: ${pickSlip}\nLine: ${pickSlipLine}\n\nThis action cannot be undone.`)) {
+        // TODO: Implement API call when provided
+        addSOLogEntry('Cancel Line', `Cancel Line requested: ${pickSlip}-${pickSlipLine}`, 'warning');
+    }
 }
 
 console.log('[Auto SO Processing] Module loaded');
