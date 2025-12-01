@@ -1,8 +1,8 @@
 {
-    "version":  "1.2.4",
-    "release_date":  "2025-12-01T23:01:58Z",
-    "html_package_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/download/v1.2.4/wms-webview-html-1.2.4.zip",
+    "version":  "1.2.5",
+    "release_date":  "2025-12-01T23:14:24Z",
+    "html_package_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/download/v1.2.5/wms-webview-html-1.2.5.zip",
     "exe_url":  "",
-    "changelog_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/tag/v1.2.4",
+    "changelog_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/tag/v1.2.5",
     "changelog":  "Major Feature: MRA (Mauritius Revenue Authority) Interface - Automated invoice submission from Trip Details with 6-step processing workflow, real-time progress tracking, and comprehensive validation. Includes new C# backend classes (MRAProcessor, FusionReportRunner, MRAModels) and JavaScript UI with WebView2 bridge integration."
 }
