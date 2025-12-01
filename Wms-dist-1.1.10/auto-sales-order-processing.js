@@ -556,6 +556,7 @@ function renderSOTripTransactions(transactions, tripIndex) {
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Src Subinv</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Dest Subinv</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Pick Confirm</th>
+                                    <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Ship Confirm</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Status</th>
                                     <th style="padding: 0.5rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: #64748b; text-transform: uppercase;">Action</th>
                                 </tr>
@@ -578,6 +579,7 @@ function renderSOTripTransactions(transactions, tripIndex) {
                                   'clock';
 
             const pickConfirmColor = item.pick_confirm_st === 'YES' ? '#10b981' : '#ef4444';
+            const shipConfirmColor = item.ship_confirm_st === 'YES' ? '#10b981' : '#ef4444';
 
             html += `
                 <tr id="so-transaction-row-${tripIndex}-${item.originalIndex}" class="so-order-row-${orderId}" style="border-bottom: 1px solid #f0f0f0;" onmouseover="this.style.background='#f8f9fa'" onmouseout="this.style.background='white'">
@@ -594,6 +596,11 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     <td style="padding: 0.6rem 0.75rem; text-align: center;">
                         <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${pickConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
                             ${item.pick_confirm_st || 'NO'}
+                        </span>
+                    </td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${shipConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+                            ${item.ship_confirm_st || 'NO'}
                         </span>
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-status-cell-${tripIndex}-${item.originalIndex}">
