@@ -429,9 +429,6 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     <button onclick="soCancelScheduledLinesSelected(${tripIndex})" style="background: #ef4444; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
                         <i class="fas fa-ban"></i> Cancel Scheduled Lines
                     </button>
-                    <button onclick="soDeselectAllOrders(${tripIndex})" style="background: #6b7280; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#4b5563'" onmouseout="this.style.background='#6b7280'">
-                        <i class="fas fa-times"></i> Clear Selection
-                    </button>
                 </div>
             </div>
         </div>
@@ -439,6 +436,9 @@ function renderSOTripTransactions(transactions, tripIndex) {
             <div style="display: flex; gap: 0.5rem;">
                 <button onclick="soSelectAllOrders(${tripIndex})" style="background: #f59e0b; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
                     <i class="fas fa-check-double"></i> Select All Orders
+                </button>
+                <button onclick="soDeselectAllOrders(${tripIndex})" style="background: #6b7280; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#4b5563'" onmouseout="this.style.background='#6b7280'">
+                    <i class="fas fa-times"></i> Clear Selection
                 </button>
             </div>
             <div style="display: flex; gap: 0.5rem;">
@@ -2545,7 +2545,7 @@ function soCallPickReleaseAPI(orderNumber) {
 // ============================================================================
 
 // Assign Picker for selected orders - Show modal
-function soAssignPickerSelected(tripIndex) {
+async function soAssignPickerSelected(tripIndex) {
     const selectedOrders = soGetSelectedOrders(tripIndex);
 
     if (selectedOrders.length === 0) {
@@ -2554,6 +2554,38 @@ function soAssignPickerSelected(tripIndex) {
     }
 
     addSOLogEntry('Assign Picker', `Opening picker assignment for ${selectedOrders.length} orders`, 'info');
+
+    // Auto-fetch pickers if not loaded
+    if (!window.pickersData || window.pickersData.length === 0) {
+        addSOLogEntry('Assign Picker', 'Loading pickers data...', 'info');
+
+        // Show loading indicator
+        const loadingDiv = document.createElement('div');
+        loadingDiv.id = 'so-picker-loading';
+        loadingDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 20000; display: flex; align-items: center; justify-content: center;';
+        loadingDiv.innerHTML = `
+            <div style="background: white; padding: 1.5rem 2rem; border-radius: 12px; text-align: center;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #8b5cf6; margin-bottom: 0.5rem;"></i>
+                <div style="font-size: 0.9rem; color: #1e293b; font-weight: 600;">Loading pickers...</div>
+            </div>
+        `;
+        document.body.appendChild(loadingDiv);
+
+        try {
+            // Call loadPickers if available
+            if (typeof window.loadPickers === 'function') {
+                await window.loadPickers();
+                // Wait a bit for data to be available
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        } catch (e) {
+            console.error('[Assign Picker] Error loading pickers:', e);
+        }
+
+        // Remove loading indicator
+        const loadingEl = document.getElementById('so-picker-loading');
+        if (loadingEl) loadingEl.remove();
+    }
 
     // Show picker selection modal
     soShowPickerAssignmentModal(tripIndex, selectedOrders);
