@@ -528,6 +528,9 @@ function renderSOTripTransactions(transactions, tripIndex) {
                             </span>
                         </div>
                         <div style="display: flex; gap: 0.4rem; margin-left: auto;">
+                            <button onclick="event.stopPropagation(); soOpenOrderTransactions('${order.source_order}', ${tripIndex}, ${orderIdx})" style="background: #8b5cf6; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="View Order Transactions">
+                                <i class="fas fa-edit"></i> Edit
+                            </button>
                             <button onclick="event.stopPropagation(); printSOOrder('${order.source_order}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
                                 <i class="fas fa-print"></i> Print
                             </button>
@@ -2403,6 +2406,80 @@ function soCancelLine(tripIndex, lineIndex, pickSlip, pickSlipLine) {
     if (confirm(`Cancel this line?\n\nPick Slip: ${pickSlip}\nLine: ${pickSlipLine}\n\nThis action cannot be undone.`)) {
         // TODO: Implement API call when provided
         addSOLogEntry('Cancel Line', `Cancel Line requested: ${pickSlip}-${pickSlipLine}`, 'warning');
+    }
+}
+
+// ============================================================================
+// OPEN ORDER TRANSACTIONS DIALOG
+// ============================================================================
+
+// Open Order Transactions dialog for an order
+function soOpenOrderTransactions(orderNumber, tripIndex, orderIdx) {
+    console.log('[SO Actions] Opening Order Transactions for:', orderNumber, 'tripIndex:', tripIndex, 'orderIdx:', orderIdx);
+    addSOLogEntry('Edit', `Opening Order Transactions for order: ${orderNumber}`, 'info');
+
+    // Get the trip and order data
+    const groupedTrips = groupSOTransactionsByTrip();
+    const trip = groupedTrips[tripIndex];
+
+    if (!trip) {
+        console.error('[SO Actions] Trip not found at index:', tripIndex);
+        alert('Trip not found');
+        return;
+    }
+
+    // Find the order transactions
+    const orderTransactions = trip.transactions.filter(t => t.source_order === orderNumber);
+
+    if (orderTransactions.length === 0) {
+        console.error('[SO Actions] No transactions found for order:', orderNumber);
+        alert('Order not found');
+        return;
+    }
+
+    // Get first transaction for order details
+    const firstTrx = orderTransactions[0];
+
+    // Build rowData object for openOrderTransactionsDialog
+    const rowData = {
+        ORDER_NUMBER: orderNumber,
+        order_number: orderNumber,
+        SOURCE_ORDER_NUMBER: orderNumber,
+        source_order_number: orderNumber,
+        ORDER_TYPE: firstTrx.order_type || '',
+        order_type: firstTrx.order_type || '',
+        ORDER_DATE: firstTrx.order_date || '',
+        order_date: firstTrx.order_date || '',
+        TRIP_ID: firstTrx.trip_id || trip.trip_id || '',
+        trip_id: firstTrx.trip_id || trip.trip_id || '',
+        TRIP_DATE: firstTrx.trip_date || trip.trip_date || '',
+        trip_date: firstTrx.trip_date || trip.trip_date || '',
+        ACCOUNT_NUMBER: firstTrx.account_number || '',
+        account_number: firstTrx.account_number || '',
+        ACCOUNT_NAME: firstTrx.customer || '',
+        account_name: firstTrx.customer || '',
+        CUSTOMER_NAME: firstTrx.customer || '',
+        customer_name: firstTrx.customer || '',
+        PICKER: firstTrx.picker || '',
+        picker: firstTrx.picker || '',
+        LORRY_NUMBER: firstTrx.lorry_number || trip.trip_lorry || '',
+        lorry_number: firstTrx.lorry_number || trip.trip_lorry || '',
+        PRIORITY: firstTrx.priority || trip.trip_priority || '',
+        priority: firstTrx.priority || trip.trip_priority || '',
+        LINE_STATUS: firstTrx.line_status || '',
+        line_status: firstTrx.line_status || '',
+        INSTANCE_NAME: firstTrx.instance_name || 'PROD',
+        instance_name: firstTrx.instance_name || 'PROD'
+    };
+
+    console.log('[SO Actions] Opening dialog with rowData:', rowData);
+
+    // Check if openOrderTransactionsDialog function exists (from app.js)
+    if (typeof openOrderTransactionsDialog === 'function') {
+        openOrderTransactionsDialog(rowData);
+    } else {
+        console.error('[SO Actions] openOrderTransactionsDialog function not found');
+        alert('Order Transactions dialog is not available. Please ensure app.js is loaded.');
     }
 }
 
