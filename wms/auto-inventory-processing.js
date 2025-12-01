@@ -460,10 +460,10 @@ function renderTripTransactions(transactions, tripIndex) {
 
     let html = `
         <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem; gap: 0.5rem;">
-            <button onclick="expandAllOrders(${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+            <button onclick="expandAllOrders(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                 <i class="fas fa-expand-alt"></i> Expand All
             </button>
-            <button onclick="collapseAllOrders(${tripIndex})" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+            <button onclick="collapseAllOrders(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                 <i class="fas fa-compress-alt"></i> Collapse All
             </button>
         </div>
@@ -556,13 +556,13 @@ function renderTripTransactions(transactions, tripIndex) {
                             <div class="order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #8b5cf6;">${order.picker_name || 'N/A'}</div>
                         </div>
                         <div style="display: flex; gap: 0.4rem; margin-left: auto;">
-                            <button onclick="event.stopPropagation(); processSingleOrder('${order.trx_number}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                            <button onclick="event.stopPropagation(); processSingleOrder('${order.trx_number}', ${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-play"></i> Process
                             </button>
-                            <button onclick="event.stopPropagation(); verifyWithFusion('${order.trx_number}', ${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                            <button onclick="event.stopPropagation(); verifyWithFusion('${order.trx_number}', ${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-cloud-upload-alt"></i> Verify
                             </button>
-                            <button onclick="event.stopPropagation(); printOrder('${order.trx_number}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                            <button onclick="event.stopPropagation(); printOrder('${order.trx_number}', ${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-print"></i> Print
                             </button>
                         </div>
@@ -625,10 +625,10 @@ function renderTripTransactions(transactions, tripIndex) {
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="action-cell-${tripIndex}-${item.originalIndex}">
                         ${(item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR') ? `
                             <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                                <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                     <i class="fas fa-play"></i> Process
                                 </button>
-                                <button onclick="showErrorDetails(${tripIndex}, ${item.originalIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                                <button onclick="showErrorDetails(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                     <i class="fas fa-exclamation-circle"></i> Show Errors
                                 </button>
                             </div>
@@ -637,7 +637,7 @@ function renderTripTransactions(transactions, tripIndex) {
                         ` : item.transaction_status === 'SUCCESS' ? `
                             <span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Completed</span>
                         ` : (!item.transaction_status || item.transaction_status === 'PENDING') && item.picked_qty && parseFloat(item.picked_qty) > 0 ? `
-                            <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                            <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-play"></i> Process
                             </button>
                         ` : `
@@ -648,7 +648,7 @@ function renderTripTransactions(transactions, tripIndex) {
                         ${item.transaction_status === 'SUCCESS' ? `
                             <span style="color: #cbd5e1; font-size: 10px;">-</span>
                         ` : `
-                            <button onclick="cancelS2VLot(${tripIndex}, ${item.originalIndex}, '${item.lid || ''}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                            <button onclick="cancelS2VLot(${tripIndex}, ${item.originalIndex}, '${item.lid || ''}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel this line">
                                 <i class="fas fa-times-circle"></i> Cancel
                             </button>
                         `}
@@ -1240,10 +1240,10 @@ function updateTransactionStatusInDOM(tripIndex, transactionIndex, status) {
     if (status === 'FAILED' || status === 'ERROR') {
         actionCell.innerHTML = `
             <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                <button onclick="retryTransaction(${tripIndex}, ${transactionIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                <button onclick="retryTransaction(${tripIndex}, ${transactionIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-redo"></i> Retry
                 </button>
-                <button onclick="showErrorDetails(${tripIndex}, ${transactionIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                <button onclick="showErrorDetails(${tripIndex}, ${transactionIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-exclamation-circle"></i> Show Errors
                 </button>
             </div>
@@ -1831,7 +1831,7 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                         // Restore cancel button
                         if (currentCancelCell) {
                             currentCancelCell.innerHTML = `
-                                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel this line">
                                     <i class="fas fa-times-circle"></i> Cancel
                                 </button>
                             `;
@@ -1884,7 +1884,7 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
         // Restore cancel button
         if (cancelCell) {
             cancelCell.innerHTML = `
-                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel this line">
                     <i class="fas fa-times-circle"></i> Cancel
                 </button>
             `;
@@ -2258,7 +2258,7 @@ function renderFilteredFlatView(filteredData) {
                 <i class="fas fa-filter" style="color: #0284c7;"></i>
                 <span style="font-size: 11px; color: #0369a1; font-weight: 600;">Filtered View: Showing ${filteredData.length} matching line(s)</span>
             </div>
-            <button onclick="clearFilters()" style="background: #0284c7; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.3rem;" title="Remove filter and show grouped view">
+            <button onclick="clearFilters()" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.3rem;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Remove filter and show grouped view">
                 <i class="fas fa-times"></i> Remove Filter
             </button>
         </div>

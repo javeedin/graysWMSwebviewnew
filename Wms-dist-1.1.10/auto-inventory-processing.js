@@ -41,6 +41,17 @@ let currentProcessingOrder = null;
 // Selected trips for processing (Set of trip_id strings)
 let selectedTripsForProcessing = new Set();
 
+// Pre-calculated summary data for selected trips
+let selectedTripsSummary = {
+    totalTrips: 0,
+    totalOrders: 0,
+    totalLines: 0,
+    totalPicked: 0,
+    totalNotPicked: 0,
+    pickPercentage: 0,
+    trips: [] // Array of trip detail objects
+};
+
 // Font size multiplier for Trip and Order groups (1.0 = 100%)
 let tripOrderFontSizeMultiplier = 1.0;
 const FONT_SIZE_STEP = 0.1; // 10% per click
@@ -91,7 +102,7 @@ function initializeAutoProcessing() {
     addLogEntry('System', 'Auto Inventory Processing initialized', 'success');
 }
 
-// Fetch Oracle Fusion Cloud credentials
+// Fetch Oracle Fusion Cloud credentials from API
 function fetchFusionCloudCredentials() {
     const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
 
@@ -182,6 +193,15 @@ function fetchAutoInventoryData() {
                 autoProcessingData = response.items || [];
 
                 console.log('[Auto Processing] Fetched', autoProcessingData.length, 'records');
+
+                // Debug: Log first record to see available fields
+                if (autoProcessingData.length > 0) {
+                    console.log('=== API RESPONSE DEBUG ===');
+                    console.log('First record keys:', Object.keys(autoProcessingData[0]));
+                    console.log('First record:', JSON.stringify(autoProcessingData[0], null, 2));
+                    console.log('=========================');
+                }
+
                 addLogEntry('API', `Fetched ${autoProcessingData.length} transaction records`, 'success');
 
                 // Group and display data
@@ -212,6 +232,12 @@ function fetchAutoInventoryData() {
 
 // Group transactions by trip
 function groupTransactionsByTrip() {
+    console.log('=== groupTransactionsByTrip ===');
+    console.log('autoProcessingData length:', autoProcessingData ? autoProcessingData.length : 'undefined');
+    if (autoProcessingData && autoProcessingData.length > 0) {
+        console.log('First autoProcessingData item:', JSON.stringify(autoProcessingData[0], null, 2).substring(0, 500));
+    }
+
     const grouped = {};
 
     autoProcessingData.forEach(item => {
@@ -232,7 +258,9 @@ function groupTransactionsByTrip() {
         grouped[tripId].transactions.push(item);
     });
 
-    return Object.values(grouped);
+    const result = Object.values(grouped);
+    console.log('groupTransactionsByTrip result count:', result.length);
+    return result;
 }
 
 // Display grouped trips
@@ -369,12 +397,43 @@ function renderTripTransactions(transactions, tripIndex) {
 
     transactions.forEach((trx, idx) => {
         const orderNum = trx.trx_number;
+
+        // Debug: Log picker field values for the first transaction
+        if (idx === 0) {
+            console.log('=== PICKER & NEW COLUMNS DEBUG ===');
+            console.log('trx.picker:', trx.picker);
+            console.log('trx.PICKER:', trx.PICKER);
+            console.log('trx.picker_name:', trx.picker_name);
+            console.log('trx.PICKER_NAME:', trx.PICKER_NAME);
+            console.log('trx.assigned_picker:', trx.assigned_picker);
+            console.log('trx.ASSIGNED_PICKER:', trx.ASSIGNED_PICKER);
+            console.log('trx.TOTAL_S2V_LINES:', trx.TOTAL_S2V_LINES);
+            console.log('trx.total_s2v_lines:', trx.total_s2v_lines);
+            console.log('trx.TOTAL_ASSIGNED_LINES:', trx.TOTAL_ASSIGNED_LINES);
+            console.log('trx.total_assigned_lines:', trx.total_assigned_lines);
+            console.log('Full trx object keys:', Object.keys(trx));
+            console.log('Full trx object:', JSON.stringify(trx, null, 2));
+            console.log('===================');
+        }
+
         if (!orderGroups[orderNum]) {
+            // Get picker from various possible field names
+            const pickerValue = trx.picker || trx.PICKER || trx.picker_name || trx.PICKER_NAME || trx.ASSIGNED_PICKER || trx.assigned_picker || '';
+            console.log(`Order ${orderNum} - Picker value resolved to:`, pickerValue);
+
+            // Get S2V lines and assigned lines from transaction
+            const totalS2VLines = trx.TOTAL_S2V_LINES || trx.total_s2v_lines || 0;
+            const totalAssignedLines = trx.TOTAL_ASSIGNED_LINES || trx.total_assigned_lines || 0;
+            console.log(`Order ${orderNum} - S2V Lines: ${totalS2VLines}, Assigned Lines: ${totalAssignedLines}`);
+
             orderGroups[orderNum] = {
                 trx_number: orderNum,
                 trx_type: trx.trx_type,
                 source_sub_inv: trx.source_sub_inv,
                 dest_sub_inv: trx.dest_sub_inv,
+                picker_name: pickerValue,
+                total_s2v_lines: totalS2VLines,
+                total_assigned_lines: totalAssignedLines,
                 items: [],
                 totalReqQty: 0,
                 totalQty: 0,
@@ -401,10 +460,10 @@ function renderTripTransactions(transactions, tripIndex) {
 
     let html = `
         <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem; gap: 0.5rem;">
-            <button onclick="expandAllOrders(${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+            <button onclick="expandAllOrders(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                 <i class="fas fa-expand-alt"></i> Expand All
             </button>
-            <button onclick="collapseAllOrders(${tripIndex})" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+            <button onclick="collapseAllOrders(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                 <i class="fas fa-compress-alt"></i> Collapse All
             </button>
         </div>
@@ -484,14 +543,26 @@ function renderTripTransactions(transactions, tripIndex) {
                                 <i class="fas fa-${statusIcon}"></i> ${orderStatus}
                             </span>
                         </div>
+                        <div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">S2V Lines</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #f59e0b;">${order.total_s2v_lines || 0}</div>
+                        </div>
+                        <div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Assigned</div>
+                            <div class="order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #06b6d4;">${order.total_assigned_lines || 0}</div>
+                        </div>
+                        <div>
+                            <div class="order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Picker</div>
+                            <div class="order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #8b5cf6;">${order.picker_name || 'N/A'}</div>
+                        </div>
                         <div style="display: flex; gap: 0.4rem; margin-left: auto;">
-                            <button onclick="event.stopPropagation(); processSingleOrder('${order.trx_number}', ${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#5568d3'" onmouseout="this.style.background='#667eea'">
+                            <button onclick="event.stopPropagation(); processSingleOrder('${order.trx_number}', ${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-play"></i> Process
                             </button>
-                            <button onclick="event.stopPropagation(); verifyWithFusion('${order.trx_number}', ${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                            <button onclick="event.stopPropagation(); verifyWithFusion('${order.trx_number}', ${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-cloud-upload-alt"></i> Verify
                             </button>
-                            <button onclick="event.stopPropagation(); printOrder('${order.trx_number}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                            <button onclick="event.stopPropagation(); printOrder('${order.trx_number}', ${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-print"></i> Print
                             </button>
                         </div>
@@ -554,10 +625,10 @@ function renderTripTransactions(transactions, tripIndex) {
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="action-cell-${tripIndex}-${item.originalIndex}">
                         ${(item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR') ? `
                             <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                                <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                                <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                     <i class="fas fa-play"></i> Process
                                 </button>
-                                <button onclick="showErrorDetails(${tripIndex}, ${item.originalIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                                <button onclick="showErrorDetails(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                     <i class="fas fa-exclamation-circle"></i> Show Errors
                                 </button>
                             </div>
@@ -566,7 +637,7 @@ function renderTripTransactions(transactions, tripIndex) {
                         ` : item.transaction_status === 'SUCCESS' ? `
                             <span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Completed</span>
                         ` : (!item.transaction_status || item.transaction_status === 'PENDING') && item.picked_qty && parseFloat(item.picked_qty) > 0 ? `
-                            <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                            <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-play"></i> Process
                             </button>
                         ` : `
@@ -577,7 +648,7 @@ function renderTripTransactions(transactions, tripIndex) {
                         ${item.transaction_status === 'SUCCESS' ? `
                             <span style="color: #cbd5e1; font-size: 10px;">-</span>
                         ` : `
-                            <button onclick="cancelS2VLot(${tripIndex}, ${item.originalIndex}, '${item.lid || ''}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                            <button onclick="cancelS2VLot(${tripIndex}, ${item.originalIndex}, '${item.lid || ''}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel this line">
                                 <i class="fas fa-times-circle"></i> Cancel
                             </button>
                         `}
@@ -615,6 +686,10 @@ function toggleTripDetails(index) {
 
 // Toggle trip selection for processing
 function toggleTripSelection(tripId, index) {
+    console.log('=== toggleTripSelection ===');
+    console.log('tripId:', tripId, 'type:', typeof tripId);
+    console.log('index:', index);
+
     const btn = document.getElementById(`trip-select-btn-${index}`);
     const tripCard = document.getElementById(`trip-card-${index}`);
 
@@ -693,7 +768,7 @@ function deselectAllTrips() {
     addLogEntry('Selection', 'All trips deselected', 'info');
 }
 
-// Update selection count display
+// Update selection count display and recalculate summary
 function updateSelectionCount() {
     const countEl = document.getElementById('selected-trips-count');
     if (countEl) {
@@ -701,6 +776,119 @@ function updateSelectionCount() {
         countEl.textContent = count > 0 ? `${count} trip${count > 1 ? 's' : ''} selected` : 'No trips selected';
         countEl.style.color = count > 0 ? '#f59e0b' : '#94a3b8';
     }
+
+    // Recalculate summary data for selected trips
+    recalculateSelectedTripsSummary();
+}
+
+// Recalculate the global selectedTripsSummary based on selected trips
+function recalculateSelectedTripsSummary() {
+    console.log('=== recalculateSelectedTripsSummary START ===');
+    console.log('selectedTripsForProcessing:', Array.from(selectedTripsForProcessing));
+    console.log('selectedTripsForProcessing.size:', selectedTripsForProcessing.size);
+
+    // Reset summary
+    selectedTripsSummary = {
+        totalTrips: 0,
+        totalOrders: 0,
+        totalLines: 0,
+        totalPicked: 0,
+        totalNotPicked: 0,
+        pickPercentage: 0,
+        trips: []
+    };
+
+    if (selectedTripsForProcessing.size === 0) {
+        console.log('No trips selected, returning early');
+        return;
+    }
+
+    const groupedTrips = groupTransactionsByTrip();
+    console.log('groupedTrips count:', groupedTrips.length);
+    console.log('groupedTrips trip_ids:', groupedTrips.map(t => t.trip_id));
+    if (groupedTrips.length > 0) {
+        console.log('First grouped trip sample:', JSON.stringify(groupedTrips[0], null, 2).substring(0, 500));
+    }
+
+    selectedTripsForProcessing.forEach(tripId => {
+        console.log('Looking for tripId:', tripId, 'type:', typeof tripId);
+        const trip = groupedTrips.find(t => {
+            console.log('Comparing with:', t.trip_id, 'type:', typeof t.trip_id, 'match:', t.trip_id === tripId || t.trip_id == tripId);
+            return t.trip_id === tripId || t.trip_id == tripId;
+        });
+        console.log('Found trip:', trip ? 'YES' : 'NO');
+        if (trip) {
+            // Group transactions by order
+            const orderGroups = {};
+            trip.transactions.forEach(trx => {
+                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                if (!orderGroups[orderNum]) {
+                    orderGroups[orderNum] = {
+                        orderNumber: orderNum,
+                        picker: trx.picker || trx.PICKER || trx.picker_name || '-',
+                        pickedCount: 0,
+                        totalCount: 0
+                    };
+                }
+                orderGroups[orderNum].totalCount++;
+                if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
+                    orderGroups[orderNum].pickedCount++;
+                    selectedTripsSummary.totalPicked++;
+                } else {
+                    selectedTripsSummary.totalNotPicked++;
+                }
+            });
+
+            const orders = Object.values(orderGroups);
+
+            // Calculate trip-level stats
+            const tripPickedCount = orders.reduce((sum, o) => sum + o.pickedCount, 0);
+            const tripTotalCount = orders.reduce((sum, o) => sum + o.totalCount, 0);
+            const tripPickPct = tripTotalCount > 0 ? Math.round((tripPickedCount / tripTotalCount) * 100) : 0;
+
+            // Get priority info
+            const pri = trip.trip_priority;
+            let priText = pri ? `P${pri}` : '-';
+            let priColor = pri == 1 ? 'attention' : (pri == 2 ? 'warning' : 'default');
+
+            // Add to summary
+            selectedTripsSummary.trips.push({
+                tripId: trip.trip_id,
+                tripDate: trip.trip_date,
+                tripLorry: trip.trip_lorry || '-',
+                tripLoadingBay: trip.trip_loading_bay || '-',
+                tripPriority: pri,
+                priorityText: priText,
+                priorityColor: priColor,
+                orderCount: orders.length,
+                lineCount: trip.transactions.length,
+                pickedCount: tripPickedCount,
+                pickPercentage: tripPickPct,
+                orders: orders.map(order => {
+                    const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
+                    return {
+                        orderNumber: order.orderNumber,
+                        picker: order.picker,
+                        pickedCount: order.pickedCount,
+                        totalCount: order.totalCount,
+                        pickPercentage: pickPct,
+                        statusIcon: pickPct === 100 ? '🟢' : (pickPct > 0 ? '🟡' : '🔴'),
+                        statusText: pickPct === 100 ? 'Picked' : (pickPct > 0 ? `${pickPct}%` : 'Pending')
+                    };
+                })
+            });
+
+            selectedTripsSummary.totalOrders += orders.length;
+            selectedTripsSummary.totalLines += trip.transactions.length;
+        }
+    });
+
+    selectedTripsSummary.totalTrips = selectedTripsSummary.trips.length;
+    selectedTripsSummary.pickPercentage = selectedTripsSummary.totalLines > 0
+        ? Math.round((selectedTripsSummary.totalPicked / selectedTripsSummary.totalLines) * 100)
+        : 0;
+
+    console.log('Selected Trips Summary:', selectedTripsSummary);
 }
 
 // Toggle order details
@@ -1052,10 +1240,10 @@ function updateTransactionStatusInDOM(tripIndex, transactionIndex, status) {
     if (status === 'FAILED' || status === 'ERROR') {
         actionCell.innerHTML = `
             <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                <button onclick="retryTransaction(${tripIndex}, ${transactionIndex})" style="background: #f59e0b; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                <button onclick="retryTransaction(${tripIndex}, ${transactionIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-redo"></i> Retry
                 </button>
-                <button onclick="showErrorDetails(${tripIndex}, ${transactionIndex})" style="background: #ef4444; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                <button onclick="showErrorDetails(${tripIndex}, ${transactionIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-exclamation-circle"></i> Show Errors
                 </button>
             </div>
@@ -1643,7 +1831,7 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
                         // Restore cancel button
                         if (currentCancelCell) {
                             currentCancelCell.innerHTML = `
-                                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel this line">
                                     <i class="fas fa-times-circle"></i> Cancel
                                 </button>
                             `;
@@ -1696,7 +1884,7 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
         // Restore cancel button
         if (cancelCell) {
             cancelCell.innerHTML = `
-                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #dc2626; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#b91c1c'" onmouseout="this.style.background='#dc2626'" title="Cancel this line">
+                <button onclick="cancelS2VLot(${tripIndex}, ${transactionIndex}, '${lid}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel this line">
                     <i class="fas fa-times-circle"></i> Cancel
                 </button>
             `;
@@ -2070,7 +2258,7 @@ function renderFilteredFlatView(filteredData) {
                 <i class="fas fa-filter" style="color: #0284c7;"></i>
                 <span style="font-size: 11px; color: #0369a1; font-weight: 600;">Filtered View: Showing ${filteredData.length} matching line(s)</span>
             </div>
-            <button onclick="clearFilters()" style="background: #0284c7; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.3rem;" title="Remove filter and show grouped view">
+            <button onclick="clearFilters()" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; display: flex; align-items: center; gap: 0.3rem;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Remove filter and show grouped view">
                 <i class="fas fa-times"></i> Remove Filter
             </button>
         </div>
@@ -4442,4 +4630,1382 @@ window.openStoreTransactionsFromOrder = openStoreTransactionsFromOrder;
 window.closeProcessingStatusFloat = closeProcessingStatusFloat;
 window.stopProcessing = stopProcessing;
 
+// ============================================================================
+// TEAMS INTEGRATION
+// ============================================================================
+
+// Teams webhook configuration storage
+let teamsWebhooks = JSON.parse(localStorage.getItem('teamsWebhooks') || '[]');
+
+// Initialize Teams floating button
+function initTeamsIntegration() {
+    // Create floating Teams button if not exists
+    if (!document.getElementById('teams-floating-btn')) {
+        const floatingBtn = document.createElement('div');
+        floatingBtn.id = 'teams-floating-btn';
+        floatingBtn.innerHTML = `
+            <button onclick="openTeamsModal()" style="
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #5558AF 0%, #6B73D4 100%);
+                border: none;
+                color: white;
+                cursor: pointer;
+                box-shadow: 0 4px 15px rgba(85, 88, 175, 0.4);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s;
+            " onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="Send to Teams">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                    <path d="M19.2 6.4H15.6V4.8C15.6 3.47 14.53 2.4 13.2 2.4H10.8C9.47 2.4 8.4 3.47 8.4 4.8V6.4H4.8C3.47 6.4 2.4 7.47 2.4 8.8V18C2.4 19.33 3.47 20.4 4.8 20.4H19.2C20.53 20.4 21.6 19.33 21.6 18V8.8C21.6 7.47 20.53 6.4 19.2 6.4ZM10.8 4.8H13.2V6.4H10.8V4.8ZM19.2 18H4.8V8.8H19.2V18ZM12 10.8C10.67 10.8 9.6 11.87 9.6 13.2C9.6 14.53 10.67 15.6 12 15.6C13.33 15.6 14.4 14.53 14.4 13.2C14.4 11.87 13.33 10.8 12 10.8Z"/>
+                </svg>
+            </button>
+            <span id="teams-selected-count" style="
+                position: absolute;
+                top: -5px;
+                right: -5px;
+                background: #ef4444;
+                color: white;
+                font-size: 11px;
+                font-weight: 700;
+                min-width: 20px;
+                height: 20px;
+                border-radius: 10px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+            ">0</span>
+        `;
+        floatingBtn.style.cssText = `
+            position: fixed;
+            bottom: 170px;
+            right: 30px;
+            z-index: 9999;
+        `;
+        document.body.appendChild(floatingBtn);
+    }
+
+    // Create Teams modal if not exists
+    if (!document.getElementById('teams-modal')) {
+        const modal = document.createElement('div');
+        modal.id = 'teams-modal';
+        modal.innerHTML = `
+            <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                <div style="background: white; border-radius: 12px; width: 95%; max-width: 850px; max-height: 90vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.25);">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-share-alt" style="font-size: 20px;"></i>
+                            <span style="font-size: 18px; font-weight: 600;">Send Trip Details</span>
+                        </div>
+                        <button onclick="closeTeamsModal()" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px; padding: 0;">&times;</button>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div style="display: flex; border-bottom: 2px solid #e0e0e0; background: #f8f9fa;">
+                        <button id="tab-teams" onclick="switchSendTab('teams')" style="flex: 1; padding: 12px 20px; background: white; border: none; border-bottom: 3px solid #5558AF; cursor: pointer; font-weight: 600; color: #5558AF; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="#5558AF"><path d="M19.2 6.4H15.6V4.8C15.6 3.47 14.53 2.4 13.2 2.4H10.8C9.47 2.4 8.4 3.47 8.4 4.8V6.4H4.8C3.47 6.4 2.4 7.47 2.4 8.8V18C2.4 19.33 3.47 20.4 4.8 20.4H19.2C20.53 20.4 21.6 19.33 21.6 18V8.8C21.6 7.47 20.53 6.4 19.2 6.4ZM10.8 4.8H13.2V6.4H10.8V4.8ZM19.2 18H4.8V8.8H19.2V18Z"/></svg>
+                            Microsoft Teams
+                        </button>
+                        <button id="tab-email" onclick="switchSendTab('email')" style="flex: 1; padding: 12px 20px; background: #f8f9fa; border: none; border-bottom: 3px solid transparent; cursor: pointer; font-weight: 600; color: #666; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <i class="fas fa-envelope" style="font-size: 18px;"></i>
+                            Email
+                        </button>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="padding: 20px; max-height: 55vh; overflow-y: auto;">
+                        <!-- Trip Data Preview (shared) -->
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                <i class="fas fa-truck"></i> Trip Details Preview
+                            </label>
+                            <div id="send-message-preview" style="background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; font-family: 'Segoe UI', sans-serif; font-size: 13px; max-height: 250px; overflow-y: auto;">
+                                <!-- Preview content will be generated here -->
+                            </div>
+                        </div>
+
+                        <!-- Teams Section -->
+                        <div id="send-teams-section">
+                            <div style="margin-bottom: 16px;">
+                                <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                    <i class="fas fa-hashtag"></i> Select Channel/Webhook
+                                </label>
+                                <div style="display: flex; gap: 8px;">
+                                    <select id="teams-channel-select" style="flex: 1; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px;">
+                                        <option value="">-- Select Channel --</option>
+                                    </select>
+                                    <button onclick="openTeamsWebhookSettings()" style="padding: 10px 16px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-size: 14px;" title="Manage Webhooks">
+                                        <i class="fas fa-cog"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Email Section (hidden by default) -->
+                        <div id="send-email-section" style="display: none;">
+                            <div style="margin-bottom: 16px;">
+                                <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                    <i class="fas fa-user"></i> From
+                                    <button onclick="openEmailSettings()" style="margin-left: 8px; padding: 2px 8px; background: #f0f0f0; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; font-size: 11px;" title="Configure Email Settings">
+                                        <i class="fas fa-cog"></i> Settings
+                                    </button>
+                                </label>
+                                <input type="email" id="email-from" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; box-sizing: border-box;" placeholder="your.email@company.com">
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                    <i class="fas fa-users"></i> To (separate multiple emails with comma)
+                                </label>
+                                <input type="text" id="email-to" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; box-sizing: border-box;" placeholder="email@example.com, another@example.com">
+                            </div>
+                            <div style="margin-bottom: 16px;">
+                                <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                    <i class="fas fa-heading"></i> Subject
+                                </label>
+                                <input type="text" id="email-subject" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; box-sizing: border-box;" placeholder="WMS Trip Update">
+                            </div>
+                        </div>
+
+                        <!-- Additional Comments (shared) -->
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; color: #333; display: block; margin-bottom: 8px;">
+                                <i class="fas fa-comment"></i> Additional Comments
+                            </label>
+                            <textarea id="teams-comments" placeholder="Add any additional comments or notes..." style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; min-height: 70px; resize: vertical; box-sizing: border-box;"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 16px 20px; background: #f8f9fa; border-top: 1px solid #e0e0e0; display: flex; justify-content: flex-end; gap: 12px;">
+                        <button onclick="closeTeamsModal()" style="padding: 10px 20px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Cancel</button>
+                        <button onclick="postToTeams()" id="teams-post-btn" style="padding: 10px 20px; background: linear-gradient(135deg, #5558AF 0%, #6B73D4 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-paper-plane"></i> Post to Teams
+                        </button>
+                        <button onclick="sendEmail()" id="email-send-btn" style="display: none; padding: 10px 20px; background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; display: none; align-items: center; gap: 8px;">
+                            <i class="fas fa-envelope"></i> Send Email
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        modal.style.display = 'none';
+        document.body.appendChild(modal);
+    }
+
+    // Create webhook settings modal
+    if (!document.getElementById('teams-webhook-modal')) {
+        const webhookModal = document.createElement('div');
+        webhookModal.id = 'teams-webhook-modal';
+        webhookModal.innerHTML = `
+            <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10001;">
+                <div style="background: white; border-radius: 12px; width: 90%; max-width: 500px; max-height: 80vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.25);">
+                    <div style="background: #333; color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 16px; font-weight: 600;"><i class="fas fa-cog"></i> Manage Teams Webhooks</span>
+                        <button onclick="closeTeamsWebhookSettings()" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px;">&times;</button>
+                    </div>
+                    <div style="padding: 20px; max-height: 50vh; overflow-y: auto;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Add New Webhook</label>
+                            <input type="text" id="webhook-name" placeholder="Channel Name (e.g., WMS Alerts)" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 8px; box-sizing: border-box;">
+                            <input type="text" id="webhook-url" placeholder="Webhook URL" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; margin-bottom: 8px; box-sizing: border-box;">
+                            <button onclick="addTeamsWebhook()" style="padding: 10px 20px; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">Add Webhook</button>
+                        </div>
+                        <div>
+                            <label style="font-weight: 600; display: block; margin-bottom: 8px;">Saved Webhooks</label>
+                            <div id="webhook-list" style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden;">
+                                <!-- Webhook list will be rendered here -->
+                            </div>
+                        </div>
+                    </div>
+                    <div style="padding: 16px 20px; background: #f8f9fa; border-top: 1px solid #e0e0e0;">
+                        <p style="font-size: 12px; color: #666; margin: 0;">
+                            <i class="fas fa-info-circle"></i> To get a webhook URL, go to your Teams channel → Click "..." → Connectors → Incoming Webhook → Configure
+                        </p>
+                    </div>
+                </div>
+            </div>
+        `;
+        webhookModal.style.display = 'none';
+        document.body.appendChild(webhookModal);
+    }
+
+    // Create Email Settings modal if not exists
+    if (!document.getElementById('email-settings-modal')) {
+        const emailModal = document.createElement('div');
+        emailModal.id = 'email-settings-modal';
+        emailModal.innerHTML = `
+            <div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10002;">
+                <div style="background: white; border-radius: 12px; width: 90%; max-width: 500px; max-height: 80vh; overflow: hidden; box-shadow: 0 25px 50px rgba(0,0,0,0.25);">
+                    <div style="background: linear-gradient(135deg, #0078d4 0%, #106ebe 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                        <span style="font-size: 16px; font-weight: 600;"><i class="fas fa-envelope-open-text"></i> Email Configuration</span>
+                        <button onclick="closeEmailSettings()" style="background: none; border: none; color: white; cursor: pointer; font-size: 24px;">&times;</button>
+                    </div>
+                    <div style="padding: 20px; max-height: 55vh; overflow-y: auto;">
+                        <div style="background: #e3f2fd; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 12px; color: #1565c0;">
+                            <i class="fas fa-info-circle"></i> Configure your email settings. For Office 365, use <strong>smtp.office365.com</strong> with port <strong>587</strong>.
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 6px;">SMTP Server</label>
+                            <input type="text" id="smtp-server" value="smtp.office365.com" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; box-sizing: border-box;" placeholder="smtp.office365.com">
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 6px;">Port</label>
+                            <input type="number" id="smtp-port" value="587" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; box-sizing: border-box;" placeholder="587">
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 6px;">Email Address (Username)</label>
+                            <input type="email" id="smtp-username" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; box-sizing: border-box;" placeholder="your.email@company.com">
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="font-weight: 600; display: block; margin-bottom: 6px;">Password / App Password</label>
+                            <input type="password" id="smtp-password" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 8px; box-sizing: border-box;" placeholder="Your email password or app password">
+                            <div style="font-size: 11px; color: #666; margin-top: 4px;">
+                                <i class="fas fa-shield-alt"></i> For Office 365 with MFA, use an <a href="https://support.microsoft.com/en-us/account-billing/manage-app-passwords-for-two-step-verification" target="_blank" style="color: #0078d4;">App Password</a>
+                            </div>
+                        </div>
+
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="checkbox" id="smtp-use-ssl" checked style="width: 18px; height: 18px;">
+                                <span style="font-weight: 600;">Use TLS/SSL</span>
+                            </label>
+                        </div>
+
+                        <div style="display: flex; gap: 10px;">
+                            <button onclick="testEmailSettings()" style="flex: 1; padding: 10px; background: #f0f0f0; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-vial"></i> Test Connection
+                            </button>
+                            <button onclick="saveEmailSettings()" style="flex: 1; padding: 10px; background: #0078d4; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-save"></i> Save Settings
+                            </button>
+                        </div>
+                    </div>
+                    <div style="padding: 12px 20px; background: #f8f9fa; border-top: 1px solid #e0e0e0; font-size: 11px; color: #666;">
+                        <i class="fas fa-lock"></i> Your credentials are stored locally and never sent to any third party.
+                    </div>
+                </div>
+            </div>
+        `;
+        emailModal.style.display = 'none';
+        document.body.appendChild(emailModal);
+    }
+
+    // Update floating button count when trips are selected
+    updateTeamsButtonCount();
+}
+
+// Email settings storage
+let emailConfig = JSON.parse(localStorage.getItem('emailConfig') || '{}');
+
+// Open email settings modal
+window.openEmailSettings = function() {
+    const modal = document.getElementById('email-settings-modal');
+    modal.style.display = 'block';
+
+    // Load saved settings
+    document.getElementById('smtp-server').value = emailConfig.smtpServer || 'smtp.office365.com';
+    document.getElementById('smtp-port').value = emailConfig.smtpPort || '587';
+    document.getElementById('smtp-username').value = emailConfig.username || '';
+    document.getElementById('smtp-password').value = emailConfig.password || '';
+    document.getElementById('smtp-use-ssl').checked = emailConfig.useSsl !== false;
+};
+
+// Close email settings modal
+window.closeEmailSettings = function() {
+    document.getElementById('email-settings-modal').style.display = 'none';
+};
+
+// Save email settings
+window.saveEmailSettings = function() {
+    emailConfig = {
+        smtpServer: document.getElementById('smtp-server').value.trim(),
+        smtpPort: document.getElementById('smtp-port').value.trim(),
+        username: document.getElementById('smtp-username').value.trim(),
+        password: document.getElementById('smtp-password').value,
+        useSsl: document.getElementById('smtp-use-ssl').checked
+    };
+
+    localStorage.setItem('emailConfig', JSON.stringify(emailConfig));
+
+    // Update the From field
+    if (emailConfig.username) {
+        document.getElementById('email-from').value = emailConfig.username;
+    }
+
+    alert('Email settings saved successfully!');
+    closeEmailSettings();
+};
+
+// Test email settings
+window.testEmailSettings = function() {
+    const server = document.getElementById('smtp-server').value.trim();
+    const port = document.getElementById('smtp-port').value.trim();
+    const username = document.getElementById('smtp-username').value.trim();
+    const password = document.getElementById('smtp-password').value;
+    const useSsl = document.getElementById('smtp-use-ssl').checked;
+
+    if (!server || !port || !username || !password) {
+        alert('Please fill in all fields before testing.');
+        return;
+    }
+
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({
+            action: 'testSmtpConnection',
+            smtpServer: server,
+            smtpPort: parseInt(port),
+            username: username,
+            password: password,
+            useSsl: useSsl
+        });
+
+        alert('Testing connection... Please wait.');
+    } else {
+        alert('SMTP test is only available in the desktop application.');
+    }
+};
+
+// Callback for SMTP test result
+window.handleSmtpTestResult = function(success, message) {
+    if (success) {
+        alert('✓ Connection successful!\n\n' + message);
+    } else {
+        alert('✗ Connection failed!\n\n' + message);
+    }
+};
+
+// Update the Teams button badge count
+function updateTeamsButtonCount() {
+    const countEl = document.getElementById('teams-selected-count');
+    if (countEl) {
+        const count = selectedTripsForProcessing.size;
+        countEl.textContent = count;
+        countEl.style.display = count > 0 ? 'flex' : 'none';
+    }
+}
+
+// Open Teams modal
+window.openTeamsModal = function() {
+    if (selectedTripsForProcessing.size === 0) {
+        alert('Please select at least one trip to send to Teams.\n\nClick the "Select" button on each trip you want to share.');
+        return;
+    }
+
+    const modal = document.getElementById('teams-modal');
+    modal.style.display = 'block';
+
+    // Populate channel dropdown
+    populateChannelDropdown();
+
+    // Generate message preview
+    generateTeamsMessagePreview();
+};
+
+// Close Teams modal
+window.closeTeamsModal = function() {
+    document.getElementById('teams-modal').style.display = 'none';
+    document.getElementById('teams-comments').value = '';
+};
+
+// Populate channel dropdown
+function populateChannelDropdown() {
+    const select = document.getElementById('teams-channel-select');
+    select.innerHTML = '<option value="">-- Select Channel --</option>';
+
+    teamsWebhooks.forEach((webhook, index) => {
+        const option = document.createElement('option');
+        option.value = index;
+        option.textContent = webhook.name;
+        select.appendChild(option);
+    });
+}
+
+// Current send tab
+let currentSendTab = 'teams';
+
+// Switch between Teams and Email tabs
+window.switchSendTab = function(tab) {
+    currentSendTab = tab;
+
+    const tabTeams = document.getElementById('tab-teams');
+    const tabEmail = document.getElementById('tab-email');
+    const sectionTeams = document.getElementById('send-teams-section');
+    const sectionEmail = document.getElementById('send-email-section');
+    const btnTeams = document.getElementById('teams-post-btn');
+    const btnEmail = document.getElementById('email-send-btn');
+
+    if (tab === 'teams') {
+        tabTeams.style.background = 'white';
+        tabTeams.style.borderBottom = '3px solid #5558AF';
+        tabTeams.style.color = '#5558AF';
+        tabEmail.style.background = '#f8f9fa';
+        tabEmail.style.borderBottom = '3px solid transparent';
+        tabEmail.style.color = '#666';
+        sectionTeams.style.display = 'block';
+        sectionEmail.style.display = 'none';
+        btnTeams.style.display = 'flex';
+        btnEmail.style.display = 'none';
+    } else {
+        tabEmail.style.background = 'white';
+        tabEmail.style.borderBottom = '3px solid #0078d4';
+        tabEmail.style.color = '#0078d4';
+        tabTeams.style.background = '#f8f9fa';
+        tabTeams.style.borderBottom = '3px solid transparent';
+        tabTeams.style.color = '#666';
+        sectionTeams.style.display = 'none';
+        sectionEmail.style.display = 'block';
+        btnTeams.style.display = 'none';
+        btnEmail.style.display = 'flex';
+
+        // Load Outlook email when switching to email tab
+        loadOutlookEmail();
+
+        // Set default subject
+        const subjectInput = document.getElementById('email-subject');
+        if (!subjectInput.value) {
+            subjectInput.value = `WMS Trip Update - ${selectedTripsForProcessing.size} Trip(s) - ${new Date().toLocaleDateString()}`;
+        }
+    }
+};
+
+// Load email address from saved settings or Outlook
+function loadOutlookEmail() {
+    const fromInput = document.getElementById('email-from');
+    if (fromInput.value && fromInput.value !== 'Loading...' && fromInput.value !== '') {
+        return; // Already loaded
+    }
+
+    // First check if we have saved email settings
+    const savedConfig = JSON.parse(localStorage.getItem('emailConfig') || '{}');
+    if (savedConfig.username) {
+        fromInput.value = savedConfig.username;
+        console.log('[Email] Using saved email:', savedConfig.username);
+        return;
+    }
+
+    fromInput.value = 'Loading...';
+
+    // Fall back to Outlook
+    if (window.chrome && window.chrome.webview) {
+        window.chrome.webview.postMessage({
+            action: 'getOutlookEmail'
+        });
+    } else {
+        fromInput.value = 'user@company.com';
+    }
+}
+
+// Callback for Outlook email
+window.handleOutlookEmail = function(email, error) {
+    const fromInput = document.getElementById('email-from');
+    if (error) {
+        console.error('[Email] Failed to get Outlook email:', error);
+        fromInput.value = 'Could not load - enter manually';
+        fromInput.readOnly = false;
+    } else {
+        fromInput.value = email || 'user@company.com';
+    }
+};
+
+// Generate message preview (for both Teams and Email)
+function generateTeamsMessagePreview() {
+    console.log('=== generateTeamsMessagePreview START ===');
+    const preview = document.getElementById('send-message-preview');
+    const groupedTrips = groupTransactionsByTrip();
+    console.log('Preview - groupedTrips count:', groupedTrips.length);
+    console.log('Preview - selectedTripsForProcessing:', Array.from(selectedTripsForProcessing));
+
+    let html = '<div style="font-family: Segoe UI, sans-serif;">';
+    html += '<div style="font-size: 16px; font-weight: 600; color: #1e3a5f; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;"><i class="fas fa-truck"></i> WMS Trip Summary</div>';
+
+    let totalOrders = 0;
+    let totalLines = 0;
+    let tripsFound = 0;
+
+    selectedTripsForProcessing.forEach(tripId => {
+        const trip = groupedTrips.find(t => t.trip_id === tripId || t.trip_id == tripId);
+        console.log('Preview - Looking for tripId:', tripId, 'Found:', trip ? 'YES' : 'NO');
+        if (trip) {
+            tripsFound++;
+            // Get priority color
+            const pri = trip.trip_priority;
+            let priColor = '#666';
+            if (pri == 1) priColor = '#dc2626';
+            else if (pri == 2) priColor = '#f97316';
+            else if (pri == 3) priColor = '#eab308';
+
+            // Group transactions by order
+            const orderGroups = {};
+            trip.transactions.forEach(trx => {
+                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                if (!orderGroups[orderNum]) {
+                    orderGroups[orderNum] = {
+                        orderNumber: orderNum,
+                        picker: trx.picker || trx.PICKER || trx.picker_name || '-',
+                        items: [],
+                        pickedCount: 0,
+                        totalCount: 0
+                    };
+                }
+                orderGroups[orderNum].items.push(trx);
+                orderGroups[orderNum].totalCount++;
+                if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
+                    orderGroups[orderNum].pickedCount++;
+                }
+            });
+
+            const orders = Object.values(orderGroups);
+            totalOrders += orders.length;
+            totalLines += trip.transactions.length;
+
+            html += `
+                <div style="background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-radius: 10px; padding: 14px; margin-bottom: 12px; border-left: 5px solid #1e3a5f; box-shadow: 0 2px 4px rgba(0,0,0,0.05);">
+                    <!-- Trip Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0;">
+                        <span style="font-weight: 700; color: #1e3a5f; font-size: 15px;">🚚 Trip: ${trip.trip_id}</span>
+                        <span style="background: ${priColor}; color: white; padding: 2px 10px; border-radius: 12px; font-size: 11px; font-weight: 600;">Priority ${pri || '-'}</span>
+                    </div>
+                    <!-- Trip Info Row -->
+                    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; font-size: 11px; color: #475569; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px dashed #e2e8f0;">
+                        <div><strong>📅</strong> ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</div>
+                        <div><strong>🚛</strong> ${trip.trip_lorry || '-'}</div>
+                        <div><strong>📍</strong> Bay ${trip.trip_loading_bay || '-'}</div>
+                        <div><strong>📦</strong> ${orders.length} Orders</div>
+                    </div>
+                    <!-- Orders Table -->
+                    <table style="width: 100%; font-size: 11px; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #e2e8f0;">
+                                <th style="padding: 6px 8px; text-align: left; font-weight: 600; color: #334155;">Order #</th>
+                                <th style="padding: 6px 8px; text-align: left; font-weight: 600; color: #334155;">Picker</th>
+                                <th style="padding: 6px 8px; text-align: center; font-weight: 600; color: #334155;">Pick Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${orders.map(order => {
+                                const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
+                                let statusColor = '#ef4444'; // red
+                                let statusText = 'Not Picked';
+                                if (pickPct === 100) {
+                                    statusColor = '#10b981';
+                                    statusText = 'Picked';
+                                } else if (pickPct > 0) {
+                                    statusColor = '#f59e0b';
+                                    statusText = `${pickPct}% Picked`;
+                                }
+                                return `
+                                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                                        <td style="padding: 6px 8px; color: #1e3a5f; font-weight: 500;">${order.orderNumber}</td>
+                                        <td style="padding: 6px 8px; color: #64748b;">${order.picker}</td>
+                                        <td style="padding: 6px 8px; text-align: center;">
+                                            <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                                                ${statusText}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+    });
+
+    html += `
+        <div style="background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-radius: 10px; padding: 12px; margin-top: 14px; color: white;">
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; text-align: center;">
+                <div>
+                    <div style="font-size: 18px; font-weight: 700;">${selectedTripsForProcessing.size}</div>
+                    <div style="font-size: 10px; opacity: 0.9;">Trips</div>
+                </div>
+                <div>
+                    <div style="font-size: 18px; font-weight: 700;">${totalOrders}</div>
+                    <div style="font-size: 10px; opacity: 0.9;">Orders</div>
+                </div>
+                <div>
+                    <div style="font-size: 18px; font-weight: 700;">${totalLines}</div>
+                    <div style="font-size: 10px; opacity: 0.9;">Lines</div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    html += '</div>';
+    preview.innerHTML = html;
+}
+
+// Send Email via SMTP or Outlook
+window.sendEmail = async function() {
+    const toEmails = document.getElementById('email-to').value.trim();
+    const fromEmail = document.getElementById('email-from').value.trim();
+    const subject = document.getElementById('email-subject').value.trim();
+    const comments = document.getElementById('teams-comments').value.trim();
+
+    if (!toEmails) {
+        alert('Please enter at least one recipient email address');
+        return;
+    }
+
+    if (!subject) {
+        alert('Please enter a subject');
+        return;
+    }
+
+    const btn = document.getElementById('email-send-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+
+    try {
+        // Build HTML email body
+        const emailBody = generateEmailHtmlBody(comments);
+
+        // Check if SMTP settings are configured
+        const smtpConfig = JSON.parse(localStorage.getItem('emailConfig') || '{}');
+        const useSmtp = smtpConfig.smtpServer && smtpConfig.username && smtpConfig.password;
+
+        if (window.chrome && window.chrome.webview) {
+            if (useSmtp) {
+                // Use SMTP
+                console.log('[Email] Using SMTP to send email');
+                window.chrome.webview.postMessage({
+                    action: 'sendSmtpEmail',
+                    smtpServer: smtpConfig.smtpServer,
+                    smtpPort: parseInt(smtpConfig.smtpPort) || 587,
+                    username: smtpConfig.username,
+                    password: smtpConfig.password,
+                    useSsl: smtpConfig.useSsl !== false,
+                    from: fromEmail || smtpConfig.username,
+                    to: toEmails,
+                    subject: subject,
+                    htmlBody: emailBody
+                });
+            } else {
+                // Use Outlook COM
+                console.log('[Email] Using Outlook to send email');
+                window.chrome.webview.postMessage({
+                    action: 'sendOutlookEmail',
+                    to: toEmails,
+                    subject: subject,
+                    htmlBody: emailBody
+                });
+            }
+            console.log('[Email] Sent to C# backend');
+        } else {
+            // Fallback - open mailto link
+            const plainText = generateEmailPlainText(comments);
+            const mailtoLink = `mailto:${encodeURIComponent(toEmails)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(plainText)}`;
+            window.open(mailtoLink);
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-envelope"></i> Send Email';
+            alert('Email client opened. Please send the email manually.');
+        }
+    } catch (error) {
+        console.error('[Email] Failed:', error);
+        alert('Failed to send email: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-envelope"></i> Send Email';
+    }
+};
+
+// Callback for email send result
+window.handleEmailSendResult = function(success, message) {
+    const btn = document.getElementById('email-send-btn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-envelope"></i> Send Email';
+
+    if (success) {
+        addLogEntry('Email', 'Email sent successfully', 'success');
+        alert('Email sent successfully!');
+        closeTeamsModal();
+    } else {
+        addLogEntry('Email', `Failed to send: ${message}`, 'error');
+        alert('Failed to send email: ' + message);
+    }
+};
+
+// Generate HTML email body
+function generateEmailHtmlBody(comments) {
+    const groupedTrips = groupTransactionsByTrip();
+    let totalOrders = 0;
+    let totalLines = 0;
+
+    let html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+            .container { max-width: 750px; margin: 0 auto; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%); color: white; padding: 24px; text-align: center; }
+            .header h1 { margin: 0; font-size: 24px; }
+            .header p { margin: 8px 0 0; opacity: 0.9; }
+            .content { padding: 24px; }
+            .trip-card { background: #f8fafc; border-radius: 10px; padding: 16px; margin-bottom: 20px; border-left: 5px solid #1e3a5f; }
+            .trip-header { border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 12px; }
+            .trip-title { display: flex; justify-content: space-between; align-items: center; }
+            .trip-id { font-weight: 700; color: #1e3a5f; font-size: 18px; }
+            .priority { padding: 4px 14px; border-radius: 12px; color: white; font-size: 12px; font-weight: 600; }
+            .trip-info { display: flex; gap: 20px; margin-top: 10px; font-size: 13px; color: #475569; }
+            .orders-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+            .orders-table th { background: #e2e8f0; padding: 10px 12px; text-align: left; font-weight: 600; color: #334155; }
+            .orders-table td { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; }
+            .status-badge { padding: 4px 10px; border-radius: 12px; color: white; font-size: 11px; font-weight: 600; }
+            .status-picked { background: #10b981; }
+            .status-partial { background: #f59e0b; }
+            .status-not-picked { background: #ef4444; }
+            .summary { background: linear-gradient(135deg, #059669 0%, #10b981 100%); border-radius: 10px; padding: 20px; color: white; text-align: center; margin-top: 20px; }
+            .summary-grid { display: flex; justify-content: space-around; margin-top: 12px; }
+            .summary-item { text-align: center; }
+            .summary-value { font-size: 28px; font-weight: 700; }
+            .summary-label { font-size: 12px; opacity: 0.9; }
+            .comments { background: #fff8e1; border-left: 4px solid #ffc107; padding: 16px; margin-top: 20px; border-radius: 0 8px 8px 0; }
+            .footer { background: #f8f9fa; padding: 16px 24px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e0e0e0; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🚚 WMS Trip Summary</h1>
+                <p>${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}</p>
+            </div>
+            <div class="content">
+    `;
+
+    selectedTripsForProcessing.forEach(tripId => {
+        const trip = groupedTrips.find(t => t.trip_id === tripId);
+        if (trip) {
+            const pri = trip.trip_priority;
+            let priColor = '#666';
+            if (pri == 1) priColor = '#dc2626';
+            else if (pri == 2) priColor = '#f97316';
+            else if (pri == 3) priColor = '#eab308';
+
+            // Group transactions by order
+            const orderGroups = {};
+            trip.transactions.forEach(trx => {
+                const orderNum = trx.source_order || trx.SOURCE_ORDER || 'Unknown';
+                if (!orderGroups[orderNum]) {
+                    orderGroups[orderNum] = {
+                        orderNumber: orderNum,
+                        picker: trx.picker || trx.PICKER || trx.picker_name || '-',
+                        items: [],
+                        pickedCount: 0,
+                        totalCount: 0
+                    };
+                }
+                orderGroups[orderNum].items.push(trx);
+                orderGroups[orderNum].totalCount++;
+                if (trx.pick_confirm_status === 'YES' || trx.PICK_CONFIRM_STATUS === 'YES') {
+                    orderGroups[orderNum].pickedCount++;
+                }
+            });
+
+            const orders = Object.values(orderGroups);
+            totalOrders += orders.length;
+            totalLines += trip.transactions.length;
+
+            html += `
+                <div class="trip-card">
+                    <div class="trip-header">
+                        <div class="trip-title">
+                            <span class="trip-id">🚚 Trip: ${trip.trip_id}</span>
+                            <span class="priority" style="background: ${priColor};">Priority ${pri || '-'}</span>
+                        </div>
+                        <div class="trip-info">
+                            <span>📅 ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}</span>
+                            <span>🚛 ${trip.trip_lorry || '-'}</span>
+                            <span>📍 Bay ${trip.trip_loading_bay || '-'}</span>
+                            <span>📦 ${orders.length} Orders</span>
+                        </div>
+                    </div>
+                    <table class="orders-table">
+                        <thead>
+                            <tr>
+                                <th>Order #</th>
+                                <th>Picker</th>
+                                <th style="text-align: center;">Pick Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+
+            orders.forEach(order => {
+                const pickPct = order.totalCount > 0 ? Math.round((order.pickedCount / order.totalCount) * 100) : 0;
+                let statusClass = 'status-not-picked';
+                let statusText = 'Not Picked';
+                if (pickPct === 100) {
+                    statusClass = 'status-picked';
+                    statusText = '✓ Picked';
+                } else if (pickPct > 0) {
+                    statusClass = 'status-partial';
+                    statusText = `${pickPct}% Picked`;
+                }
+
+                html += `
+                            <tr>
+                                <td style="font-weight: 600; color: #1e3a5f;">${order.orderNumber}</td>
+                                <td>${order.picker}</td>
+                                <td style="text-align: center;">
+                                    <span class="status-badge ${statusClass}">${statusText}</span>
+                                </td>
+                            </tr>
+                `;
+            });
+
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+    });
+
+    html += `
+                <div class="summary">
+                    <strong style="font-size: 16px;">📊 Summary</strong>
+                    <div class="summary-grid">
+                        <div class="summary-item">
+                            <div class="summary-value">${selectedTripsForProcessing.size}</div>
+                            <div class="summary-label">Trips</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-value">${totalOrders}</div>
+                            <div class="summary-label">Orders</div>
+                        </div>
+                        <div class="summary-item">
+                            <div class="summary-value">${totalLines}</div>
+                            <div class="summary-label">Lines</div>
+                        </div>
+                    </div>
+                </div>
+    `;
+
+    if (comments) {
+        html += `
+                <div class="comments">
+                    <strong>💬 Comments:</strong><br>
+                    ${comments.replace(/\n/g, '<br>')}
+                </div>
+        `;
+    }
+
+    html += `
+            </div>
+            <div class="footer">
+                Sent from Gray's WMS System
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+
+    return html;
+}
+
+// Generate plain text for mailto fallback
+function generateEmailPlainText(comments) {
+    const groupedTrips = groupTransactionsByTrip();
+    let text = 'WMS TRIP UPDATE\n';
+    text += '================\n\n';
+
+    let totalOrders = 0;
+    let totalLines = 0;
+
+    selectedTripsForProcessing.forEach(tripId => {
+        const trip = groupedTrips.find(t => t.trip_id === tripId);
+        if (trip) {
+            const orderCount = new Set(trip.transactions.map(t => t.source_order)).size;
+            totalOrders += orderCount;
+            totalLines += trip.transactions.length;
+
+            text += `TRIP: ${trip.trip_id}\n`;
+            text += `  Date: ${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : 'N/A'}\n`;
+            text += `  Lorry: ${trip.trip_lorry || '-'}\n`;
+            text += `  Bay: ${trip.trip_loading_bay || '-'}\n`;
+            text += `  Priority: ${trip.trip_priority || '-'}\n`;
+            text += `  Picker: ${trip.picker || '-'}\n`;
+            text += `  Orders: ${orderCount}, Lines: ${trip.transactions.length}\n\n`;
+        }
+    });
+
+    text += `SUMMARY: ${selectedTripsForProcessing.size} trip(s), ${totalOrders} order(s), ${totalLines} line(s)\n\n`;
+
+    if (comments) {
+        text += `COMMENTS:\n${comments}\n`;
+    }
+
+    return text;
+}
+
+// Open webhook settings
+window.openTeamsWebhookSettings = function() {
+    document.getElementById('teams-webhook-modal').style.display = 'block';
+    renderWebhookList();
+};
+
+// Close webhook settings
+window.closeTeamsWebhookSettings = function() {
+    document.getElementById('teams-webhook-modal').style.display = 'none';
+};
+
+// Add new webhook
+window.addTeamsWebhook = function() {
+    const name = document.getElementById('webhook-name').value.trim();
+    const url = document.getElementById('webhook-url').value.trim();
+
+    if (!name || !url) {
+        alert('Please enter both channel name and webhook URL');
+        return;
+    }
+
+    if (!url.includes('webhook.office.com')) {
+        alert('Invalid webhook URL. Please use a valid Microsoft Teams webhook URL.');
+        return;
+    }
+
+    teamsWebhooks.push({ name, url });
+    localStorage.setItem('teamsWebhooks', JSON.stringify(teamsWebhooks));
+
+    document.getElementById('webhook-name').value = '';
+    document.getElementById('webhook-url').value = '';
+
+    renderWebhookList();
+    populateChannelDropdown();
+
+    addLogEntry('Teams', `Added webhook: ${name}`, 'success');
+};
+
+// Delete webhook
+window.deleteTeamsWebhook = function(index) {
+    if (confirm(`Delete webhook "${teamsWebhooks[index].name}"?`)) {
+        teamsWebhooks.splice(index, 1);
+        localStorage.setItem('teamsWebhooks', JSON.stringify(teamsWebhooks));
+        renderWebhookList();
+        populateChannelDropdown();
+    }
+};
+
+// Render webhook list
+function renderWebhookList() {
+    const list = document.getElementById('webhook-list');
+
+    if (teamsWebhooks.length === 0) {
+        list.innerHTML = '<div style="padding: 16px; text-align: center; color: #888;">No webhooks configured</div>';
+        return;
+    }
+
+    list.innerHTML = teamsWebhooks.map((webhook, index) => `
+        <div style="padding: 12px 16px; border-bottom: 1px solid #e0e0e0; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <div style="font-weight: 600;">${webhook.name}</div>
+                <div style="font-size: 11px; color: #888; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${webhook.url}</div>
+            </div>
+            <button onclick="deleteTeamsWebhook(${index})" style="background: #fee2e2; color: #dc2626; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+// Post to Teams
+window.postToTeams = async function() {
+    const channelIndex = document.getElementById('teams-channel-select').value;
+    const comments = document.getElementById('teams-comments').value.trim();
+
+    if (channelIndex === '') {
+        alert('Please select a Teams channel');
+        return;
+    }
+
+    const webhook = teamsWebhooks[channelIndex];
+    if (!webhook) {
+        alert('Invalid channel selected');
+        return;
+    }
+
+    const btn = document.getElementById('teams-post-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
+
+    try {
+        // Use pre-calculated summary data from selectedTripsSummary
+        console.log('=== postToTeams: Using selectedTripsSummary ===');
+        console.log('selectedTripsSummary:', JSON.stringify(selectedTripsSummary, null, 2));
+        const summary = selectedTripsSummary;
+        console.log('summary.totalTrips:', summary.totalTrips);
+        console.log('summary.totalOrders:', summary.totalOrders);
+        console.log('summary.totalLines:', summary.totalLines);
+        console.log('summary.trips.length:', summary.trips.length);
+        const tripCards = [];
+
+        // Build trip cards from pre-calculated summary
+        summary.trips.forEach(trip => {
+            const tripStatusIcon = trip.pickPercentage === 100 ? '🟢' : (trip.pickPercentage > 0 ? '🟡' : '🔴');
+
+            // Unique ID for this trip's order details
+            const orderDetailsId = `orderDetails_${trip.tripId}`;
+            const expandBtnId = `expandBtn_${trip.tripId}`;
+            const collapseBtnId = `collapseBtn_${trip.tripId}`;
+
+            // Build order facts from pre-calculated order data
+            const orderFacts = trip.orders.map(order => ({
+                "type": "ColumnSet",
+                "spacing": "small",
+                "columns": [
+                    {
+                        "type": "Column",
+                        "width": "40px",
+                        "items": [{ "type": "TextBlock", "text": order.statusIcon, "size": "small" }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [{ "type": "TextBlock", "text": order.orderNumber, "size": "small", "weight": "bolder" }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "stretch",
+                        "items": [{ "type": "TextBlock", "text": order.picker || '-', "size": "small", "isSubtle": true }]
+                    },
+                    {
+                        "type": "Column",
+                        "width": "80px",
+                        "items": [{ "type": "TextBlock", "text": order.statusText, "size": "small", "horizontalAlignment": "right" }]
+                    }
+                ]
+            }));
+
+            // Trip card with expand/collapse functionality
+            tripCards.push({
+                "type": "Container",
+                "style": "emphasis",
+                "bleed": true,
+                "items": [
+                    // Trip Header
+                    {
+                        "type": "ColumnSet",
+                        "columns": [
+                            {
+                                "type": "Column",
+                                "width": "auto",
+                                "items": [{
+                                    "type": "TextBlock",
+                                    "text": "🚚",
+                                    "size": "large"
+                                }]
+                            },
+                            {
+                                "type": "Column",
+                                "width": "stretch",
+                                "items": [
+                                    { "type": "TextBlock", "text": `Trip ${trip.tripId}`, "weight": "bolder", "size": "medium", "spacing": "none" },
+                                    { "type": "TextBlock", "text": `${trip.tripDate ? new Date(trip.tripDate).toLocaleDateString() : ''} • ${trip.orderCount} orders`, "size": "small", "isSubtle": true, "spacing": "none" }
+                                ]
+                            },
+                            {
+                                "type": "Column",
+                                "width": "auto",
+                                "items": [{
+                                    "type": "TextBlock",
+                                    "text": trip.priorityText,
+                                    "size": "small",
+                                    "weight": "bolder",
+                                    "color": trip.priorityColor
+                                }]
+                            }
+                        ]
+                    },
+                    // Trip Details Row with Pick Status
+                    {
+                        "type": "ColumnSet",
+                        "spacing": "small",
+                        "columns": [
+                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `🚛 ${trip.tripLorry}`, "size": "small", "isSubtle": true }] },
+                            { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": `📍 Bay ${trip.tripLoadingBay}`, "size": "small", "isSubtle": true }] },
+                            { "type": "Column", "width": "auto", "items": [{ "type": "TextBlock", "text": `${tripStatusIcon} ${trip.pickPercentage}% Picked`, "size": "small", "weight": "bolder" }] }
+                        ]
+                    },
+                    // Expand Button (visible by default)
+                    {
+                        "type": "ActionSet",
+                        "id": expandBtnId,
+                        "actions": [
+                            {
+                                "type": "Action.ToggleVisibility",
+                                "title": "▼ Show Orders",
+                                "targetElements": [orderDetailsId, expandBtnId, collapseBtnId]
+                            }
+                        ],
+                        "spacing": "small"
+                    },
+                    // Collapse Button (hidden by default)
+                    {
+                        "type": "ActionSet",
+                        "id": collapseBtnId,
+                        "isVisible": false,
+                        "actions": [
+                            {
+                                "type": "Action.ToggleVisibility",
+                                "title": "▲ Hide Orders",
+                                "targetElements": [orderDetailsId, expandBtnId, collapseBtnId]
+                            }
+                        ],
+                        "spacing": "small"
+                    },
+                    // Order Details Container (hidden by default)
+                    {
+                        "type": "Container",
+                        "id": orderDetailsId,
+                        "isVisible": false,
+                        "items": [
+                            // Divider
+                            {
+                                "type": "TextBlock",
+                                "text": "───────────────────────",
+                                "size": "small",
+                                "isSubtle": true,
+                                "spacing": "small"
+                            },
+                            // Order Header
+                            {
+                                "type": "ColumnSet",
+                                "spacing": "small",
+                                "columns": [
+                                    { "type": "Column", "width": "40px", "items": [{ "type": "TextBlock", "text": "", "size": "small" }] },
+                                    { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "ORDER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                    { "type": "Column", "width": "stretch", "items": [{ "type": "TextBlock", "text": "PICKER", "size": "small", "weight": "bolder", "isSubtle": true }] },
+                                    { "type": "Column", "width": "80px", "items": [{ "type": "TextBlock", "text": "STATUS", "size": "small", "weight": "bolder", "isSubtle": true, "horizontalAlignment": "right" }] }
+                                ]
+                            },
+                            // Orders
+                            ...orderFacts
+                        ]
+                    }
+                ],
+                "spacing": "medium"
+            });
+        });
+
+        // Use pre-calculated pick percentage from summary
+        const pickPct = summary.pickPercentage;
+
+        // Build Adaptive Card
+        const card = {
+            type: "message",
+            attachments: [{
+                contentType: "application/vnd.microsoft.card.adaptive",
+                content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        // Header
+                        {
+                            "type": "Container",
+                            "style": "accent",
+                            "bleed": true,
+                            "items": [
+                                {
+                                    "type": "TextBlock",
+                                    "text": "📦 WMS Trip Summary",
+                                    "weight": "bolder",
+                                    "size": "large",
+                                    "color": "light"
+                                },
+                                {
+                                    "type": "TextBlock",
+                                    "text": new Date().toLocaleString(),
+                                    "size": "small",
+                                    "color": "light",
+                                    "isSubtle": true,
+                                    "spacing": "none"
+                                }
+                            ]
+                        },
+                        // Summary Stats (using pre-calculated data)
+                        {
+                            "type": "ColumnSet",
+                            "spacing": "medium",
+                            "columns": [
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": summary.totalTrips.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Trips", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": summary.totalOrders.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Orders", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": summary.totalLines.toString(), "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center" },
+                                        { "type": "TextBlock", "text": "Lines", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                },
+                                {
+                                    "type": "Column",
+                                    "width": "stretch",
+                                    "items": [
+                                        { "type": "TextBlock", "text": `${pickPct}%`, "size": "extraLarge", "weight": "bolder", "horizontalAlignment": "center", "color": pickPct === 100 ? "good" : (pickPct > 50 ? "warning" : "attention") },
+                                        { "type": "TextBlock", "text": "Picked", "size": "small", "horizontalAlignment": "center", "isSubtle": true, "spacing": "none" }
+                                    ]
+                                }
+                            ]
+                        },
+                        // Trip Cards
+                        ...tripCards
+                    ]
+                }
+            }]
+        };
+
+        // Add legend
+        card.attachments[0].content.body.push({
+            "type": "Container",
+            "spacing": "medium",
+            "items": [
+                {
+                    "type": "TextBlock",
+                    "text": "🟢 Picked  🟡 Partial  🔴 Pending",
+                    "size": "small",
+                    "isSubtle": true,
+                    "horizontalAlignment": "center"
+                }
+            ]
+        });
+
+        // Add comments if provided
+        if (comments) {
+            card.attachments[0].content.body.push({
+                "type": "Container",
+                "style": "warning",
+                "items": [
+                    {
+                        "type": "TextBlock",
+                        "text": "💬 Comments",
+                        "weight": "bolder",
+                        "size": "small"
+                    },
+                    {
+                        "type": "TextBlock",
+                        "text": comments,
+                        "wrap": true,
+                        "size": "small"
+                    }
+                ],
+                "spacing": "medium"
+            });
+        }
+
+        // Send to Teams via C# backend to avoid CORS issues
+        if (window.chrome && window.chrome.webview) {
+            // Use C# backend for Teams posting
+            window._teamsPostBtn = btn;
+            window._teamsWebhookName = webhook.name;
+
+            window.chrome.webview.postMessage({
+                action: 'postToTeams',
+                webhookUrl: webhook.url,
+                cardPayload: card
+            });
+
+            // Result will be handled by handleTeamsPostResult callback
+            console.log('[Teams] Message sent to C# backend for posting');
+        } else {
+            // Fallback to direct fetch (may fail due to CORS)
+            console.log('[Teams] No WebView2 detected, attempting direct fetch...');
+            const response = await fetch(webhook.url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(card)
+            });
+
+            if (response.ok) {
+                addLogEntry('Teams', `Message posted to ${webhook.name}`, 'success');
+                alert('Message posted to Teams successfully!');
+                closeTeamsModal();
+            } else {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
+        }
+
+    } catch (error) {
+        console.error('[Teams] Failed to post:', error);
+        addLogEntry('Teams', `Failed to post: ${error.message}`, 'error');
+        alert('Failed to post to Teams: ' + error.message);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
+    }
+};
+
+// Callback for C# backend Teams post result
+window.handleTeamsPostResult = function(success, message) {
+    console.log('[Teams] C# backend result:', success, message);
+
+    const btn = window._teamsPostBtn;
+    const webhookName = window._teamsWebhookName || 'Teams';
+
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-paper-plane"></i> Post to Teams';
+    }
+
+    if (success) {
+        if (typeof addLogEntry === 'function') {
+            addLogEntry('Teams', `Message posted to ${webhookName}`, 'success');
+        }
+        alert('Message posted to Teams successfully!');
+        if (typeof closeTeamsModal === 'function') {
+            closeTeamsModal();
+        }
+    } else {
+        if (typeof addLogEntry === 'function') {
+            addLogEntry('Teams', `Failed to post: ${message}`, 'error');
+        }
+        alert('Failed to post to Teams: ' + message);
+    }
+};
+
+// Override toggleTripSelection to also update Teams button
+const originalToggleTripSelection = toggleTripSelection;
+toggleTripSelection = function(tripId, index) {
+    originalToggleTripSelection(tripId, index);
+    updateTeamsButtonCount();
+};
+
+// Initialize Teams integration when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    // Delay to ensure page is loaded
+    setTimeout(initTeamsIntegration, 1000);
+});
+
+// Also initialize when script loads (for dynamic loading)
+if (document.readyState === 'complete') {
+    setTimeout(initTeamsIntegration, 500);
+}
+
 console.log('[Auto Processing] Script loaded successfully');
+console.log('[Auto Processing] Teams integration ready');
