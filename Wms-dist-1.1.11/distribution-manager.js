@@ -8,7 +8,8 @@ console.log('[Distribution] Module loading...');
 console.log('[Distribution] ========================================');
 
 let distributionConfig = {
-    distributionFolder: 'C:\\fusion\\fusionclientweb\\wms',
+    // Production installation folder
+    distributionFolder: 'C:\\fusion\\fusionclientweb',
     // Use GitHub Releases API to automatically get latest release
     githubReleaseAPI: 'https://api.github.com/repos/javeedin/graysWMSwebviewnew/releases/latest',
     isDownloading: false
