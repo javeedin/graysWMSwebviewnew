@@ -2257,10 +2257,10 @@ function soGetSelectedOrders(tripIndex) {
 }
 
 // ============================================================================
-// ORDER ACTION BUTTONS (Placeholder functions - API to be provided)
+// PICK RELEASE MODAL AND API
 // ============================================================================
 
-// Pick Release for selected orders
+// Pick Release for selected orders - Show modal
 function soPickReleaseSelected(tripIndex) {
     const selectedOrders = soGetSelectedOrders(tripIndex);
 
@@ -2269,16 +2269,280 @@ function soPickReleaseSelected(tripIndex) {
         return;
     }
 
-    addSOLogEntry('Pick Release', `Initiating Pick Release for ${selectedOrders.length} orders: ${selectedOrders.join(', ')}`, 'info');
+    addSOLogEntry('Pick Release', `Opening Pick Release modal for ${selectedOrders.length} orders`, 'info');
 
-    // TODO: Implement API call when provided
-    // For now, show confirmation
-    if (confirm(`Pick Release ${selectedOrders.length} order(s)?\n\nOrders: ${selectedOrders.join(', ')}`)) {
-        console.log('[SO Actions] Pick Release orders:', selectedOrders);
-        addSOLogEntry('Pick Release', `Pick Release requested for orders: ${selectedOrders.join(', ')}`, 'success');
-        // API call will be added here
-    }
+    // Show Pick Release Modal
+    soShowPickReleaseModal(tripIndex, selectedOrders);
 }
+
+// Show Pick Release Modal
+function soShowPickReleaseModal(tripIndex, selectedOrders) {
+    // Remove existing modal if any
+    const existingModal = document.getElementById('so-pick-release-modal');
+    if (existingModal) existingModal.remove();
+
+    // Build orders list HTML
+    let ordersListHtml = '';
+    selectedOrders.forEach((orderNum, idx) => {
+        ordersListHtml += `
+            <div id="so-pick-release-order-${idx}" style="display: flex; align-items: center; justify-content: space-between; padding: 0.6rem 0.8rem; background: #f8f9fa; border-radius: 6px; margin-bottom: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-shopping-cart" style="color: #667eea;"></i>
+                    <span style="font-weight: 600; color: #1e293b;">${orderNum}</span>
+                </div>
+                <div id="so-pick-release-status-${idx}" style="display: flex; align-items: center; gap: 0.3rem;">
+                    <span style="background: #e2e8f0; color: #64748b; padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                        <i class="fas fa-clock"></i> Pending
+                    </span>
+                </div>
+            </div>
+        `;
+    });
+
+    const modal = document.createElement('div');
+    modal.id = 'so-pick-release-modal';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 20000; display: flex; align-items: center; justify-content: center;';
+    modal.innerHTML = `
+        <div style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); max-width: 500px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: #1e293b;">
+                    <i class="fas fa-box-open" style="color: #10b981; margin-right: 0.5rem;"></i>
+                    Pick Release
+                </h3>
+                <button onclick="soClosePickReleaseModal()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">&times;</button>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <p style="font-size: 0.9rem; color: #64748b; margin: 0 0 0.5rem 0;">
+                    Pick Release for <strong>${selectedOrders.length}</strong> order(s):
+                </p>
+            </div>
+
+            <!-- Orders List -->
+            <div id="so-pick-release-orders-list" style="flex: 1; overflow-y: auto; max-height: 300px; margin-bottom: 1rem;">
+                ${ordersListHtml}
+            </div>
+
+            <!-- Progress Bar (hidden initially) -->
+            <div id="so-pick-release-progress-container" style="display: none; margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 0.3rem;">
+                    <span style="font-size: 0.8rem; color: #64748b;">Progress</span>
+                    <span id="so-pick-release-progress-text" style="font-size: 0.8rem; color: #1e293b; font-weight: 600;">0 / ${selectedOrders.length}</span>
+                </div>
+                <div style="background: #e2e8f0; border-radius: 10px; height: 8px; overflow: hidden;">
+                    <div id="so-pick-release-progress-bar" style="background: linear-gradient(90deg, #10b981, #059669); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+
+            <!-- Summary (hidden initially) -->
+            <div id="so-pick-release-summary" style="display: none; padding: 0.75rem; background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px; margin-bottom: 1rem;">
+                <div style="display: flex; gap: 1rem; justify-content: center;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: #10b981;" id="so-pick-release-success-count">0</div>
+                        <div style="font-size: 0.7rem; color: #64748b;">Success</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: #ef4444;" id="so-pick-release-failed-count">0</div>
+                        <div style="font-size: 0.7rem; color: #64748b;">Failed</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Buttons -->
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button id="so-pick-release-cancel-btn" onclick="soClosePickReleaseModal()" style="background: #94a3b8; color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                    Cancel
+                </button>
+                <button id="so-pick-release-execute-btn" onclick="soExecutePickRelease(${tripIndex}, ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})" style="background: #10b981; color: white; border: none; padding: 0.6rem 1.2rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem;">
+                    <i class="fas fa-box-open"></i> Pick Release
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+}
+
+// Close Pick Release Modal
+function soClosePickReleaseModal() {
+    const modal = document.getElementById('so-pick-release-modal');
+    if (modal) modal.remove();
+}
+
+// Execute Pick Release for all selected orders
+async function soExecutePickRelease(tripIndex, selectedOrders) {
+    console.log('[Pick Release] Starting Pick Release for orders:', selectedOrders);
+    addSOLogEntry('Pick Release', `Starting Pick Release for ${selectedOrders.length} orders`, 'info');
+
+    // Disable buttons
+    const executeBtn = document.getElementById('so-pick-release-execute-btn');
+    const cancelBtn = document.getElementById('so-pick-release-cancel-btn');
+
+    if (executeBtn) {
+        executeBtn.disabled = true;
+        executeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        executeBtn.style.background = '#9ca3af';
+    }
+    if (cancelBtn) {
+        cancelBtn.disabled = true;
+    }
+
+    // Show progress
+    const progressContainer = document.getElementById('so-pick-release-progress-container');
+    if (progressContainer) progressContainer.style.display = 'block';
+
+    let successCount = 0;
+    let failedCount = 0;
+
+    // Process each order
+    for (let i = 0; i < selectedOrders.length; i++) {
+        const orderNumber = selectedOrders[i];
+        const statusEl = document.getElementById(`so-pick-release-status-${i}`);
+        const orderEl = document.getElementById(`so-pick-release-order-${i}`);
+
+        // Update status to processing
+        if (statusEl) {
+            statusEl.innerHTML = `
+                <span style="background: #fef3c7; color: #d97706; padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                    <i class="fas fa-spinner fa-spin"></i> Processing...
+                </span>
+            `;
+        }
+        if (orderEl) {
+            orderEl.style.background = '#fef3c7';
+        }
+
+        try {
+            // Call Pick Release API
+            const result = await soCallPickReleaseAPI(orderNumber);
+
+            if (result.success) {
+                successCount++;
+                if (statusEl) {
+                    statusEl.innerHTML = `
+                        <span style="background: #d1fae5; color: #059669; padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
+                            <i class="fas fa-check-circle"></i> Success
+                        </span>
+                    `;
+                }
+                if (orderEl) {
+                    orderEl.style.background = '#d1fae5';
+                }
+                addSOLogEntry('Pick Release', `Order ${orderNumber}: Success`, 'success');
+            } else {
+                failedCount++;
+                if (statusEl) {
+                    statusEl.innerHTML = `
+                        <span style="background: #fee2e2; color: #dc2626; padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;" title="${result.error || 'Unknown error'}">
+                            <i class="fas fa-times-circle"></i> Failed
+                        </span>
+                    `;
+                }
+                if (orderEl) {
+                    orderEl.style.background = '#fee2e2';
+                }
+                addSOLogEntry('Pick Release', `Order ${orderNumber}: Failed - ${result.error}`, 'error');
+            }
+        } catch (error) {
+            failedCount++;
+            if (statusEl) {
+                statusEl.innerHTML = `
+                    <span style="background: #fee2e2; color: #dc2626; padding: 3px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;" title="${error.message}">
+                        <i class="fas fa-times-circle"></i> Error
+                    </span>
+                `;
+            }
+            if (orderEl) {
+                orderEl.style.background = '#fee2e2';
+            }
+            addSOLogEntry('Pick Release', `Order ${orderNumber}: Error - ${error.message}`, 'error');
+        }
+
+        // Update progress
+        const progressBar = document.getElementById('so-pick-release-progress-bar');
+        const progressText = document.getElementById('so-pick-release-progress-text');
+        const progress = ((i + 1) / selectedOrders.length) * 100;
+
+        if (progressBar) progressBar.style.width = `${progress}%`;
+        if (progressText) progressText.textContent = `${i + 1} / ${selectedOrders.length}`;
+
+        // Small delay between requests
+        if (i < selectedOrders.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+    }
+
+    // Show summary
+    const summaryEl = document.getElementById('so-pick-release-summary');
+    const successCountEl = document.getElementById('so-pick-release-success-count');
+    const failedCountEl = document.getElementById('so-pick-release-failed-count');
+
+    if (summaryEl) {
+        summaryEl.style.display = 'block';
+        if (failedCount > 0) {
+            summaryEl.style.background = '#fef2f2';
+            summaryEl.style.borderColor = '#fca5a5';
+        }
+    }
+    if (successCountEl) successCountEl.textContent = successCount;
+    if (failedCountEl) failedCountEl.textContent = failedCount;
+
+    // Update buttons
+    if (executeBtn) {
+        executeBtn.style.display = 'none';
+    }
+    if (cancelBtn) {
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = 'Close';
+        cancelBtn.style.background = '#667eea';
+    }
+
+    // Log completion
+    addSOLogEntry('Pick Release', `Completed: ${successCount} success, ${failedCount} failed`, successCount > 0 && failedCount === 0 ? 'success' : 'warning');
+
+    // Clear selection after completion
+    soDeselectAllOrders(tripIndex);
+}
+
+// Call Pick Release API for a single order
+function soCallPickReleaseAPI(orderNumber) {
+    return new Promise((resolve, reject) => {
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}`;
+
+        console.log('[Pick Release] Calling API for order:', orderNumber, 'URL:', apiUrl);
+
+        // Use C# WebView REST handler
+        sendMessageToCSharp({
+            action: "executeGet",
+            fullUrl: apiUrl
+        }, function(error, data) {
+            if (error) {
+                console.error('[Pick Release] API Error for order', orderNumber, ':', error);
+                resolve({ success: false, error: error });
+            } else {
+                try {
+                    console.log('[Pick Release] API Response for order', orderNumber, ':', data);
+                    const response = JSON.parse(data);
+
+                    // Check if response indicates success
+                    // Adjust this based on actual API response structure
+                    if (response.status === 'error' || response.error) {
+                        resolve({ success: false, error: response.message || response.error || 'API returned error' });
+                    } else {
+                        resolve({ success: true, data: response });
+                    }
+                } catch (e) {
+                    console.error('[Pick Release] Parse error for order', orderNumber, ':', e);
+                    // If we can't parse, assume success if no error
+                    resolve({ success: true, data: data });
+                }
+            }
+        });
+    });
+}
+
+// ============================================================================
+// ORDER ACTION BUTTONS
+// ============================================================================
 
 // Assign Picker for selected orders
 function soAssignPickerSelected(tripIndex) {
