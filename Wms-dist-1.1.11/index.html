@@ -12,6 +12,47 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
     <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Hide body content until login is verified */
+        body.auth-pending {
+            visibility: hidden;
+        }
+    </style>
+    <script>
+        // IMMEDIATE LOGIN CHECK - runs before body renders
+        (function() {
+            console.log('[AUTH DEBUG] ========================================');
+            console.log('[AUTH DEBUG] IMMEDIATE LOGIN CHECK STARTED');
+            console.log('[AUTH DEBUG] Checking localStorage for loggedIn...');
+
+            const isLoggedIn = localStorage.getItem('loggedIn');
+            console.log('[AUTH DEBUG] localStorage.loggedIn =', isLoggedIn);
+            console.log('[AUTH DEBUG] isLoggedIn !== "true":', isLoggedIn !== 'true');
+
+            if (isLoggedIn !== 'true') {
+                console.log('[AUTH DEBUG] User NOT logged in via localStorage');
+
+                // Check if running inside C# WebView2 - if so, wait for C# to set session
+                console.log('[AUTH DEBUG] Checking for WebView2...');
+                console.log('[AUTH DEBUG] window.chrome:', typeof window.chrome);
+                console.log('[AUTH DEBUG] window.chrome?.webview:', window.chrome?.webview);
+
+                if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
+                    console.log('[AUTH DEBUG] In WebView2, waiting for C# to set login session...');
+                    console.log('[AUTH DEBUG] C# will inject localStorage and remove auth-pending class');
+                    // C# will set localStorage and remove auth-pending class after page loads
+                } else {
+                    // Not in WebView2 and not logged in - redirect to login
+                    console.log('[AUTH DEBUG] NOT in WebView2 - redirecting to login.html');
+                    window.location.replace('../login.html');
+                }
+            } else {
+                console.log('[AUTH DEBUG] User IS logged in via localStorage!');
+                console.log('[AUTH DEBUG] Allowing page to render...');
+            }
+            console.log('[AUTH DEBUG] ========================================');
+        })();
+    </script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         // Dynamic cache busting - generate unique timestamp
@@ -35,7 +76,7 @@
         document.write('<script src="config.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </head>
-<body>
+<body class="auth-pending">
     <header class="header">
         <button class="hamburger" id="hamburger">
             <i class="fas fa-bars"></i>
@@ -138,6 +179,10 @@
                 <i class="fas fa-users"></i>
                 <span>Pickers</span>
             </div>
+            <div class="menu-item" onclick="window.location.href='picker-view.html'">
+                <i class="fas fa-eye"></i>
+                <span>Picker View</span>
+            </div>
             <div class="menu-item" data-page="monitor-printing">
                 <i class="fas fa-print"></i>
                 <span>Monitor Printing</span>
@@ -161,6 +206,10 @@
             <div class="menu-item" data-page="settings">
                 <i class="fas fa-cog"></i>
                 <span>Settings & Updates</span>
+            </div>
+            <div class="menu-item" onclick="window.location.href='release-manager.html'" style="border-top: 1px solid #e0e0e0; margin-top: 10px; padding-top: 15px;">
+                <i class="fas fa-rocket"></i>
+                <span>Release Manager</span>
             </div>
         </aside>
         
@@ -1987,33 +2036,33 @@
 
                             <!-- Stats Mini Cards -->
                             <div style="display: flex; gap: 0.75rem;">
-                                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-trips">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">TRIPS</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #7c3aed;" id="auto-so-stat-trips">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">TRIPS</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-orders">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">ORDERS</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #059669;" id="auto-so-stat-orders">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">ORDERS</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-lines">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">LINES</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #2563eb;" id="auto-so-stat-lines">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">LINES</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-cancelled">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">CANCELLED</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #6b7280;" id="auto-so-stat-cancelled">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">CANCELLED</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-processing">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">PROCESSING</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #0891b2;" id="auto-so-stat-processing">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">PROCESSING</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-success">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">SUCCESS</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #d97706;" id="auto-so-stat-success">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">SUCCESS</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #f44336 0%, #c62828 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-failed">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">FAILED</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #dc2626;" id="auto-so-stat-failed">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">FAILED</div>
                                 </div>
                             </div>
 
@@ -2623,7 +2672,7 @@
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
             <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.26-05 (Removed Large KPI Cards)
+                <i class="fas fa-check-circle"></i> Build: v2025.11.27-08 (Teams Card Layout)
             </span>
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
             <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
@@ -2776,29 +2825,9 @@
             sessionStorage.removeItem('loggedInInstance');
             sessionStorage.removeItem('loggedInDateTime');
 
-            // Reset UI to default state
-            const usernameElement = document.getElementById('logged-in-username');
-            if (usernameElement) {
-                usernameElement.textContent = '';
-            }
-
-            const loginDateTimeElement = document.getElementById('login-datetime');
-            if (loginDateTimeElement) {
-                loginDateTimeElement.textContent = 'Not logged in';
-            }
-
-            const instanceElement = document.getElementById('current-instance-display');
-            if (instanceElement) {
-                instanceElement.textContent = 'PROD';
-            }
-
-            const instanceElementMini = document.getElementById('current-instance-display-mini');
-            if (instanceElementMini) {
-                instanceElementMini.textContent = '';
-            }
-
-            // Reset checkmarks to PROD
-            updateInstanceCheckmarks('PROD');
+            // Clear localStorage login state (set by login.html)
+            localStorage.removeItem('loggedIn');
+            localStorage.removeItem('loginTime');
 
             // Notify C# WebView to clear session
             if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
@@ -2808,10 +2837,10 @@
                 console.log('[LOGOUT] Logout message sent to C#');
             }
 
-            console.log('[LOGOUT] Logout completed');
+            console.log('[LOGOUT] Logout completed, redirecting to login page...');
 
-            // Show logout confirmation
-            showMessage('Logged out successfully', 'success');
+            // Redirect to login page
+            window.location.href = '../login.html';
         };
 
         // Listen for messages from C# WebView2
@@ -2828,6 +2857,58 @@
 
         // On page load, restore from session storage or URL parameter
         document.addEventListener('DOMContentLoaded', function() {
+            // Check if user is logged in (from localStorage set by login.html or C# WebView)
+            const isLoggedIn = localStorage.getItem('loggedIn');
+            const isInWebView = typeof window.chrome !== 'undefined' && window.chrome.webview;
+
+            if (isLoggedIn !== 'true') {
+                if (isInWebView) {
+                    // In WebView2 - C# will set localStorage and show page via SendUserSessionToWebView
+                    console.log('[LOGIN] In WebView2, waiting for C# to complete login...');
+
+                    // Add timeout - if C# doesn't respond within 5 seconds, show error or redirect
+                    setTimeout(function() {
+                        const stillNotLoggedIn = localStorage.getItem('loggedIn') !== 'true';
+                        const stillHidden = document.body.classList.contains('auth-pending');
+
+                        if (stillNotLoggedIn && stillHidden) {
+                            console.log('[LOGIN] Timeout - C# did not send session within 5 seconds');
+                            console.log('[LOGIN] Redirecting to login page...');
+                            // Remove auth-pending to avoid blank screen, then redirect
+                            document.body.classList.remove('auth-pending');
+                            window.location.href = '../login.html';
+                        }
+                    }, 5000);
+
+                    return; // Don't proceed yet, C# will handle it (or timeout will redirect)
+                } else {
+                    // Not in WebView2 and not logged in - redirect to login
+                    console.log('[LOGIN] User not logged in, redirecting to login page...');
+                    window.location.href = '../login.html';
+                    return;
+                }
+            }
+            console.log('[LOGIN] User is logged in, proceeding...');
+
+            // Show body content now that login is verified
+            document.body.classList.remove('auth-pending');
+            console.log('[AUTH] Login verified, showing page content');
+
+            // Sync login data from localStorage (set by login.html) to sessionStorage
+            const lsUsername = localStorage.getItem('username');
+            const lsInstance = localStorage.getItem('instanceName');
+            const lsLoginTime = localStorage.getItem('loginTime');
+
+            if (lsUsername && !sessionStorage.getItem('loggedInUsername')) {
+                sessionStorage.setItem('loggedInUsername', lsUsername);
+            }
+            if (lsInstance && !sessionStorage.getItem('loggedInInstance')) {
+                sessionStorage.setItem('loggedInInstance', lsInstance);
+            }
+            if (lsLoginTime && !sessionStorage.getItem('loggedInDateTime')) {
+                sessionStorage.setItem('loggedInDateTime', lsLoginTime);
+            }
+
             // Check URL query parameter for instance first
             const urlParams = new URLSearchParams(window.location.search);
             const urlInstance = urlParams.get('instance');

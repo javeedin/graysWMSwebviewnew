@@ -12,6 +12,47 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
     <link rel="stylesheet" href="styles.css">
+    <style>
+        /* Hide body content until login is verified */
+        body.auth-pending {
+            visibility: hidden;
+        }
+    </style>
+    <script>
+        // IMMEDIATE LOGIN CHECK - runs before body renders
+        (function() {
+            console.log('[AUTH DEBUG] ========================================');
+            console.log('[AUTH DEBUG] IMMEDIATE LOGIN CHECK STARTED');
+            console.log('[AUTH DEBUG] Checking localStorage for loggedIn...');
+
+            const isLoggedIn = localStorage.getItem('loggedIn');
+            console.log('[AUTH DEBUG] localStorage.loggedIn =', isLoggedIn);
+            console.log('[AUTH DEBUG] isLoggedIn !== "true":', isLoggedIn !== 'true');
+
+            if (isLoggedIn !== 'true') {
+                console.log('[AUTH DEBUG] User NOT logged in via localStorage');
+
+                // Check if running inside C# WebView2 - if so, wait for C# to set session
+                console.log('[AUTH DEBUG] Checking for WebView2...');
+                console.log('[AUTH DEBUG] window.chrome:', typeof window.chrome);
+                console.log('[AUTH DEBUG] window.chrome?.webview:', window.chrome?.webview);
+
+                if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
+                    console.log('[AUTH DEBUG] In WebView2, waiting for C# to set login session...');
+                    console.log('[AUTH DEBUG] C# will inject localStorage and remove auth-pending class');
+                    // C# will set localStorage and remove auth-pending class after page loads
+                } else {
+                    // Not in WebView2 and not logged in - redirect to login
+                    console.log('[AUTH DEBUG] NOT in WebView2 - redirecting to login.html');
+                    window.location.replace('../login.html');
+                }
+            } else {
+                console.log('[AUTH DEBUG] User IS logged in via localStorage!');
+                console.log('[AUTH DEBUG] Allowing page to render...');
+            }
+            console.log('[AUTH DEBUG] ========================================');
+        })();
+    </script>
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         // Dynamic cache busting - generate unique timestamp
@@ -35,7 +76,7 @@
         document.write('<script src="config.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 </head>
-<body>
+<body class="auth-pending">
     <header class="header">
         <button class="hamburger" id="hamburger">
             <i class="fas fa-bars"></i>
@@ -138,6 +179,10 @@
                 <i class="fas fa-users"></i>
                 <span>Pickers</span>
             </div>
+            <div class="menu-item" onclick="window.location.href='picker-view.html'">
+                <i class="fas fa-eye"></i>
+                <span>Picker View</span>
+            </div>
             <div class="menu-item" data-page="monitor-printing">
                 <i class="fas fa-print"></i>
                 <span>Monitor Printing</span>
@@ -161,6 +206,10 @@
             <div class="menu-item" data-page="settings">
                 <i class="fas fa-cog"></i>
                 <span>Settings & Updates</span>
+            </div>
+            <div class="menu-item" onclick="window.location.href='release-manager.html'" style="border-top: 1px solid #e0e0e0; margin-top: 10px; padding-top: 15px;">
+                <i class="fas fa-rocket"></i>
+                <span>Release Manager</span>
             </div>
         </aside>
         
@@ -194,14 +243,15 @@
                         </button>
                     </div>
                 </div>
-                
-                <div id="summary-stats" class="summary-stats" style="display: none;"></div>
-                
+
                 <div class="grid-container">
                     <div class="grid-header" style="padding: 0;">
                         <div id="trip-tab-header" class="tab-header" style="width: 100%;">
                             <div class="tab-item active" data-tab="all-trips">
                                 <span>All Trips</span>
+                            </div>
+                            <div class="tab-item" data-tab="all-trip-details">
+                                <span>All Trip Details</span>
                             </div>
                         </div>
                     </div>
@@ -234,16 +284,70 @@
                                     </button>
                                 </div>
                             </div>
-                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
+                            <!-- Global Action Buttons Bar for All Trips -->
+                            <div id="all-trips-action-bar" style="display: flex; gap: 0.75rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; align-items: center; justify-content: flex-end;">
+                                <button onclick="assignPickerForSelectedTrips()" class="btn btn-sm" style="background: #10b981; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-user-plus"></i> Assign Picker
+                                </button>
+                                <button onclick="allocateLotsForSelectedTrips()" class="btn btn-sm" style="background: #8b5cf6; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-boxes"></i> Allocate Lot Qty
+                                </button>
+                            </div>
+                            <div style="padding: 0.75rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
                                 <div class="grid-title">All Trips Data</div>
                                 <div id="trip-count">0 trips</div>
                             </div>
                             <div id="trips-grid" style="height: 500px;"></div>
                         </div>
+                        <!-- All Trip Details Tab Pane -->
+                        <div id="trip-all-trip-details-tab" class="tab-pane">
+                            <!-- Compact KPI Bar -->
+                            <div id="trip-details-kpi-bar" style="display: flex; gap: 0.75rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-shopping-cart"></i>
+                                    <span>Orders:</span>
+                                    <strong id="kpi-trip-orders">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-route"></i>
+                                    <span>Trips:</span>
+                                    <strong id="kpi-trip-trips">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-users"></i>
+                                    <span>Customers:</span>
+                                    <strong id="kpi-trip-customers">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-truck"></i>
+                                    <span>Lorries:</span>
+                                    <strong id="kpi-trip-lorries">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-user-tag"></i>
+                                    <span>Pickers:</span>
+                                    <strong id="kpi-trip-pickers">0</strong>
+                                </div>
+                                <!-- Spacer -->
+                                <div style="flex: 1;"></div>
+                                <!-- Global Action Buttons -->
+                                <button onclick="assignPickerForSelectedOrders()" class="btn btn-sm" style="background: #10b981; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-user-plus"></i> Assign Picker
+                                </button>
+                                <button onclick="allocateLotsForS2V()" class="btn btn-sm" style="background: #8b5cf6; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-boxes"></i> Allocate Lots (S2V)
+                                </button>
+                            </div>
+                            <div style="padding: 0.75rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">All Trip Details</div>
+                                <div id="trip-details-count">0 records</div>
+                            </div>
+                            <div id="trip-details-grid" style="height: 500px;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
-            
+
             <div id="vehicles" class="page-content" style="display: none;">
                 <div class="grid-container" style="margin-top: 20px;">
                     <div class="grid-header" style="padding: 0;">
@@ -1252,6 +1356,136 @@
     </div>
 </div>
 
+<!-- Sales Order Trip Print Modal -->
+<div id="so-trip-print-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 99999 !important; justify-content: center; align-items: center; transform: translateZ(0);">
+    <div style="background: white; width: 95%; max-width: 900px; max-height: 90vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column; position: relative; z-index: 100000 !important;">
+        <!-- Modal Header -->
+        <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; flex-shrink: 0;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="margin: 0; font-size: 18px; color: #333;">
+                        <i class="fas fa-print" style="color: #10b981;"></i> Print Sales Orders
+                    </h3>
+                    <div style="font-size: 13px; color: #667eea; font-weight: 600; margin-top: 0.35rem;">
+                        <i class="fas fa-file-pdf" style="font-size: 11px;"></i> <span id="so-trip-print-report-name">Sales Order Report</span>
+                    </div>
+                </div>
+                <button onclick="closeSOTripPrintModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666; line-height: 1;">×</button>
+            </div>
+            <div style="display: flex; gap: 2rem; margin-top: 1rem; flex-wrap: wrap;">
+                <div>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 600;">TRIP ID:</span>
+                    <span id="so-trip-print-trip-id" style="font-weight: 700; color: #1e293b; margin-left: 0.5rem;"></span>
+                </div>
+                <div>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 600;">INSTANCE:</span>
+                    <span id="so-trip-print-instance-name" style="font-weight: 700; color: #8b5cf6; margin-left: 0.5rem;"></span>
+                </div>
+                <div>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 600;">ORDER TYPE:</span>
+                    <span id="so-trip-print-order-type" style="font-weight: 700; color: #10b981; margin-left: 0.5rem;"></span>
+                </div>
+                <div>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 600;">ORDERS:</span>
+                    <span id="so-trip-print-order-count" style="font-weight: 700; color: #667eea; margin-left: 0.5rem;"></span>
+                </div>
+                <div>
+                    <span style="font-size: 12px; color: #64748b; font-weight: 600;">STATUS:</span>
+                    <span id="so-trip-print-status" style="font-weight: 700; margin-left: 0.5rem;">Ready</span>
+                </div>
+            </div>
+
+            <!-- Debug Section -->
+            <div style="margin-top: 1rem; padding: 0.75rem; background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px;">
+                <div onclick="toggleSOTripPrintDebug()" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
+                    <i class="fas fa-bug" style="color: #ff6b6b;"></i>
+                    <strong style="font-size: 12px; color: #856404;">DEBUG: Report Parameters & SOAP XML</strong>
+                    <i id="so-trip-debug-toggle-icon" class="fas fa-chevron-down" style="margin-left: auto; color: #856404; font-size: 10px;"></i>
+                </div>
+
+                <div id="so-trip-debug-content" style="display: none; margin-top: 0.75rem;">
+                    <div style="display: grid; grid-template-columns: auto 1fr; gap: 0.5rem 1rem; font-size: 11px;">
+                        <span style="color: #856404; font-weight: 600;">Report Name:</span>
+                        <span id="so-debug-report-name" style="color: #333; font-family: monospace;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">Report Path:</span>
+                        <span id="so-debug-report-path" style="color: #333; font-family: monospace; font-size: 10px;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">Parameter Name:</span>
+                        <span id="so-debug-param-name" style="color: #333; font-family: monospace;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">orderType Sent:</span>
+                        <span id="so-debug-order-type-sent" style="color: #d63384; font-family: monospace; font-weight: 700;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">tripDate Sent:</span>
+                        <span id="so-debug-trip-date-sent" style="color: #0d6efd; font-family: monospace; font-weight: 700;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">Expected Path Format:</span>
+                        <span id="so-debug-path-format" style="color: #198754; font-family: monospace; font-size: 10px;">-</span>
+
+                        <span style="color: #856404; font-weight: 600;">Current Order:</span>
+                        <span id="so-debug-current-order" style="color: #dc3545; font-family: monospace; font-weight: 700;">-</span>
+                    </div>
+
+                    <!-- SOAP XML Display -->
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 2px solid #ffc107;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <i class="fas fa-code" style="color: #ff6b6b;"></i>
+                            <strong style="font-size: 12px; color: #856404;">SOAP XML being sent to Oracle Fusion:</strong>
+                        </div>
+                        <div style="background: #2d2d2d; padding: 0.75rem; border-radius: 4px; max-height: 300px; overflow-y: auto;">
+                            <pre id="so-debug-soap-xml" style="margin: 0; color: #00ff00; font-family: 'Courier New', monospace; font-size: 10px; white-space: pre-wrap; word-wrap: break-word;">-</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal Content (Scrollable) -->
+        <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+            <!-- Printer Selection -->
+            <div id="so-trip-print-printer-section" style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-print" style="color: #10b981;"></i> Select Printer <span style="color: #dc3545;">*</span>
+                </label>
+                <select id="so-trip-print-printer-select" class="form-control" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <option value="">-- Loading printers... --</option>
+                </select>
+            </div>
+
+            <!-- Orders List -->
+            <div style="margin-bottom: 1rem;">
+                <h4 style="font-size: 14px; font-weight: 700; color: #1e293b; margin-bottom: 0.75rem;">Orders in Trip</h4>
+                <div id="so-trip-print-orders-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                    <!-- Orders will be populated here -->
+                </div>
+            </div>
+
+            <div id="so-trip-print-error" style="display: none; padding: 0.75rem; background: #fee2e2; border-left: 4px solid #dc3545; border-radius: 4px; margin-top: 1rem; color: #991b1b; font-size: 14px;"></div>
+        </div>
+
+        <!-- Modal Footer -->
+        <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <div style="display: flex; gap: 0.5rem;">
+                <button id="so-trip-print-retry-all-btn" class="btn btn-warning" onclick="retryAllSOTripDownloads()" style="display: none;">
+                    <i class="fas fa-redo"></i> Retry All Failed
+                </button>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <button class="btn btn-secondary" onclick="closeSOTripPrintModal()">
+                    <i class="fas fa-times"></i> Close
+                </button>
+                <button id="so-trip-print-download-btn" class="btn btn-primary" onclick="startSOTripDownload()">
+                    <i class="fas fa-download"></i> Download PDFs
+                </button>
+                <button id="so-trip-print-print-btn" class="btn btn-success" onclick="startSOTripPrinting()" style="display: none;">
+                    <i class="fas fa-print"></i> Start Printing
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
             <div id="printer-setup" class="page-content" style="display: none;">
                 <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 1.5rem;">
                     <div style="display: flex; gap: 0.5rem;">
@@ -1802,33 +2036,33 @@
 
                             <!-- Stats Mini Cards -->
                             <div style="display: flex; gap: 0.75rem;">
-                                <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-trips">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">TRIPS</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #7c3aed;" id="auto-so-stat-trips">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">TRIPS</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-orders">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">ORDERS</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #059669;" id="auto-so-stat-orders">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">ORDERS</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-lines">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">LINES</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #2563eb;" id="auto-so-stat-lines">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">LINES</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-cancelled">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">CANCELLED</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #6b7280;" id="auto-so-stat-cancelled">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">CANCELLED</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-processing">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">PROCESSING</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #0891b2;" id="auto-so-stat-processing">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">PROCESSING</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-success">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">SUCCESS</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #d97706;" id="auto-so-stat-success">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">SUCCESS</div>
                                 </div>
-                                <div style="background: linear-gradient(135deg, #f44336 0%, #c62828 100%); padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px;">
-                                    <div style="font-size: 20px; font-weight: 700; color: white;" id="auto-so-stat-failed">0</div>
-                                    <div style="font-size: 10px; color: rgba(255,255,255,0.9); font-weight: 600;">FAILED</div>
+                                <div style="background: #e5e7eb; padding: 0.75rem 1rem; border-radius: 8px; text-align: center; min-width: 80px; border: 1px solid #d1d5db;">
+                                    <div style="font-size: 20px; font-weight: 700; color: #dc2626;" id="auto-so-stat-failed">0</div>
+                                    <div style="font-size: 10px; color: #4b5563; font-weight: 600;">FAILED</div>
                                 </div>
                             </div>
 
@@ -2438,7 +2672,7 @@
         </div>
         <div style="display: flex; gap: 12px; align-items: center;">
             <span id="code-version-indicator" style="background: #4CAF50; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 6px;">
-                <i class="fas fa-check-circle"></i> Latest Code: v2025.11.21-16 (Fix: S2V Report + Instance Debug)
+                <i class="fas fa-check-circle"></i> Build: v2025.11.27-08 (Teams Card Layout)
             </span>
             <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
             <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
@@ -2591,29 +2825,9 @@
             sessionStorage.removeItem('loggedInInstance');
             sessionStorage.removeItem('loggedInDateTime');
 
-            // Reset UI to default state
-            const usernameElement = document.getElementById('logged-in-username');
-            if (usernameElement) {
-                usernameElement.textContent = '';
-            }
-
-            const loginDateTimeElement = document.getElementById('login-datetime');
-            if (loginDateTimeElement) {
-                loginDateTimeElement.textContent = 'Not logged in';
-            }
-
-            const instanceElement = document.getElementById('current-instance-display');
-            if (instanceElement) {
-                instanceElement.textContent = 'PROD';
-            }
-
-            const instanceElementMini = document.getElementById('current-instance-display-mini');
-            if (instanceElementMini) {
-                instanceElementMini.textContent = '';
-            }
-
-            // Reset checkmarks to PROD
-            updateInstanceCheckmarks('PROD');
+            // Clear localStorage login state (set by login.html)
+            localStorage.removeItem('loggedIn');
+            localStorage.removeItem('loginTime');
 
             // Notify C# WebView to clear session
             if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
@@ -2623,10 +2837,10 @@
                 console.log('[LOGOUT] Logout message sent to C#');
             }
 
-            console.log('[LOGOUT] Logout completed');
+            console.log('[LOGOUT] Logout completed, redirecting to login page...');
 
-            // Show logout confirmation
-            showMessage('Logged out successfully', 'success');
+            // Redirect to login page
+            window.location.href = '../login.html';
         };
 
         // Listen for messages from C# WebView2
@@ -2643,6 +2857,58 @@
 
         // On page load, restore from session storage or URL parameter
         document.addEventListener('DOMContentLoaded', function() {
+            // Check if user is logged in (from localStorage set by login.html or C# WebView)
+            const isLoggedIn = localStorage.getItem('loggedIn');
+            const isInWebView = typeof window.chrome !== 'undefined' && window.chrome.webview;
+
+            if (isLoggedIn !== 'true') {
+                if (isInWebView) {
+                    // In WebView2 - C# will set localStorage and show page via SendUserSessionToWebView
+                    console.log('[LOGIN] In WebView2, waiting for C# to complete login...');
+
+                    // Add timeout - if C# doesn't respond within 5 seconds, show error or redirect
+                    setTimeout(function() {
+                        const stillNotLoggedIn = localStorage.getItem('loggedIn') !== 'true';
+                        const stillHidden = document.body.classList.contains('auth-pending');
+
+                        if (stillNotLoggedIn && stillHidden) {
+                            console.log('[LOGIN] Timeout - C# did not send session within 5 seconds');
+                            console.log('[LOGIN] Redirecting to login page...');
+                            // Remove auth-pending to avoid blank screen, then redirect
+                            document.body.classList.remove('auth-pending');
+                            window.location.href = '../login.html';
+                        }
+                    }, 5000);
+
+                    return; // Don't proceed yet, C# will handle it (or timeout will redirect)
+                } else {
+                    // Not in WebView2 and not logged in - redirect to login
+                    console.log('[LOGIN] User not logged in, redirecting to login page...');
+                    window.location.href = '../login.html';
+                    return;
+                }
+            }
+            console.log('[LOGIN] User is logged in, proceeding...');
+
+            // Show body content now that login is verified
+            document.body.classList.remove('auth-pending');
+            console.log('[AUTH] Login verified, showing page content');
+
+            // Sync login data from localStorage (set by login.html) to sessionStorage
+            const lsUsername = localStorage.getItem('username');
+            const lsInstance = localStorage.getItem('instanceName');
+            const lsLoginTime = localStorage.getItem('loginTime');
+
+            if (lsUsername && !sessionStorage.getItem('loggedInUsername')) {
+                sessionStorage.setItem('loggedInUsername', lsUsername);
+            }
+            if (lsInstance && !sessionStorage.getItem('loggedInInstance')) {
+                sessionStorage.setItem('loggedInInstance', lsInstance);
+            }
+            if (lsLoginTime && !sessionStorage.getItem('loggedInDateTime')) {
+                sessionStorage.setItem('loggedInDateTime', lsLoginTime);
+            }
+
             // Check URL query parameter for instance first
             const urlParams = new URLSearchParams(window.location.search);
             const urlInstance = urlParams.get('instance');

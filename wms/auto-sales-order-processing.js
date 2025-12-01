@@ -420,13 +420,13 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     </span>
                 </div>
                 <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                    <button onclick="soPickReleaseSelected(${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                    <button onclick="soPickReleaseSelected(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                         <i class="fas fa-box-open"></i> Pick Release
                     </button>
-                    <button onclick="soAssignPickerSelected(${tripIndex})" style="background: #8b5cf6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'">
+                    <button onclick="soAssignPickerSelected(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                         <i class="fas fa-user-plus"></i> Assign Picker
                     </button>
-                    <button onclick="soCancelScheduledLinesSelected(${tripIndex})" style="background: #ef4444; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                    <button onclick="soCancelScheduledLinesSelected(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                         <i class="fas fa-ban"></i> Cancel Scheduled Lines
                     </button>
                 </div>
@@ -434,18 +434,18 @@ function renderSOTripTransactions(transactions, tripIndex) {
         </div>
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 0.5rem;">
             <div style="display: flex; gap: 0.5rem;">
-                <button onclick="soSelectAllOrders(${tripIndex})" style="background: #f59e0b; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                <button onclick="soSelectAllOrders(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-check-double"></i> Select All Orders
                 </button>
-                <button onclick="soDeselectAllOrders(${tripIndex})" style="background: #6b7280; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#4b5563'" onmouseout="this.style.background='#6b7280'">
+                <button onclick="soDeselectAllOrders(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-times"></i> Clear Selection
                 </button>
             </div>
             <div style="display: flex; gap: 0.5rem;">
-                <button onclick="expandAllSOOrders(${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                <button onclick="expandAllSOOrders(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-expand-alt"></i> Expand All
                 </button>
-                <button onclick="collapseAllSOOrders(${tripIndex})" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                <button onclick="collapseAllSOOrders(${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-compress-alt"></i> Collapse All
                 </button>
             </div>
@@ -528,10 +528,10 @@ function renderSOTripTransactions(transactions, tripIndex) {
                             </span>
                         </div>
                         <div style="display: flex; gap: 0.4rem; margin-left: auto;">
-                            <button onclick="event.stopPropagation(); soOpenOrderTransactions('${order.source_order}', ${tripIndex}, ${orderIdx})" style="background: #8b5cf6; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed'" onmouseout="this.style.background='#8b5cf6'" title="View Order Transactions">
+                            <button onclick="event.stopPropagation(); soOpenOrderTransactions('${order.source_order}', ${tripIndex}, ${orderIdx})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="View Order Transactions">
                                 <i class="fas fa-edit"></i> Edit
                             </button>
-                            <button onclick="event.stopPropagation(); printSOOrder('${order.source_order}', ${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                            <button onclick="event.stopPropagation(); printSOOrder('${order.source_order}', ${tripIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.3rem 0.6rem; border-radius: 5px; cursor: pointer; font-size: 9px; font-weight: 600; display: flex; align-items: center; gap: 0.2rem; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-print"></i> Print
                             </button>
                         </div>
@@ -604,13 +604,13 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-action-cell-${tripIndex}-${item.originalIndex}">
                         ${itemStatus === 'FAILED' ? `
                             <div style="display: flex; gap: 0.3rem; justify-content: center; flex-wrap: wrap;">
-                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Retry processing">
+                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Retry processing">
                                     <i class="fas fa-redo"></i> Retry
                                 </button>
-                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
+                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Pick Line">
                                     <i class="fas fa-hand-pointer"></i> Pick
                                 </button>
-                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
+                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel Line">
                                     <i class="fas fa-ban"></i> Cancel
                                 </button>
                             </div>
@@ -622,13 +622,13 @@ function renderSOTripTransactions(transactions, tripIndex) {
                             <span style="color: #6b7280; font-size: 10px;"><i class="fas fa-ban"></i> Cancelled</span>
                         ` : `
                             <div style="display: flex; gap: 0.3rem; justify-content: center; flex-wrap: wrap;">
-                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Process Line">
+                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Process Line">
                                     <i class="fas fa-play"></i> Process
                                 </button>
-                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
+                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Pick Line">
                                     <i class="fas fa-hand-pointer"></i> Pick
                                 </button>
-                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
+                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel Line">
                                     <i class="fas fa-ban"></i> Cancel
                                 </button>
                             </div>
@@ -1192,7 +1192,7 @@ function updateSOTransactionStatusInDOM(tripIndex, transactionIndex, status) {
     if (status === 'FAILED') {
         actionCell.innerHTML = `
             <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                <button onclick="processSOSingleLine(${tripIndex}, ${transactionIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                <button onclick="processSOSingleLine(${tripIndex}, ${transactionIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                     <i class="fas fa-redo"></i> Retry
                 </button>
             </div>
@@ -1205,7 +1205,7 @@ function updateSOTransactionStatusInDOM(tripIndex, transactionIndex, status) {
         actionCell.innerHTML = `<span style="color: #6b7280; font-size: 10px;"><i class="fas fa-ban"></i> Cancelled</span>`;
     } else {
         actionCell.innerHTML = `
-            <button onclick="processSOSingleLine(${tripIndex}, ${transactionIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+            <button onclick="processSOSingleLine(${tripIndex}, ${transactionIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                 <i class="fas fa-play"></i> Process
             </button>
         `;
