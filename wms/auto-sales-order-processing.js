@@ -317,10 +317,6 @@ function displaySOGroupedTrips() {
                             <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 700; color: ${trip.trip_priority <= 3 ? '#dc2626' : trip.trip_priority <= 6 ? '#d97706' : '#059669'};">${trip.trip_priority || '-'}</div>
                         </div>
                         <div>
-                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">PICKER</div>
-                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #1e293b; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${trip.picker || ''}">${trip.picker || '-'}</div>
-                        </div>
-                        <div>
                             <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">DATE</div>
                             <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 600; color: #1e293b;">${trip.trip_date ? new Date(trip.trip_date).toLocaleDateString() : '-'}</div>
                         </div>
@@ -389,6 +385,7 @@ function renderSOTripTransactions(transactions, tripIndex) {
             orderGroups[orderNum] = {
                 source_order: orderNum,
                 customer: trx.customer,
+                picker: trx.picker || '',
                 items: [],
                 totalRequestedQty: 0,
                 totalPickedQty: 0,
@@ -414,13 +411,44 @@ function renderSOTripTransactions(transactions, tripIndex) {
     const orders = Object.values(orderGroups);
 
     let html = `
-        <div style="display: flex; justify-content: flex-end; margin-bottom: 1rem; gap: 0.5rem;">
-            <button onclick="expandAllSOOrders(${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
-                <i class="fas fa-expand-alt"></i> Expand All
-            </button>
-            <button onclick="collapseAllSOOrders(${tripIndex})" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
-                <i class="fas fa-compress-alt"></i> Collapse All
-            </button>
+        <!-- Order Actions Toolbar -->
+        <div id="so-order-actions-toolbar-${tripIndex}" style="display: none; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);">
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="color: white; font-size: 12px; font-weight: 600;">
+                        <i class="fas fa-check-square"></i> <span id="so-selected-orders-count-${tripIndex}">0</span> Orders Selected
+                    </span>
+                </div>
+                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                    <button onclick="soPickReleaseSelected(${tripIndex})" style="background: #10b981; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
+                        <i class="fas fa-box-open"></i> Pick Release
+                    </button>
+                    <button onclick="soAssignPickerSelected(${tripIndex})" style="background: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                        <i class="fas fa-user-plus"></i> Assign Picker
+                    </button>
+                    <button onclick="soCancelScheduledLinesSelected(${tripIndex})" style="background: #ef4444; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'">
+                        <i class="fas fa-ban"></i> Cancel Scheduled Lines
+                    </button>
+                    <button onclick="soDeselectAllOrders(${tripIndex})" style="background: rgba(255,255,255,0.2); color: white; border: 1px solid rgba(255,255,255,0.3); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                        <i class="fas fa-times"></i> Clear Selection
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 0.5rem;">
+            <div style="display: flex; gap: 0.5rem;">
+                <button onclick="soSelectAllOrders(${tripIndex})" style="background: #f59e0b; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d97706'" onmouseout="this.style.background='#f59e0b'">
+                    <i class="fas fa-check-double"></i> Select All Orders
+                </button>
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <button onclick="expandAllSOOrders(${tripIndex})" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                    <i class="fas fa-expand-alt"></i> Expand All
+                </button>
+                <button onclick="collapseAllSOOrders(${tripIndex})" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; transition: all 0.2s;">
+                    <i class="fas fa-compress-alt"></i> Collapse All
+                </button>
+            </div>
         </div>
         <div style="display: flex; flex-direction: column; gap: 1rem;">
     `;
@@ -448,10 +476,14 @@ function renderSOTripTransactions(transactions, tripIndex) {
         const orderId = `so-trip-${tripIndex}-order-${orderIdx}`;
 
         html += `
-            <div style="background: white; border: 1px solid #e2e8f0; border-radius: 6px; overflow: hidden;" data-so-order-container="${tripIndex}">
+            <div id="so-order-card-${orderId}" style="background: white; border: 2px solid #e2e8f0; border-radius: 6px; overflow: hidden; transition: all 0.2s;" data-so-order-container="${tripIndex}" data-order-number="${order.source_order}">
                 <!-- Order Header -->
                 <div class="so-order-group-header" onclick="toggleSOOrderDetails('${orderId}')" style="padding: 0.5rem 0.75rem; background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%); cursor: pointer; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s; border-left: 3px solid #667eea;" onmouseover="this.style.background='linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)'" onmouseout="this.style.background='linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)'">
                     <div style="display: flex; gap: 1rem; align-items: center; flex: 1;">
+                        <!-- Checkbox for selection -->
+                        <div onclick="event.stopPropagation();" style="display: flex; align-items: center;">
+                            <input type="checkbox" id="so-order-checkbox-${orderId}" onchange="soToggleOrderSelection('${orderId}', '${order.source_order}', ${tripIndex})" style="width: 18px; height: 18px; cursor: pointer; accent-color: #667eea;">
+                        </div>
                         <div style="display: flex; align-items: center; gap: 0.4rem;">
                             <i class="fas fa-shopping-cart so-order-group-icon" style="color: #667eea; font-size: 14px;"></i>
                             <div>
@@ -465,6 +497,10 @@ function renderSOTripTransactions(transactions, tripIndex) {
                         <div>
                             <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Customer</div>
                             <div class="so-order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #475569; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${order.customer || 'N/A'}">${order.customer || 'N/A'}</div>
+                        </div>
+                        <div>
+                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Picker</div>
+                            <div class="so-order-group-value-sm" style="font-size: 10px; font-weight: 600; color: #7c3aed; max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${order.picker || ''}">${order.picker || '-'}</div>
                         </div>
                         <div>
                             <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Lines</div>
@@ -567,9 +603,15 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-action-cell-${tripIndex}-${item.originalIndex}">
                         ${itemStatus === 'FAILED' ? `
-                            <div style="display: flex; gap: 0.25rem; justify-content: center;">
-                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
-                                    <i class="fas fa-redo"></i> Retry
+                            <div style="display: flex; gap: 0.25rem; justify-content: center; flex-wrap: wrap;">
+                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Retry processing">
+                                    <i class="fas fa-redo"></i>
+                                </button>
+                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
+                                    <i class="fas fa-hand-pointer"></i>
+                                </button>
+                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
+                                    <i class="fas fa-ban"></i>
                                 </button>
                             </div>
                         ` : itemStatus === 'PROCESSING' ? `
@@ -579,9 +621,17 @@ function renderSOTripTransactions(transactions, tripIndex) {
                         ` : itemStatus === 'CANCELLED' ? `
                             <span style="color: #6b7280; font-size: 10px;"><i class="fas fa-ban"></i> Cancelled</span>
                         ` : `
-                            <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'">
-                                <i class="fas fa-play"></i> Process
-                            </button>
+                            <div style="display: flex; gap: 0.25rem; justify-content: center; flex-wrap: wrap;">
+                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Process Line">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
+                                    <i class="fas fa-hand-pointer"></i>
+                                </button>
+                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
+                                    <i class="fas fa-ban"></i>
+                                </button>
+                            </div>
                         `}
                     </td>
                 </tr>
@@ -2099,5 +2149,261 @@ window.startSOTripPrinting = async function() {
 
     console.log(`[SO Trip Print] Printing complete: ${successCount} succeeded, ${failCount} failed`);
 };
+
+// ============================================================================
+// ORDER SELECTION AND ACTION FUNCTIONS
+// ============================================================================
+
+// Track selected orders per trip: Map<tripIndex, Set<orderNumber>>
+let selectedSOOrders = new Map();
+
+// Toggle order selection
+function soToggleOrderSelection(orderId, orderNumber, tripIndex) {
+    if (!selectedSOOrders.has(tripIndex)) {
+        selectedSOOrders.set(tripIndex, new Set());
+    }
+
+    const tripOrders = selectedSOOrders.get(tripIndex);
+    const checkbox = document.getElementById(`so-order-checkbox-${orderId}`);
+    const orderCard = document.getElementById(`so-order-card-${orderId}`);
+
+    if (tripOrders.has(orderNumber)) {
+        // Deselect
+        tripOrders.delete(orderNumber);
+        if (orderCard) {
+            orderCard.style.borderColor = '#e2e8f0';
+            orderCard.style.boxShadow = 'none';
+        }
+    } else {
+        // Select
+        tripOrders.add(orderNumber);
+        if (orderCard) {
+            orderCard.style.borderColor = '#667eea';
+            orderCard.style.boxShadow = '0 0 0 2px rgba(102, 126, 234, 0.2)';
+        }
+    }
+
+    soUpdateOrderSelectionUI(tripIndex);
+}
+
+// Select all orders in a trip
+function soSelectAllOrders(tripIndex) {
+    const containers = document.querySelectorAll(`[data-so-order-container="${tripIndex}"]`);
+
+    if (!selectedSOOrders.has(tripIndex)) {
+        selectedSOOrders.set(tripIndex, new Set());
+    }
+
+    const tripOrders = selectedSOOrders.get(tripIndex);
+
+    containers.forEach(container => {
+        const orderNumber = container.getAttribute('data-order-number');
+        const orderId = container.id.replace('so-order-card-', '');
+        const checkbox = document.getElementById(`so-order-checkbox-${orderId}`);
+
+        if (orderNumber) {
+            tripOrders.add(orderNumber);
+            if (checkbox) checkbox.checked = true;
+            container.style.borderColor = '#667eea';
+            container.style.boxShadow = '0 0 0 2px rgba(102, 126, 234, 0.2)';
+        }
+    });
+
+    soUpdateOrderSelectionUI(tripIndex);
+    addSOLogEntry('Selection', `Selected all orders in trip`, 'info');
+}
+
+// Deselect all orders in a trip
+function soDeselectAllOrders(tripIndex) {
+    const containers = document.querySelectorAll(`[data-so-order-container="${tripIndex}"]`);
+
+    if (selectedSOOrders.has(tripIndex)) {
+        selectedSOOrders.get(tripIndex).clear();
+    }
+
+    containers.forEach(container => {
+        const orderId = container.id.replace('so-order-card-', '');
+        const checkbox = document.getElementById(`so-order-checkbox-${orderId}`);
+
+        if (checkbox) checkbox.checked = false;
+        container.style.borderColor = '#e2e8f0';
+        container.style.boxShadow = 'none';
+    });
+
+    soUpdateOrderSelectionUI(tripIndex);
+    addSOLogEntry('Selection', `Cleared order selection`, 'info');
+}
+
+// Update order selection UI (toolbar visibility and count)
+function soUpdateOrderSelectionUI(tripIndex) {
+    const tripOrders = selectedSOOrders.get(tripIndex) || new Set();
+    const count = tripOrders.size;
+
+    const toolbar = document.getElementById(`so-order-actions-toolbar-${tripIndex}`);
+    const countSpan = document.getElementById(`so-selected-orders-count-${tripIndex}`);
+
+    if (toolbar) {
+        toolbar.style.display = count > 0 ? 'block' : 'none';
+    }
+
+    if (countSpan) {
+        countSpan.textContent = count;
+    }
+}
+
+// Get selected orders for a trip
+function soGetSelectedOrders(tripIndex) {
+    return Array.from(selectedSOOrders.get(tripIndex) || new Set());
+}
+
+// ============================================================================
+// ORDER ACTION BUTTONS (Placeholder functions - API to be provided)
+// ============================================================================
+
+// Pick Release for selected orders
+function soPickReleaseSelected(tripIndex) {
+    const selectedOrders = soGetSelectedOrders(tripIndex);
+
+    if (selectedOrders.length === 0) {
+        alert('No orders selected');
+        return;
+    }
+
+    addSOLogEntry('Pick Release', `Initiating Pick Release for ${selectedOrders.length} orders: ${selectedOrders.join(', ')}`, 'info');
+
+    // TODO: Implement API call when provided
+    // For now, show confirmation
+    if (confirm(`Pick Release ${selectedOrders.length} order(s)?\n\nOrders: ${selectedOrders.join(', ')}`)) {
+        console.log('[SO Actions] Pick Release orders:', selectedOrders);
+        addSOLogEntry('Pick Release', `Pick Release requested for orders: ${selectedOrders.join(', ')}`, 'success');
+        // API call will be added here
+    }
+}
+
+// Assign Picker for selected orders
+function soAssignPickerSelected(tripIndex) {
+    const selectedOrders = soGetSelectedOrders(tripIndex);
+
+    if (selectedOrders.length === 0) {
+        alert('No orders selected');
+        return;
+    }
+
+    addSOLogEntry('Assign Picker', `Opening picker assignment for ${selectedOrders.length} orders`, 'info');
+
+    // Show picker selection modal
+    soShowPickerAssignmentModal(tripIndex, selectedOrders);
+}
+
+// Show Picker Assignment Modal
+function soShowPickerAssignmentModal(tripIndex, selectedOrders) {
+    // Remove existing modal if any
+    const existingModal = document.getElementById('so-picker-assignment-modal');
+    if (existingModal) existingModal.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'so-picker-assignment-modal';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 20000; display: flex; align-items: center; justify-content: center;';
+    modal.innerHTML = `
+        <div style="background: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); max-width: 400px; width: 90%;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3 style="margin: 0; font-size: 1.1rem; color: #1e293b;">
+                    <i class="fas fa-user-plus" style="color: #3b82f6; margin-right: 0.5rem;"></i>
+                    Assign Picker
+                </h3>
+                <button onclick="document.getElementById('so-picker-assignment-modal').remove()" style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b;">&times;</button>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <p style="font-size: 0.9rem; color: #64748b; margin: 0 0 0.5rem 0;">
+                    Assign picker to ${selectedOrders.length} order(s):
+                </p>
+                <p style="font-size: 0.85rem; color: #1e293b; font-weight: 600; margin: 0;">
+                    ${selectedOrders.join(', ')}
+                </p>
+            </div>
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-size: 0.85rem; font-weight: 600; color: #374151; margin-bottom: 0.3rem;">Select Picker:</label>
+                <input type="text" id="so-picker-name-input" placeholder="Enter picker name..." style="width: 100%; padding: 0.6rem; border: 1px solid #d1d5db; border-radius: 6px; font-size: 0.9rem; box-sizing: border-box;">
+            </div>
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                <button onclick="document.getElementById('so-picker-assignment-modal').remove()" style="background: #94a3b8; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    Cancel
+                </button>
+                <button onclick="soConfirmPickerAssignment(${tripIndex}, ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})" style="background: #3b82f6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    <i class="fas fa-check"></i> Assign
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Focus on input
+    document.getElementById('so-picker-name-input').focus();
+}
+
+// Confirm Picker Assignment
+function soConfirmPickerAssignment(tripIndex, selectedOrders) {
+    const pickerName = document.getElementById('so-picker-name-input').value.trim();
+
+    if (!pickerName) {
+        alert('Please enter a picker name');
+        return;
+    }
+
+    console.log('[SO Actions] Assign Picker:', pickerName, 'to orders:', selectedOrders);
+    addSOLogEntry('Assign Picker', `Assigning "${pickerName}" to orders: ${selectedOrders.join(', ')}`, 'success');
+
+    // TODO: Implement API call when provided
+
+    // Close modal
+    document.getElementById('so-picker-assignment-modal').remove();
+
+    // Clear selection
+    soDeselectAllOrders(tripIndex);
+}
+
+// Cancel Scheduled Lines for selected orders
+function soCancelScheduledLinesSelected(tripIndex) {
+    const selectedOrders = soGetSelectedOrders(tripIndex);
+
+    if (selectedOrders.length === 0) {
+        alert('No orders selected');
+        return;
+    }
+
+    addSOLogEntry('Cancel Lines', `Initiating Cancel Scheduled Lines for ${selectedOrders.length} orders`, 'info');
+
+    if (confirm(`Cancel all scheduled lines for ${selectedOrders.length} order(s)?\n\nOrders: ${selectedOrders.join(', ')}\n\nThis action cannot be undone.`)) {
+        console.log('[SO Actions] Cancel Scheduled Lines for orders:', selectedOrders);
+        addSOLogEntry('Cancel Lines', `Cancel Scheduled Lines requested for orders: ${selectedOrders.join(', ')}`, 'warning');
+        // TODO: Implement API call when provided
+    }
+}
+
+// ============================================================================
+// LINE ACTION BUTTONS (Placeholder functions - API to be provided)
+// ============================================================================
+
+// Pick a single line
+function soPickLine(tripIndex, lineIndex, pickSlip, pickSlipLine) {
+    console.log('[SO Actions] Pick Line:', { tripIndex, lineIndex, pickSlip, pickSlipLine });
+    addSOLogEntry('Pick Line', `Picking line: Pick Slip ${pickSlip}, Line ${pickSlipLine}`, 'info');
+
+    if (confirm(`Pick this line?\n\nPick Slip: ${pickSlip}\nLine: ${pickSlipLine}`)) {
+        // TODO: Implement API call when provided
+        addSOLogEntry('Pick Line', `Pick Line requested: ${pickSlip}-${pickSlipLine}`, 'success');
+    }
+}
+
+// Cancel a single line
+function soCancelLine(tripIndex, lineIndex, pickSlip, pickSlipLine) {
+    console.log('[SO Actions] Cancel Line:', { tripIndex, lineIndex, pickSlip, pickSlipLine });
+    addSOLogEntry('Cancel Line', `Cancelling line: Pick Slip ${pickSlip}, Line ${pickSlipLine}`, 'info');
+
+    if (confirm(`Cancel this line?\n\nPick Slip: ${pickSlip}\nLine: ${pickSlipLine}\n\nThis action cannot be undone.`)) {
+        // TODO: Implement API call when provided
+        addSOLogEntry('Cancel Line', `Cancel Line requested: ${pickSlip}-${pickSlipLine}`, 'warning');
+    }
+}
 
 console.log('[Auto SO Processing] Module loaded');
