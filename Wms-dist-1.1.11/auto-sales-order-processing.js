@@ -346,15 +346,11 @@ function displaySOGroupedTrips() {
                         </div>
                         <div>
                             <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">PICK</div>
-                            <span style="display: inline-flex; align-items: center; background: ${tripPickConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 8px; font-weight: 700;">
-                                ${tripPickConfirm}
-                            </span>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 700; color: ${tripPickConfirmColor};">${tripPickConfirm}</div>
                         </div>
                         <div>
                             <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">SHIP</div>
-                            <span style="display: inline-flex; align-items: center; background: ${tripShipConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 8px; font-weight: 700;">
-                                ${tripShipConfirm}
-                            </span>
+                            <div class="so-trip-group-value-sm" style="font-size: 10px; font-weight: 700; color: ${tripShipConfirmColor};">${tripShipConfirm}</div>
                         </div>
                         <div class="so-trip-stats-badges" style="display: flex; gap: 0.3rem;">
                             ${successCount > 0 ? `<span class="so-trip-stats-badge" style="background: #10b981; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${successCount} ✓</span>` : ''}
@@ -568,15 +564,11 @@ function renderSOTripTransactions(transactions, tripIndex) {
                         </div>
                         <div>
                             <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Pick Confirm</div>
-                            <span style="display: inline-flex; align-items: center; background: ${orderPickConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
-                                ${orderPickConfirm}
-                            </span>
+                            <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: ${orderPickConfirmColor};">${orderPickConfirm}</div>
                         </div>
                         <div>
                             <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Ship Confirm</div>
-                            <span style="display: inline-flex; align-items: center; background: ${orderShipConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
-                                ${orderShipConfirm}
-                            </span>
+                            <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: ${orderShipConfirmColor};">${orderShipConfirm}</div>
                         </div>
                         <div>
                             <span class="so-order-stats-badge" style="display: inline-flex; align-items: center; gap: 0.2rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
@@ -649,15 +641,11 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 12px; font-weight: 700; color: #1e293b;">${item.picked_qty || 0}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 10px; color: #475569;">${item.source_subinventory || '-'}</td>
                     <td style="padding: 0.6rem 0.75rem; font-size: 10px; color: #475569;">${item.destination_subinventory || '-'}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
-                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${pickConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
-                            ${item.pick_confirm_st || 'NO'}
-                        </span>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: ${pickConfirmColor};">
+                        ${item.pick_confirm_st || 'NO'}
                     </td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
-                        <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${shipConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
-                            ${item.ship_confirm_st || 'NO'}
-                        </span>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; font-size: 10px; font-weight: 700; color: ${shipConfirmColor};">
+                        ${item.ship_confirm_st || 'NO'}
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-status-cell-${tripIndex}-${item.originalIndex}">
                         <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${itemStatusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
