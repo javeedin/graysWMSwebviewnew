@@ -4938,7 +4938,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ORDER TRANSACTIONS DIALOG (Non-S2V/V2S Orders)
     // ============================================================================
 
-    function openOrderTransactionsDialog(rowData) {
+    window.openOrderTransactionsDialog = function(rowData) {
         console.log('[Order Transactions] Opening dialog for order:', rowData);
 
         const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || '';

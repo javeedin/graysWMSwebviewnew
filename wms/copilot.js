@@ -805,8 +805,44 @@ window.handleTransactionSearch = function(type) {
         }, 300);
 
     } else if (type === 'Order') {
-        // For regular Order search
-        addChatMessage('assistant', `🔍 Order search for: ${transactionNumber}\n\n(Implementation coming soon)`);
+        // For regular Order search, open Order Transactions dialog
+        addChatMessage('assistant', `✅ Opening Order Transactions for: ${transactionNumber}`);
+
+        // Close copilot panel
+        toggleCopilot();
+
+        // Open Order Transactions dialog with the transaction number
+        setTimeout(() => {
+            // Get instance from header dropdown (sessionStorage) or fallback to UI element or localStorage
+            const instanceName = sessionStorage.getItem('loggedInInstance')
+                || document.getElementById('current-instance-display')?.textContent
+                || localStorage.getItem('fusionInstance')
+                || 'PROD';
+
+            console.log('[Co-Pilot Search Order] Instance detection:', {
+                'sessionStorage': sessionStorage.getItem('loggedInInstance'),
+                'UI element': document.getElementById('current-instance-display')?.textContent,
+                'localStorage': localStorage.getItem('fusionInstance'),
+                'Final instanceName': instanceName
+            });
+
+            // Create a rowData object with the transaction number and instance
+            const rowData = {
+                ORDER_NUMBER: transactionNumber,
+                order_number: transactionNumber,
+                ORDER_TYPE: 'Order',
+                order_type: 'Order',
+                instance_name: instanceName,
+                INSTANCE_NAME: instanceName
+            };
+
+            // Call the existing openOrderTransactionsDialog function from app.js
+            if (typeof window.openOrderTransactionsDialog === 'function') {
+                window.openOrderTransactionsDialog(rowData);
+            } else {
+                alert('Order Transactions dialog function not found. Please ensure app.js is loaded.');
+            }
+        }, 300);
     }
 };
 
