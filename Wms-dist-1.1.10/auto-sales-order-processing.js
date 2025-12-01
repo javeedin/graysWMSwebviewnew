@@ -280,6 +280,22 @@ function displaySOGroupedTrips() {
         const cancelledCount = trip.transactions.filter(t => getLineStatus(t) === 'CANCELLED').length;
         const pendingCount = trip.transactions.filter(t => getLineStatus(t) === 'PENDING').length;
 
+        // Calculate Trip-level Pick Confirm status
+        const tripPickConfirmYes = trip.transactions.filter(t => t.pick_confirm_st === 'YES').length;
+        const tripPickConfirmNo = trip.transactions.filter(t => t.pick_confirm_st !== 'YES').length;
+        const tripPickConfirm = tripPickConfirmYes === trip.transactions.length ? 'YES' :
+                                tripPickConfirmNo === trip.transactions.length ? 'NO' : 'Partial';
+        const tripPickConfirmColor = tripPickConfirm === 'YES' ? '#10b981' :
+                                     tripPickConfirm === 'NO' ? '#ef4444' : '#f59e0b';
+
+        // Calculate Trip-level Ship Confirm status
+        const tripShipConfirmYes = trip.transactions.filter(t => t.ship_confirm_st === 'YES').length;
+        const tripShipConfirmNo = trip.transactions.filter(t => t.ship_confirm_st !== 'YES').length;
+        const tripShipConfirm = tripShipConfirmYes === trip.transactions.length ? 'YES' :
+                                tripShipConfirmNo === trip.transactions.length ? 'NO' : 'Partial';
+        const tripShipConfirmColor = tripShipConfirm === 'YES' ? '#10b981' :
+                                     tripShipConfirm === 'NO' ? '#ef4444' : '#f59e0b';
+
         // Check if this trip is selected
         const isSelected = selectedSOTripsForProcessing.has(String(trip.trip_id));
         const selectBtnStyle = isSelected
@@ -327,6 +343,18 @@ function displaySOGroupedTrips() {
                         <div>
                             <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">LINES</div>
                             <div class="so-trip-group-value" style="font-size: 11px; font-weight: 700; color: #667eea;">${trip.transactions.length}</div>
+                        </div>
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">PICK</div>
+                            <span style="display: inline-flex; align-items: center; background: ${tripPickConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 8px; font-weight: 700;">
+                                ${tripPickConfirm}
+                            </span>
+                        </div>
+                        <div>
+                            <div class="so-trip-group-label" style="font-size: 7px; color: #64748b; font-weight: 600;">SHIP</div>
+                            <span style="display: inline-flex; align-items: center; background: ${tripShipConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 8px; font-weight: 700;">
+                                ${tripShipConfirm}
+                            </span>
                         </div>
                         <div class="so-trip-stats-badges" style="display: flex; gap: 0.3rem;">
                             ${successCount > 0 ? `<span class="so-trip-stats-badge" style="background: #10b981; color: white; padding: 2px 5px; border-radius: 4px; font-size: 8px; font-weight: 700;">${successCount} ✓</span>` : ''}
@@ -473,6 +501,22 @@ function renderSOTripTransactions(transactions, tripIndex) {
                           orderStatus === 'FAILED' ? 'times-circle' :
                           'clock';
 
+        // Calculate Pick Confirm status for order
+        const pickConfirmYes = order.items.filter(i => i.pick_confirm_st === 'YES').length;
+        const pickConfirmNo = order.items.filter(i => i.pick_confirm_st !== 'YES').length;
+        const orderPickConfirm = pickConfirmYes === order.items.length ? 'YES' :
+                                 pickConfirmNo === order.items.length ? 'NO' : 'Partial';
+        const orderPickConfirmColor = orderPickConfirm === 'YES' ? '#10b981' :
+                                      orderPickConfirm === 'NO' ? '#ef4444' : '#f59e0b';
+
+        // Calculate Ship Confirm status for order
+        const shipConfirmYes = order.items.filter(i => i.ship_confirm_st === 'YES').length;
+        const shipConfirmNo = order.items.filter(i => i.ship_confirm_st !== 'YES').length;
+        const orderShipConfirm = shipConfirmYes === order.items.length ? 'YES' :
+                                 shipConfirmNo === order.items.length ? 'NO' : 'Partial';
+        const orderShipConfirmColor = orderShipConfirm === 'YES' ? '#10b981' :
+                                      orderShipConfirm === 'NO' ? '#ef4444' : '#f59e0b';
+
         const orderId = `so-trip-${tripIndex}-order-${orderIdx}`;
 
         html += `
@@ -521,6 +565,18 @@ function renderSOTripTransactions(transactions, tripIndex) {
                         <div>
                             <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Picked Qty</div>
                             <div class="so-order-group-value-sm" style="font-size: 11px; font-weight: 700; color: #667eea;">${order.totalPickedQty}</div>
+                        </div>
+                        <div>
+                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Pick Confirm</div>
+                            <span style="display: inline-flex; align-items: center; background: ${orderPickConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+                                ${orderPickConfirm}
+                            </span>
+                        </div>
+                        <div>
+                            <div class="so-order-group-label" style="font-size: 8px; color: #64748b; font-weight: 600; text-transform: uppercase;">Ship Confirm</div>
+                            <span style="display: inline-flex; align-items: center; background: ${orderShipConfirmColor}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 9px; font-weight: 700;">
+                                ${orderShipConfirm}
+                            </span>
                         </div>
                         <div>
                             <span class="so-order-stats-badge" style="display: inline-flex; align-items: center; gap: 0.2rem; background: ${statusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
