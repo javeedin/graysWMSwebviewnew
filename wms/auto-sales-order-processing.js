@@ -603,15 +603,15 @@ function renderSOTripTransactions(transactions, tripIndex) {
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="so-action-cell-${tripIndex}-${item.originalIndex}">
                         ${itemStatus === 'FAILED' ? `
-                            <div style="display: flex; gap: 0.25rem; justify-content: center; flex-wrap: wrap;">
-                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Retry processing">
-                                    <i class="fas fa-redo"></i>
+                            <div style="display: flex; gap: 0.3rem; justify-content: center; flex-wrap: wrap;">
+                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Retry processing">
+                                    <i class="fas fa-redo"></i> Retry
                                 </button>
-                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
-                                    <i class="fas fa-hand-pointer"></i>
+                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
+                                    <i class="fas fa-hand-pointer"></i> Pick
                                 </button>
-                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
-                                    <i class="fas fa-ban"></i>
+                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
+                                    <i class="fas fa-ban"></i> Cancel
                                 </button>
                             </div>
                         ` : itemStatus === 'PROCESSING' ? `
@@ -621,15 +621,15 @@ function renderSOTripTransactions(transactions, tripIndex) {
                         ` : itemStatus === 'CANCELLED' ? `
                             <span style="color: #6b7280; font-size: 10px;"><i class="fas fa-ban"></i> Cancelled</span>
                         ` : `
-                            <div style="display: flex; gap: 0.25rem; justify-content: center; flex-wrap: wrap;">
-                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Process Line">
-                                    <i class="fas fa-play"></i>
+                            <div style="display: flex; gap: 0.3rem; justify-content: center; flex-wrap: wrap;">
+                                <button onclick="processSOSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #10b981; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#059669'" onmouseout="this.style.background='#10b981'" title="Process Line">
+                                    <i class="fas fa-play"></i> Process
                                 </button>
-                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
-                                    <i class="fas fa-hand-pointer"></i>
+                                <button onclick="soPickLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #3b82f6; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'" title="Pick Line">
+                                    <i class="fas fa-hand-pointer"></i> Pick
                                 </button>
-                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
-                                    <i class="fas fa-ban"></i>
+                                <button onclick="soCancelLine(${tripIndex}, ${item.originalIndex}, '${item.pick_slip}', '${item.pick_slip_line}')" style="background: #ef4444; color: white; border: none; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; transition: all 0.2s; display: flex; align-items: center; gap: 3px;" onmouseover="this.style.background='#dc2626'" onmouseout="this.style.background='#ef4444'" title="Cancel Line">
+                                    <i class="fas fa-ban"></i> Cancel
                                 </button>
                             </div>
                         `}
