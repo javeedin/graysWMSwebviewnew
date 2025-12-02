@@ -92,10 +92,39 @@ namespace WMSApp
 
         private void InitializeComponent1()
         {
-            this.Text = "Gray's WMS v1.2.0 - MRA Tabbed Popup | Released 25-Nov-2025 | ✓ GOOD VERSION";
+            // Read version info from version.txt in the application directory
+            string versionInfo = GetVersionInfo();
+            this.Text = $"Gray's WMS | {versionInfo}";
             this.Size = new Size(1200, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(240, 240, 240);
+        }
+
+        /// <summary>
+        /// Reads version info from version.txt in the application startup directory
+        /// Format expected: "YYYY-MM-DD || Comment"
+        /// </summary>
+        private string GetVersionInfo()
+        {
+            try
+            {
+                string versionFilePath = Path.Combine(Application.StartupPath, "version.txt");
+                if (File.Exists(versionFilePath))
+                {
+                    string versionContent = File.ReadAllText(versionFilePath).Trim();
+                    if (!string.IsNullOrEmpty(versionContent))
+                    {
+                        return versionContent;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Version] Error reading version.txt: {ex.Message}");
+            }
+
+            // Default fallback if version.txt doesn't exist or can't be read
+            return "Development Mode";
         }
 
         // Fixed installation path for web files

@@ -7,6 +7,17 @@ echo Gray's WMS Distribution Builder
 echo ========================================
 echo.
 
+REM Prompt for version comment
+set /p VERSION_COMMENT=Enter version comment (e.g., Bug fixes, New feature):
+
+REM Get current date in format YYYY-MM-DD
+for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /format:list') do set datetime=%%I
+set RELEASE_DATE=%datetime:~0,4%-%datetime:~4,2%-%datetime:~6,2%
+
+echo.
+echo Version Info: %RELEASE_DATE% ^|^| %VERSION_COMMENT%
+echo.
+
 set CONFIGURATION=Release
 set OUTPUT_FOLDER=dist
 set RUNTIME=win-x64
@@ -148,16 +159,10 @@ echo Runtime: %RUNTIME% ^(Self-Contained^)
 ) > %OUTPUT_FOLDER%\START_HERE.txt
 echo   - START_HERE.txt
 
-REM Step 7: Create version info
+REM Step 7: Create version info (simple format for C# to read)
 echo Creating version info...
-(
-echo Gray's WMS WebView Application
-echo Build Date: %date% %time%
-echo Configuration: %CONFIGURATION%
-echo Deployment: Self-Contained ^(.NET 8 Runtime Included^)
-echo Runtime: %RUNTIME%
-) > %OUTPUT_FOLDER%\VERSION.txt
-echo   - VERSION.txt
+echo %RELEASE_DATE% ^|^| %VERSION_COMMENT%> %OUTPUT_FOLDER%\version.txt
+echo   - version.txt (Release: %RELEASE_DATE% ^|^| %VERSION_COMMENT%)
 
 REM Step 8: Display summary
 echo.
