@@ -1695,6 +1695,25 @@ document.addEventListener('DOMContentLoaded', function() {
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
+            // Set widths based on column type for better auto-sizing
+            const keyLower = key.toLowerCase();
+            if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
+                col.width = 200;
+                col.minWidth = 120;
+            } else if (keyLower.includes('number') || keyLower.includes('id')) {
+                col.width = 140;
+                col.minWidth = 100;
+            } else if (keyLower.includes('date')) {
+                col.width = 130;
+                col.minWidth = 100;
+            } else if (keyLower.includes('status')) {
+                col.width = 120;
+                col.minWidth = 80;
+            } else {
+                col.width = 110;
+                col.minWidth = 80;
+            }
+
             // ORDER_NUMBER hyperlink - opens dialog similar to All Trip Details
             if (key === 'ORDER_NUMBER' || key === 'order_number') {
                 col.cellTemplate = (container, options) => {
@@ -1726,6 +1745,31 @@ document.addEventListener('DOMContentLoaded', function() {
             return col;
         });
 
+        // Add PICKER column explicitly if not returned by API
+        const hasPickerColumn = columns.some(col =>
+            col.dataField && col.dataField.toLowerCase() === 'picker'
+        );
+        if (!hasPickerColumn) {
+            // Also initialize PICKER field in data if not present
+            trips.forEach(item => {
+                if (!item.PICKER && !item.picker) {
+                    item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                }
+            });
+
+            columns.push({
+                dataField: 'PICKER',
+                caption: 'Picker',
+                minWidth: 150,
+                cellTemplate: function(container, options) {
+                    const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                    const displayText = picker || 'N/A';
+                    const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                    $(container).html(`<span style="${style}">${displayText}</span>`);
+                }
+            });
+        }
+
         try {
             const existingGrid = $(gridContainer).dxDataGrid('instance');
             if (existingGrid) {
@@ -1739,9 +1783,10 @@ document.addEventListener('DOMContentLoaded', function() {
             columns: columns,
             showBorders: true,
             columnAutoWidth: true,
-            columnMinWidth: 50,
+            columnMinWidth: 120,
             width: '100%',
             scrolling: {
+                mode: 'standard',
                 useNative: true,
                 showScrollbar: 'always'
             },
@@ -1760,7 +1805,7 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             allowColumnReordering: true,
             allowColumnResizing: true,
-            columnResizingMode: 'nextColumn',
+            columnResizingMode: 'widget',
             rowAlternationEnabled: true,
             selection: {
                 mode: 'multiple',
@@ -1956,6 +2001,28 @@ document.addEventListener('DOMContentLoaded', function() {
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
 
+            // Set widths based on column type for better display and prevent freezing
+            const keyLower = key.toLowerCase();
+            if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
+                col.width = 180;
+                col.minWidth = 100;
+            } else if (keyLower.includes('number') || keyLower.includes('id')) {
+                col.width = 120;
+                col.minWidth = 80;
+            } else if (keyLower.includes('date')) {
+                col.width = 110;
+                col.minWidth = 90;
+            } else if (keyLower.includes('status')) {
+                col.width = 100;
+                col.minWidth = 80;
+            } else if (keyLower.includes('weight') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
+                col.width = 100;
+                col.minWidth = 70;
+            } else {
+                col.width = 90;
+                col.minWidth = 70;
+            }
+
             // ORDER_NUMBER hyperlink - opens Store Transactions for S2V, Order Details for others
             if (key === 'ORDER_NUMBER' || key === 'order_number') {
                 col.cellTemplate = (container, options) => {
@@ -1999,8 +2066,64 @@ document.addEventListener('DOMContentLoaded', function() {
                 col.alignment = 'right';
             }
 
+            // LOT_COUNT column - bold with yellow warning icon if doesn't match order_lines
+            if (keyLower === 'lot_count') {
+                col.cellTemplate = (container, options) => {
+                    const lotCount = options.value;
+                    const rowData = options.data;
+                    const orderLines = rowData.ORDER_LINES || rowData.order_lines || 0;
+                    const mismatch = lotCount !== orderLines;
+
+                    let html = '';
+                    if (mismatch) {
+                        html = `<span style="display: inline-flex; align-items: center; gap: 4px;">
+                            <i class="fas fa-exclamation-triangle" style="color: #f59e0b; font-size: 12px;" title="Lot count (${lotCount}) doesn't match order lines (${orderLines})"></i>
+                            <span style="font-weight: 700;">${lotCount !== null && lotCount !== undefined ? lotCount : ''}</span>
+                        </span>`;
+                    } else {
+                        html = `<span style="font-weight: 700;">${lotCount !== null && lotCount !== undefined ? lotCount : ''}</span>`;
+                    }
+                    $(container).html(html);
+                };
+                col.alignment = 'center';
+            }
+
+            // ORDER_LINES column - bold styling
+            if (keyLower === 'order_lines') {
+                col.cellTemplate = (container, options) => {
+                    const orderLines = options.value;
+                    $(container).html(`<span style="font-weight: 700;">${orderLines !== null && orderLines !== undefined ? orderLines : ''}</span>`);
+                };
+                col.alignment = 'center';
+            }
+
             return col;
         });
+
+        // Add PICKER column explicitly if not returned by API
+        const hasPickerColumn = columns.some(col =>
+            col.dataField && col.dataField.toLowerCase() === 'picker'
+        );
+        if (!hasPickerColumn) {
+            // Also initialize PICKER field in data if not present
+            tripDetails.forEach(item => {
+                if (!item.PICKER && !item.picker) {
+                    item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                }
+            });
+
+            columns.push({
+                dataField: 'PICKER',
+                caption: 'Picker',
+                minWidth: 150,
+                cellTemplate: function(container, options) {
+                    const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                    const displayText = picker || 'N/A';
+                    const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                    $(container).html(`<span style="${style}">${displayText}</span>`);
+                }
+            });
+        }
 
         // Add Actions column at the beginning with Assign Picker button
         columns.unshift({
@@ -2043,11 +2166,12 @@ document.addEventListener('DOMContentLoaded', function() {
             columns: columns,
             showBorders: true,
             columnAutoWidth: true,
-            columnMinWidth: 50,
+            columnMinWidth: 120,
             width: '100%',
             scrolling: {
+                mode: 'standard',
                 useNative: true,
-                showScrollbar: 'onHover'
+                showScrollbar: 'always'
             },
             filterRow: { visible: true },
             headerFilter: { visible: true },
@@ -2064,9 +2188,8 @@ document.addEventListener('DOMContentLoaded', function() {
             },
             allowColumnReordering: true,
             allowColumnResizing: true,
-            columnResizingMode: 'nextColumn',
+            columnResizingMode: 'widget',
             rowAlternationEnabled: true,
-            loadPanel: { enabled: true },
             columnChooser: {
                 enabled: true,
                 mode: 'select'
@@ -2079,16 +2202,6 @@ document.addEventListener('DOMContentLoaded', function() {
             export: {
                 enabled: true,
                 allowExportSelectedData: true
-            },
-            onContentReady: function(e) {
-                // Auto-fit columns on first load
-                if (!e.component.__columnsAutoFitted) {
-                    e.component.__columnsAutoFitted = true;
-                    // Slight delay to ensure rendering is complete
-                    setTimeout(function() {
-                        e.component.updateDimensions();
-                    }, 100);
-                }
             },
             onExporting: function(e) {
                 const workbook = new ExcelJS.Workbook();
@@ -3274,6 +3387,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 return col;
             });
 
+            // Add PICKER column explicitly if not returned by API
+            const hasPickerColumn = columns.some(col =>
+                col.dataField && col.dataField.toLowerCase() === 'picker'
+            );
+            if (!hasPickerColumn) {
+                // Also initialize PICKER field in data if not present
+                tripData.forEach(item => {
+                    if (!item.PICKER && !item.picker) {
+                        item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                    }
+                });
+
+                columns.push({
+                    dataField: 'PICKER',
+                    caption: 'Picker',
+                    minWidth: 150,
+                    cellTemplate: function(container, options) {
+                        const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                        const displayText = picker || 'N/A';
+                        const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                        $(container).html(`<span style="${style}">${displayText}</span>`);
+                    }
+                });
+            }
+
             // Add Actions column at the beginning
             columns.unshift({
                 caption: 'Actions',
@@ -3607,7 +3745,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
                 const pickerType = picker.picker_type || picker.PICKER_TYPE || picker.type || picker.TYPE || '';
 
-                pickerOptionsHtml += `<option value="${pickerId}">${pickerName}${pickerType ? ' (' + pickerType + ')' : ''}</option>`;
+                pickerOptionsHtml += `<option value="${pickerId}" data-name="${pickerName}">${pickerName}</option>`;
             });
         } else {
             pickerOptionsHtml += '<option value="" disabled>No pickers available</option>';
@@ -3681,7 +3819,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Submit Assign Picker (POST to API via C# backend)
-    window.submitAssignPicker = function(tripId, selectedOrders) {
+    window.submitAssignPicker = async function(tripId, selectedOrders) {
         const pickerSelect = document.getElementById('assign-picker-select');
         const pickerId = pickerSelect.value;
 
@@ -3690,7 +3828,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const pickerName = pickerSelect.options[pickerSelect.selectedIndex].text;
+        const pickerName = pickerSelect.options[pickerSelect.selectedIndex].getAttribute('data-name') || pickerSelect.options[pickerSelect.selectedIndex].text;
 
         console.log('[Assign Picker] Assigning picker:', pickerId, pickerName);
         console.log('[Assign Picker] To orders:', selectedOrders);
@@ -3770,14 +3908,34 @@ document.addEventListener('DOMContentLoaded', function() {
                             // Close dialog
                             closeAssignPickerDialog();
 
-                            // Refresh the grid to show updated picker assignments
+                            // Update grid columns with the new picker name
                             const tabId = `trip-detail-${tripId}`;
                             const gridId = `grid-${tabId}`;
                             const gridContainer = $(`#${gridId}`);
                             if (gridContainer && gridContainer.length > 0) {
                                 const gridInstance = gridContainer.dxDataGrid('instance');
                                 if (gridInstance) {
-                                    gridInstance.refresh();
+                                    // Get the data source and update selected rows with new picker name
+                                    const dataSource = gridInstance.getDataSource();
+                                    const allItems = dataSource.items();
+
+                                    // Update picker name in selected orders
+                                    selectedOrders.forEach(selectedOrder => {
+                                        const orderNum = selectedOrder.SOURCE_ORDER_NUMBER || selectedOrder.source_order_number || selectedOrder.ORDER_NUMBER || selectedOrder.order_number;
+                                        allItems.forEach(item => {
+                                            const itemOrderNum = item.SOURCE_ORDER_NUMBER || item.source_order_number || item.ORDER_NUMBER || item.order_number;
+                                            if (itemOrderNum === orderNum) {
+                                                // Update picker name in the data
+                                                item.PICKER = pickerName;
+                                                item.picker = pickerName;
+                                                item.PICKER_NAME = pickerName;
+                                                item.picker_name = pickerName;
+                                            }
+                                        });
+                                    });
+
+                                    // Repaint grid to show updated picker names
+                                    gridInstance.repaint();
                                 }
                             }
                         } else {
@@ -3822,14 +3980,34 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Close dialog
                     closeAssignPickerDialog();
 
-                    // Refresh the grid
+                    // Update grid columns with the new picker name
                     const tabId = `trip-detail-${tripId}`;
                     const gridId = `grid-${tabId}`;
                     const gridContainer = $(`#${gridId}`);
                     if (gridContainer && gridContainer.length > 0) {
                         const gridInstance = gridContainer.dxDataGrid('instance');
                         if (gridInstance) {
-                            gridInstance.refresh();
+                            // Get the data source and update selected rows with new picker name
+                            const dataSource = gridInstance.getDataSource();
+                            const allItems = dataSource.items();
+
+                            // Update picker name in selected orders
+                            selectedOrders.forEach(selectedOrder => {
+                                const orderNum = selectedOrder.SOURCE_ORDER_NUMBER || selectedOrder.source_order_number || selectedOrder.ORDER_NUMBER || selectedOrder.order_number;
+                                allItems.forEach(item => {
+                                    const itemOrderNum = item.SOURCE_ORDER_NUMBER || item.source_order_number || item.ORDER_NUMBER || item.order_number;
+                                    if (itemOrderNum === orderNum) {
+                                        // Update picker name in the data
+                                        item.PICKER = pickerName;
+                                        item.picker = pickerName;
+                                        item.PICKER_NAME = pickerName;
+                                        item.picker_name = pickerName;
+                                    }
+                                });
+                            });
+
+                            // Repaint grid to show updated picker names
+                            gridInstance.repaint();
                         }
                     }
                 } else {
@@ -4675,12 +4853,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div style="flex: 1; overflow: hidden; position: relative;">
                         <!-- Tab 1: Transaction Details -->
                         <div id="store-trans-transaction-details" class="store-trans-tab-content active" style="height: 100%; overflow: auto; padding: 1rem;">
-                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                 <button class="btn btn-secondary" onclick="refreshTransactionDetails('${orderNumber}')">
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
                                 <button class="btn btn-primary" onclick="fetchLotDetails('${orderNumber}')" id="fetch-lot-btn" style="display: none;">
                                     <i class="fas fa-list"></i> Fetch Lot Details
+                                </button>
+                                <button class="btn btn-danger" onclick="cancelSelectedTransactionLines('${orderNumber}')" id="cancel-selected-lines-btn" style="display: none; background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db;">
+                                    <i class="fas fa-ban"></i> Cancel Selected Lines
                                 </button>
                             </div>
                             <div id="transaction-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
@@ -4771,7 +4952,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ORDER TRANSACTIONS DIALOG (Non-S2V/V2S Orders)
     // ============================================================================
 
-    function openOrderTransactionsDialog(rowData) {
+    window.openOrderTransactionsDialog = function(rowData) {
         console.log('[Order Transactions] Opening dialog for order:', rowData);
 
         const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || '';
@@ -5707,7 +5888,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         width: 'auto'
                     }));
 
-                    // Initialize DevExpress DataGrid
+                    // Initialize DevExpress DataGrid with checkbox selection
                     transactionDetailsGrid = $('#transaction-details-grid').dxDataGrid({
                         dataSource: response.items,
                         showBorders: true,
@@ -5719,6 +5900,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         allowColumnResizing: true,
                         wordWrapEnabled: false,
                         hoverStateEnabled: true,
+                        selection: {
+                            mode: 'multiple',
+                            showCheckBoxesMode: 'always',
+                            allowSelectAll: true
+                        },
                         scrolling: {
                             mode: 'standard',
                             columnRenderingMode: 'virtual',
@@ -5759,7 +5945,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         },
                         export: {
                             enabled: true,
-                            allowExportSelectedData: false
+                            allowExportSelectedData: true
                         },
                         onExporting: function(e) {
                             const workbook = new ExcelJS.Workbook();
@@ -5776,6 +5962,15 @@ document.addEventListener('DOMContentLoaded', function() {
                             });
                             e.cancel = true;
                         },
+                        onSelectionChanged: function(e) {
+                            const selectedCount = e.selectedRowsData.length;
+                            console.log('[Store Transactions] Selection changed, selected count:', selectedCount);
+                            // Update button visibility based on selection
+                            const cancelBtn = document.getElementById('cancel-selected-lines-btn');
+                            if (cancelBtn) {
+                                cancelBtn.style.display = selectedCount > 0 ? 'inline-flex' : 'none';
+                            }
+                        },
                         onContentReady: function(e) {
                             console.log('[Store Transactions] Transaction Details Grid loaded, row count:', e.component.totalCount());
                         }
@@ -5783,6 +5978,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     // Show Fetch Lot Details button
                     document.getElementById('fetch-lot-btn').style.display = 'inline-flex';
+                    // Initially hide Cancel Selected Lines button (will show when rows selected)
+                    document.getElementById('cancel-selected-lines-btn').style.display = 'none';
                 } else {
                     gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No data found for this order</p>';
                 }
@@ -5875,6 +6072,240 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Error parsing response: ' + parseError.message);
             }
         });
+    };
+
+    // Cancel Selected Transaction Lines
+    window.cancelSelectedTransactionLines = async function(orderNumber) {
+        console.log('[Store Transactions] Cancel Selected Lines called for order:', orderNumber);
+
+        // Get selected rows from the grid
+        if (!transactionDetailsGrid) {
+            alert('Transaction details grid not loaded');
+            return;
+        }
+
+        const selectedRows = transactionDetailsGrid.getSelectedRowsData();
+        console.log('[Store Transactions] Selected rows:', selectedRows);
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one line to cancel');
+            return;
+        }
+
+        // Filter only PENDING lines (case-insensitive check)
+        const pendingRows = selectedRows.filter(row => {
+            const status = (row.TRANSACTION_STATUS || row.transaction_status || '').toUpperCase();
+            return status === 'PENDING' || status === '' || !status;
+        });
+
+        if (pendingRows.length === 0) {
+            alert('No pending lines selected. Only lines with PENDING status can be cancelled.');
+            return;
+        }
+
+        // Warn if some rows are not pending
+        if (pendingRows.length < selectedRows.length) {
+            const nonPendingCount = selectedRows.length - pendingRows.length;
+            if (!confirm(`${nonPendingCount} line(s) are not in PENDING status and will be skipped.\n\nContinue to cancel ${pendingRows.length} pending line(s)?`)) {
+                return;
+            }
+        } else {
+            if (!confirm(`Are you sure you want to cancel ${pendingRows.length} selected line(s)?`)) {
+                return;
+            }
+        }
+
+        // Show progress modal
+        showCancelLinesProgressModal(pendingRows, orderNumber);
+    };
+
+    // Show Cancel Lines Progress Modal
+    function showCancelLinesProgressModal(lines, orderNumber) {
+        // Remove existing modal if any
+        const existingModal = document.getElementById('cancel-lines-progress-modal');
+        if (existingModal) existingModal.remove();
+
+        const modalHtml = `
+            <div id="cancel-lines-progress-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100000; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; width: 600px; max-height: 80vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;"><i class="fas fa-ban"></i> Cancelling Selected Lines</h3>
+                        <span id="cancel-progress-count" style="font-size: 0.9rem;">0 / ${lines.length}</span>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="margin-bottom: 1rem;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <span style="font-size: 0.85rem; color: #64748b;">Progress</span>
+                                <span id="cancel-progress-percent" style="font-size: 0.85rem; font-weight: 600; color: #667eea;">0%</span>
+                            </div>
+                            <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                                <div id="cancel-progress-bar" style="height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); width: 0%; transition: width 0.3s ease;"></div>
+                            </div>
+                        </div>
+                        <div id="cancel-lines-status" style="max-height: 300px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem;">
+                            ${lines.map((line, idx) => `
+                                <div id="cancel-line-status-${idx}" style="padding: 0.5rem; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 0.75rem;">
+                                    <span id="cancel-line-icon-${idx}" style="width: 20px; text-align: center;">
+                                        <i class="fas fa-clock" style="color: #94a3b8;"></i>
+                                    </span>
+                                    <span style="flex: 1; font-size: 0.85rem;">
+                                        <strong>ID:</strong> ${line.TRANSACTION_ID || line.transaction_id || 'N/A'} |
+                                        <strong>Item:</strong> ${line.ITEM || line.item || 'N/A'}
+                                    </span>
+                                    <span id="cancel-line-result-${idx}" style="font-size: 0.75rem; color: #94a3b8;">Waiting...</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div id="cancel-summary" style="margin-top: 1rem; padding: 0.75rem; background: #f8fafc; border-radius: 8px; display: none;">
+                            <div style="display: flex; gap: 1.5rem; justify-content: center;">
+                                <span style="color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> Success: <span id="cancel-success-count">0</span></span>
+                                <span style="color: #ef4444; font-weight: 600;"><i class="fas fa-times-circle"></i> Failed: <span id="cancel-failed-count">0</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                        <button id="cancel-lines-close-btn" onclick="closeCancelLinesModal('${orderNumber}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 600; display: none;">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Start cancelling lines
+        processCancelLines(lines, orderNumber);
+    }
+
+    // Process Cancel Lines one by one
+    async function processCancelLines(lines, orderNumber) {
+        let successCount = 0;
+        let failedCount = 0;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const transactionId = line.TRANSACTION_ID || line.transaction_id;
+
+            // Update current line status to processing
+            const iconEl = document.getElementById(`cancel-line-icon-${i}`);
+            const resultEl = document.getElementById(`cancel-line-result-${i}`);
+            if (iconEl) iconEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
+            if (resultEl) {
+                resultEl.textContent = 'Cancelling...';
+                resultEl.style.color = '#f59e0b';
+            }
+
+            try {
+                const result = await callCancelLineAPI(transactionId);
+
+                if (result.success) {
+                    successCount++;
+                    if (iconEl) iconEl.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i>';
+                    if (resultEl) {
+                        resultEl.textContent = 'Cancelled';
+                        resultEl.style.color = '#10b981';
+                    }
+                } else {
+                    failedCount++;
+                    if (iconEl) iconEl.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
+                    if (resultEl) {
+                        resultEl.textContent = result.message || 'Failed';
+                        resultEl.style.color = '#ef4444';
+                    }
+                }
+            } catch (error) {
+                failedCount++;
+                if (iconEl) iconEl.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
+                if (resultEl) {
+                    resultEl.textContent = error.message || 'Error';
+                    resultEl.style.color = '#ef4444';
+                }
+            }
+
+            // Update progress
+            const progress = Math.round(((i + 1) / lines.length) * 100);
+            const progressBar = document.getElementById('cancel-progress-bar');
+            const progressPercent = document.getElementById('cancel-progress-percent');
+            const progressCount = document.getElementById('cancel-progress-count');
+
+            if (progressBar) progressBar.style.width = `${progress}%`;
+            if (progressPercent) progressPercent.textContent = `${progress}%`;
+            if (progressCount) progressCount.textContent = `${i + 1} / ${lines.length}`;
+
+            // Small delay between API calls
+            if (i < lines.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        }
+
+        // Show summary and close button
+        const summary = document.getElementById('cancel-summary');
+        const closeBtn = document.getElementById('cancel-lines-close-btn');
+        const successEl = document.getElementById('cancel-success-count');
+        const failedEl = document.getElementById('cancel-failed-count');
+
+        if (summary) summary.style.display = 'block';
+        if (closeBtn) closeBtn.style.display = 'inline-block';
+        if (successEl) successEl.textContent = successCount;
+        if (failedEl) failedEl.textContent = failedCount;
+
+        console.log('[Store Transactions] Cancel complete - Success:', successCount, 'Failed:', failedCount);
+    }
+
+    // Call Cancel Line API
+    function callCancelLineAPI(transactionId) {
+        return new Promise((resolve, reject) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/${transactionId}`;
+
+            console.log('[Store Transactions] Calling cancel API for transaction:', transactionId);
+
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Store Transactions] Cancel API error:', error);
+                    reject(new Error(error));
+                    return;
+                }
+
+                try {
+                    const response = JSON.parse(data);
+                    console.log('[Store Transactions] Cancel API response:', response);
+
+                    if (response.success || response.status === 'success' || response.message?.toLowerCase().includes('success')) {
+                        resolve({ success: true, message: response.message || 'Cancelled' });
+                    } else {
+                        resolve({ success: false, message: response.message || 'Failed to cancel' });
+                    }
+                } catch (parseError) {
+                    // If response is not JSON, check if it's a success indicator
+                    if (data && (data.toLowerCase().includes('success') || data.toLowerCase().includes('cancelled'))) {
+                        resolve({ success: true, message: 'Cancelled' });
+                    } else {
+                        resolve({ success: false, message: data || 'Unknown error' });
+                    }
+                }
+            });
+        });
+    }
+
+    // Close Cancel Lines Modal
+    window.closeCancelLinesModal = function(orderNumber) {
+        const modal = document.getElementById('cancel-lines-progress-modal');
+        if (modal) modal.remove();
+
+        // Refresh the transaction details grid
+        if (orderNumber) {
+            refreshTransactionDetails(orderNumber);
+        }
+
+        // Clear selection in grid
+        if (transactionDetailsGrid) {
+            transactionDetailsGrid.clearSelection();
+        }
     };
 
     // Refresh Allocated Lots (Tab 3)

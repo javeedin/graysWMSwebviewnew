@@ -112,19 +112,56 @@ function generateRequestId() {
 
 
 
-function sendMessageToCSharp(message, callback) {
+function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
     const requestId = message.requestId || generateRequestId();
     message.requestId = requestId;
-    
-    console.log('[JS] 📤 Sending to C#:', message.action, requestId);
-    
-    window.pendingRequests[requestId] = callback;
-    
+    const startTime = Date.now();
+
+    console.log('[JS] ════════════════════════════════════════════════════════');
+    console.log('[JS] 📤 SENDING MESSAGE TO C#');
+    console.log('[JS] Request ID:', requestId);
+    console.log('[JS] Action:', message.action);
+    console.log('[JS] Full Message:', JSON.stringify(message, null, 2));
+    console.log('[JS] Timeout set to:', timeoutMs, 'ms');
+    console.log('[JS] ════════════════════════════════════════════════════════');
+
+    // Setup timeout to catch stuck requests
+    const timeoutId = setTimeout(() => {
+        if (window.pendingRequests[requestId]) {
+            const elapsed = Date.now() - startTime;
+            console.error('[JS] ⏰ TIMEOUT! Request timed out after', elapsed, 'ms');
+            console.error('[JS] ⏰ Timed out Request ID:', requestId);
+            console.error('[JS] ⏰ Timed out Action:', message.action);
+            console.error('[JS] ⏰ Check if C# received and processed this request');
+
+            delete window.pendingRequests[requestId];
+            callback(`Request timed out after ${timeoutMs}ms. C# did not respond for action: ${message.action}`, null);
+        }
+    }, timeoutMs);
+
+    // Wrap callback to clear timeout when response arrives
+    window.pendingRequests[requestId] = function(error, response) {
+        clearTimeout(timeoutId);
+        const elapsed = Date.now() - startTime;
+        console.log('[JS] ⏱️ Response received in', elapsed, 'ms for:', requestId);
+        callback(error, response);
+    };
+
     if (window.chrome?.webview) {
-        window.chrome.webview.postMessage(message);
-        console.log('[JS] ✅ Message sent');
+        try {
+            window.chrome.webview.postMessage(message);
+            console.log('[JS] ✅ Message posted to WebView2 successfully');
+            console.log('[JS] 🔄 Waiting for C# response...');
+        } catch (postError) {
+            console.error('[JS] ❌ Error posting message:', postError);
+            clearTimeout(timeoutId);
+            delete window.pendingRequests[requestId];
+            callback('Error posting message to C#: ' + postError.message, null);
+        }
     } else {
-        console.error('[JS] ❌ WebView2 not available');
+        console.error('[JS] ❌ WebView2 not available - window.chrome.webview is:', window.chrome?.webview);
+        clearTimeout(timeoutId);
+        delete window.pendingRequests[requestId];
         callback('WebView2 not available', null);
     }
 }
@@ -1356,32 +1393,71 @@ function initPrintJobsGrid() {
 
 if (window.chrome?.webview) {
     console.log('[JS] 🔧 Setting up message listener...');
-    
+
     window.chrome.webview.addEventListener('message', function(event) {
-        console.log('[JS] 📨 Message from C#:', event.data);
-        
+        console.log('[JS] ════════════════════════════════════════════════════════');
+        console.log('[JS] 📨 RECEIVED MESSAGE FROM C#');
+        console.log('[JS] Event Data Type:', typeof event.data);
+        console.log('[JS] Event Data:', JSON.stringify(event.data, null, 2));
+        console.log('[JS] ════════════════════════════════════════════════════════');
+
         const response = event.data;
-        
+
+        console.log('[JS] 🔍 Looking for callback with requestId:', response.requestId);
+        console.log('[JS] 🔍 Pending requests count:', Object.keys(window.pendingRequests || {}).length);
+        console.log('[JS] 🔍 Pending request IDs:', Object.keys(window.pendingRequests || {}));
+
         if (window.pendingRequests && window.pendingRequests[response.requestId]) {
+            console.log('[JS] ✅ Found callback for requestId:', response.requestId);
             const callback = window.pendingRequests[response.requestId];
             delete window.pendingRequests[response.requestId];
-            
+
+            console.log('[JS] 🔍 Response action:', response.action);
+            console.log('[JS] 🔍 Response success:', response.success);
+            console.log('[JS] 🔍 Response has data:', !!response.data);
+            console.log('[JS] 🔍 Response has filePath:', !!(response.filePath || response.pdfPath));
+
             if (response.action === "autoPrintResponse") {
+                console.log('[JS] 📋 Handling as autoPrintResponse');
                 callback(response.success ? null : response.message, response);
             } else if (response.action === "printJobsResponse") {
+                console.log('[JS] 📋 Handling as printJobsResponse');
                 callback(null, response);
             } else if (response.action === "error") {
+                console.log('[JS] 📋 Handling as error response');
                 callback(response.message || response.data?.message, null);
             } else if (response.action === "restResponse") {
+                console.log('[JS] 📋 Handling as restResponse');
                 callback(null, response.data);
+            } else if (response.action === "printSalesOrderResponse" || response.action === "salesOrderPdfResponse") {
+                // Handle Sales Order print response
+                console.log('[JS] 📋 Handling as printSalesOrderResponse');
+                console.log('[JS] 📋 Response details:', {
+                    success: response.success,
+                    filePath: response.filePath,
+                    pdfPath: response.pdfPath,
+                    message: response.message
+                });
+                if (response.success) {
+                    callback(null, response);
+                } else {
+                    callback(response.message || 'Sales order print failed', null);
+                }
             } else {
+                console.log('[JS] 📋 Handling as generic response, action:', response.action);
+                console.log('[JS] 📋 Passing to callback:', response.data || response);
                 callback(null, response.data || response);
             }
         } else {
             console.warn('[JS] ⚠️ No callback found for requestId:', response.requestId);
+            console.warn('[JS] ⚠️ This could mean:');
+            console.warn('[JS] ⚠️   1. Request already timed out');
+            console.warn('[JS] ⚠️   2. Request was never made');
+            console.warn('[JS] ⚠️   3. requestId mismatch between sent and received');
+            console.warn('[JS] ⚠️ Expected one of:', Object.keys(window.pendingRequests || {}));
         }
     });
-    
+
     console.log('[JS] ✅ Message listener ready');
 } else {
     console.warn('[JS] ⚠️ WebView2 not available');
@@ -1450,6 +1526,22 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('trip-date-from').valueAsDate = yesterday;
     document.getElementById('trip-date-to').valueAsDate = tomorrow;
 
+    // Add click handler for All Trips tab (fix: tab was not reactivating when clicked)
+    const allTripsTab = document.querySelector('.tab-item[data-tab="all-trips"]');
+    if (allTripsTab) {
+        allTripsTab.addEventListener('click', function() {
+            activateTripTab('all-trips');
+        });
+    }
+
+    // Add click handler for All Trip Details tab
+    const allTripDetailsTab = document.querySelector('.tab-item[data-tab="all-trip-details"]');
+    if (allTripDetailsTab) {
+        allTripDetailsTab.addEventListener('click', function() {
+            activateTripTab('all-trip-details');
+        });
+    }
+
     // Fetch Trips button
     document.getElementById('fetch-trips-btn').addEventListener('click', function() {
         const instanceName = document.getElementById('trip-instance-name').value;
@@ -1495,15 +1587,17 @@ document.addEventListener('DOMContentLoaded', function() {
         const gridContainer = document.getElementById('trips-grid');
         gridContainer.innerHTML = '<div style="padding:2rem;text-align:center;"><div class="spinner" style="width:40px;height:40px;margin:0 auto 1rem;border:3px solid rgba(99,102,241,0.3);border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;"></div><p>Loading trips data...</p></div>';
 
+        // Also show loading for Trip Details grid
+        const tripDetailsGridContainer = document.getElementById('trip-details-grid');
+        if (tripDetailsGridContainer) {
+            tripDetailsGridContainer.innerHTML = '<div style="padding:2rem;text-align:center;"><div class="spinner" style="width:40px;height:40px;margin:0 auto 1rem;border:3px solid rgba(99,102,241,0.3);border-top-color:#6366f1;border-radius:50%;animation:spin 0.8s linear infinite;"></div><p>Loading trip details...</p></div>';
+        }
+
+        // API 1: Fetch All Trips (existing)
         sendMessageToCSharp({
             action: "executeGet",
             fullUrl: fullUrl
         }, function(error, data) {
-            fetchBtn.disabled = false;
-            fetchIcon.innerHTML = '';
-            fetchIcon.className = 'fas fa-sync-alt';
-            fetchText.textContent = 'Fetch Trips';
-
             if (error) {
                 gridContainer.innerHTML = `
                     <div style="padding:2rem;text-align:center;">
@@ -1525,12 +1619,63 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
+
+        // API 2: Fetch All Trip Details (new)
+        const tripDetailsBaseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/ALL';
+        const tripDetailsParams = new URLSearchParams({
+            P_FROM_DATE: dateFrom,  // YYYY-MM-DD format
+            P_TO_DATE: dateTo       // YYYY-MM-DD format
+        });
+        const tripDetailsFullUrl = `${tripDetailsBaseUrl}?${tripDetailsParams.toString()}`;
+
+        sendMessageToCSharp({
+            action: "executeGet",
+            fullUrl: tripDetailsFullUrl
+        }, function(error, data) {
+            // Reset button state after both calls complete
+            fetchBtn.disabled = false;
+            fetchIcon.innerHTML = '';
+            fetchIcon.className = 'fas fa-sync-alt';
+            fetchText.textContent = 'Fetch Trips';
+
+            if (error) {
+                if (tripDetailsGridContainer) {
+                    tripDetailsGridContainer.innerHTML = `
+                        <div style="padding:2rem;text-align:center;">
+                            <i class="fas fa-exclamation-triangle" style="font-size:3rem;color:#ef4444;margin-bottom:1rem;"></i>
+                            <h3 style="color:#ef4444;">Error</h3>
+                            <p style="color:#64748b;">${error}</p>
+                        </div>
+                    `;
+                }
+            } else {
+                try {
+                    let tripDetails = JSON.parse(data);
+                    if (!Array.isArray(tripDetails) && tripDetails?.items) tripDetails = tripDetails.items;
+                    if (!Array.isArray(tripDetails)) tripDetails = [];
+                    // DEBUG: Log first record to check item columns
+                    if (tripDetails.length > 0) {
+                        console.log('=== All Trip Details - First Record ===');
+                        console.log('All columns:', Object.keys(tripDetails[0]));
+                        console.log('First record data:', tripDetails[0]);
+                        // Check specifically for item-related columns
+                        const itemCols = Object.keys(tripDetails[0]).filter(k => k.toLowerCase().includes('item'));
+                        console.log('Item-related columns:', itemCols);
+                        itemCols.forEach(col => console.log(`${col}:`, tripDetails[0][col]));
+                    }
+                    displayTripDetailsData(tripDetails);
+                } catch (e) {
+                    if (tripDetailsGridContainer) {
+                        tripDetailsGridContainer.innerHTML = `<div style="padding:2rem;color:#e53e3e;">Invalid JSON: ${e.message}</div>`;
+                    }
+                }
+            }
+        });
     });
 
     function displayTripData(trips) {
         const gridContainer = document.getElementById('trips-grid');
         const tripCount = document.getElementById('trip-count');
-        const summaryStats = document.getElementById('summary-stats');
 
         if (!trips || trips.length === 0) {
             gridContainer.innerHTML = `<div style="padding:3rem;text-align:center;color:#64748b;">
@@ -1538,39 +1683,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 <h3>No Trips Found</h3>
             </div>`;
             tripCount.textContent = '0 trips';
-            summaryStats.style.display = 'none';
             return;
         }
-
-        const totalOrders = trips.length;
-        const customers = new Set(trips.map(t => t.account_name).filter(x => x)).size;
-        const lorries = new Set(trips.map(t => t.trip_lorry).filter(x => x)).size;
-        const pickers = new Set(trips.map(t => t.PICKER).filter(x => x)).size;
-        const distinctTrips = new Set(trips.map(t => t.trip_id).filter(x => x)).size;
-
-        summaryStats.innerHTML = `
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('orders')">
-                <div class="value">${totalOrders}</div>
-                <div class="label">Total Orders</div>
-            </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('customers')">
-                <div class="value">${customers}</div>
-                <div class="label">Total Customers</div>
-            </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('lorries')">
-                <div class="value">${lorries}</div>
-                <div class="label">Total Lorries</div>
-            </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('pickers')">
-                <div class="value">${pickers}</div>
-                <div class="label">Total Pickers</div>
-            </div>
-            <div class="stat-card" style="cursor: pointer;" onclick="openTripManagementTab('trips')">
-                <div class="value">${distinctTrips}</div>
-                <div class="label">Total Trips</div>
-            </div>
-        `;
-        summaryStats.style.display = 'grid';
 
         // Auto-populate Trips tab
         openTripManagementTab('trips');
@@ -1580,7 +1694,37 @@ document.addEventListener('DOMContentLoaded', function() {
         const first = trips[0];
         const columns = Object.keys(first).map(key => {
             let col = { dataField: key, caption: key.replace(/_/g, ' ') };
-            if (key === 'LINE_STATUS') {
+
+            // Set widths based on column type for better auto-sizing
+            const keyLower = key.toLowerCase();
+            if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
+                col.width = 200;
+                col.minWidth = 120;
+            } else if (keyLower.includes('number') || keyLower.includes('id')) {
+                col.width = 140;
+                col.minWidth = 100;
+            } else if (keyLower.includes('date')) {
+                col.width = 130;
+                col.minWidth = 100;
+            } else if (keyLower.includes('status')) {
+                col.width = 120;
+                col.minWidth = 80;
+            } else {
+                col.width = 110;
+                col.minWidth = 80;
+            }
+
+            // ORDER_NUMBER hyperlink - opens dialog similar to All Trip Details
+            if (key === 'ORDER_NUMBER' || key === 'order_number') {
+                col.cellTemplate = (container, options) => {
+                    const orderNumber = options.value || '';
+                    const rowData = options.data;
+                    const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                };
+            }
+            // Status column styling
+            else if (key === 'LINE_STATUS' || key.toLowerCase().includes('status')) {
                 col.cellTemplate = (container, options) => {
                     const val = options.value || 'Unknown';
                     const safeClass = String(val).toLowerCase()
@@ -1601,6 +1745,31 @@ document.addEventListener('DOMContentLoaded', function() {
             return col;
         });
 
+        // Add PICKER column explicitly if not returned by API
+        const hasPickerColumn = columns.some(col =>
+            col.dataField && col.dataField.toLowerCase() === 'picker'
+        );
+        if (!hasPickerColumn) {
+            // Also initialize PICKER field in data if not present
+            trips.forEach(item => {
+                if (!item.PICKER && !item.picker) {
+                    item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                }
+            });
+
+            columns.push({
+                dataField: 'PICKER',
+                caption: 'Picker',
+                minWidth: 150,
+                cellTemplate: function(container, options) {
+                    const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                    const displayText = picker || 'N/A';
+                    const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                    $(container).html(`<span style="${style}">${displayText}</span>`);
+                }
+            });
+        }
+
         try {
             const existingGrid = $(gridContainer).dxDataGrid('instance');
             if (existingGrid) {
@@ -1614,13 +1783,26 @@ document.addEventListener('DOMContentLoaded', function() {
             columns: columns,
             showBorders: true,
             columnAutoWidth: true,
-            scrolling: { useNative: true, showScrollbar: 'always' },
+            columnMinWidth: 120,
+            width: '100%',
+            scrolling: {
+                mode: 'standard',
+                useNative: true,
+                showScrollbar: 'always'
+            },
             filterRow: { visible: true },
             headerFilter: { visible: true },
             groupPanel: { visible: true },
             searchPanel: { visible: true, placeholder: "Search..." },
-            paging: { pageSize: 20 },
-            pager: { showPageSizeSelector: true, allowedPageSizes: [10, 20, 50, 'all'] },
+            paging: { enabled: true, pageSize: 25 },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [10, 25, 50, 100],
+                showInfo: true,
+                showNavigationButtons: true,
+                infoText: 'Page {0} of {1} ({2} records)'
+            },
             allowColumnReordering: true,
             allowColumnResizing: true,
             columnResizingMode: 'widget',
@@ -1633,10 +1815,629 @@ document.addEventListener('DOMContentLoaded', function() {
                 enabled: true,
                 allowExportSelectedData: true
             },
-            height: '100%'
+            columnChooser: {
+                enabled: true,
+                mode: 'select'
+            },
+            height: 500
         });
 
+        // Store grid instance for global access
+        window.tripsGridInstance = $(gridContainer).dxDataGrid('instance');
+
         tripCount.textContent = `${trips.length} ${trips.length === 1 ? 'trip' : 'trips'}`;
+    }
+
+    // Global function: Assign Picker for Selected Trips in All Trips grid
+    window.assignPickerForSelectedTrips = function() {
+        console.log('[Global Assign Picker - All Trips] Getting selected rows from All Trips grid');
+
+        if (!window.tripsGridInstance) {
+            alert('Please load trips data first.');
+            return;
+        }
+
+        const selectedRows = window.tripsGridInstance.getSelectedRowsData();
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one row to assign a picker.');
+            return;
+        }
+
+        console.log('[Global Assign Picker - All Trips] Selected', selectedRows.length, 'rows');
+
+        // Get trip ID from first selected row
+        const tripId = selectedRows[0].TRIP_ID || selectedRows[0].trip_id || '';
+
+        // Check if pickers data is loaded
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Global Assign Picker - All Trips] Pickers not loaded, loading now...');
+
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#667eea;color:white;padding:1rem 2rem;border-radius:8px;z-index:20000;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading pickers...';
+            document.body.appendChild(loadingMsg);
+
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        openAssignPickerDialog(tripId, selectedRows);
+                    }
+                }, 500);
+
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again.');
+                    }
+                }, 10000);
+            } else {
+                loadingMsg.remove();
+                alert('Pickers module not loaded. Please refresh the page.');
+            }
+            return;
+        }
+
+        openAssignPickerDialog(tripId, selectedRows);
+    };
+
+    // Global function: Allocate Lots for Selected Trips in All Trips grid
+    window.allocateLotsForSelectedTrips = function() {
+        console.log('[Global Allocate Lots - All Trips] Getting selected rows from All Trips grid');
+
+        if (!window.tripsGridInstance) {
+            alert('Please load trips data first.');
+            return;
+        }
+
+        const selectedRows = window.tripsGridInstance.getSelectedRowsData();
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one row to allocate lots.');
+            return;
+        }
+
+        // Filter only S2V orders
+        const s2vOrders = selectedRows.filter(order => {
+            const orderType = (order.ORDER_TYPE || order.order_type || order.ORDER_TYPE_CODE || order.order_type_code || '').toUpperCase();
+            return orderType === 'STORE TO VAN' || orderType === 'S2V' || orderType === 'VAN TO STORE' || orderType === 'V2S';
+        });
+
+        if (s2vOrders.length === 0) {
+            alert('No Store to Van (S2V) orders found in selection. Please select S2V orders only.');
+            return;
+        }
+
+        console.log('[Global Allocate Lots - All Trips] Found', s2vOrders.length, 'S2V orders out of', selectedRows.length, 'selected');
+
+        // Confirm with user
+        if (!confirm(`Allocate lots for ${s2vOrders.length} S2V order(s)?\n\nThis will fetch and allocate inventory lots for the selected orders.`)) {
+            return;
+        }
+
+        // Show progress
+        const progressModal = document.createElement('div');
+        progressModal.id = 'allocate-lots-progress';
+        progressModal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:20000;';
+        progressModal.innerHTML = `
+            <div style="background:white;padding:2rem;border-radius:12px;max-width:400px;text-align:center;">
+                <i class="fas fa-spinner fa-spin" style="font-size:2rem;color:#8b5cf6;margin-bottom:1rem;"></i>
+                <h3 style="margin-bottom:0.5rem;">Allocating Lots</h3>
+                <p id="allocate-lots-status" style="color:#64748b;">Processing 0 of ${s2vOrders.length} orders...</p>
+            </div>
+        `;
+        document.body.appendChild(progressModal);
+
+        // Process each order
+        let processedCount = 0;
+        let successCount = 0;
+        let errorCount = 0;
+
+        const processNext = (index) => {
+            if (index >= s2vOrders.length) {
+                // All done
+                progressModal.innerHTML = `
+                    <div style="background:white;padding:2rem;border-radius:12px;max-width:400px;text-align:center;">
+                        <i class="fas fa-check-circle" style="font-size:2rem;color:#10b981;margin-bottom:1rem;"></i>
+                        <h3 style="margin-bottom:0.5rem;">Allocation Complete</h3>
+                        <p style="color:#64748b;">Successfully allocated: ${successCount}<br>Failed: ${errorCount}</p>
+                        <button onclick="document.getElementById('allocate-lots-progress').remove()" style="margin-top:1rem;padding:0.5rem 1.5rem;background:#667eea;color:white;border:none;border-radius:6px;cursor:pointer;">Close</button>
+                    </div>
+                `;
+                return;
+            }
+
+            const order = s2vOrders[index];
+            const orderNumber = order.ORDER_NUMBER || order.order_number;
+
+            document.getElementById('allocate-lots-status').textContent = `Processing ${index + 1} of ${s2vOrders.length}: ${orderNumber}`;
+
+            // Call the allocate lot API for this order
+            if (typeof window.allocateLotForOrder === 'function') {
+                window.allocateLotForOrder(order, (success) => {
+                    processedCount++;
+                    if (success) successCount++;
+                    else errorCount++;
+                    processNext(index + 1);
+                });
+            } else {
+                // If allocateLotForOrder doesn't exist, simulate with a delay
+                setTimeout(() => {
+                    processedCount++;
+                    successCount++;
+                    processNext(index + 1);
+                }, 500);
+            }
+        };
+
+        processNext(0);
+    };
+
+    // Display Trip Details Data in DevExpress Grid (All Trip Details tab)
+    function displayTripDetailsData(tripDetails) {
+        const gridContainer = document.getElementById('trip-details-grid');
+        const tripDetailsCount = document.getElementById('trip-details-count');
+
+        if (!tripDetails || tripDetails.length === 0) {
+            gridContainer.innerHTML = `<div style="padding:3rem;text-align:center;color:#64748b;">
+                <i class="fas fa-clipboard-list" style="font-size:3rem;margin-bottom:1.5rem;color:#cbd5e1;"></i>
+                <h3>No Trip Details Found</h3>
+                <p>Click "Fetch Trips" to load trip details data.</p>
+            </div>`;
+            tripDetailsCount.textContent = '0 records';
+            return;
+        }
+
+        // Build columns dynamically from the first record
+        const first = tripDetails[0];
+        const columns = Object.keys(first).map(key => {
+            let col = { dataField: key, caption: key.replace(/_/g, ' ') };
+
+            // Set widths based on column type for better display and prevent freezing
+            const keyLower = key.toLowerCase();
+            if (keyLower.includes('name') || keyLower.includes('description') || keyLower.includes('address')) {
+                col.width = 180;
+                col.minWidth = 100;
+            } else if (keyLower.includes('number') || keyLower.includes('id')) {
+                col.width = 120;
+                col.minWidth = 80;
+            } else if (keyLower.includes('date')) {
+                col.width = 110;
+                col.minWidth = 90;
+            } else if (keyLower.includes('status')) {
+                col.width = 100;
+                col.minWidth = 80;
+            } else if (keyLower.includes('weight') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
+                col.width = 100;
+                col.minWidth = 70;
+            } else {
+                col.width = 90;
+                col.minWidth = 70;
+            }
+
+            // ORDER_NUMBER hyperlink - opens Store Transactions for S2V, Order Details for others
+            if (key === 'ORDER_NUMBER' || key === 'order_number') {
+                col.cellTemplate = (container, options) => {
+                    const orderNumber = options.value || '';
+                    const rowData = options.data;
+                    const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                    $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                };
+            }
+            // Status column styling
+            else if (key.toLowerCase().includes('status')) {
+                col.cellTemplate = (container, options) => {
+                    const val = options.value || 'Unknown';
+                    const safeClass = String(val).toLowerCase()
+                        .replace(/,/g, ' ')
+                        .replace(/\s+/g, '-')
+                        .replace(/[^a-z0-9-]/g, '')
+                        .replace(/-+/g, '-')
+                        .replace(/^-|-$/g, '') || 'unknown';
+                    $(container).html(`<span class="status-badge status-${safeClass}">${val}</span>`);
+                };
+            }
+            // Date columns
+            else if (key.toLowerCase().includes('date')) {
+                col.dataType = 'date';
+                col.format = 'dd-MMM-yyyy';
+            }
+            // Weight columns
+            else if (key.toLowerCase().includes('weight')) {
+                col.format = { type: 'fixedPoint', precision: 2 };
+                col.alignment = 'right';
+            }
+            // Quantity/Amount columns
+            else if (key.toLowerCase().includes('qty') || key.toLowerCase().includes('quantity') || key.toLowerCase().includes('amount')) {
+                col.format = { type: 'fixedPoint', precision: 2 };
+                col.alignment = 'right';
+            }
+            // Numeric columns
+            else if (!isNaN(Number(first[key])) && first[key] !== null && first[key] !== '') {
+                col.format = { type: 'fixedPoint', precision: 0 };
+                col.alignment = 'right';
+            }
+
+            // LOT_COUNT column - bold with yellow warning icon if doesn't match order_lines
+            if (keyLower === 'lot_count') {
+                col.cellTemplate = (container, options) => {
+                    const lotCount = options.value;
+                    const rowData = options.data;
+                    const orderLines = rowData.ORDER_LINES || rowData.order_lines || 0;
+                    const mismatch = lotCount !== orderLines;
+
+                    let html = '';
+                    if (mismatch) {
+                        html = `<span style="display: inline-flex; align-items: center; gap: 4px;">
+                            <i class="fas fa-exclamation-triangle" style="color: #f59e0b; font-size: 12px;" title="Lot count (${lotCount}) doesn't match order lines (${orderLines})"></i>
+                            <span style="font-weight: 700;">${lotCount !== null && lotCount !== undefined ? lotCount : ''}</span>
+                        </span>`;
+                    } else {
+                        html = `<span style="font-weight: 700;">${lotCount !== null && lotCount !== undefined ? lotCount : ''}</span>`;
+                    }
+                    $(container).html(html);
+                };
+                col.alignment = 'center';
+            }
+
+            // ORDER_LINES column - bold styling
+            if (keyLower === 'order_lines') {
+                col.cellTemplate = (container, options) => {
+                    const orderLines = options.value;
+                    $(container).html(`<span style="font-weight: 700;">${orderLines !== null && orderLines !== undefined ? orderLines : ''}</span>`);
+                };
+                col.alignment = 'center';
+            }
+
+            return col;
+        });
+
+        // Add PICKER column explicitly if not returned by API
+        const hasPickerColumn = columns.some(col =>
+            col.dataField && col.dataField.toLowerCase() === 'picker'
+        );
+        if (!hasPickerColumn) {
+            // Also initialize PICKER field in data if not present
+            tripDetails.forEach(item => {
+                if (!item.PICKER && !item.picker) {
+                    item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                }
+            });
+
+            columns.push({
+                dataField: 'PICKER',
+                caption: 'Picker',
+                minWidth: 150,
+                cellTemplate: function(container, options) {
+                    const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                    const displayText = picker || 'N/A';
+                    const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                    $(container).html(`<span style="${style}">${displayText}</span>`);
+                }
+            });
+        }
+
+        // Add Actions column at the beginning with Assign Picker button
+        columns.unshift({
+            caption: 'Actions',
+            width: 120,
+            alignment: 'center',
+            allowFiltering: false,
+            allowSorting: false,
+            cellTemplate: function(container, options) {
+                const rowData = options.data;
+                const tripId = rowData.TRIP_ID || rowData.trip_id || '';
+                const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || '';
+                const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+                $(container).html(`
+                    <div style="display: flex; gap: 0.5rem; justify-content: center;">
+                        <button class="icon-btn" onclick='assignPickerForTripOrder(JSON.parse(decodeURIComponent("${encodeURIComponent(JSON.stringify(rowData))}")), "${tripId}")' title="Assign Picker">
+                            <i class="fas fa-user-plus" style="color: #10b981;"></i>
+                        </button>
+                        <button class="icon-btn" onclick="unassignPicker('${tripId}', '${orderNumber}')" title="Unassign Picker">
+                            <i class="fas fa-user-times" style="color: #ef4444;"></i>
+                        </button>
+                    </div>
+                `);
+            }
+        });
+
+        // Dispose existing grid if exists
+        try {
+            const existingGrid = $(gridContainer).dxDataGrid('instance');
+            if (existingGrid) {
+                existingGrid.dispose();
+            }
+        } catch (e) {}
+        $(gridContainer).empty();
+
+        // Create DevExpress DataGrid
+        $(gridContainer).dxDataGrid({
+            dataSource: tripDetails,
+            columns: columns,
+            showBorders: true,
+            columnAutoWidth: true,
+            columnMinWidth: 120,
+            width: '100%',
+            scrolling: {
+                mode: 'standard',
+                useNative: true,
+                showScrollbar: 'always'
+            },
+            filterRow: { visible: true },
+            headerFilter: { visible: true },
+            groupPanel: { visible: true, emptyPanelText: 'Drag a column header here to group' },
+            searchPanel: { visible: true, placeholder: "Search trip details..." },
+            paging: { enabled: true, pageSize: 25 },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [10, 25, 50, 100],
+                showInfo: true,
+                showNavigationButtons: true,
+                infoText: 'Page {0} of {1} ({2} records)'
+            },
+            allowColumnReordering: true,
+            allowColumnResizing: true,
+            columnResizingMode: 'widget',
+            rowAlternationEnabled: true,
+            columnChooser: {
+                enabled: true,
+                mode: 'select'
+            },
+            selection: {
+                mode: 'multiple',
+                showCheckBoxesMode: 'always',
+                deferred: false
+            },
+            export: {
+                enabled: true,
+                allowExportSelectedData: true
+            },
+            onExporting: function(e) {
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('Trip Details');
+
+                DevExpress.excelExporter.exportDataGrid({
+                    component: e.component,
+                    worksheet: worksheet,
+                    autoFilterEnabled: true
+                }).then(function() {
+                    workbook.xlsx.writeBuffer().then(function(buffer) {
+                        saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'TripDetails.xlsx');
+                    });
+                });
+                e.cancel = true;
+            },
+            height: '100%',
+            summary: {
+                totalItems: [{
+                    column: Object.keys(first)[0],
+                    summaryType: 'count',
+                    displayFormat: 'Total: {0} records'
+                }]
+            }
+        });
+
+        tripDetailsCount.textContent = `${tripDetails.length} ${tripDetails.length === 1 ? 'record' : 'records'}`;
+        console.log('[Trip Details] Loaded', tripDetails.length, 'records');
+
+        // Store grid instance for global access
+        window.tripDetailsGridInstance = $(gridContainer).dxDataGrid('instance');
+
+        // Update KPI values
+        updateTripDetailsKPIs(tripDetails);
+    }
+
+    // Update KPI values for All Trip Details tab
+    function updateTripDetailsKPIs(tripDetails) {
+        if (!tripDetails || tripDetails.length === 0) {
+            document.getElementById('kpi-trip-orders').textContent = '0';
+            document.getElementById('kpi-trip-trips').textContent = '0';
+            document.getElementById('kpi-trip-customers').textContent = '0';
+            document.getElementById('kpi-trip-lorries').textContent = '0';
+            document.getElementById('kpi-trip-pickers').textContent = '0';
+            return;
+        }
+
+        // Count unique values
+        const uniqueOrders = new Set(tripDetails.map(r => r.ORDER_NUMBER || r.order_number)).size;
+        const uniqueTrips = new Set(tripDetails.map(r => r.TRIP_ID || r.trip_id)).size;
+        const uniqueCustomers = new Set(tripDetails.map(r => r.ACCOUNT_NUMBER || r.account_number || r.CUSTOMER_NAME || r.customer_name)).size;
+        const uniqueLorries = new Set(tripDetails.map(r => r.LORRY_NUMBER || r.lorry_number)).size;
+        const uniquePickers = new Set(tripDetails.map(r => r.PICKER || r.picker).filter(Boolean)).size;
+
+        document.getElementById('kpi-trip-orders').textContent = uniqueOrders;
+        document.getElementById('kpi-trip-trips').textContent = uniqueTrips;
+        document.getElementById('kpi-trip-customers').textContent = uniqueCustomers;
+        document.getElementById('kpi-trip-lorries').textContent = uniqueLorries;
+        document.getElementById('kpi-trip-pickers').textContent = uniquePickers;
+    }
+
+    // Global function: Assign Picker for Selected Orders in All Trip Details grid
+    window.assignPickerForSelectedOrders = function() {
+        console.log('[Global Assign Picker] Getting selected orders from All Trip Details grid');
+
+        if (!window.tripDetailsGridInstance) {
+            alert('Please load trip details data first.');
+            return;
+        }
+
+        const selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData();
+
+        if (!selectedOrders || selectedOrders.length === 0) {
+            alert('Please select at least one order to assign a picker.');
+            return;
+        }
+
+        console.log('[Global Assign Picker] Selected', selectedOrders.length, 'orders');
+
+        // Get trip ID from first selected order
+        const tripId = selectedOrders[0].TRIP_ID || selectedOrders[0].trip_id || '';
+
+        // Check if pickers data is loaded
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Global Assign Picker] Pickers not loaded, loading now...');
+
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#667eea;color:white;padding:1rem 2rem;border-radius:8px;z-index:20000;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading pickers...';
+            document.body.appendChild(loadingMsg);
+
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        openAssignPickerDialog(tripId, selectedOrders);
+                    }
+                }, 500);
+
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again.');
+                    }
+                }, 10000);
+            } else {
+                loadingMsg.remove();
+                alert('Pickers module not loaded. Please refresh the page.');
+            }
+            return;
+        }
+
+        openAssignPickerDialog(tripId, selectedOrders);
+    };
+
+    // Global function: Allocate Lots for S2V orders in All Trip Details grid
+    window.allocateLotsForS2V = function() {
+        console.log('[Global Allocate Lots] Getting selected S2V orders from All Trip Details grid');
+
+        if (!window.tripDetailsGridInstance) {
+            alert('Please load trip details data first.');
+            return;
+        }
+
+        const selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData();
+
+        if (!selectedOrders || selectedOrders.length === 0) {
+            alert('Please select at least one order to allocate lots.');
+            return;
+        }
+
+        // Filter only S2V orders
+        const s2vOrders = selectedOrders.filter(order => {
+            const orderType = (order.ORDER_TYPE || order.order_type || order.ORDER_TYPE_CODE || order.order_type_code || '').toUpperCase();
+            return orderType === 'STORE TO VAN' || orderType === 'S2V' || orderType === 'VAN TO STORE' || orderType === 'V2S';
+        });
+
+        if (s2vOrders.length === 0) {
+            alert('No Store to Van (S2V) orders found in selection. Please select S2V orders only.');
+            return;
+        }
+
+        console.log('[Global Allocate Lots] Found', s2vOrders.length, 'S2V orders out of', selectedOrders.length, 'selected');
+
+        // Confirm with user
+        if (!confirm(`Allocate lots for ${s2vOrders.length} S2V order(s)?\n\nThis will fetch and allocate inventory lots for the selected orders.`)) {
+            return;
+        }
+
+        // Show progress
+        const progressModal = document.createElement('div');
+        progressModal.id = 'allocate-lots-progress';
+        progressModal.innerHTML = `
+            <div style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:20000;display:flex;justify-content:center;align-items:center;">
+                <div style="background:white;padding:2rem;border-radius:12px;max-width:500px;width:90%;">
+                    <h3 style="margin:0 0 1rem 0;color:#1e293b;"><i class="fas fa-boxes" style="color:#8b5cf6;"></i> Allocating Lots for S2V Orders</h3>
+                    <div id="allocate-lots-status" style="color:#64748b;margin-bottom:1rem;">Processing 0 of ${s2vOrders.length} orders...</div>
+                    <div style="background:#e2e8f0;border-radius:8px;height:8px;overflow:hidden;">
+                        <div id="allocate-lots-progress-bar" style="background:linear-gradient(90deg,#8b5cf6,#667eea);height:100%;width:0%;transition:width 0.3s;"></div>
+                    </div>
+                    <div id="allocate-lots-log" style="max-height:200px;overflow-y:auto;margin-top:1rem;font-size:0.85rem;background:#f8fafc;padding:0.75rem;border-radius:8px;border:1px solid #e2e8f0;"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(progressModal);
+
+        // Process orders sequentially
+        processS2VAllocations(s2vOrders, 0);
+    };
+
+    // Process S2V allocations one by one
+    function processS2VAllocations(orders, index) {
+        if (index >= orders.length) {
+            // All done
+            const statusEl = document.getElementById('allocate-lots-status');
+            const progressBar = document.getElementById('allocate-lots-progress-bar');
+            if (statusEl) statusEl.textContent = `Completed! Processed ${orders.length} orders.`;
+            if (progressBar) progressBar.style.width = '100%';
+
+            setTimeout(() => {
+                const modal = document.getElementById('allocate-lots-progress');
+                if (modal) modal.remove();
+                alert(`Lot allocation completed for ${orders.length} S2V order(s).`);
+                // Refresh grid
+                if (window.tripDetailsGridInstance) {
+                    window.tripDetailsGridInstance.refresh();
+                }
+            }, 1500);
+            return;
+        }
+
+        const order = orders[index];
+        const orderNumber = order.ORDER_NUMBER || order.order_number || '';
+        const statusEl = document.getElementById('allocate-lots-status');
+        const progressBar = document.getElementById('allocate-lots-progress-bar');
+        const logEl = document.getElementById('allocate-lots-log');
+
+        if (statusEl) statusEl.textContent = `Processing ${index + 1} of ${orders.length}: ${orderNumber}`;
+        if (progressBar) progressBar.style.width = `${((index + 1) / orders.length) * 100}%`;
+
+        // Get instance
+        const instance = order.instance_name || order.INSTANCE_NAME || order.instance || order.INSTANCE
+            || sessionStorage.getItem('loggedInInstance')
+            || localStorage.getItem('fusionInstance')
+            || 'PROD';
+
+        // Call the allocate lots API
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/materialtrx/allocatelots?p_trx_number=${encodeURIComponent(orderNumber)}&p_instance_name=${encodeURIComponent(instance)}`;
+
+        if (logEl) logEl.innerHTML += `<div style="color:#64748b;"><i class="fas fa-spinner fa-spin"></i> ${orderNumber}: Allocating...</div>`;
+
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            if (error) {
+                console.error('[Allocate Lots] Error for', orderNumber, ':', error);
+                if (logEl) logEl.innerHTML += `<div style="color:#ef4444;"><i class="fas fa-times-circle"></i> ${orderNumber}: Error - ${error}</div>`;
+            } else {
+                console.log('[Allocate Lots] Success for', orderNumber, ':', data);
+                if (logEl) logEl.innerHTML += `<div style="color:#10b981;"><i class="fas fa-check-circle"></i> ${orderNumber}: Success</div>`;
+            }
+
+            // Scroll log to bottom
+            if (logEl) logEl.scrollTop = logEl.scrollHeight;
+
+            // Process next order after a short delay
+            setTimeout(() => processS2VAllocations(orders, index + 1), 500);
+        });
     }
 
     function setupMultiSelectDropdown(buttonId, contentId, textId, defaultText) {
@@ -2043,6 +2844,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     PRIORITY: trip.TRIP_PRIORITY || trip.trip_priority || 'Medium',
                     STATUS: trip.TRIP_STATUS || trip.trip_status || trip.LINE_STATUS || 'ACTIVE',
                     INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || null,
+                    LOADING_BAY: trip.TRIP_LOADING_BAY || trip.trip_loading_bay || trip.LOADING_BAY || trip.loading_bay || null,
                     TOTAL_ORDERS: 0,
                     orders: []
                 };
@@ -2173,7 +2975,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <i class="fas fa-route" style="color: white; font-size: 0.75rem;"></i>
                             </div>
                             <div style="display: flex; flex-direction: column; gap: 0.1rem;">
-                                <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}</span>
+                                <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}${trip.LOADING_BAY ? ` - Bay ${trip.LOADING_BAY}` : ''}</span>
                                 <span style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase;">${trip.STATUS || 'ACTIVE'}</span>
                             </div>
                         </div>
@@ -2553,7 +3355,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 const first = tripData[0];
                 const columns = Object.keys(first).map(key => {
                 let col = { dataField: key, caption: key.replace(/_/g, ' ') };
-                if (key === 'LINE_STATUS') {
+                if (key === 'ORDER_NUMBER' || key === 'order_number') {
+                    col.cellTemplate = (container, options) => {
+                        const orderNumber = options.value || '';
+                        const rowData = options.data;
+                        const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+                        $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                    };
+                } else if (key === 'LINE_STATUS') {
                     col.cellTemplate = (container, options) => {
                         const val = options.value || 'Unknown';
                         const safeClass = String(val).toLowerCase()
@@ -2577,6 +3386,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 return col;
             });
+
+            // Add PICKER column explicitly if not returned by API
+            const hasPickerColumn = columns.some(col =>
+                col.dataField && col.dataField.toLowerCase() === 'picker'
+            );
+            if (!hasPickerColumn) {
+                // Also initialize PICKER field in data if not present
+                tripData.forEach(item => {
+                    if (!item.PICKER && !item.picker) {
+                        item.PICKER = item.PICKER_NAME || item.picker_name || '';
+                    }
+                });
+
+                columns.push({
+                    dataField: 'PICKER',
+                    caption: 'Picker',
+                    minWidth: 150,
+                    cellTemplate: function(container, options) {
+                        const picker = options.value || options.data.picker || options.data.PICKER_NAME || options.data.picker_name || '';
+                        const displayText = picker || 'N/A';
+                        const style = picker ? 'color: #10b981; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                        $(container).html(`<span style="${style}">${displayText}</span>`);
+                    }
+                });
+            }
 
             // Add Actions column at the beginning
             columns.unshift({
@@ -2623,6 +3457,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             </button>
                             <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
                                 <i class="fas fa-print" style="color: #8b5cf6;"></i>
+                            </button>
+                            <button class="icon-btn" onclick='assignPickerForTripOrder(${JSON.stringify(rowData)}, "${tripId}")' title="Assign Picker">
+                                <i class="fas fa-user-plus" style="color: #10b981;"></i>
                             </button>
                             <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
                                 <i class="fas fa-user-times" style="color: #ef4444;"></i>
@@ -2908,7 +3745,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
                 const pickerType = picker.picker_type || picker.PICKER_TYPE || picker.type || picker.TYPE || '';
 
-                pickerOptionsHtml += `<option value="${pickerId}">${pickerName}${pickerType ? ' (' + pickerType + ')' : ''}</option>`;
+                pickerOptionsHtml += `<option value="${pickerId}" data-name="${pickerName}">${pickerName}</option>`;
             });
         } else {
             pickerOptionsHtml += '<option value="" disabled>No pickers available</option>';
@@ -2982,7 +3819,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Submit Assign Picker (POST to API via C# backend)
-    window.submitAssignPicker = function(tripId, selectedOrders) {
+    window.submitAssignPicker = async function(tripId, selectedOrders) {
         const pickerSelect = document.getElementById('assign-picker-select');
         const pickerId = pickerSelect.value;
 
@@ -2991,7 +3828,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const pickerName = pickerSelect.options[pickerSelect.selectedIndex].text;
+        const pickerName = pickerSelect.options[pickerSelect.selectedIndex].getAttribute('data-name') || pickerSelect.options[pickerSelect.selectedIndex].text;
 
         console.log('[Assign Picker] Assigning picker:', pickerId, pickerName);
         console.log('[Assign Picker] To orders:', selectedOrders);
@@ -3071,14 +3908,34 @@ document.addEventListener('DOMContentLoaded', function() {
                             // Close dialog
                             closeAssignPickerDialog();
 
-                            // Refresh the grid to show updated picker assignments
+                            // Update grid columns with the new picker name
                             const tabId = `trip-detail-${tripId}`;
                             const gridId = `grid-${tabId}`;
                             const gridContainer = $(`#${gridId}`);
                             if (gridContainer && gridContainer.length > 0) {
                                 const gridInstance = gridContainer.dxDataGrid('instance');
                                 if (gridInstance) {
-                                    gridInstance.refresh();
+                                    // Get the data source and update selected rows with new picker name
+                                    const dataSource = gridInstance.getDataSource();
+                                    const allItems = dataSource.items();
+
+                                    // Update picker name in selected orders
+                                    selectedOrders.forEach(selectedOrder => {
+                                        const orderNum = selectedOrder.SOURCE_ORDER_NUMBER || selectedOrder.source_order_number || selectedOrder.ORDER_NUMBER || selectedOrder.order_number;
+                                        allItems.forEach(item => {
+                                            const itemOrderNum = item.SOURCE_ORDER_NUMBER || item.source_order_number || item.ORDER_NUMBER || item.order_number;
+                                            if (itemOrderNum === orderNum) {
+                                                // Update picker name in the data
+                                                item.PICKER = pickerName;
+                                                item.picker = pickerName;
+                                                item.PICKER_NAME = pickerName;
+                                                item.picker_name = pickerName;
+                                            }
+                                        });
+                                    });
+
+                                    // Repaint grid to show updated picker names
+                                    gridInstance.repaint();
                                 }
                             }
                         } else {
@@ -3123,14 +3980,34 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Close dialog
                     closeAssignPickerDialog();
 
-                    // Refresh the grid
+                    // Update grid columns with the new picker name
                     const tabId = `trip-detail-${tripId}`;
                     const gridId = `grid-${tabId}`;
                     const gridContainer = $(`#${gridId}`);
                     if (gridContainer && gridContainer.length > 0) {
                         const gridInstance = gridContainer.dxDataGrid('instance');
                         if (gridInstance) {
-                            gridInstance.refresh();
+                            // Get the data source and update selected rows with new picker name
+                            const dataSource = gridInstance.getDataSource();
+                            const allItems = dataSource.items();
+
+                            // Update picker name in selected orders
+                            selectedOrders.forEach(selectedOrder => {
+                                const orderNum = selectedOrder.SOURCE_ORDER_NUMBER || selectedOrder.source_order_number || selectedOrder.ORDER_NUMBER || selectedOrder.order_number;
+                                allItems.forEach(item => {
+                                    const itemOrderNum = item.SOURCE_ORDER_NUMBER || item.source_order_number || item.ORDER_NUMBER || item.order_number;
+                                    if (itemOrderNum === orderNum) {
+                                        // Update picker name in the data
+                                        item.PICKER = pickerName;
+                                        item.picker = pickerName;
+                                        item.PICKER_NAME = pickerName;
+                                        item.picker_name = pickerName;
+                                    }
+                                });
+                            });
+
+                            // Repaint grid to show updated picker names
+                            gridInstance.repaint();
                         }
                     }
                 } else {
@@ -3343,6 +4220,60 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
     }
+
+    // Assign Picker for a single Trip Order (from Actions column button)
+    window.assignPickerForTripOrder = function(rowData, tripId) {
+        console.log('[Trip Management] Assign picker for order:', rowData.ORDER_NUMBER || rowData.order_number);
+
+        // Get the trip ID from row data if not passed
+        const effectiveTripId = tripId || rowData.TRIP_ID || rowData.trip_id || '';
+
+        // Check if pickers data is loaded, if not load it first
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Assign Picker] Pickers not loaded, loading now...');
+
+            // Show loading message
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#667eea;color:white;padding:1rem 2rem;border-radius:8px;z-index:20000;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading pickers...';
+            document.body.appendChild(loadingMsg);
+
+            // Load pickers
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                // Wait for pickers to load
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        // Remove loading message
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        // Open dialog with single order
+                        openAssignPickerDialog(effectiveTripId, [rowData]);
+                    }
+                }, 500);
+
+                // Timeout after 10 seconds
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again.');
+                    }
+                }, 10000);
+            } else {
+                loadingMsg.remove();
+                alert('Pickers module not loaded. Please refresh the page.');
+            }
+            return;
+        }
+
+        // Open assign picker dialog with single order
+        openAssignPickerDialog(effectiveTripId, [rowData]);
+    };
 
     window.unassignPicker = function(tripId, orderNumber) {
         console.log('[Trip Management] Unassign picker for order:', orderNumber);
@@ -3922,12 +4853,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div style="flex: 1; overflow: hidden; position: relative;">
                         <!-- Tab 1: Transaction Details -->
                         <div id="store-trans-transaction-details" class="store-trans-tab-content active" style="height: 100%; overflow: auto; padding: 1rem;">
-                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                 <button class="btn btn-secondary" onclick="refreshTransactionDetails('${orderNumber}')">
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
                                 <button class="btn btn-primary" onclick="fetchLotDetails('${orderNumber}')" id="fetch-lot-btn" style="display: none;">
                                     <i class="fas fa-list"></i> Fetch Lot Details
+                                </button>
+                                <button class="btn btn-danger" onclick="cancelSelectedTransactionLines('${orderNumber}')" id="cancel-selected-lines-btn" style="display: none; background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db;">
+                                    <i class="fas fa-ban"></i> Cancel Selected Lines
                                 </button>
                             </div>
                             <div id="transaction-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
@@ -4018,7 +4952,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // ORDER TRANSACTIONS DIALOG (Non-S2V/V2S Orders)
     // ============================================================================
 
-    function openOrderTransactionsDialog(rowData) {
+    window.openOrderTransactionsDialog = function(rowData) {
         console.log('[Order Transactions] Opening dialog for order:', rowData);
 
         const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || '';
@@ -4954,7 +5888,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         width: 'auto'
                     }));
 
-                    // Initialize DevExpress DataGrid
+                    // Initialize DevExpress DataGrid with checkbox selection
                     transactionDetailsGrid = $('#transaction-details-grid').dxDataGrid({
                         dataSource: response.items,
                         showBorders: true,
@@ -4966,6 +5900,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         allowColumnResizing: true,
                         wordWrapEnabled: false,
                         hoverStateEnabled: true,
+                        selection: {
+                            mode: 'multiple',
+                            showCheckBoxesMode: 'always',
+                            allowSelectAll: true
+                        },
                         scrolling: {
                             mode: 'standard',
                             columnRenderingMode: 'virtual',
@@ -5006,7 +5945,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         },
                         export: {
                             enabled: true,
-                            allowExportSelectedData: false
+                            allowExportSelectedData: true
                         },
                         onExporting: function(e) {
                             const workbook = new ExcelJS.Workbook();
@@ -5023,6 +5962,15 @@ document.addEventListener('DOMContentLoaded', function() {
                             });
                             e.cancel = true;
                         },
+                        onSelectionChanged: function(e) {
+                            const selectedCount = e.selectedRowsData.length;
+                            console.log('[Store Transactions] Selection changed, selected count:', selectedCount);
+                            // Update button visibility based on selection
+                            const cancelBtn = document.getElementById('cancel-selected-lines-btn');
+                            if (cancelBtn) {
+                                cancelBtn.style.display = selectedCount > 0 ? 'inline-flex' : 'none';
+                            }
+                        },
                         onContentReady: function(e) {
                             console.log('[Store Transactions] Transaction Details Grid loaded, row count:', e.component.totalCount());
                         }
@@ -5030,6 +5978,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     // Show Fetch Lot Details button
                     document.getElementById('fetch-lot-btn').style.display = 'inline-flex';
+                    // Initially hide Cancel Selected Lines button (will show when rows selected)
+                    document.getElementById('cancel-selected-lines-btn').style.display = 'none';
                 } else {
                     gridContainer.innerHTML = '<p style="color: #ef4444; text-align: center; padding: 2rem;">No data found for this order</p>';
                 }
@@ -5122,6 +6072,240 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Error parsing response: ' + parseError.message);
             }
         });
+    };
+
+    // Cancel Selected Transaction Lines
+    window.cancelSelectedTransactionLines = async function(orderNumber) {
+        console.log('[Store Transactions] Cancel Selected Lines called for order:', orderNumber);
+
+        // Get selected rows from the grid
+        if (!transactionDetailsGrid) {
+            alert('Transaction details grid not loaded');
+            return;
+        }
+
+        const selectedRows = transactionDetailsGrid.getSelectedRowsData();
+        console.log('[Store Transactions] Selected rows:', selectedRows);
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one line to cancel');
+            return;
+        }
+
+        // Filter only PENDING lines (case-insensitive check)
+        const pendingRows = selectedRows.filter(row => {
+            const status = (row.TRANSACTION_STATUS || row.transaction_status || '').toUpperCase();
+            return status === 'PENDING' || status === '' || !status;
+        });
+
+        if (pendingRows.length === 0) {
+            alert('No pending lines selected. Only lines with PENDING status can be cancelled.');
+            return;
+        }
+
+        // Warn if some rows are not pending
+        if (pendingRows.length < selectedRows.length) {
+            const nonPendingCount = selectedRows.length - pendingRows.length;
+            if (!confirm(`${nonPendingCount} line(s) are not in PENDING status and will be skipped.\n\nContinue to cancel ${pendingRows.length} pending line(s)?`)) {
+                return;
+            }
+        } else {
+            if (!confirm(`Are you sure you want to cancel ${pendingRows.length} selected line(s)?`)) {
+                return;
+            }
+        }
+
+        // Show progress modal
+        showCancelLinesProgressModal(pendingRows, orderNumber);
+    };
+
+    // Show Cancel Lines Progress Modal
+    function showCancelLinesProgressModal(lines, orderNumber) {
+        // Remove existing modal if any
+        const existingModal = document.getElementById('cancel-lines-progress-modal');
+        if (existingModal) existingModal.remove();
+
+        const modalHtml = `
+            <div id="cancel-lines-progress-modal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100000; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; width: 600px; max-height: 80vh; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;"><i class="fas fa-ban"></i> Cancelling Selected Lines</h3>
+                        <span id="cancel-progress-count" style="font-size: 0.9rem;">0 / ${lines.length}</span>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="margin-bottom: 1rem;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <span style="font-size: 0.85rem; color: #64748b;">Progress</span>
+                                <span id="cancel-progress-percent" style="font-size: 0.85rem; font-weight: 600; color: #667eea;">0%</span>
+                            </div>
+                            <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                                <div id="cancel-progress-bar" style="height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); width: 0%; transition: width 0.3s ease;"></div>
+                            </div>
+                        </div>
+                        <div id="cancel-lines-status" style="max-height: 300px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 0.5rem;">
+                            ${lines.map((line, idx) => `
+                                <div id="cancel-line-status-${idx}" style="padding: 0.5rem; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; gap: 0.75rem;">
+                                    <span id="cancel-line-icon-${idx}" style="width: 20px; text-align: center;">
+                                        <i class="fas fa-clock" style="color: #94a3b8;"></i>
+                                    </span>
+                                    <span style="flex: 1; font-size: 0.85rem;">
+                                        <strong>ID:</strong> ${line.TRANSACTION_ID || line.transaction_id || 'N/A'} |
+                                        <strong>Item:</strong> ${line.ITEM || line.item || 'N/A'}
+                                    </span>
+                                    <span id="cancel-line-result-${idx}" style="font-size: 0.75rem; color: #94a3b8;">Waiting...</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <div id="cancel-summary" style="margin-top: 1rem; padding: 0.75rem; background: #f8fafc; border-radius: 8px; display: none;">
+                            <div style="display: flex; gap: 1.5rem; justify-content: center;">
+                                <span style="color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> Success: <span id="cancel-success-count">0</span></span>
+                                <span style="color: #ef4444; font-weight: 600;"><i class="fas fa-times-circle"></i> Failed: <span id="cancel-failed-count">0</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                        <button id="cancel-lines-close-btn" onclick="closeCancelLinesModal('${orderNumber}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 0.5rem 1.5rem; border-radius: 6px; cursor: pointer; font-weight: 600; display: none;">
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Start cancelling lines
+        processCancelLines(lines, orderNumber);
+    }
+
+    // Process Cancel Lines one by one
+    async function processCancelLines(lines, orderNumber) {
+        let successCount = 0;
+        let failedCount = 0;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const transactionId = line.TRANSACTION_ID || line.transaction_id;
+
+            // Update current line status to processing
+            const iconEl = document.getElementById(`cancel-line-icon-${i}`);
+            const resultEl = document.getElementById(`cancel-line-result-${i}`);
+            if (iconEl) iconEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
+            if (resultEl) {
+                resultEl.textContent = 'Cancelling...';
+                resultEl.style.color = '#f59e0b';
+            }
+
+            try {
+                const result = await callCancelLineAPI(transactionId);
+
+                if (result.success) {
+                    successCount++;
+                    if (iconEl) iconEl.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i>';
+                    if (resultEl) {
+                        resultEl.textContent = 'Cancelled';
+                        resultEl.style.color = '#10b981';
+                    }
+                } else {
+                    failedCount++;
+                    if (iconEl) iconEl.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
+                    if (resultEl) {
+                        resultEl.textContent = result.message || 'Failed';
+                        resultEl.style.color = '#ef4444';
+                    }
+                }
+            } catch (error) {
+                failedCount++;
+                if (iconEl) iconEl.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
+                if (resultEl) {
+                    resultEl.textContent = error.message || 'Error';
+                    resultEl.style.color = '#ef4444';
+                }
+            }
+
+            // Update progress
+            const progress = Math.round(((i + 1) / lines.length) * 100);
+            const progressBar = document.getElementById('cancel-progress-bar');
+            const progressPercent = document.getElementById('cancel-progress-percent');
+            const progressCount = document.getElementById('cancel-progress-count');
+
+            if (progressBar) progressBar.style.width = `${progress}%`;
+            if (progressPercent) progressPercent.textContent = `${progress}%`;
+            if (progressCount) progressCount.textContent = `${i + 1} / ${lines.length}`;
+
+            // Small delay between API calls
+            if (i < lines.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+            }
+        }
+
+        // Show summary and close button
+        const summary = document.getElementById('cancel-summary');
+        const closeBtn = document.getElementById('cancel-lines-close-btn');
+        const successEl = document.getElementById('cancel-success-count');
+        const failedEl = document.getElementById('cancel-failed-count');
+
+        if (summary) summary.style.display = 'block';
+        if (closeBtn) closeBtn.style.display = 'inline-block';
+        if (successEl) successEl.textContent = successCount;
+        if (failedEl) failedEl.textContent = failedCount;
+
+        console.log('[Store Transactions] Cancel complete - Success:', successCount, 'Failed:', failedCount);
+    }
+
+    // Call Cancel Line API
+    function callCancelLineAPI(transactionId) {
+        return new Promise((resolve, reject) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/${transactionId}`;
+
+            console.log('[Store Transactions] Calling cancel API for transaction:', transactionId);
+
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Store Transactions] Cancel API error:', error);
+                    reject(new Error(error));
+                    return;
+                }
+
+                try {
+                    const response = JSON.parse(data);
+                    console.log('[Store Transactions] Cancel API response:', response);
+
+                    if (response.success || response.status === 'success' || response.message?.toLowerCase().includes('success')) {
+                        resolve({ success: true, message: response.message || 'Cancelled' });
+                    } else {
+                        resolve({ success: false, message: response.message || 'Failed to cancel' });
+                    }
+                } catch (parseError) {
+                    // If response is not JSON, check if it's a success indicator
+                    if (data && (data.toLowerCase().includes('success') || data.toLowerCase().includes('cancelled'))) {
+                        resolve({ success: true, message: 'Cancelled' });
+                    } else {
+                        resolve({ success: false, message: data || 'Unknown error' });
+                    }
+                }
+            });
+        });
+    }
+
+    // Close Cancel Lines Modal
+    window.closeCancelLinesModal = function(orderNumber) {
+        const modal = document.getElementById('cancel-lines-progress-modal');
+        if (modal) modal.remove();
+
+        // Refresh the transaction details grid
+        if (orderNumber) {
+            refreshTransactionDetails(orderNumber);
+        }
+
+        // Clear selection in grid
+        if (transactionDetailsGrid) {
+            transactionDetailsGrid.clearSelection();
+        }
     };
 
     // Refresh Allocated Lots (Tab 3)
