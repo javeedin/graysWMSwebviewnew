@@ -325,7 +325,39 @@ if (Test-Path $releaseFile) {
 
 }
 
- 
+
+
+# Step 6b: Update Form1.cs title with new version
+
+Write-Host "[6b/8] Updating Form1.cs title..." -ForegroundColor Green
+
+$form1Path = Join-Path $workingDir "Form1.cs"
+
+if (Test-Path $form1Path) {
+
+    $form1Content = Get-Content $form1Path -Raw
+
+    $releaseDate = Get-Date -Format "dd-MMM-yyyy"
+
+    # Pattern to match the this.Text line with version info
+    $pattern = 'this\.Text\s*=\s*"Gray''s WMS v[\d\.]+ - [^"]*";'
+    $newTitle = "this.Text = `"Gray's WMS v$newVersion - MRA Tabbed Popup | Released $releaseDate | ✓ GOOD VERSION`";"
+
+    if ($form1Content -match $pattern) {
+        $form1Content = $form1Content -replace $pattern, $newTitle
+        Set-Content -Path $form1Path -Value $form1Content -NoNewline
+        Write-Host "  OK Updated Form1.cs title to: Gray's WMS v$newVersion" -ForegroundColor Gray
+    } else {
+        Write-Host "  WARNING: Could not find title pattern in Form1.cs" -ForegroundColor Yellow
+    }
+
+} else {
+
+    Write-Host "  SKIP Form1.cs not found" -ForegroundColor Yellow
+
+}
+
+
 
 # Step 7: Git commit and push
 
@@ -335,7 +367,7 @@ Write-Host "[7/8] Committing to Git..." -ForegroundColor Green
 
 try {
 
-    git add version.json latest-release.json
+    git add version.json latest-release.json Form1.cs
 
     $commitMessage = "Release: WMS v$newVersion - Auto-generated distribution"
 
