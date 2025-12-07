@@ -1,5 +1,5 @@
 {
-    "version":  "1.2.13",
+    "version":  "1.2.14",
     "build_date":  "2025-12-07",
     "files":  {
                   "index.html":  "2025-12-07T14:00:00Z",
@@ -9,7 +9,7 @@
                   "mra-processor.js":  "2025-12-07T12:00:00Z",
                   "trip-details.js":  "2025-12-07T12:00:00Z",
                   "auto-inventory-processing.js":  "2025-12-07T12:00:00Z",
-                  "auto-sales-order-processing.js":  "2025-12-07T15:00:00Z"
+                  "auto-sales-order-processing.js":  "2025-12-07T16:00:00Z"
               },
-    "changelog":  "Enhancement: Batch MRA processing now captures detailed progress logs from C# backend (CheckingMRAStatus, FetchingOrderSummary, FetchingOrderDetails, CreatingMRAInvoice, UpdatingFusionOrder)"
+    "changelog":  "Fix: Batch MRA now uses MRA Interface v2 popup for each order - shows detailed steps and auto-closes on success"
 }

@@ -3089,104 +3089,14 @@ function soOpenOrderTransactions(orderNumber, tripIndex, orderIdx) {
 
 // ============================================================================
 // SO TRIP PRINT - MRA INTERFACE BATCH PROCESSING
+// Uses the original MRA Interface v2 popup for processing
 // ============================================================================
 
-// Store MRA logs per order
+// Store MRA logs per order (copied from popup's mraState.logs)
 let soTripMRALogs = new Map();
 
-// Track current MRA processing request -> orderIndex mapping
-let soTripMRARequestMap = new Map();
-
-// Flag to track if message listener is registered
-let soTripMRAListenerRegistered = false;
-
 /**
- * Register WebView2 message listener for MRA progress events
- */
-function registerSOTripMRAMessageListener() {
-    if (soTripMRAListenerRegistered) return;
-
-    if (window.chrome?.webview) {
-        window.chrome.webview.addEventListener('message', function(event) {
-            const data = event.data;
-
-            // Only handle MRA-related messages
-            if (!data.action) return;
-
-            // Find order index from requestId
-            let orderIndex = -1;
-            if (data.requestId && soTripMRARequestMap.has(data.requestId)) {
-                orderIndex = soTripMRARequestMap.get(data.requestId);
-            }
-
-            // Route progress messages to the correct order's log
-            if (data.action === 'mraProcessingProgress' && orderIndex >= 0) {
-                addSOTripMRALog(orderIndex, `[${data.step}] ${data.message}`, 'info');
-            } else if (data.action === 'mraOrderData' && orderIndex >= 0) {
-                addSOTripMRALog(orderIndex, 'Received order data from Fusion', 'info');
-            } else if (data.action === 'mraRequestData' && orderIndex >= 0) {
-                addSOTripMRALog(orderIndex, `MRA Endpoint: ${data.endpoint}`, 'info');
-            } else if (data.action === 'mraResponseData' && orderIndex >= 0) {
-                addSOTripMRALog(orderIndex, `MRA Response received - Success: ${data.success}`, data.success ? 'success' : 'error');
-            }
-            // Note: processMRAInterfaceResponse is handled by the pendingRequests callback
-        });
-
-        soTripMRAListenerRegistered = true;
-        console.log('[SO Trip MRA] Message listener registered');
-    }
-}
-
-/**
- * Fetch Fusion credentials for batch MRA processing
- */
-function fetchFusionCredentialsForSOTripMRA() {
-    return new Promise((resolve, reject) => {
-        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
-
-        console.log('[SO Trip MRA] Fetching credentials from:', credentialsUrl);
-
-        if (typeof sendMessageToCSharp !== 'function') {
-            reject(new Error('sendMessageToCSharp function not available'));
-            return;
-        }
-
-        sendMessageToCSharp({
-            action: "executeGet",
-            fullUrl: credentialsUrl
-        }, function(error, data) {
-            if (error) {
-                console.error('[SO Trip MRA] API call failed:', error);
-                reject(new Error(error));
-                return;
-            }
-
-            try {
-                const response = JSON.parse(data);
-                console.log('[SO Trip MRA] API returned', response.items ? response.items.length : 0, 'items');
-
-                if (response.items && response.items.length > 0) {
-                    const username = response.items[0].user_name || '';
-                    const password = response.items[0].passwordd || '';
-
-                    window.F_username = username;
-                    window.F_password = password;
-
-                    console.log('[SO Trip MRA] Using Fusion Service Account:', username);
-                    resolve({ username, password });
-                } else {
-                    reject(new Error('No credentials found in API response'));
-                }
-            } catch (parseError) {
-                console.error('[SO Trip MRA] Failed to parse credentials:', parseError);
-                reject(parseError);
-            }
-        });
-    });
-}
-
-/**
- * Add MRA log entry for an order
+ * Add MRA log entry for an order (used during popup processing)
  */
 function addSOTripMRALog(orderIndex, message, type = 'info') {
     if (!currentSOTripPrintData || !currentSOTripPrintData.orders) return;
@@ -3206,6 +3116,7 @@ function addSOTripMRALog(orderIndex, message, type = 'info') {
 
 /**
  * Start MRA Interface processing for all orders in SO Trip
+ * Opens the MRA Interface v2 popup for each order sequentially
  */
 window.startSOTripMRAInterface = async function() {
     if (!currentSOTripPrintData || !currentSOTripPrintData.orders) {
@@ -3213,31 +3124,11 @@ window.startSOTripMRAInterface = async function() {
         return;
     }
 
-    // Register message listener for progress events
-    registerSOTripMRAMessageListener();
-
     console.log('[SO Trip MRA] Starting batch MRA processing for', currentSOTripPrintData.orders.length, 'orders');
     addSOLogEntry('MRA', `Starting MRA Interface for ${currentSOTripPrintData.orders.length} orders`, 'info');
 
-    // Clear previous logs and request mappings
+    // Clear previous logs
     soTripMRALogs.clear();
-    soTripMRARequestMap.clear();
-
-    // Get Fusion credentials
-    let fusionUsername = window.F_username;
-    let fusionPassword = window.F_password;
-
-    if (!fusionUsername || !fusionPassword) {
-        try {
-            const credentials = await fetchFusionCredentialsForSOTripMRA();
-            fusionUsername = credentials.username;
-            fusionPassword = credentials.password;
-        } catch (error) {
-            console.error('[SO Trip MRA] Failed to fetch credentials:', error);
-            alert('Failed to fetch Fusion credentials: ' + error.message);
-            return;
-        }
-    }
 
     // Update status
     document.getElementById('so-trip-print-status').textContent = 'MRA Processing...';
@@ -3247,86 +3138,46 @@ window.startSOTripMRAInterface = async function() {
     const mraBtn = document.getElementById('so-trip-print-mra-btn');
     if (mraBtn) mraBtn.disabled = true;
 
+    const resolvedInstance = currentSOTripPrintData.instanceName ||
+                            localStorage.getItem('fusionInstance') ||
+                            localStorage.getItem('instanceName') ||
+                            'PROD';
+
     let successCount = 0;
     let failCount = 0;
 
-    // Process each order
+    // Process each order using the original MRA Interface v2 popup
     for (let i = 0; i < currentSOTripPrintData.orders.length; i++) {
         const order = currentSOTripPrintData.orders[i];
 
         console.log(`[SO Trip MRA] Processing ${i + 1}/${currentSOTripPrintData.orders.length}: ${order.orderNumber}`);
-        addSOTripMRALog(i, `Starting MRA processing for order: ${order.orderNumber}`, 'info');
+        addSOTripMRALog(i, `Opening MRA Interface v2 popup for order: ${order.orderNumber}`, 'info');
 
         // Update status
         order.mraStatus = 'PROCESSING';
         renderSOTripPrintOrders();
 
         try {
-            addSOTripMRALog(i, `Using Fusion service account: ${fusionUsername}`, 'info');
+            // Check if openMRAProcessingPopup function exists (from mra-processor.js)
+            if (typeof openMRAProcessingPopup !== 'function') {
+                throw new Error('MRA processor not loaded. Please ensure mra-processor.js is included.');
+            }
 
-            const resolvedInstance = currentSOTripPrintData.instanceName ||
-                                    localStorage.getItem('fusionInstance') ||
-                                    localStorage.getItem('instanceName') ||
-                                    'PROD';
+            // Open the MRA Interface v2 popup and wait for completion
+            const result = await openMRAProcessingPopupAndWait(order.orderNumber, resolvedInstance, i);
 
-            addSOTripMRALog(i, `Instance: ${resolvedInstance}`, 'info');
-            addSOTripMRALog(i, `Credentials Source: fusionuserdetails API`, 'info');
-
-            const requestId = Date.now().toString() + '_batch_' + i;
-
-            // Map requestId to orderIndex for progress tracking
-            soTripMRARequestMap.set(requestId, i);
-
-            // Send request to C#
-            const result = await new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    soTripMRARequestMap.delete(requestId);
-                    reject(new Error('MRA processing timeout (2 minutes)'));
-                }, 120000); // 2 minute timeout
-
-                window.pendingRequests = window.pendingRequests || {};
-                window.pendingRequests[requestId] = (error, data) => {
-                    clearTimeout(timeout);
-                    soTripMRARequestMap.delete(requestId);
-                    if (error) {
-                        reject(new Error(error));
-                    } else {
-                        resolve(data);
-                    }
-                };
-
-                const message = {
-                    action: 'processMRAInterface',
-                    requestId: requestId,
-                    orderNumber: order.orderNumber,
-                    fusionUsername: fusionUsername,
-                    fusionPassword: fusionPassword,
-                    instance: resolvedInstance
-                };
-
-                addSOTripMRALog(i, 'Sending request to C# backend...', 'info');
-
-                if (window.chrome?.webview) {
-                    window.chrome.webview.postMessage(message);
-                } else {
-                    clearTimeout(timeout);
-                    soTripMRARequestMap.delete(requestId);
-                    reject(new Error('WebView2 not available'));
-                }
-            });
-
-            if (result && result.success) {
+            if (result.success) {
                 order.mraStatus = 'SUCCESS';
                 order.irnCode = result.irnCode;
-                order.qrCode = result.qrCodeBase64;
+                order.qrCode = result.qrCode;
                 successCount++;
-                addSOTripMRALog(i, `Final result: SUCCESS - ${result.message || 'MRA interface completed successfully'}`, 'success');
+                addSOTripMRALog(i, `Final result: SUCCESS - ${result.message || 'MRA interface completed'}`, 'success');
                 if (result.irnCode) {
                     addSOTripMRALog(i, `IRN Code: ${result.irnCode}`, 'success');
                 }
                 addSOLogEntry('MRA', `Success: ${order.orderNumber}`, 'success');
             } else {
-                throw new Error(result?.message || 'MRA processing failed');
+                throw new Error(result.message || 'MRA processing failed');
             }
 
         } catch (error) {
@@ -3342,7 +3193,7 @@ window.startSOTripMRAInterface = async function() {
 
         // Add delay between orders
         if (i < currentSOTripPrintData.orders.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 1500));
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
     }
 
@@ -3365,7 +3216,92 @@ window.startSOTripMRAInterface = async function() {
 };
 
 /**
- * Retry MRA for a single order
+ * Open MRA Processing Popup and wait for completion
+ * This wraps the original openMRAProcessingPopup to return a promise
+ */
+async function openMRAProcessingPopupAndWait(orderNumber, instance, orderIndex) {
+    return new Promise((resolve, reject) => {
+        // Store the original close handler
+        const originalCloseHandler = window.closeMRAPopup;
+
+        // Track result
+        let mraResult = { success: false, message: 'Popup closed without completing' };
+
+        // Override close handler to capture result
+        window.closeMRAPopup = function() {
+            // Get result from mraState if available
+            if (window.mraState) {
+                if (window.mraState.irnCode) {
+                    mraResult = {
+                        success: true,
+                        message: 'MRA interface completed successfully',
+                        irnCode: window.mraState.irnCode,
+                        qrCode: window.mraState.qrCode
+                    };
+                }
+            }
+
+            // Remove the overlay
+            const overlay = document.getElementById('mra-processing-overlay');
+            if (overlay) {
+                overlay.remove();
+            }
+
+            // Restore original handler
+            window.closeMRAPopup = originalCloseHandler;
+
+            // Resolve with result
+            resolve(mraResult);
+        };
+
+        // Listen for MRA completion
+        const checkCompletion = setInterval(() => {
+            if (window.mraState && window.mraState.irnCode) {
+                clearInterval(checkCompletion);
+                // Auto-close popup after success
+                setTimeout(() => {
+                    if (window.closeMRAPopup) {
+                        window.closeMRAPopup();
+                    }
+                }, 2000); // Wait 2 seconds to show success before closing
+            }
+        }, 500);
+
+        // Timeout after 3 minutes
+        setTimeout(() => {
+            clearInterval(checkCompletion);
+            const overlay = document.getElementById('mra-processing-overlay');
+            if (overlay) {
+                overlay.remove();
+            }
+            window.closeMRAPopup = originalCloseHandler;
+            reject(new Error('MRA processing timeout (3 minutes)'));
+        }, 180000);
+
+        // Open the popup
+        openMRAProcessingPopup(orderNumber, instance);
+
+        // Copy logs from mraState to our batch logs
+        const copyLogs = setInterval(() => {
+            if (window.mraState && window.mraState.logs) {
+                window.mraState.logs.forEach(log => {
+                    const existingLogs = soTripMRALogs.get(orderIndex) || [];
+                    const logExists = existingLogs.some(l => l.timestamp === log.timestamp && l.message === log.message);
+                    if (!logExists) {
+                        addSOTripMRALog(orderIndex, log.message, log.type);
+                    }
+                });
+            }
+            // Stop when popup is closed
+            if (!document.getElementById('mra-processing-overlay')) {
+                clearInterval(copyLogs);
+            }
+        }, 500);
+    });
+}
+
+/**
+ * Retry MRA for a single order - opens the MRA Interface v2 popup
  */
 window.retrySOTripMRA = async function(orderIndex) {
     if (!currentSOTripPrintData || !currentSOTripPrintData.orders) return;
@@ -3373,97 +3309,38 @@ window.retrySOTripMRA = async function(orderIndex) {
     const order = currentSOTripPrintData.orders[orderIndex];
     if (!order) return;
 
-    // Register message listener for progress events
-    registerSOTripMRAMessageListener();
-
     console.log(`[SO Trip MRA] Retrying MRA for order: ${order.orderNumber}`);
-    addSOTripMRALog(orderIndex, `Retrying MRA processing for order: ${order.orderNumber}`, 'info');
-
-    // Get Fusion credentials
-    let fusionUsername = window.F_username;
-    let fusionPassword = window.F_password;
-
-    if (!fusionUsername || !fusionPassword) {
-        try {
-            const credentials = await fetchFusionCredentialsForSOTripMRA();
-            fusionUsername = credentials.username;
-            fusionPassword = credentials.password;
-        } catch (error) {
-            console.error('[SO Trip MRA] Failed to fetch credentials:', error);
-            addSOTripMRALog(orderIndex, `Failed to fetch credentials: ${error.message}`, 'error');
-            alert('Failed to fetch Fusion credentials: ' + error.message);
-            return;
-        }
-    }
+    addSOTripMRALog(orderIndex, `Opening MRA Interface v2 popup for retry: ${order.orderNumber}`, 'info');
 
     order.mraStatus = 'PROCESSING';
     order.mraError = null;
     renderSOTripPrintOrders();
 
+    const resolvedInstance = currentSOTripPrintData.instanceName ||
+                            localStorage.getItem('fusionInstance') ||
+                            localStorage.getItem('instanceName') ||
+                            'PROD';
+
     try {
-        addSOTripMRALog(orderIndex, `Using Fusion service account: ${fusionUsername}`, 'info');
+        // Check if openMRAProcessingPopup function exists (from mra-processor.js)
+        if (typeof openMRAProcessingPopup !== 'function') {
+            throw new Error('MRA processor not loaded. Please ensure mra-processor.js is included.');
+        }
 
-        const resolvedInstance = currentSOTripPrintData.instanceName ||
-                                localStorage.getItem('fusionInstance') ||
-                                localStorage.getItem('instanceName') ||
-                                'PROD';
+        // Open the MRA Interface v2 popup and wait for completion
+        const result = await openMRAProcessingPopupAndWait(order.orderNumber, resolvedInstance, orderIndex);
 
-        addSOTripMRALog(orderIndex, `Instance: ${resolvedInstance}`, 'info');
-        addSOTripMRALog(orderIndex, `Credentials Source: fusionuserdetails API`, 'info');
-
-        const requestId = Date.now().toString() + '_retry_' + orderIndex;
-
-        // Map requestId to orderIndex for progress tracking
-        soTripMRARequestMap.set(requestId, orderIndex);
-
-        const result = await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                soTripMRARequestMap.delete(requestId);
-                reject(new Error('MRA processing timeout (2 minutes)'));
-            }, 120000);
-
-            window.pendingRequests = window.pendingRequests || {};
-            window.pendingRequests[requestId] = (error, data) => {
-                clearTimeout(timeout);
-                soTripMRARequestMap.delete(requestId);
-                if (error) {
-                    reject(new Error(error));
-                } else {
-                    resolve(data);
-                }
-            };
-
-            const message = {
-                action: 'processMRAInterface',
-                requestId: requestId,
-                orderNumber: order.orderNumber,
-                fusionUsername: fusionUsername,
-                fusionPassword: fusionPassword,
-                instance: resolvedInstance
-            };
-
-            addSOTripMRALog(orderIndex, 'Sending request to C# backend...', 'info');
-
-            if (window.chrome?.webview) {
-                window.chrome.webview.postMessage(message);
-            } else {
-                clearTimeout(timeout);
-                soTripMRARequestMap.delete(requestId);
-                reject(new Error('WebView2 not available'));
-            }
-        });
-
-        if (result && result.success) {
+        if (result.success) {
             order.mraStatus = 'SUCCESS';
             order.irnCode = result.irnCode;
-            order.qrCode = result.qrCodeBase64;
-            addSOTripMRALog(orderIndex, `Final result: SUCCESS - ${result.message || 'MRA interface completed successfully'}`, 'success');
+            order.qrCode = result.qrCode;
+            addSOTripMRALog(orderIndex, `Final result: SUCCESS - ${result.message || 'MRA interface completed'}`, 'success');
             if (result.irnCode) {
                 addSOTripMRALog(orderIndex, `IRN Code: ${result.irnCode}`, 'success');
             }
             addSOLogEntry('MRA', `Retry Success: ${order.orderNumber}`, 'success');
         } else {
-            throw new Error(result?.message || 'MRA processing failed');
+            throw new Error(result.message || 'MRA processing failed');
         }
 
     } catch (error) {
