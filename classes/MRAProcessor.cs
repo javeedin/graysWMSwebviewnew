@@ -257,34 +257,69 @@ namespace WMSApp.MRA
             string mraTrxNo = string.Empty;
 
             // Check if Tables[1] exists
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== TABLE[1] ANALYSIS ==========");
             if (reportResult.DataSet.Tables.Count > 1)
             {
                 DataTable dtMRA = reportResult.DataSet.Tables[1];
-                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1] Rows: {dtMRA.Rows.Count}");
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] EXISTS - Name: {dtMRA.TableName}, Rows: {dtMRA.Rows.Count}, Columns: {dtMRA.Columns.Count}");
 
-                // If Tables[1] has rows, get MRA_TRX_NO from first row
+                // Log ALL columns
+                var colNames = new List<string>();
+                foreach (DataColumn col in dtMRA.Columns)
+                {
+                    colNames.Add(col.ColumnName);
+                }
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] Columns: {string.Join(", ", colNames)}");
+
+                // Log ALL rows with ALL column values
                 if (dtMRA.Rows.Count > 0)
                 {
-                    mraTrxNo = dtMRA.Rows[0]["MRA_TRX_NO"]?.ToString() ?? string.Empty;
-                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO: '{mraTrxNo}'");
-
-                    // If MRA_TRX_NO has value → already interfaced
-                    if (!string.IsNullOrWhiteSpace(mraTrxNo))
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] DATA ({dtMRA.Rows.Count} rows):");
+                    for (int rowIdx = 0; rowIdx < dtMRA.Rows.Count; rowIdx++)
                     {
-                        isInterfaced = true;
+                        var rowVals = new List<string>();
+                        foreach (DataColumn col in dtMRA.Columns)
+                        {
+                            var val = dtMRA.Rows[rowIdx][col];
+                            rowVals.Add($"{col.ColumnName}='{val}'");
+                        }
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor]   Row[{rowIdx}]: {string.Join(", ", rowVals)}");
+                    }
+
+                    // Check MRA_TRX_NO from first row
+                    if (dtMRA.Columns.Contains("MRA_TRX_NO"))
+                    {
+                        mraTrxNo = dtMRA.Rows[0]["MRA_TRX_NO"]?.ToString() ?? string.Empty;
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO from Row[0]: '{mraTrxNo}'");
+
+                        // If MRA_TRX_NO has value → already interfaced
+                        if (!string.IsNullOrWhiteSpace(mraTrxNo))
+                        {
+                            isInterfaced = true;
+                            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO has value - ORDER IS INTERFACED");
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA_TRX_NO is empty - ORDER NOT INTERFACED");
+                        }
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] WARNING: MRA_TRX_NO column not found in Table[1]!");
                     }
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1] is empty - order not interfaced");
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] has NO ROWS - order not interfaced");
                 }
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Tables[1] not available - order not interfaced");
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[1] DOES NOT EXIST (Tables.Count={reportResult.DataSet.Tables.Count})");
             }
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== END TABLE[1] ANALYSIS ==========");
 
-            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Result - IsInterfaced: {isInterfaced}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] FINAL RESULT - IsInterfaced: {isInterfaced}, MRA_TRX_NO: '{mraTrxNo}'");
 
             return new MRACheckResult
             {
