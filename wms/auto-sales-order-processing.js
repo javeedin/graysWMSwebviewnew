@@ -1901,12 +1901,16 @@ function renderSOTripPrintOrders() {
         const mraStatusColor = mraStatus === 'SUCCESS' ? '#10b981' :
                               mraStatus === 'PROCESSING' ? '#f59e0b' :
                               mraStatus === 'FAILED' ? '#ef4444' :
+                              mraStatus === 'INTERFACED' ? '#6366f1' :
                               '#94a3b8';
 
         const mraStatusIcon = mraStatus === 'SUCCESS' ? 'check-circle' :
                              mraStatus === 'PROCESSING' ? 'spinner fa-spin' :
                              mraStatus === 'FAILED' ? 'times-circle' :
+                             mraStatus === 'INTERFACED' ? 'check-double' :
                              'clock';
+
+        const mraStatusText = mraStatus === 'INTERFACED' ? 'DONE' : mraStatus;
 
         html += `
             <div style="display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #667eea;">
@@ -1930,7 +1934,7 @@ function renderSOTripPrintOrders() {
                     <div style="text-align: center; min-width: 80px;">
                         <div style="font-size: 9px; color: #64748b; font-weight: 600;">MRA</div>
                         <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${mraStatusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">
-                            <i class="fas fa-${mraStatusIcon}"></i> ${mraStatus}
+                            <i class="fas fa-${mraStatusIcon}"></i> ${mraStatusText}
                         </span>
                     </div>
                     <div style="display: flex; gap: 0.25rem;">
@@ -3109,7 +3113,10 @@ window.testMRAInterface = function() {
     // Build order options HTML
     const orderOptionsHtml = orders.map((order, index) => {
         const mraStatus = order.mraStatus || 'PENDING';
-        const statusColor = mraStatus === 'SUCCESS' ? '#10b981' : mraStatus === 'FAILED' ? '#ef4444' : '#f59e0b';
+        const statusColor = mraStatus === 'SUCCESS' ? '#10b981' :
+                           mraStatus === 'FAILED' ? '#ef4444' :
+                           mraStatus === 'INTERFACED' ? '#6366f1' : '#f59e0b';
+        const statusText = mraStatus === 'INTERFACED' ? 'DONE' : mraStatus;
         return `
             <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; margin-bottom: 0.5rem; background: #f8fafc; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;"
                  onclick="selectOrderForMRATest(${index})"
@@ -3120,7 +3127,7 @@ window.testMRAInterface = function() {
                     <div style="font-weight: 600; color: #1e293b;">${order.orderNumber}</div>
                     <div style="font-size: 0.75rem; color: #64748b;">${order.customer || 'N/A'}</div>
                 </div>
-                <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">${mraStatus}</span>
+                <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">${statusText}</span>
             </div>
         `;
     }).join('');
@@ -3299,6 +3306,7 @@ window.startSOTripMRAInterface = async function() {
 
     let successCount = 0;
     let failCount = 0;
+    let interfacedCount = 0;
 
     // Process each order in background (no popup)
     for (let i = 0; i < currentSOTripPrintData.orders.length; i++) {
@@ -3333,11 +3341,22 @@ window.startSOTripMRAInterface = async function() {
 
         } catch (error) {
             console.error(`[SO Trip MRA] Failed for ${order.orderNumber}:`, error);
-            order.mraStatus = 'FAILED';
-            order.mraError = error.message;
-            failCount++;
-            addSOTripMRALog(i, `Final result: FAILED - ${error.message}`, 'error');
-            addSOLogEntry('MRA', `Failed: ${order.orderNumber} - ${error.message}`, 'error');
+
+            // Check if already interfaced
+            const errorMsg = error.message || '';
+            if (errorMsg.toLowerCase().includes('already')) {
+                order.mraStatus = 'INTERFACED';
+                order.mraError = errorMsg;
+                interfacedCount++;
+                addSOTripMRALog(i, `Already interfaced - ${errorMsg}`, 'info');
+                addSOLogEntry('MRA', `Already Interfaced: ${order.orderNumber}`, 'info');
+            } else {
+                order.mraStatus = 'FAILED';
+                order.mraError = errorMsg;
+                failCount++;
+                addSOTripMRALog(i, `Final result: FAILED - ${errorMsg}`, 'error');
+                addSOLogEntry('MRA', `Failed: ${order.orderNumber} - ${errorMsg}`, 'error');
+            }
         }
 
         renderSOTripPrintOrders();
@@ -3349,21 +3368,29 @@ window.startSOTripMRAInterface = async function() {
     }
 
     // Update final status
+    let statusParts = [];
+    if (successCount > 0) statusParts.push(`${successCount} OK`);
+    if (interfacedCount > 0) statusParts.push(`${interfacedCount} Done`);
+    if (failCount > 0) statusParts.push(`${failCount} Failed`);
+
     if (failCount === 0) {
         document.getElementById('so-trip-print-status').textContent = `MRA Complete ✓`;
         document.getElementById('so-trip-print-status').style.color = '#10b981';
-        addSOLogEntry('MRA', `All ${successCount} orders processed successfully`, 'success');
+        const logMsg = interfacedCount > 0
+            ? `${successCount} processed, ${interfacedCount} already interfaced`
+            : `All ${successCount} orders processed successfully`;
+        addSOLogEntry('MRA', logMsg, 'success');
     } else {
-        document.getElementById('so-trip-print-status').textContent = `MRA: ${successCount} OK, ${failCount} Failed`;
+        document.getElementById('so-trip-print-status').textContent = `MRA: ${statusParts.join(', ')}`;
         document.getElementById('so-trip-print-status').style.color = '#ef4444';
         document.getElementById('so-trip-print-retry-mra-btn').style.display = 'inline-flex';
-        addSOLogEntry('MRA', `Complete: ${successCount} success, ${failCount} failed`, 'warning');
+        addSOLogEntry('MRA', `Complete: ${successCount} success, ${interfacedCount} already done, ${failCount} failed`, 'warning');
     }
 
     // Re-enable MRA button
     if (mraBtn) mraBtn.disabled = false;
 
-    console.log(`[SO Trip MRA] Batch processing complete: ${successCount} succeeded, ${failCount} failed`);
+    console.log(`[SO Trip MRA] Batch processing complete: ${successCount} succeeded, ${interfacedCount} already interfaced, ${failCount} failed`);
 };
 
 /**
