@@ -195,11 +195,11 @@ namespace WMSApp.MRA
 
             var parameters = new Dictionary<string, string>
             {
-                { "mra_order_number", orderNumber }
+                { "source_order_number", orderNumber }
             };
 
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Running MRA check report: {MRA_CHECK_REPORT}");
-            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Parameter: mra_order_number = '{orderNumber}'");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Parameter: source_order_number = '{orderNumber}'");
             var reportResult = await reportRunner.RunReportAsync(MRA_CHECK_REPORT, parameters);
 
             if (!reportResult.Success)
