@@ -185,6 +185,11 @@ namespace WMSApp.MRA
         private async Task<MRACheckResult> CheckMRAInterfaceStatusAsync(string orderNumber)
         {
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] CheckMRAInterfaceStatusAsync - Order: {orderNumber}, Instance: {_instance}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== MRA CHECK PARAMETERS ==========");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order Number: '{orderNumber}'");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Order Number Length: {orderNumber?.Length ?? 0}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Instance: '{_instance}'");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ==========================================");
 
             var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
 
@@ -194,6 +199,7 @@ namespace WMSApp.MRA
             };
 
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Running MRA check report: {MRA_CHECK_REPORT}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Parameter: mra_order_number = '{orderNumber}'");
             var reportResult = await reportRunner.RunReportAsync(MRA_CHECK_REPORT, parameters);
 
             if (!reportResult.Success)
@@ -207,12 +213,13 @@ namespace WMSApp.MRA
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] {reportResult.RawXmlData}");
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== END RAW XML ==========");
 
-            // Debug: Log the dataset structure
+            // Debug: Log the dataset structure with ALL data
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] MRA check report SUCCESS. Tables count: {reportResult.DataSet.Tables.Count}");
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== ALL TABLES DATA ==========");
             for (int i = 0; i < reportResult.DataSet.Tables.Count; i++)
             {
                 var table = reportResult.DataSet.Tables[i];
-                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}]: Name={table.TableName}, Rows={table.Rows.Count}, Columns={table.Columns.Count}");
+                System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ----- Table[{i}]: Name={table.TableName}, Rows={table.Rows.Count}, Columns={table.Columns.Count} -----");
 
                 // Log column names
                 var columnNames = new List<string>();
@@ -222,17 +229,26 @@ namespace WMSApp.MRA
                 }
                 System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] Columns: {string.Join(", ", columnNames)}");
 
-                // Log first row data if exists
+                // Log ALL rows data
                 if (table.Rows.Count > 0)
                 {
-                    var firstRowValues = new List<string>();
-                    foreach (DataColumn col in table.Columns)
+                    for (int rowIdx = 0; rowIdx < table.Rows.Count; rowIdx++)
                     {
-                        firstRowValues.Add($"{col.ColumnName}={table.Rows[0][col]}");
+                        var rowValues = new List<string>();
+                        foreach (DataColumn col in table.Columns)
+                        {
+                            var val = table.Rows[rowIdx][col];
+                            rowValues.Add($"{col.ColumnName}={val ?? "(null)"}");
+                        }
+                        System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] Row[{rowIdx}]: {string.Join(", ", rowValues)}");
                     }
-                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] Row[0]: {string.Join(", ", firstRowValues)}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Table[{i}] has NO ROWS");
                 }
             }
+            System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== END ALL TABLES DATA ==========");
 
             // Tables[0] = parameters, Tables[1] = MRA data for this specific order
             // If order is NOT interfaced → Tables[1] will have 0 rows
