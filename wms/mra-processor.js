@@ -85,9 +85,9 @@ async function openMRAProcessingPopup(orderNumber, instance) {
             <div>
                 <h2 style="margin: 0; font-size: 1.25rem; display: flex; align-items: center; gap: 0.5rem;">
                     <i class="fas fa-file-invoice-dollar"></i>
-                    MRA Interface - ${orderNumber}
+                    MRA Interface v2 - ${orderNumber}
                 </h2>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; opacity: 0.9;">Instance: ${instance || 'PROD'}</p>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; opacity: 0.9;">Instance: ${instance || 'PROD'} | Using fusionuserdetails API</p>
             </div>
             <button id="mra-close-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1.25rem;">
                 <i class="fas fa-times"></i>
