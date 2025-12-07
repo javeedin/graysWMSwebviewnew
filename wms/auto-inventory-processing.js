@@ -125,7 +125,12 @@ function fetchFusionCloudCredentials() {
                 fusionCloudUsername = response.items[0].user_name || '';
                 fusionCloudPassword = response.items[0].passwordd || '';
 
+                // Set global properties for other modules (MRA, etc.) to access
+                window.F_username = fusionCloudUsername;
+                window.F_password = fusionCloudPassword;
+
                 console.log('[Auto Processing] Fusion Cloud credentials loaded:', fusionCloudUsername);
+                console.log('[Auto Processing] Global credentials set: window.F_username, window.F_password');
                 addLogEntry('System', `Fusion Cloud credentials loaded for user: ${fusionCloudUsername}`, 'success');
             } else {
                 console.error('[Auto Processing] No credentials found in response');

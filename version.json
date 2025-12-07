@@ -1,13 +1,14 @@
 {
-    "version":  "1.2.8",
-    "build_date":  "2025-12-03",
+    "version":  "1.2.9",
+    "build_date":  "2025-12-07",
     "files":  {
-                  "index.html":  "2025-12-03T10:28:14Z",
-                  "app.js":  "2025-12-03T10:28:14Z",
-                  "monitor-printing.js":  "2025-12-03T10:28:14Z",
-                  "styles.css":  "2025-12-03T10:28:14Z",
-                  "mra-processor.js":  "2025-12-03T10:28:14Z",
-                  "trip-details.js":  "2025-12-03T10:28:14Z"
+                  "index.html":  "2025-12-07T10:00:00Z",
+                  "app.js":  "2025-12-07T10:00:00Z",
+                  "monitor-printing.js":  "2025-12-07T10:00:00Z",
+                  "styles.css":  "2025-12-07T10:00:00Z",
+                  "mra-processor.js":  "2025-12-07T10:00:00Z",
+                  "trip-details.js":  "2025-12-07T10:00:00Z",
+                  "auto-inventory-processing.js":  "2025-12-07T10:00:00Z"
               },
-    "changelog":  "Major Feature: MRA (Mauritius Revenue Authority) Interface - Automated invoice submission from Trip Details with 6-step processing workflow, real-time progress tracking, and comprehensive validation"
+    "changelog":  "Fix: MRA Interface credentials - Now fetches Fusion credentials from fusionuserdetails API instead of localStorage. Added global F_username/F_password properties for cross-module access."
 }

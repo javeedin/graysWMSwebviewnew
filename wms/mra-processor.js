@@ -221,14 +221,31 @@ async function openMRAProcessingPopup(orderNumber, instance) {
 async function processMRAInterface(orderNumber, instance) {
     addMRALog(`Starting MRA processing for order: ${orderNumber}`, 'info');
 
-    // Get credentials from localStorage (set during login)
-    const fusionUsername = localStorage.getItem('fusionCloudUsername') || localStorage.getItem('username');
-    const fusionPassword = localStorage.getItem('fusionCloudPassword') || localStorage.getItem('password');
+    // Get credentials - check global properties first (set by auto-inventory-processing via fusionuserdetails API)
+    // Then fallback to localStorage (set during login)
+    let fusionUsername = window.F_username || localStorage.getItem('fusionCloudUsername') || localStorage.getItem('username');
+    let fusionPassword = window.F_password || localStorage.getItem('fusionCloudPassword') || localStorage.getItem('password');
+
+    // If credentials not available, try to fetch from API
+    if (!fusionUsername || !fusionPassword) {
+        addMRALog('Credentials not found in cache, fetching from API...', 'info');
+        try {
+            const credentials = await fetchFusionCredentialsForMRA();
+            if (credentials) {
+                fusionUsername = credentials.username;
+                fusionPassword = credentials.password;
+                addMRALog(`Credentials fetched from API for user: ${fusionUsername}`, 'success');
+            }
+        } catch (fetchError) {
+            addMRALog(`Failed to fetch credentials: ${fetchError.message}`, 'error');
+        }
+    }
 
     // Validate that credentials exist - no hardcoded defaults
     if (!fusionUsername || !fusionPassword) {
-        addMRALog('Error: No login credentials found. Please login first.', 'error');
-        throw new Error('No login credentials found. Please login first.');
+        addMRALog('Error: No Fusion credentials found. Please ensure Auto Inventory Processing page has been loaded or login again.', 'error');
+        updateMRAStatus(false, 'No Fusion credentials found. Please load Auto Inventory Processing page first.');
+        throw new Error('No Fusion credentials found.');
     }
 
     const resolvedInstance = (instance && instance.trim()) ||
@@ -444,6 +461,55 @@ if (window.chrome?.webview) {
                 delete window.pendingRequests[data.requestId];
             }
         }
+    });
+}
+
+/**
+ * Fetch Fusion credentials from API (fallback when global credentials not available)
+ */
+function fetchFusionCredentialsForMRA() {
+    return new Promise((resolve, reject) => {
+        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
+
+        addMRALog(`Fetching credentials from: ${credentialsUrl}`, 'info');
+
+        // Check if sendMessageToCSharp is available (from app.js)
+        if (typeof sendMessageToCSharp !== 'function') {
+            reject(new Error('sendMessageToCSharp function not available'));
+            return;
+        }
+
+        sendMessageToCSharp({
+            action: "executeGet",
+            fullUrl: credentialsUrl
+        }, function(error, data) {
+            if (error) {
+                addMRALog(`API call failed: ${error}`, 'error');
+                reject(new Error(error));
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+                if (response.items && response.items.length > 0) {
+                    const username = response.items[0].user_name || '';
+                    const password = response.items[0].passwordd || '';
+
+                    // Also set global properties for future use
+                    window.F_username = username;
+                    window.F_password = password;
+
+                    addMRALog(`Credentials loaded for user: ${username}`, 'success');
+                    resolve({ username, password });
+                } else {
+                    addMRALog('No credentials found in API response', 'error');
+                    reject(new Error('No credentials found in API response'));
+                }
+            } catch (parseError) {
+                addMRALog(`Failed to parse credentials: ${parseError.message}`, 'error');
+                reject(parseError);
+            }
+        });
     });
 }
 
