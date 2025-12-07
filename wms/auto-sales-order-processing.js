@@ -3088,6 +3088,143 @@ function soOpenOrderTransactions(orderNumber, tripIndex, orderIdx) {
 }
 
 // ============================================================================
+// SO TRIP PRINT - TEST MRA INTERFACE (OPENS POPUP)
+// Opens the MRA Interface v2 popup for testing a single order
+// ============================================================================
+
+/**
+ * Test MRA Interface - Opens the MRA popup for a selected order
+ * Allows user to test MRA processing with the visual popup interface
+ */
+window.testMRAInterface = function() {
+    if (!currentSOTripPrintData || !currentSOTripPrintData.orders || currentSOTripPrintData.orders.length === 0) {
+        alert('No orders available. Please open a trip first.');
+        return;
+    }
+
+    // Create order selection popup
+    const orders = currentSOTripPrintData.orders;
+    const instance = currentSOTripPrintData.instanceName || 'PROD';
+
+    // Build order options HTML
+    const orderOptionsHtml = orders.map((order, index) => {
+        const mraStatus = order.mraStatus || 'PENDING';
+        const statusColor = mraStatus === 'SUCCESS' ? '#10b981' : mraStatus === 'FAILED' ? '#ef4444' : '#f59e0b';
+        return `
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; margin-bottom: 0.5rem; background: #f8fafc; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;"
+                 onclick="selectOrderForMRATest(${index})"
+                 onmouseover="this.style.borderColor='#667eea'"
+                 onmouseout="this.style.borderColor='transparent'"
+                 id="mra-test-order-${index}">
+                <div>
+                    <div style="font-weight: 600; color: #1e293b;">${order.orderNumber}</div>
+                    <div style="font-size: 0.75rem; color: #64748b;">${order.customer || 'N/A'}</div>
+                </div>
+                <span style="background: ${statusColor}; color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600;">${mraStatus}</span>
+            </div>
+        `;
+    }).join('');
+
+    // Create overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'mra-test-select-overlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100001;
+    `;
+
+    overlay.innerHTML = `
+        <div style="background: white; width: 400px; max-width: 95%; max-height: 80vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden; display: flex; flex-direction: column;">
+            <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                    <h3 style="margin: 0; font-size: 1rem;">
+                        <i class="fas fa-flask"></i> Test MRA Interface
+                    </h3>
+                    <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; opacity: 0.9;">Select an order to test</p>
+                </div>
+                <button onclick="document.getElementById('mra-test-select-overlay').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1rem;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div style="padding: 1rem; overflow-y: auto; flex: 1; max-height: 400px;">
+                <p style="font-size: 0.85rem; color: #64748b; margin: 0 0 1rem 0;">
+                    Instance: <strong>${instance}</strong> | Trip: <strong>${currentSOTripPrintData.tripId}</strong>
+                </p>
+                ${orderOptionsHtml}
+            </div>
+            <div style="padding: 1rem; border-top: 1px solid #e2e8f0; background: #f8fafc;">
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="text" id="mra-test-custom-order" placeholder="Or enter order number..." style="flex: 1; padding: 0.5rem; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 0.85rem;">
+                    <button onclick="testMRAWithCustomOrder()" style="background: #667eea; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                        <i class="fas fa-play"></i> Test
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(overlay);
+    console.log('[SO Trip MRA] Opened Test MRA order selection dialog');
+};
+
+/**
+ * Select an order from the list and open MRA popup
+ */
+window.selectOrderForMRATest = function(orderIndex) {
+    const order = currentSOTripPrintData.orders[orderIndex];
+    const instance = currentSOTripPrintData.instanceName || 'PROD';
+
+    // Close selection overlay
+    const overlay = document.getElementById('mra-test-select-overlay');
+    if (overlay) overlay.remove();
+
+    console.log(`[SO Trip MRA] Testing MRA for order: ${order.orderNumber}, instance: ${instance}`);
+
+    // Open the MRA Interface v2 popup
+    if (typeof openMRAProcessingPopup === 'function') {
+        openMRAProcessingPopup(order.orderNumber, instance);
+    } else {
+        alert('MRA Processing popup is not available. Please ensure mra-processor.js is loaded.');
+    }
+};
+
+/**
+ * Test MRA with a custom order number
+ */
+window.testMRAWithCustomOrder = function() {
+    const input = document.getElementById('mra-test-custom-order');
+    const orderNumber = input ? input.value.trim() : '';
+
+    if (!orderNumber) {
+        alert('Please enter an order number');
+        return;
+    }
+
+    const instance = currentSOTripPrintData?.instanceName || 'PROD';
+
+    // Close selection overlay
+    const overlay = document.getElementById('mra-test-select-overlay');
+    if (overlay) overlay.remove();
+
+    console.log(`[SO Trip MRA] Testing MRA for custom order: ${orderNumber}, instance: ${instance}`);
+
+    // Open the MRA Interface v2 popup
+    if (typeof openMRAProcessingPopup === 'function') {
+        openMRAProcessingPopup(orderNumber, instance);
+    } else {
+        alert('MRA Processing popup is not available. Please ensure mra-processor.js is loaded.');
+    }
+};
+
+// ============================================================================
 // SO TRIP PRINT - MRA INTERFACE BATCH PROCESSING
 // Uses the original MRA Interface v2 popup for processing
 // ============================================================================

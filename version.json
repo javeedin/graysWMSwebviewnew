@@ -1,15 +1,15 @@
 {
-    "version":  "1.2.16",
+    "version":  "1.2.17",
     "build_date":  "2025-12-07",
     "files":  {
-                  "index.html":  "2025-12-07T14:00:00Z",
+                  "index.html":  "2025-12-07T19:00:00Z",
                   "app.js":  "2025-12-07T12:00:00Z",
                   "monitor-printing.js":  "2025-12-07T12:00:00Z",
                   "styles.css":  "2025-12-07T12:00:00Z",
                   "mra-processor.js":  "2025-12-07T12:00:00Z",
                   "trip-details.js":  "2025-12-07T12:00:00Z",
                   "auto-inventory-processing.js":  "2025-12-07T12:00:00Z",
-                  "auto-sales-order-processing.js":  "2025-12-07T18:00:00Z"
+                  "auto-sales-order-processing.js":  "2025-12-07T19:00:00Z"
               },
-    "changelog":  "Fix: Batch MRA processes in background without popup - uses direct WebView2 message listener"
+    "changelog":  "Feature: Add Test MRA button to open MRA Interface v2 popup for testing individual orders"
 }
