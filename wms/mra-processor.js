@@ -221,31 +221,32 @@ async function openMRAProcessingPopup(orderNumber, instance) {
 async function processMRAInterface(orderNumber, instance) {
     addMRALog(`Starting MRA processing for order: ${orderNumber}`, 'info');
 
-    // Get credentials - check global properties first (set by auto-inventory-processing via fusionuserdetails API)
-    // Then fallback to localStorage (set during login)
-    let fusionUsername = window.F_username || localStorage.getItem('fusionCloudUsername') || localStorage.getItem('username');
-    let fusionPassword = window.F_password || localStorage.getItem('fusionCloudPassword') || localStorage.getItem('password');
+    // For Fusion SOAP calls, we MUST use the service account from fusionuserdetails API
+    // NOT the user's login credentials (localStorage username/password)
+    let fusionUsername = window.F_username;
+    let fusionPassword = window.F_password;
 
-    // If credentials not available, try to fetch from API
+    // If global credentials not set, fetch from fusionuserdetails API
     if (!fusionUsername || !fusionPassword) {
-        addMRALog('Credentials not found in cache, fetching from API...', 'info');
+        addMRALog('Fetching Fusion service account credentials from API...', 'info');
         try {
             const credentials = await fetchFusionCredentialsForMRA();
             if (credentials) {
                 fusionUsername = credentials.username;
                 fusionPassword = credentials.password;
-                addMRALog(`Credentials fetched from API for user: ${fusionUsername}`, 'success');
             }
         } catch (fetchError) {
             addMRALog(`Failed to fetch credentials: ${fetchError.message}`, 'error');
         }
+    } else {
+        addMRALog(`Using cached Fusion credentials for user: ${fusionUsername}`, 'info');
     }
 
-    // Validate that credentials exist - no hardcoded defaults
+    // Validate that credentials exist
     if (!fusionUsername || !fusionPassword) {
-        addMRALog('Error: No Fusion credentials found. Please ensure Auto Inventory Processing page has been loaded or login again.', 'error');
-        updateMRAStatus(false, 'No Fusion credentials found. Please load Auto Inventory Processing page first.');
-        throw new Error('No Fusion credentials found.');
+        addMRALog('Error: Could not retrieve Fusion service account credentials from API.', 'error');
+        updateMRAStatus(false, 'Could not retrieve Fusion credentials from fusionuserdetails API.');
+        throw new Error('Could not retrieve Fusion credentials.');
     }
 
     const resolvedInstance = (instance && instance.trim()) ||
@@ -255,7 +256,8 @@ async function processMRAInterface(orderNumber, instance) {
                              'PROD';
 
     addMRALog(`Instance: ${resolvedInstance}`, 'info');
-    addMRALog(`Username: ${fusionUsername}`, 'info');
+    addMRALog(`Fusion Service Account: ${fusionUsername}`, 'success');
+    addMRALog(`Credentials Source: fusionuserdetails API`, 'info');
 
     try {
         const requestId = Date.now().toString();
