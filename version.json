@@ -1,14 +1,14 @@
 {
-    "version":  "1.2.10",
+    "version":  "1.2.11",
     "build_date":  "2025-12-07",
     "files":  {
-                  "index.html":  "2025-12-07T10:30:00Z",
-                  "app.js":  "2025-12-07T10:30:00Z",
-                  "monitor-printing.js":  "2025-12-07T10:30:00Z",
-                  "styles.css":  "2025-12-07T10:30:00Z",
-                  "mra-processor.js":  "2025-12-07T10:30:00Z",
-                  "trip-details.js":  "2025-12-07T10:30:00Z",
-                  "auto-inventory-processing.js":  "2025-12-07T10:30:00Z"
+                  "index.html":  "2025-12-07T12:00:00Z",
+                  "app.js":  "2025-12-07T12:00:00Z",
+                  "monitor-printing.js":  "2025-12-07T12:00:00Z",
+                  "styles.css":  "2025-12-07T12:00:00Z",
+                  "mra-processor.js":  "2025-12-07T12:00:00Z",
+                  "trip-details.js":  "2025-12-07T12:00:00Z",
+                  "auto-inventory-processing.js":  "2025-12-07T12:00:00Z"
               },
-    "changelog":  "Fix: MRA Interface now ALWAYS uses Fusion service account from fusionuserdetails API. Removed localStorage fallback that was using login credentials instead of service account."
+    "changelog":  "Feature: Batch MRA Interface in Print Trip Orders dialog - MRA Interface button, MRA status column, MRA Log button, and Retry MRA for each order"
 }

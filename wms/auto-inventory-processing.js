@@ -4117,6 +4117,20 @@ function renderTripPrintOrders() {
             order.printStatus === 'FAILED' ? 'times-circle' :
             'clock';
 
+        // MRA Status
+        const mraStatus = order.mraStatus || 'PENDING';
+        const mraStatusColor =
+            mraStatus === 'SUCCESS' ? '#10b981' :
+            mraStatus === 'PROCESSING' ? '#f59e0b' :
+            mraStatus === 'FAILED' ? '#ef4444' :
+            '#94a3b8';
+
+        const mraStatusIcon =
+            mraStatus === 'SUCCESS' ? 'check-circle' :
+            mraStatus === 'PROCESSING' ? 'spinner fa-spin' :
+            mraStatus === 'FAILED' ? 'times-circle' :
+            'clock';
+
         html += `
             <div style="background: #f8f9fa; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; gap: 1.5rem; align-items: center; flex: 1;">
@@ -4136,13 +4150,29 @@ function renderTripPrintOrders() {
                             <i class="fas fa-${printStatusIcon}"></i> ${order.printStatus}
                         </div>
                     </div>
+                    <div>
+                        <div style="font-size: 10px; color: #64748b; font-weight: 600;">MRA</div>
+                        <div style="font-size: 12px; font-weight: 600; color: ${mraStatusColor}; display: flex; align-items: center; gap: 0.25rem;">
+                            <i class="fas fa-${mraStatusIcon}"></i> ${mraStatus}
+                        </div>
+                    </div>
                     ${order.error ? `
                         <div style="flex: 1;">
                             <div style="font-size: 11px; color: #ef4444; font-style: italic;">${order.error}</div>
                         </div>
                     ` : ''}
+                    ${order.mraError ? `
+                        <div style="flex: 1;">
+                            <div style="font-size: 11px; color: #ef4444; font-style: italic;">MRA: ${order.mraError}</div>
+                        </div>
+                    ` : ''}
                 </div>
                 <div style="display: flex; gap: 0.5rem;">
+                    ${order.mraLogs && order.mraLogs.length > 0 ? `
+                        <button onclick="showMRALogForOrder(${index})" class="btn btn-sm" style="padding: 0.35rem 0.6rem; font-size: 11px; background: #8b5cf6; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            <i class="fas fa-list-alt"></i> MRA Log
+                        </button>
+                    ` : ''}
                     ${order.downloadStatus === 'DOWNLOADED' && order.pdfPath ? `
                         <button onclick="viewTripOrderPDF(${index})" class="btn btn-sm" style="padding: 0.35rem 0.6rem; font-size: 11px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer;">
                             <i class="fas fa-eye"></i> View
@@ -4156,6 +4186,11 @@ function renderTripPrintOrders() {
                     ${order.printStatus === 'FAILED' ? `
                         <button onclick="retryTripOrderPrint(${index})" class="btn btn-sm" style="padding: 0.35rem 0.6rem; font-size: 11px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer;">
                             <i class="fas fa-redo"></i> Retry Print
+                        </button>
+                    ` : ''}
+                    ${mraStatus === 'FAILED' ? `
+                        <button onclick="retryMRAForOrder(${index})" class="btn btn-sm" style="padding: 0.35rem 0.6rem; font-size: 11px; background: #f59e0b; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                            <i class="fas fa-redo"></i> Retry MRA
                         </button>
                     ` : ''}
                 </div>
@@ -6011,6 +6046,378 @@ document.addEventListener('DOMContentLoaded', function() {
 if (document.readyState === 'complete') {
     setTimeout(initTeamsIntegration, 500);
 }
+
+// ============================================================================
+// MRA BATCH INTERFACE PROCESSING
+// ============================================================================
+
+// Start MRA Interface for all orders in trip
+window.startTripMRAInterface = async function() {
+    if (!currentTripPrintData) {
+        alert('No trip data available');
+        return;
+    }
+
+    console.log('[MRA Batch] Starting MRA Interface for all orders...');
+
+    // Confirm with user
+    const confirmed = confirm(`Process MRA Interface for ${currentTripPrintData.orders.length} orders?\n\nThis will interface each order to MRA (Mauritius Revenue Authority).`);
+    if (!confirmed) return;
+
+    // Disable MRA button
+    const mraBtn = document.getElementById('trip-print-mra-btn');
+    if (mraBtn) {
+        mraBtn.disabled = true;
+        mraBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+    }
+
+    // First, fetch Fusion credentials from API
+    let fusionUsername = window.F_username;
+    let fusionPassword = window.F_password;
+
+    if (!fusionUsername || !fusionPassword) {
+        console.log('[MRA Batch] Fetching Fusion credentials from API...');
+        try {
+            const credentials = await fetchFusionCredentialsForBatchMRA();
+            fusionUsername = credentials.username;
+            fusionPassword = credentials.password;
+        } catch (credError) {
+            console.error('[MRA Batch] Failed to fetch credentials:', credError);
+            alert('Failed to fetch Fusion credentials. Please try again.');
+            if (mraBtn) {
+                mraBtn.disabled = false;
+                mraBtn.innerHTML = '<i class="fas fa-file-invoice-dollar"></i> MRA Interface';
+            }
+            return;
+        }
+    }
+
+    let successCount = 0;
+    let failCount = 0;
+
+    // Process each order
+    for (let i = 0; i < currentTripPrintData.orders.length; i++) {
+        const order = currentTripPrintData.orders[i];
+
+        console.log(`[MRA Batch] Processing ${i + 1}/${currentTripPrintData.orders.length}: ${order.orderNumber}`);
+
+        // Initialize MRA logs for this order
+        order.mraLogs = [];
+        order.mraStatus = 'PROCESSING';
+        order.mraError = null;
+        renderTripPrintOrders();
+
+        // Add log entry
+        const addOrderMRALog = (message, type = 'info') => {
+            const timestamp = new Date().toLocaleTimeString();
+            order.mraLogs.push({ timestamp, message, type });
+        };
+
+        addOrderMRALog(`Starting MRA processing for order: ${order.orderNumber}`, 'info');
+        addOrderMRALog(`Instance: ${order.instance || currentTripPrintData.instanceName}`, 'info');
+        addOrderMRALog(`Fusion Service Account: ${fusionUsername}`, 'info');
+
+        try {
+            // Send MRA request to C#
+            const requestId = Date.now().toString() + '_' + i;
+            const message = {
+                action: 'processMRAInterface',
+                requestId: requestId,
+                orderNumber: order.orderNumber,
+                fusionUsername: fusionUsername,
+                fusionPassword: fusionPassword,
+                instance: order.instance || currentTripPrintData.instanceName || 'PROD'
+            };
+
+            addOrderMRALog('Sending request to C# backend...', 'info');
+
+            const response = await new Promise((resolve, reject) => {
+                // Set up response handler
+                const handler = function(event) {
+                    const data = event.data;
+                    if (data.action === 'processMRAInterfaceResponse' && data.requestId === requestId) {
+                        window.chrome.webview.removeEventListener('message', handler);
+                        resolve(data);
+                    }
+                };
+                window.chrome.webview.addEventListener('message', handler);
+
+                // Send message
+                if (window.chrome?.webview) {
+                    window.chrome.webview.postMessage(message);
+                } else {
+                    reject(new Error('WebView2 not available'));
+                }
+
+                // Timeout after 60 seconds
+                setTimeout(() => {
+                    window.chrome.webview.removeEventListener('message', handler);
+                    reject(new Error('MRA request timed out'));
+                }, 60000);
+            });
+
+            if (response.success) {
+                order.mraStatus = 'SUCCESS';
+                order.mraIrnCode = response.irnCode;
+                addOrderMRALog(`MRA Interface successful. IRN: ${response.irnCode}`, 'success');
+                successCount++;
+            } else {
+                order.mraStatus = 'FAILED';
+                order.mraError = response.message || 'Unknown error';
+                addOrderMRALog(`MRA Interface failed: ${response.message}`, 'error');
+                failCount++;
+            }
+
+        } catch (error) {
+            order.mraStatus = 'FAILED';
+            order.mraError = error.message;
+            addOrderMRALog(`Error: ${error.message}`, 'error');
+            failCount++;
+        }
+
+        renderTripPrintOrders();
+    }
+
+    // Re-enable MRA button
+    if (mraBtn) {
+        mraBtn.disabled = false;
+        mraBtn.innerHTML = '<i class="fas fa-file-invoice-dollar"></i> MRA Interface';
+    }
+
+    // Show summary
+    alert(`MRA Interface Complete!\n\nSuccess: ${successCount}\nFailed: ${failCount}\nTotal: ${currentTripPrintData.orders.length}`);
+};
+
+// Fetch Fusion credentials for batch MRA
+async function fetchFusionCredentialsForBatchMRA() {
+    return new Promise((resolve, reject) => {
+        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
+
+        console.log('[MRA Batch] Fetching credentials from:', credentialsUrl);
+
+        sendMessageToCSharp({
+            action: "executeGet",
+            fullUrl: credentialsUrl
+        }, function(error, data) {
+            if (error) {
+                console.error('[MRA Batch] Failed to fetch credentials:', error);
+                reject(new Error(error));
+                return;
+            }
+
+            try {
+                const response = JSON.parse(data);
+                console.log('[MRA Batch] API response:', response);
+
+                if (response.items && response.items.length > 0) {
+                    const username = response.items[0].user_name || '';
+                    const password = response.items[0].passwordd || '';
+
+                    // Set global properties
+                    window.F_username = username;
+                    window.F_password = password;
+
+                    console.log('[MRA Batch] Credentials loaded for user:', username);
+                    resolve({ username, password });
+                } else {
+                    console.error('[MRA Batch] No credentials found in response');
+                    reject(new Error('No credentials found in API response'));
+                }
+            } catch (parseError) {
+                console.error('[MRA Batch] Failed to parse credentials:', parseError);
+                reject(parseError);
+            }
+        });
+    });
+}
+
+// Show MRA Log for specific order
+window.showMRALogForOrder = function(orderIndex) {
+    if (!currentTripPrintData || !currentTripPrintData.orders[orderIndex]) {
+        alert('Order data not found');
+        return;
+    }
+
+    const order = currentTripPrintData.orders[orderIndex];
+    const logs = order.mraLogs || [];
+
+    // Create modal overlay
+    const overlay = document.createElement('div');
+    overlay.id = 'mra-log-overlay';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100001;
+        backdrop-filter: blur(4px);
+    `;
+
+    // Create modal
+    const modal = document.createElement('div');
+    modal.style.cssText = `
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        width: 600px;
+        max-width: 95%;
+        max-height: 80vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    `;
+
+    // Generate log HTML
+    let logHtml = logs.map(log => {
+        let color = '#94a3b8';
+        if (log.type === 'error') color = '#f87171';
+        if (log.type === 'success') color = '#4ade80';
+        if (log.type === 'warning') color = '#fbbf24';
+
+        return `<div style="margin-bottom: 0.25rem; color: ${color};">
+            <span style="color: #64748b;">[${log.timestamp}]</span> ${log.message}
+        </div>`;
+    }).join('');
+
+    if (logs.length === 0) {
+        logHtml = '<div style="color: #64748b;">No logs available</div>';
+    }
+
+    modal.innerHTML = `
+        <div style="background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+            <div>
+                <h3 style="margin: 0; font-size: 1.1rem;">
+                    <i class="fas fa-list-alt"></i> MRA Log - ${order.orderNumber}
+                </h3>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; opacity: 0.9;">Status: ${order.mraStatus || 'PENDING'}</p>
+            </div>
+            <button onclick="closeMRALogModal()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1.25rem;">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div style="padding: 1rem; background: #1e293b; flex: 1; overflow-y: auto; font-family: monospace; font-size: 0.75rem;">
+            ${logHtml}
+        </div>
+        <div style="padding: 0.75rem 1.5rem; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; background: #f8f9fa;">
+            <button onclick="closeMRALogModal()" style="padding: 0.5rem 1.5rem; background: #64748b; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                Close
+            </button>
+        </div>
+    `;
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+};
+
+// Close MRA Log Modal
+window.closeMRALogModal = function() {
+    const overlay = document.getElementById('mra-log-overlay');
+    if (overlay) {
+        overlay.remove();
+    }
+};
+
+// Retry MRA for specific order
+window.retryMRAForOrder = async function(orderIndex) {
+    if (!currentTripPrintData || !currentTripPrintData.orders[orderIndex]) {
+        alert('Order data not found');
+        return;
+    }
+
+    const order = currentTripPrintData.orders[orderIndex];
+
+    console.log('[MRA Retry] Retrying MRA for order:', order.orderNumber);
+
+    // Fetch credentials if needed
+    let fusionUsername = window.F_username;
+    let fusionPassword = window.F_password;
+
+    if (!fusionUsername || !fusionPassword) {
+        try {
+            const credentials = await fetchFusionCredentialsForBatchMRA();
+            fusionUsername = credentials.username;
+            fusionPassword = credentials.password;
+        } catch (credError) {
+            console.error('[MRA Retry] Failed to fetch credentials:', credError);
+            alert('Failed to fetch Fusion credentials. Please try again.');
+            return;
+        }
+    }
+
+    // Reset order MRA state
+    order.mraLogs = [];
+    order.mraStatus = 'PROCESSING';
+    order.mraError = null;
+    renderTripPrintOrders();
+
+    // Add log entry helper
+    const addOrderMRALog = (message, type = 'info') => {
+        const timestamp = new Date().toLocaleTimeString();
+        order.mraLogs.push({ timestamp, message, type });
+    };
+
+    addOrderMRALog(`Retrying MRA processing for order: ${order.orderNumber}`, 'info');
+    addOrderMRALog(`Instance: ${order.instance || currentTripPrintData.instanceName}`, 'info');
+    addOrderMRALog(`Fusion Service Account: ${fusionUsername}`, 'info');
+
+    try {
+        const requestId = Date.now().toString() + '_retry';
+        const message = {
+            action: 'processMRAInterface',
+            requestId: requestId,
+            orderNumber: order.orderNumber,
+            fusionUsername: fusionUsername,
+            fusionPassword: fusionPassword,
+            instance: order.instance || currentTripPrintData.instanceName || 'PROD'
+        };
+
+        addOrderMRALog('Sending request to C# backend...', 'info');
+
+        const response = await new Promise((resolve, reject) => {
+            const handler = function(event) {
+                const data = event.data;
+                if (data.action === 'processMRAInterfaceResponse' && data.requestId === requestId) {
+                    window.chrome.webview.removeEventListener('message', handler);
+                    resolve(data);
+                }
+            };
+            window.chrome.webview.addEventListener('message', handler);
+
+            if (window.chrome?.webview) {
+                window.chrome.webview.postMessage(message);
+            } else {
+                reject(new Error('WebView2 not available'));
+            }
+
+            setTimeout(() => {
+                window.chrome.webview.removeEventListener('message', handler);
+                reject(new Error('MRA request timed out'));
+            }, 60000);
+        });
+
+        if (response.success) {
+            order.mraStatus = 'SUCCESS';
+            order.mraIrnCode = response.irnCode;
+            addOrderMRALog(`MRA Interface successful. IRN: ${response.irnCode}`, 'success');
+        } else {
+            order.mraStatus = 'FAILED';
+            order.mraError = response.message || 'Unknown error';
+            addOrderMRALog(`MRA Interface failed: ${response.message}`, 'error');
+        }
+
+    } catch (error) {
+        order.mraStatus = 'FAILED';
+        order.mraError = error.message;
+        addOrderMRALog(`Error: ${error.message}`, 'error');
+    }
+
+    renderTripPrintOrders();
+};
 
 console.log('[Auto Processing] Script loaded successfully');
 console.log('[Auto Processing] Teams integration ready');
