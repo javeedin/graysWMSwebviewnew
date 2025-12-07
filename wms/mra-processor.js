@@ -492,8 +492,18 @@ function fetchFusionCredentialsForMRA() {
             }
 
             try {
+                // Log raw API response for debugging
+                addMRALog(`Raw API Response: ${data.substring(0, 500)}...`, 'info');
+
                 const response = JSON.parse(data);
+                addMRALog(`API returned ${response.items ? response.items.length : 0} items`, 'info');
+
                 if (response.items && response.items.length > 0) {
+                    // Log all items for debugging
+                    response.items.forEach((item, idx) => {
+                        addMRALog(`Item[${idx}]: user_name=${item.user_name}`, 'info');
+                    });
+
                     const username = response.items[0].user_name || '';
                     const password = response.items[0].passwordd || '';
 
@@ -501,7 +511,7 @@ function fetchFusionCredentialsForMRA() {
                     window.F_username = username;
                     window.F_password = password;
 
-                    addMRALog(`Credentials loaded for user: ${username}`, 'success');
+                    addMRALog(`Selected Fusion Service Account: ${username}`, 'success');
                     resolve({ username, password });
                 } else {
                     addMRALog('No credentials found in API response', 'error');
