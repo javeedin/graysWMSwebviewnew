@@ -3221,83 +3221,139 @@ window.startSOTripMRAInterface = async function() {
  */
 async function openMRAProcessingPopupAndWait(orderNumber, instance, orderIndex) {
     return new Promise((resolve, reject) => {
-        // Store the original close handler
-        const originalCloseHandler = window.closeMRAPopup;
-
         // Track result
         let mraResult = { success: false, message: 'Popup closed without completing' };
+        let isResolved = false;
 
-        // Override close handler to capture result
-        window.closeMRAPopup = function() {
-            // Get result from mraState if available
-            if (window.mraState) {
-                if (window.mraState.irnCode) {
+        // Listen for MRA completion by checking logs for success message
+        const checkCompletion = setInterval(() => {
+            if (isResolved) {
+                clearInterval(checkCompletion);
+                return;
+            }
+
+            // Check mraState for irnCode (primary method)
+            if (window.mraState && window.mraState.irnCode) {
+                console.log('[SO Trip MRA] Detected irnCode in mraState:', window.mraState.irnCode);
+                clearInterval(checkCompletion);
+                isResolved = true;
+
+                mraResult = {
+                    success: true,
+                    message: 'MRA interface completed successfully',
+                    irnCode: window.mraState.irnCode,
+                    qrCode: window.mraState.qrCode
+                };
+
+                // Copy final logs
+                copyMRALogsToOrder(orderIndex);
+
+                // Auto-close popup after showing success
+                setTimeout(() => {
+                    const overlay = document.getElementById('mra-processing-overlay');
+                    if (overlay) {
+                        overlay.remove();
+                    }
+                    resolve(mraResult);
+                }, 2000);
+                return;
+            }
+
+            // Fallback: Check logs for success message with IRN
+            if (window.mraState && window.mraState.logs && window.mraState.logs.length > 0) {
+                const lastLog = window.mraState.logs[window.mraState.logs.length - 1];
+                if (lastLog && lastLog.message && lastLog.message.includes('SUCCESS') && lastLog.message.includes('IRN:')) {
+                    console.log('[SO Trip MRA] Detected SUCCESS in log:', lastLog.message);
+                    clearInterval(checkCompletion);
+                    isResolved = true;
+
+                    // Extract IRN from message
+                    const irnMatch = lastLog.message.match(/IRN:\s*(\S+)/);
+                    const irnCode = irnMatch ? irnMatch[1] : null;
+
                     mraResult = {
                         success: true,
                         message: 'MRA interface completed successfully',
-                        irnCode: window.mraState.irnCode,
+                        irnCode: irnCode,
                         qrCode: window.mraState.qrCode
                     };
+
+                    // Copy final logs
+                    copyMRALogsToOrder(orderIndex);
+
+                    // Auto-close popup after showing success
+                    setTimeout(() => {
+                        const overlay = document.getElementById('mra-processing-overlay');
+                        if (overlay) {
+                            overlay.remove();
+                        }
+                        resolve(mraResult);
+                    }, 2000);
+                    return;
                 }
-            }
 
-            // Remove the overlay
-            const overlay = document.getElementById('mra-processing-overlay');
-            if (overlay) {
-                overlay.remove();
-            }
+                // Check for failure
+                if (lastLog && lastLog.message && lastLog.message.includes('FAILED')) {
+                    console.log('[SO Trip MRA] Detected FAILED in log:', lastLog.message);
+                    clearInterval(checkCompletion);
+                    isResolved = true;
 
-            // Restore original handler
-            window.closeMRAPopup = originalCloseHandler;
+                    mraResult = {
+                        success: false,
+                        message: lastLog.message
+                    };
 
-            // Resolve with result
-            resolve(mraResult);
-        };
+                    // Copy final logs
+                    copyMRALogsToOrder(orderIndex);
 
-        // Listen for MRA completion
-        const checkCompletion = setInterval(() => {
-            if (window.mraState && window.mraState.irnCode) {
-                clearInterval(checkCompletion);
-                // Auto-close popup after success
-                setTimeout(() => {
-                    if (window.closeMRAPopup) {
-                        window.closeMRAPopup();
-                    }
-                }, 2000); // Wait 2 seconds to show success before closing
+                    // Auto-close popup
+                    setTimeout(() => {
+                        const overlay = document.getElementById('mra-processing-overlay');
+                        if (overlay) {
+                            overlay.remove();
+                        }
+                        resolve(mraResult);
+                    }, 2000);
+                    return;
+                }
             }
         }, 500);
 
         // Timeout after 3 minutes
         setTimeout(() => {
-            clearInterval(checkCompletion);
-            const overlay = document.getElementById('mra-processing-overlay');
-            if (overlay) {
-                overlay.remove();
+            if (!isResolved) {
+                clearInterval(checkCompletion);
+                isResolved = true;
+
+                // Copy whatever logs we have
+                copyMRALogsToOrder(orderIndex);
+
+                const overlay = document.getElementById('mra-processing-overlay');
+                if (overlay) {
+                    overlay.remove();
+                }
+                reject(new Error('MRA processing timeout (3 minutes)'));
             }
-            window.closeMRAPopup = originalCloseHandler;
-            reject(new Error('MRA processing timeout (3 minutes)'));
         }, 180000);
 
         // Open the popup
         openMRAProcessingPopup(orderNumber, instance);
-
-        // Copy logs from mraState to our batch logs
-        const copyLogs = setInterval(() => {
-            if (window.mraState && window.mraState.logs) {
-                window.mraState.logs.forEach(log => {
-                    const existingLogs = soTripMRALogs.get(orderIndex) || [];
-                    const logExists = existingLogs.some(l => l.timestamp === log.timestamp && l.message === log.message);
-                    if (!logExists) {
-                        addSOTripMRALog(orderIndex, log.message, log.type);
-                    }
-                });
-            }
-            // Stop when popup is closed
-            if (!document.getElementById('mra-processing-overlay')) {
-                clearInterval(copyLogs);
-            }
-        }, 500);
     });
+}
+
+/**
+ * Copy logs from mraState to batch order logs
+ */
+function copyMRALogsToOrder(orderIndex) {
+    if (window.mraState && window.mraState.logs) {
+        window.mraState.logs.forEach(log => {
+            const existingLogs = soTripMRALogs.get(orderIndex) || [];
+            const logExists = existingLogs.some(l => l.timestamp === log.timestamp && l.message === log.message);
+            if (!logExists) {
+                addSOTripMRALog(orderIndex, log.message, log.type);
+            }
+        });
+    }
 }
 
 /**
