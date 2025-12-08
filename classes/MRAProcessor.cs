@@ -541,7 +541,7 @@ namespace WMSApp.MRA
                     Buyer = new Buyer
                     {
                         Name = headerRow["ACCOUNT_NAME"]?.ToString(),
-                        Brn = headerRow["ACCOUNT_NUMBER"]?.ToString() ?? "",
+                        Brn = headerRow["BRN"]?.ToString() ?? "",
                         BusinessAddr = headerRow["CUSTOMER_MAIN_CAT"]?.ToString(),
                         BuyerType = "VATR"
                     },
