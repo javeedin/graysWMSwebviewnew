@@ -1901,7 +1901,7 @@ function renderSOTripPrintOrders() {
         const mraStatusColor = mraStatus === 'SUCCESS' ? '#10b981' :
                               mraStatus === 'PROCESSING' ? '#f59e0b' :
                               mraStatus === 'FAILED' ? '#ef4444' :
-                              mraStatus === 'INTERFACED' ? '#6366f1' :
+                              mraStatus === 'INTERFACED' ? '#ef4444' :
                               '#94a3b8';
 
         const mraStatusIcon = mraStatus === 'SUCCESS' ? 'check-circle' :
@@ -1910,7 +1910,7 @@ function renderSOTripPrintOrders() {
                              mraStatus === 'INTERFACED' ? 'check-double' :
                              'clock';
 
-        const mraStatusText = mraStatus === 'INTERFACED' ? 'DONE' : mraStatus;
+        const mraStatusText = mraStatus === 'INTERFACED' ? 'Interfaced' : mraStatus;
 
         html += `
             <div style="display: flex; align-items: center; gap: 1rem; padding: 0.75rem; background: #f8f9fa; border-radius: 6px; border-left: 3px solid #667eea;">
@@ -3115,8 +3115,8 @@ window.testMRAInterface = function() {
         const mraStatus = order.mraStatus || 'PENDING';
         const statusColor = mraStatus === 'SUCCESS' ? '#10b981' :
                            mraStatus === 'FAILED' ? '#ef4444' :
-                           mraStatus === 'INTERFACED' ? '#6366f1' : '#f59e0b';
-        const statusText = mraStatus === 'INTERFACED' ? 'DONE' : mraStatus;
+                           mraStatus === 'INTERFACED' ? '#ef4444' : '#f59e0b';
+        const statusText = mraStatus === 'INTERFACED' ? 'Interfaced' : mraStatus;
         return `
             <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; margin-bottom: 0.5rem; background: #f8fafc; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.2s;"
                  onclick="selectOrderForMRATest(${index})"
