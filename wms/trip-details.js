@@ -46,6 +46,14 @@ window.openTripDetailsPage = function(tripData) {
         tripDetailsPage.style.display = 'block';
     }
 
+    // Push history state for mobile back navigation
+    const tripId = tripData.trip_id || 'unknown';
+    history.pushState(
+        { pageId: 'trip-details-management', tripId: tripId, tripData: tripData },
+        `Trip Details - ${tripId}`,
+        `#trip-details/${tripId}`
+    );
+
     // Populate trip header
     populateTripHeader(tripData);
 
@@ -855,26 +863,26 @@ window.updateTripDetails = async function() {
 };
 
 // ============================================================================
-// GO BACK TO TRIP MANAGEMENT
+// GO BACK TO TRIP MANAGEMENT (uses browser history for mobile back support)
 // ============================================================================
 
 window.goBackToTripManagement = function() {
-    console.log('[Trip Details] Going back to trip management...');
+    console.log('[Trip Details] Going back to trip management using history...');
 
-    // Hide trip details page
-    const tripDetailsPage = document.getElementById('trip-details-management');
-    if (tripDetailsPage) {
-        tripDetailsPage.style.display = 'none';
-    }
+    // Use browser history back - this supports mobile back button
+    if (window.history.length > 1) {
+        window.history.back();
+    } else {
+        // Fallback: navigate directly if no history
+        if (typeof window.navigateToPage === 'function') {
+            window.navigateToPage('trip-management', true);
+        } else {
+            // Manual fallback
+            const tripDetailsPage = document.getElementById('trip-details-management');
+            if (tripDetailsPage) tripDetailsPage.style.display = 'none';
 
-    // Show trip management page
-    const tripManagementPage = document.getElementById('trip-management');
-    if (tripManagementPage) {
-        tripManagementPage.style.display = 'block';
-
-        // Optionally refresh trips grid
-        if (typeof window.fetchTrips === 'function') {
-            window.fetchTrips();
+            const tripManagementPage = document.getElementById('trip-management');
+            if (tripManagementPage) tripManagementPage.style.display = 'block';
         }
     }
 

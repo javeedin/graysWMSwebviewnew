@@ -1486,36 +1486,112 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('sidebar').classList.toggle('collapsed');
     });
 
-    // Menu navigation
+    // ========================================
+    // MOBILE BACK NAVIGATION SUPPORT
+    // ========================================
+
+    // Navigate to page function (with history support)
+    window.navigateToPage = function(pageId, pushState = true) {
+        const menuItem = document.querySelector(`.menu-item[data-page="${pageId}"]`);
+        if (!menuItem) {
+            console.warn(`[Navigation] Page not found: ${pageId}`);
+            return;
+        }
+
+        // Update menu active state
+        document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+        menuItem.classList.add('active');
+
+        // Hide all pages and show target page
+        document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
+        const pageElement = document.getElementById(pageId);
+        if (pageElement) {
+            pageElement.style.display = 'block';
+        }
+
+        const pageTitle = menuItem.textContent.trim();
+        document.title = `WMS - ${pageTitle}`;
+
+        // Push state to browser history for mobile back button support
+        if (pushState) {
+            history.pushState({ pageId: pageId, pageTitle: pageTitle }, pageTitle, `#${pageId}`);
+        }
+
+        // Collapse sidebar when navigating to Auto Inventory Processing
+        if (pageId === 'auto-inventory-processing') {
+            document.getElementById('sidebar').classList.add('collapsed');
+        }
+
+        // Page-specific initialization
+        if (pageId === 'vehicles' && currentFullData.length > 0) {
+            initVehiclesPage();
+        } else if (pageId === 'monitor-printing') {
+            if (typeof restoreMonitoringGridIfNeeded === 'function') {
+                restoreMonitoringGridIfNeeded();
+            }
+        } else if (pageId === 'printer-setup') {
+            loadInstalledPrinters();
+            loadPrinterConfiguration();
+        }
+
+        console.log(`[Navigation] Navigated to: ${pageId}`);
+    };
+
+    // Handle browser back/forward buttons (mobile back navigation)
+    window.addEventListener('popstate', function(event) {
+        console.log('[Navigation] Popstate event:', event.state);
+
+        if (event.state && event.state.pageId) {
+            const pageId = event.state.pageId;
+
+            // Handle trip-details-management specially
+            if (pageId === 'trip-details-management' && event.state.tripData) {
+                console.log(`[Navigation] Back/Forward to Trip Details: ${event.state.tripId}`);
+                // Re-open trip details with stored data
+                if (typeof window.openTripDetailsPage === 'function') {
+                    // Don't push state again since we're handling popstate
+                    const tripDetailsPage = document.getElementById('trip-details-management');
+                    if (tripDetailsPage) {
+                        document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
+                        tripDetailsPage.style.display = 'block';
+                    }
+                }
+            } else {
+                console.log(`[Navigation] Back/Forward to: ${pageId}`);
+                navigateToPage(pageId, false); // Don't push state again
+            }
+        } else {
+            // Default handling based on URL hash
+            const hash = window.location.hash.replace('#', '');
+            if (hash && !hash.startsWith('trip-details/')) {
+                navigateToPage(hash, false);
+            } else if (!hash) {
+                // Go to default page (trip-management)
+                navigateToPage('trip-management', false);
+            }
+        }
+    });
+
+    // Menu navigation (updated to use navigateToPage)
     document.querySelectorAll('.menu-item').forEach(item => {
         item.addEventListener('click', function() {
-            document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
-            this.classList.add('active');
-            document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
             const pageId = this.getAttribute('data-page');
-            document.getElementById(pageId).style.display = 'block';
-
-            const pageTitle = this.textContent.trim();
-            document.title = `WMS - ${pageTitle}`;
-
-            // Collapse sidebar when navigating to Auto Inventory Processing
-            if (pageId === 'auto-inventory-processing') {
-                document.getElementById('sidebar').classList.add('collapsed');
-            }
-
-            if (pageId === 'vehicles' && currentFullData.length > 0) {
-                initVehiclesPage();
-            } else if (pageId === 'monitor-printing') {
-                // ✅ Restore grid data if available (don't refresh unless user clicks Fetch Trips)
-                if (typeof restoreMonitoringGridIfNeeded === 'function') {
-                    restoreMonitoringGridIfNeeded();
-                }
-            } else if (pageId === 'printer-setup') {
-                loadInstalledPrinters();
-                loadPrinterConfiguration();
-            }
+            navigateToPage(pageId, true);
         });
     });
+
+    // Initialize: Set initial state based on URL hash or default page
+    const initialHash = window.location.hash.replace('#', '');
+    if (initialHash) {
+        navigateToPage(initialHash, false);
+    } else {
+        // Set initial history state for default page
+        const defaultPage = document.querySelector('.menu-item.active');
+        if (defaultPage) {
+            const pageId = defaultPage.getAttribute('data-page');
+            history.replaceState({ pageId: pageId, pageTitle: 'Trip Management' }, '', `#${pageId}`);
+        }
+    }
 
     // Set default dates
     const today = new Date();
