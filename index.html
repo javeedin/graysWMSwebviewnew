@@ -4,10 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WMS - Trip Management</title>
+    <!-- Prevent aggressive caching in WebView2 -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn3.devexpress.com/jslib/23.2.6/css/dx.light.css">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="styles.css?v=20251106002">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         // DevExpress License Configuration
@@ -20,7 +24,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
-    <script src="config.js"></script>
+    <script src="config.js?v=20251106002"></script>
 </head>
 <body>
     <header class="header">
@@ -274,15 +278,52 @@
         </div>
     </div>
 
-    <!-- Monitoring Trips Grid -->
+    <!-- Tabs for Trips and Trip Details -->
     <div class="grid-container">
-        <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
-            <div class="grid-title">Monitored Trips</div>
-            <div style="display: flex; gap: 1rem; align-items: center;">
-                <div id="filtered-count" style="color: #666; font-size: 14px;">0 trips</div>
+        <div class="grid-header" style="padding: 0;">
+            <div id="monitor-tab-header" class="tab-header" style="width: 100%;">
+                <div class="tab-item active" data-tab="trips">
+                    <span>Trips</span>
+                </div>
+                <div class="tab-item" data-tab="trip-details">
+                    <span>Trip Details</span>
+                </div>
             </div>
         </div>
-        <div id="print-jobs-grid" style="height: 600px;"></div>
+        <div id="monitor-tab-content" class="tab-content">
+            <!-- Tab 1: Trips List -->
+            <div id="monitor-trips-tab" class="tab-pane active">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title">Monitored Trips</div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="filtered-count" style="color: #666; font-size: 14px;">0 trips</div>
+                    </div>
+                </div>
+                <div id="print-jobs-grid" style="height: 600px;"></div>
+            </div>
+
+            <!-- Tab 2: Trip Details (Orders) -->
+            <div id="monitor-trip-details-tab" class="tab-pane">
+                <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div class="grid-title">
+                        <span id="trip-details-title">Trip Details</span>
+                        <button class="btn btn-secondary" onclick="backToTripsTab()" style="margin-left: 1rem; font-size: 12px; padding: 4px 12px;">
+                            <i class="fas fa-arrow-left"></i> Back to Trips
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <div id="orders-count" style="color: #666; font-size: 14px;">0 orders</div>
+                        <button id="download-all-orders-btn" class="btn btn-primary" onclick="downloadAllOrdersPDF()" style="font-size: 12px; padding: 6px 16px;">
+                            <i class="fas fa-download"></i> Download All Orders PDF
+                        </button>
+                        <button id="refresh-orders-btn" class="btn btn-secondary" onclick="refreshOrdersStatus()" style="font-size: 12px; padding: 6px 16px;">
+                            <i class="fas fa-sync"></i> Refresh Status
+                        </button>
+                    </div>
+                </div>
+                <div id="trip-orders-grid" style="height: 600px;"></div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -609,9 +650,40 @@
         </main>
     </div>
 
-    <script src="app.js"></script>
-    <script src="printer-management.js"></script>
-    <script src="printer-management-new.js"></script>
-    <script src="monitor-printing.js"></script>
+    <!-- Diagnostic Toolbar (Bottom) -->
+    <div id="diagnostic-toolbar" style="position: fixed; bottom: 0; left: 0; right: 0; background: #1a1a1a; color: white; padding: 8px 16px; display: flex; justify-content: space-between; align-items: center; z-index: 9999; box-shadow: 0 -2px 10px rgba(0,0,0,0.3); font-size: 12px;">
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span style="font-weight: 600; color: #00d4ff;">🔧 Diagnostics:</span>
+            <button onclick="runDiagnosticCheckButtons()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Buttons
+            </button>
+            <button onclick="runDiagnosticShowButtons()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Force Show Buttons
+            </button>
+            <button onclick="runDiagnosticCheckGrid()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Grid
+            </button>
+            <button onclick="runDiagnosticCheckTab()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Check Tab Visibility
+            </button>
+            <button onclick="runDiagnosticShowConsole()" class="btn btn-sm" style="background: #2a2a2a; color: white; border: 1px solid #444; padding: 4px 10px; font-size: 11px;">
+                Show All Info
+            </button>
+            <button onclick="runDiagnosticCheckTripData()" class="btn btn-sm" style="background: #ff9800; color: white; border: 1px solid #f57c00; padding: 4px 10px; font-size: 11px; font-weight: 600;">
+                Check Trip Data
+            </button>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center;">
+            <span id="diagnostic-status" style="color: #00ff88;">Ready</span>
+            <button onclick="toggleDiagnosticToolbar()" class="btn btn-sm" style="background: #dc3545; color: white; padding: 4px 10px; font-size: 11px;">
+                Hide
+            </button>
+        </div>
+    </div>
+
+    <script src="app.js?v=20251106012"></script>
+    <script src="printer-management.js?v=20251106002"></script>
+    <script src="printer-management-new.js?v=20251106002"></script>
+    <script src="monitor-printing.js?v=20251106013"></script>
 </body>
 </html>
