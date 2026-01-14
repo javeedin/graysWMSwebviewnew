@@ -1,0 +1,4 @@
+Gray's WMS WebView Application
+Build Date: 08-11-2025 15:35:31.08
+Configuration: Release
+.NET Version: 8.0
