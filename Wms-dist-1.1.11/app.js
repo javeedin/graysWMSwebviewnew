@@ -3778,13 +3778,21 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
 
                         <!-- Picker Selection -->
-                        <div>
+                        <div style="margin-bottom: 1.5rem;">
                             <label for="assign-picker-select" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
                                 <i class="fas fa-user"></i> Select Picker <span style="color: #ef4444;">*</span>
                             </label>
                             <select id="assign-picker-select" style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; color: #1f2937;">
                                 ${pickerOptionsHtml}
                             </select>
+                        </div>
+
+                        <!-- Assignment Date -->
+                        <div>
+                            <label for="assign-picker-date" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-calendar-alt"></i> Assignment Date <span style="color: #ef4444;">*</span>
+                            </label>
+                            <input type="date" id="assign-picker-date" value="${new Date().toISOString().split('T')[0]}" style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; color: #1f2937; box-sizing: border-box;">
                         </div>
                     </div>
 
@@ -3828,18 +3836,25 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get assignment date from input field
+        const assignmentDateInput = document.getElementById('assign-picker-date');
+        const assignmentDate = assignmentDateInput ? assignmentDateInput.value : new Date().toISOString().split('T')[0];
+
+        if (!assignmentDate) {
+            alert('Please select an assignment date.');
+            return;
+        }
+
         const pickerName = pickerSelect.options[pickerSelect.selectedIndex].getAttribute('data-name') || pickerSelect.options[pickerSelect.selectedIndex].text;
 
         console.log('[Assign Picker] Assigning picker:', pickerId, pickerName);
+        console.log('[Assign Picker] Assignment Date:', assignmentDate);
         console.log('[Assign Picker] To orders:', selectedOrders);
         console.log('[Assign Picker] Trip ID:', tripId);
 
         // Get instance from toolbar
         const instance = localStorage.getItem('fusionInstance') || 'TEST';
         console.log('[Assign Picker] Instance:', instance);
-
-        // Get current date for assignment
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
 
         // Build orders array for API
         const orders = selectedOrders.map(order => ({
@@ -3849,7 +3864,7 @@ document.addEventListener('DOMContentLoaded', function() {
             pickerName: pickerName,
             loadingBay: order.LOADING_BAY || order.loading_bay || '',
             orderTypeCode: order.ORDER_TYPE_CODE || order.order_type_code || order.ORDER_TYPE || order.order_type || '',
-            assignmentDate: today,
+            assignmentDate: assignmentDate,
             pickslip: order.PICKSLIP || order.pickslip || '',
             pickwave: order.PICKWAVE || order.pickwave || '',
             instance: instance
