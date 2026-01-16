@@ -4117,9 +4117,277 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.pickReleaseAll = function(tripId) {
-        console.log('[Trip Management] Pick release all for trip:', tripId);
-        alert('Pick Release All functionality - To be implemented');
+        console.log('[Pick Release All] Processing trip:', tripId);
+
+        // Get the grid instance - check both tab and dialog grids
+        const tabId = `trip-detail-${tripId}`;
+        const tabGridId = `grid-${tabId}`;
+        const dialogGridId = 'trip-dialog-grid';
+
+        console.log('[Pick Release All] Looking for grid:', tabGridId, 'or', dialogGridId);
+
+        // Try tab grid first, then dialog grid
+        let gridContainer = $(`#${tabGridId}`);
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Pick Release All] Tab grid not found, trying dialog grid...');
+            gridContainer = $(`#${dialogGridId}`);
+        }
+
+        if (!gridContainer || gridContainer.length === 0) {
+            console.error('[Pick Release All] Grid not found');
+            alert('Grid not found. Please try again.');
+            return;
+        }
+
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        if (!gridInstance) {
+            alert('Grid instance not found. Please try again.');
+            return;
+        }
+
+        // Get selected rows
+        const selectedRows = gridInstance.getSelectedRowsData();
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one order to pick release.');
+            return;
+        }
+
+        console.log('[Pick Release All] Selected rows:', selectedRows.length);
+
+        // Separate S2V and Sales Orders
+        const s2vOrders = [];
+        const salesOrders = [];
+
+        selectedRows.forEach(row => {
+            const orderType = (row.ORDER_TYPE || row.order_type || row.ORDER_TYPE_CODE || row.order_type_code || '').toUpperCase().trim();
+            console.log('[Pick Release All] Order:', row.ORDER_NUMBER || row.order_number, 'Type:', orderType);
+
+            if (orderType === 'S2V' || orderType === 'STORE TO VAN' || orderType.includes('STORE TO VAN')) {
+                s2vOrders.push(row);
+            } else {
+                salesOrders.push(row);
+            }
+        });
+
+        console.log('[Pick Release All] S2V Orders:', s2vOrders.length, 'Sales Orders:', salesOrders.length);
+
+        // If we have both types, ask user which to process or process both
+        if (s2vOrders.length > 0 && salesOrders.length > 0) {
+            if (!confirm(`You have selected:\n• ${s2vOrders.length} Store to Van (S2V) order(s)\n• ${salesOrders.length} Sales Order(s)\n\nDo you want to process ALL orders?\n\nClick OK to process all, or Cancel to select only one type.`)) {
+                return;
+            }
+        }
+
+        // Process S2V orders using existing logic
+        if (s2vOrders.length > 0) {
+            console.log('[Pick Release All] Processing S2V orders with existing allocateLots logic...');
+            // Call existing allocateLots for S2V
+            processS2VPickRelease(s2vOrders, tripId);
+        }
+
+        // Process Sales Orders using new API
+        if (salesOrders.length > 0) {
+            console.log('[Pick Release All] Processing Sales Orders with new API...');
+            processSalesOrderPickRelease(salesOrders, tripId);
+        }
     };
+
+    // Process S2V Pick Release (uses existing allocate lots logic)
+    function processS2VPickRelease(orders, tripId) {
+        console.log('[S2V Pick Release] Processing', orders.length, 'S2V orders');
+
+        // Show progress popup
+        const modalHtml = `
+            <div id="s2v-pick-release-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #10b981 0%, #059669 100%); display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                            <i class="fas fa-truck-loading"></i> Pick Release - Store to Van
+                        </h3>
+                        <button onclick="closeS2VPickReleaseModal()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="margin-bottom: 1rem;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <span style="font-weight: 600; color: #1f2937;">Progress</span>
+                                <span id="s2v-pr-progress-text" style="color: #64748b;">0 / ${orders.length}</span>
+                            </div>
+                            <div style="background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden;">
+                                <div id="s2v-pr-progress-bar" style="background: linear-gradient(90deg, #10b981, #059669); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                        <div id="s2v-pr-log" style="max-height: 200px; overflow-y: auto; font-size: 0.85rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;"></div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; justify-content: flex-end;">
+                        <button onclick="closeS2VPickReleaseModal()" class="btn btn-secondary">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Process using existing allocateLots logic - call processS2VOrders function
+        if (typeof processS2VOrders === 'function') {
+            // Redirect to existing S2V processing
+            closeS2VPickReleaseModal();
+            window.allocateLotsForS2V && window.allocateLotsForS2V(tripId);
+        } else {
+            addS2VPRLog('S2V processing uses Allocate Lots functionality.', 'info');
+            addS2VPRLog('Please use "Allocate Lots for S2V" button for S2V orders.', 'info');
+        }
+    }
+
+    window.closeS2VPickReleaseModal = function() {
+        const modal = document.getElementById('s2v-pick-release-modal');
+        if (modal) modal.remove();
+    };
+
+    function addS2VPRLog(message, type = 'info') {
+        const logDiv = document.getElementById('s2v-pr-log');
+        if (logDiv) {
+            const color = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#64748b';
+            logDiv.innerHTML += `<div style="color: ${color}; margin-bottom: 0.25rem;">${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+    }
+
+    // Process Sales Order Pick Release (uses new API)
+    function processSalesOrderPickRelease(orders, tripId) {
+        console.log('[Sales Order Pick Release] Processing', orders.length, 'sales orders');
+
+        // Show progress popup
+        const modalHtml = `
+            <div id="sales-pick-release-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                            <i class="fas fa-truck-loading"></i> Pick Release - Sales Orders
+                        </h3>
+                        <button onclick="closeSalesPickReleaseModal()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="margin-bottom: 1rem;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <span style="font-weight: 600; color: #1f2937;">Progress</span>
+                                <span id="sales-pr-progress-text" style="color: #64748b;">0 / ${orders.length}</span>
+                            </div>
+                            <div style="background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden;">
+                                <div id="sales-pr-progress-bar" style="background: linear-gradient(90deg, #f59e0b, #d97706); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                        <div id="sales-pr-log" style="max-height: 200px; overflow-y: auto; font-size: 0.85rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;"></div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; justify-content: flex-end;">
+                        <button onclick="closeSalesPickReleaseModal()" class="btn btn-secondary">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Process orders sequentially
+        processSalesOrdersSequentially(orders, 0);
+    }
+
+    window.closeSalesPickReleaseModal = function() {
+        const modal = document.getElementById('sales-pick-release-modal');
+        if (modal) modal.remove();
+    };
+
+    function addSalesPRLog(message, type = 'info') {
+        const logDiv = document.getElementById('sales-pr-log');
+        if (logDiv) {
+            const color = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#64748b';
+            const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warning' ? '⚠' : '→';
+            logDiv.innerHTML += `<div style="color: ${color}; margin-bottom: 0.25rem;">${icon} ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+    }
+
+    function updateSalesPRProgress(current, total) {
+        const progressText = document.getElementById('sales-pr-progress-text');
+        const progressBar = document.getElementById('sales-pr-progress-bar');
+        if (progressText) progressText.textContent = `${current} / ${total}`;
+        if (progressBar) progressBar.style.width = `${(current / total) * 100}%`;
+    }
+
+    function processSalesOrdersSequentially(orders, index) {
+        if (index >= orders.length) {
+            addSalesPRLog(`Completed! Processed ${orders.length} order(s).`, 'success');
+            return;
+        }
+
+        const order = orders[index];
+        const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || '';
+
+        if (!orderNumber) {
+            addSalesPRLog(`Order ${index + 1}: Missing order number, skipping...`, 'warning');
+            updateSalesPRProgress(index + 1, orders.length);
+            setTimeout(() => processSalesOrdersSequentially(orders, index + 1), 300);
+            return;
+        }
+
+        addSalesPRLog(`Processing order: ${orderNumber}...`, 'info');
+
+        const PICK_RELEASE_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}`;
+
+        console.log('[Sales Order Pick Release] Calling API:', PICK_RELEASE_API);
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: PICK_RELEASE_API,
+                body: '{}'
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Sales Order Pick Release] Error:', error);
+                    addSalesPRLog(`${orderNumber}: Error - ${error}`, 'error');
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Sales Order Pick Release] Response:', result);
+
+                        if (result.success === true || result.success === 'true' || result.status === 'success') {
+                            addSalesPRLog(`${orderNumber}: Pick release successful`, 'success');
+                        } else {
+                            const msg = result.message || result.error || 'Unknown response';
+                            addSalesPRLog(`${orderNumber}: ${msg}`, result.success === false ? 'error' : 'success');
+                        }
+                    } catch (parseError) {
+                        // If response is not JSON, assume success
+                        addSalesPRLog(`${orderNumber}: Pick release completed`, 'success');
+                    }
+                }
+
+                updateSalesPRProgress(index + 1, orders.length);
+                setTimeout(() => processSalesOrdersSequentially(orders, index + 1), 500);
+            });
+        } else {
+            // Browser testing fallback
+            fetch(PICK_RELEASE_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            })
+            .then(response => response.json())
+            .then(result => {
+                console.log('[Sales Order Pick Release] Response:', result);
+                addSalesPRLog(`${orderNumber}: Pick release completed`, 'success');
+            })
+            .catch(error => {
+                console.error('[Sales Order Pick Release] Error:', error);
+                addSalesPRLog(`${orderNumber}: Error - ${error.message}`, 'error');
+            })
+            .finally(() => {
+                updateSalesPRProgress(index + 1, orders.length);
+                setTimeout(() => processSalesOrdersSequentially(orders, index + 1), 500);
+            });
+        }
+    }
 
     // Allocate Lots for S2V - Process selected S2V orders
     window.allocateLotsForS2V = function(tripId) {

@@ -1,8 +1,8 @@
 {
     "version":  "1.2.8",
-    "release_date":  "2025-12-03T10:28:14Z",
+    "release_date":  "2026-01-16T12:00:00Z",
     "html_package_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/download/v1.2.8/wms-webview-html-1.2.8.zip",
     "exe_url":  "",
     "changelog_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/tag/v1.2.8",
-    "changelog":  "Major Feature: MRA (Mauritius Revenue Authority) Interface - Automated invoice submission from Trip Details with 6-step processing workflow, real-time progress tracking, and comprehensive validation. Includes new C# backend classes (MRAProcessor, FusionReportRunner, MRAModels) and JavaScript UI with WebView2 bridge integration."
+    "changelog":  "Feature: Pick Release All - Smart button handles both S2V (Store to Van) and Sales Orders. S2V uses existing allocateLots logic, Sales Orders call new REST API. Added Assignment Date field to Picker Assignment modal."
 }
