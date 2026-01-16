@@ -4255,42 +4255,107 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Process Sales Order Pick Release (uses new API)
     function processSalesOrderPickRelease(orders, tripId) {
-        console.log('[Sales Order Pick Release] Processing', orders.length, 'sales orders');
+        console.log('[Sales Order Pick Release] Showing', orders.length, 'sales orders');
 
-        // Show progress popup
+        // Store orders globally for the button click
+        window.pendingSalesOrdersForPickRelease = orders;
+
+        // Build order list HTML
+        let orderListHtml = '';
+        orders.forEach((order, index) => {
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
+            const customerName = order.ACCOUNT_NAME || order.account_name || order.CUSTOMER_NAME || order.customer_name || '';
+            const orderType = order.ORDER_TYPE || order.order_type || order.ORDER_TYPE_CODE || order.order_type_code || '';
+
+            orderListHtml += `
+                <div style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-weight: 600; color: #1f2937;">${orderNumber}</span>
+                        ${customerName ? `<span style="color: #64748b; font-size: 0.85rem; margin-left: 0.5rem;">- ${customerName}</span>` : ''}
+                    </div>
+                    <span style="color: #64748b; font-size: 0.75rem;">${index + 1} of ${orders.length}</span>
+                </div>
+            `;
+        });
+
+        // Show popup with orders list and Pick Release button
         const modalHtml = `
             <div id="sales-pick-release-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
-                <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
                     <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="margin: 0; color: white; font-size: 1.1rem;">
                             <i class="fas fa-truck-loading"></i> Pick Release - Sales Orders
                         </h3>
                         <button onclick="closeSalesPickReleaseModal()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
                     </div>
-                    <div style="padding: 1.5rem;">
-                        <div style="margin-bottom: 1rem;">
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                <span style="font-weight: 600; color: #1f2937;">Progress</span>
-                                <span id="sales-pr-progress-text" style="color: #64748b;">0 / ${orders.length}</span>
-                            </div>
-                            <div style="background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden;">
-                                <div id="sales-pr-progress-bar" style="background: linear-gradient(90deg, #f59e0b, #d97706); height: 100%; width: 0%; transition: width 0.3s;"></div>
+
+                    <!-- Body -->
+                    <div style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
+                        <!-- Selected Orders Section -->
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-list"></i> Selected Orders (${orders.length})
+                            </label>
+                            <div style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto; background: #f8f9fc;">
+                                ${orderListHtml}
                             </div>
                         </div>
-                        <div id="sales-pr-log" style="max-height: 200px; overflow-y: auto; font-size: 0.85rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;"></div>
+
+                        <!-- Progress Section (hidden initially) -->
+                        <div id="sales-pr-progress-section" style="display: none;">
+                            <div style="margin-bottom: 1rem;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                    <span style="font-weight: 600; color: #1f2937;">Progress</span>
+                                    <span id="sales-pr-progress-text" style="color: #64748b;">0 / ${orders.length}</span>
+                                </div>
+                                <div style="background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden;">
+                                    <div id="sales-pr-progress-bar" style="background: linear-gradient(90deg, #f59e0b, #d97706); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                                </div>
+                            </div>
+                            <div id="sales-pr-log" style="max-height: 150px; overflow-y: auto; font-size: 0.85rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;"></div>
+                        </div>
                     </div>
-                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; justify-content: flex-end;">
-                        <button onclick="closeSalesPickReleaseModal()" class="btn btn-secondary">Close</button>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                        <button onclick="closeSalesPickReleaseModal()" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button id="btn-start-pick-release" onclick="startSalesOrderPickRelease()" class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border: none;">
+                            <i class="fas fa-truck-loading"></i> Pick Release
+                        </button>
                     </div>
                 </div>
             </div>
         `;
 
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    // Start Pick Release when button is clicked
+    window.startSalesOrderPickRelease = function() {
+        const orders = window.pendingSalesOrdersForPickRelease;
+        if (!orders || orders.length === 0) {
+            alert('No orders to process.');
+            return;
+        }
+
+        // Show progress section
+        const progressSection = document.getElementById('sales-pr-progress-section');
+        if (progressSection) progressSection.style.display = 'block';
+
+        // Disable the Pick Release button
+        const btn = document.getElementById('btn-start-pick-release');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            btn.style.opacity = '0.6';
+        }
 
         // Process orders sequentially
         processSalesOrdersSequentially(orders, 0);
-    }
+    };
 
     window.closeSalesPickReleaseModal = function() {
         const modal = document.getElementById('sales-pick-release-modal');
