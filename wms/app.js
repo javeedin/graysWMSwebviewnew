@@ -4388,6 +4388,15 @@ document.addEventListener('DOMContentLoaded', function() {
     function processSalesOrdersSequentially(orders, index, tripId) {
         if (index >= orders.length) {
             addSalesPRLog(`Completed! Processed ${orders.length} order(s).`, 'success');
+
+            // Update button to show completed state
+            const btn = document.getElementById('btn-start-pick-release');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check"></i> Completed';
+                btn.style.opacity = '1';
+                btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+            }
             return;
         }
 
