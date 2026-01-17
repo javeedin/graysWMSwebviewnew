@@ -4264,7 +4264,7 @@ document.addEventListener('DOMContentLoaded', function() {
         window.pendingSalesOrdersForPickRelease = orders;
         window.pendingTripIdForPickRelease = tripId;
 
-        // Build order list HTML
+        // Build order list HTML with status icons
         let orderListHtml = '';
         orders.forEach((order, index) => {
             const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
@@ -4272,10 +4272,13 @@ document.addEventListener('DOMContentLoaded', function() {
             const orderType = order.ORDER_TYPE || order.order_type || order.ORDER_TYPE_CODE || order.order_type_code || '';
 
             orderListHtml += `
-                <div style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                    <div>
+                <div id="pr-order-row-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span id="pr-order-status-${index}" style="width: 20px; text-align: center; color: #94a3b8;">
+                            <i class="fas fa-circle" style="font-size: 0.5rem;"></i>
+                        </span>
                         <span style="font-weight: 600; color: #1f2937;">${orderNumber}</span>
-                        ${customerName ? `<span style="color: #64748b; font-size: 0.85rem; margin-left: 0.5rem;">- ${customerName}</span>` : ''}
+                        ${customerName ? `<span style="color: #64748b; font-size: 0.85rem;">- ${customerName}</span>` : ''}
                     </div>
                     <span style="color: #64748b; font-size: 0.75rem;">${index + 1} of ${orders.length}</span>
                 </div>
@@ -4389,15 +4392,22 @@ document.addEventListener('DOMContentLoaded', function() {
         if (index >= orders.length) {
             addSalesPRLog(`Completed! Processed ${orders.length} order(s).`, 'success');
 
-            // Update button to show completed state
+            // Update button to show completed state - clicking will close modal
             const btn = document.getElementById('btn-start-pick-release');
             if (btn) {
                 btn.disabled = false;
                 btn.innerHTML = '<i class="fas fa-check"></i> Completed';
                 btn.style.opacity = '1';
                 btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                btn.onclick = function() { closeSalesPickReleaseModal(); };
             }
             return;
+        }
+
+        // Update current order status to "processing"
+        const statusEl = document.getElementById(`pr-order-status-${index}`);
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
         }
 
         const order = orders[index];
@@ -4424,6 +4434,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 fullUrl: PICK_RELEASE_API,
                 body: '{}'
             }, function(error, data) {
+                const statusEl = document.getElementById(`pr-order-status-${index}`);
+                let isSuccess = false;
+
                 if (error) {
                     console.error('[Sales Order Pick Release] Error:', error);
                     addSalesPRLog(`${orderNumber}: Error - ${error}`, 'error');
@@ -4434,13 +4447,25 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         if (result.success === true || result.success === 'true' || result.status === 'success') {
                             addSalesPRLog(`${orderNumber}: Pick release successful`, 'success');
+                            isSuccess = true;
                         } else {
                             const msg = result.message || result.error || 'Unknown response';
                             addSalesPRLog(`${orderNumber}: ${msg}`, result.success === false ? 'error' : 'success');
+                            isSuccess = result.success !== false;
                         }
                     } catch (parseError) {
                         // If response is not JSON, assume success
                         addSalesPRLog(`${orderNumber}: Pick release completed`, 'success');
+                        isSuccess = true;
+                    }
+                }
+
+                // Update status icon
+                if (statusEl) {
+                    if (isSuccess) {
+                        statusEl.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i>';
+                    } else {
+                        statusEl.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
                     }
                 }
 
@@ -4449,6 +4474,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         } else {
             // Browser testing fallback
+            let isSuccess = false;
             fetch(PICK_RELEASE_API, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -4458,12 +4484,24 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(result => {
                 console.log('[Sales Order Pick Release] Response:', result);
                 addSalesPRLog(`${orderNumber}: Pick release completed`, 'success');
+                isSuccess = true;
             })
             .catch(error => {
                 console.error('[Sales Order Pick Release] Error:', error);
                 addSalesPRLog(`${orderNumber}: Error - ${error.message}`, 'error');
+                isSuccess = false;
             })
             .finally(() => {
+                // Update status icon
+                const statusEl = document.getElementById(`pr-order-status-${index}`);
+                if (statusEl) {
+                    if (isSuccess) {
+                        statusEl.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i>';
+                    } else {
+                        statusEl.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
+                    }
+                }
+
                 updateSalesPRProgress(index + 1, orders.length);
                 setTimeout(() => processSalesOrdersSequentially(orders, index + 1, tripId), 500);
             });
