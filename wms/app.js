@@ -3397,6 +3397,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-truck-loading"></i> Pick Release All
                             </button>
+                            <button class="btn" onclick="showTripLines('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
+                                <i class="fas fa-list-alt"></i> Show Lines
+                            </button>
                             <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-plus"></i> Add Orders
                             </button>
@@ -4255,10 +4258,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Process Sales Order Pick Release (uses new API)
     function processSalesOrderPickRelease(orders, tripId) {
-        console.log('[Sales Order Pick Release] Showing', orders.length, 'sales orders');
+        console.log('[Sales Order Pick Release] Showing', orders.length, 'sales orders for trip:', tripId);
 
-        // Store orders globally for the button click
+        // Store orders and tripId globally for the button click
         window.pendingSalesOrdersForPickRelease = orders;
+        window.pendingTripIdForPickRelease = tripId;
 
         // Build order list HTML
         let orderListHtml = '';
@@ -4336,6 +4340,8 @@ document.addEventListener('DOMContentLoaded', function() {
     // Start Pick Release when button is clicked
     window.startSalesOrderPickRelease = function() {
         const orders = window.pendingSalesOrdersForPickRelease;
+        const tripId = window.pendingTripIdForPickRelease;
+
         if (!orders || orders.length === 0) {
             alert('No orders to process.');
             return;
@@ -4353,8 +4359,8 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.style.opacity = '0.6';
         }
 
-        // Process orders sequentially
-        processSalesOrdersSequentially(orders, 0);
+        // Process orders sequentially with tripId
+        processSalesOrdersSequentially(orders, 0, tripId);
     };
 
     window.closeSalesPickReleaseModal = function() {
@@ -4379,7 +4385,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (progressBar) progressBar.style.width = `${(current / total) * 100}%`;
     }
 
-    function processSalesOrdersSequentially(orders, index) {
+    function processSalesOrdersSequentially(orders, index, tripId) {
         if (index >= orders.length) {
             addSalesPRLog(`Completed! Processed ${orders.length} order(s).`, 'success');
             return;
@@ -4391,13 +4397,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!orderNumber) {
             addSalesPRLog(`Order ${index + 1}: Missing order number, skipping...`, 'warning');
             updateSalesPRProgress(index + 1, orders.length);
-            setTimeout(() => processSalesOrdersSequentially(orders, index + 1), 300);
+            setTimeout(() => processSalesOrdersSequentially(orders, index + 1, tripId), 300);
             return;
         }
 
         addSalesPRLog(`Processing order: ${orderNumber}...`, 'info');
 
-        const PICK_RELEASE_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}`;
+        // Build API URL with trip ID parameter
+        const PICK_RELEASE_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}?P_TRIP_ID1=${tripId}`;
 
         console.log('[Sales Order Pick Release] Calling API:', PICK_RELEASE_API);
 
@@ -4429,7 +4436,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
 
                 updateSalesPRProgress(index + 1, orders.length);
-                setTimeout(() => processSalesOrdersSequentially(orders, index + 1), 500);
+                setTimeout(() => processSalesOrdersSequentially(orders, index + 1, tripId), 500);
             });
         } else {
             // Browser testing fallback
@@ -4449,10 +4456,253 @@ document.addEventListener('DOMContentLoaded', function() {
             })
             .finally(() => {
                 updateSalesPRProgress(index + 1, orders.length);
-                setTimeout(() => processSalesOrdersSequentially(orders, index + 1), 500);
+                setTimeout(() => processSalesOrdersSequentially(orders, index + 1, tripId), 500);
             });
         }
     }
+
+    // ============================================================================
+    // SHOW TRIP LINES - Displays trip line details in popup
+    // ============================================================================
+    window.showTripLines = function(tripId) {
+        console.log('[Show Trip Lines] Loading lines for trip:', tripId);
+
+        // Show loading popup
+        const modalHtml = `
+            <div id="trip-lines-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 1200px; height: 85vh; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                            <i class="fas fa-list-alt"></i> Trip Lines - Trip ID: ${tripId}
+                        </h3>
+                        <button onclick="closeTripLinesModal()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <!-- Filter/Search Bar -->
+                    <div style="padding: 1rem 1.5rem; background: #f8f9fc; border-bottom: 1px solid #e2e8f0;">
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <div style="flex: 1;">
+                                <input type="text" id="trip-lines-search" placeholder="Search by Order Number, Customer, Item..."
+                                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;"
+                                    onkeyup="filterTripLines()">
+                            </div>
+                            <button onclick="filterTripLines()" class="btn btn-primary" style="padding: 0.6rem 1rem;">
+                                <i class="fas fa-search"></i> Search
+                            </button>
+                            <button onclick="clearTripLinesFilter()" class="btn btn-secondary" style="padding: 0.6rem 1rem;">
+                                <i class="fas fa-times"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Content/Grid -->
+                    <div style="flex: 1; padding: 1rem 1.5rem; overflow: auto;">
+                        <div id="trip-lines-content" style="height: 100%;">
+                            <div style="display: flex; justify-content: center; align-items: center; height: 200px;">
+                                <div style="text-align: center;">
+                                    <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #8b5cf6;"></i>
+                                    <p style="margin-top: 1rem; color: #64748b;">Loading trip lines...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; justify-content: space-between; align-items: center;">
+                        <span id="trip-lines-count" style="color: #64748b; font-size: 0.9rem;">Loading...</span>
+                        <button onclick="closeTripLinesModal()" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Fetch trip lines from API
+        fetchTripLines(tripId);
+    };
+
+    window.closeTripLinesModal = function() {
+        const modal = document.getElementById('trip-lines-modal');
+        if (modal) modal.remove();
+        window.tripLinesData = null;
+    };
+
+    function fetchTripLines(tripId) {
+        const TRIP_LINES_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettrillines?P_TRIP_ID=${tripId}`;
+
+        console.log('[Show Trip Lines] Fetching from:', TRIP_LINES_API);
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: TRIP_LINES_API
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Show Trip Lines] Error:', error);
+                    showTripLinesError(error);
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Show Trip Lines] Response:', result);
+                        displayTripLines(result);
+                    } catch (parseError) {
+                        console.error('[Show Trip Lines] Parse error:', parseError);
+                        showTripLinesError('Failed to parse response');
+                    }
+                }
+            });
+        } else {
+            // Browser testing fallback
+            fetch(TRIP_LINES_API, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(result => {
+                console.log('[Show Trip Lines] Response:', result);
+                displayTripLines(result);
+            })
+            .catch(error => {
+                console.error('[Show Trip Lines] Error:', error);
+                showTripLinesError(error.message);
+            });
+        }
+    }
+
+    function showTripLinesError(message) {
+        const content = document.getElementById('trip-lines-content');
+        if (content) {
+            content.innerHTML = `
+                <div style="display: flex; justify-content: center; align-items: center; height: 200px;">
+                    <div style="text-align: center;">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 2rem; color: #ef4444;"></i>
+                        <p style="margin-top: 1rem; color: #ef4444;">Error: ${message}</p>
+                    </div>
+                </div>
+            `;
+        }
+        const countEl = document.getElementById('trip-lines-count');
+        if (countEl) countEl.textContent = 'Error loading data';
+    }
+
+    function displayTripLines(data) {
+        // Handle different response formats
+        const items = data.items || data.ITEMS || data || [];
+        window.tripLinesData = Array.isArray(items) ? items : [];
+
+        console.log('[Show Trip Lines] Displaying', window.tripLinesData.length, 'lines');
+
+        const countEl = document.getElementById('trip-lines-count');
+        if (countEl) countEl.textContent = `${window.tripLinesData.length} line(s) found`;
+
+        if (window.tripLinesData.length === 0) {
+            const content = document.getElementById('trip-lines-content');
+            if (content) {
+                content.innerHTML = `
+                    <div style="display: flex; justify-content: center; align-items: center; height: 200px;">
+                        <div style="text-align: center;">
+                            <i class="fas fa-inbox" style="font-size: 2rem; color: #64748b;"></i>
+                            <p style="margin-top: 1rem; color: #64748b;">No lines found for this trip.</p>
+                        </div>
+                    </div>
+                `;
+            }
+            return;
+        }
+
+        renderTripLinesGrid(window.tripLinesData);
+    }
+
+    function renderTripLinesGrid(data) {
+        const content = document.getElementById('trip-lines-content');
+        if (!content) return;
+
+        // Build columns dynamically from first row
+        const firstRow = data[0];
+        const columns = Object.keys(firstRow).map(key => ({
+            dataField: key,
+            caption: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            width: key.toLowerCase().includes('number') || key.toLowerCase().includes('id') ? 120 :
+                   key.toLowerCase().includes('name') || key.toLowerCase().includes('description') ? 200 : 100
+        }));
+
+        // Create DevExpress DataGrid
+        content.innerHTML = '<div id="trip-lines-grid" style="height: 100%;"></div>';
+
+        $('#trip-lines-grid').dxDataGrid({
+            dataSource: data,
+            columns: columns,
+            showBorders: true,
+            showRowLines: true,
+            showColumnLines: true,
+            rowAlternationEnabled: true,
+            columnAutoWidth: false,
+            allowColumnReordering: true,
+            allowColumnResizing: true,
+            columnResizingMode: 'widget',
+            hoverStateEnabled: true,
+            scrolling: {
+                mode: 'virtual',
+                rowRenderingMode: 'virtual'
+            },
+            filterRow: {
+                visible: true,
+                applyFilter: 'auto'
+            },
+            searchPanel: {
+                visible: false // We use our own search
+            },
+            paging: {
+                pageSize: 50
+            },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [25, 50, 100, 200],
+                showInfo: true
+            },
+            headerFilter: {
+                visible: true
+            },
+            export: {
+                enabled: true,
+                fileName: 'TripLines'
+            },
+            columnChooser: {
+                enabled: true,
+                mode: 'select'
+            },
+            height: '100%'
+        });
+
+        window.tripLinesGridInstance = $('#trip-lines-grid').dxDataGrid('instance');
+    }
+
+    window.filterTripLines = function() {
+        const searchValue = document.getElementById('trip-lines-search')?.value || '';
+
+        if (window.tripLinesGridInstance) {
+            if (searchValue.trim()) {
+                window.tripLinesGridInstance.searchByText(searchValue);
+            } else {
+                window.tripLinesGridInstance.clearFilter();
+            }
+        }
+    };
+
+    window.clearTripLinesFilter = function() {
+        const searchInput = document.getElementById('trip-lines-search');
+        if (searchInput) searchInput.value = '';
+
+        if (window.tripLinesGridInstance) {
+            window.tripLinesGridInstance.clearFilter();
+        }
+    };
 
     // Allocate Lots for S2V - Process selected S2V orders
     window.allocateLotsForS2V = function(tripId) {
