@@ -1738,30 +1738,6 @@ window.showProcessFlowPopup = async function(transactionNumber, type) {
                 transform: translateY(-4px);
                 box-shadow: 0 12px 40px rgba(0,0,0,0.15) !important;
             }
-            .flow-connector {
-                position: relative;
-            }
-            .flow-connector::after {
-                content: '';
-                position: absolute;
-                width: 40px;
-                height: 3px;
-                background: linear-gradient(90deg, #667eea, #764ba2);
-                right: -44px;
-                top: 50%;
-                transform: translateY(-50%);
-            }
-            .flow-connector-arrow::after {
-                content: '\\f061';
-                font-family: 'Font Awesome 5 Free';
-                font-weight: 900;
-                position: absolute;
-                right: -60px;
-                top: 50%;
-                transform: translateY(-50%);
-                color: #667eea;
-                font-size: 1.2rem;
-            }
             .status-active { background: linear-gradient(135deg, #10b981, #059669) !important; }
             .status-pending { background: linear-gradient(135deg, #f59e0b, #d97706) !important; }
             .status-completed { background: linear-gradient(135deg, #22c55e, #16a34a) !important; }
@@ -1809,12 +1785,12 @@ async function loadAndRenderProcessFlow(transactionNumber, type, instanceName) {
         if (type === 'Order') {
             // Fetch all Order-related data in parallel
             const [pickRelease, salesOrderLines, lotDetails, shipmentDetails, pickConfirm, shipConfirm] = await Promise.all([
-                fetchApiData(`/order/pick-release/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchApiData(`/order/sales-lines/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchApiData(`/order/lot-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchApiData(`/order/shipment/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchApiData(`/order/pick-confirm/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchApiData(`/order/ship-confirm/${transactionNumber}`, instanceName).catch(() => ({ items: [] }))
+                fetchProcessFlowApiData(`/order/pick-release/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
+                fetchProcessFlowApiData(`/order/sales-lines/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
+                fetchProcessFlowApiData(`/order/lot-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
+                fetchProcessFlowApiData(`/order/shipment/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
+                fetchProcessFlowApiData(`/order/pick-confirm/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
+                fetchProcessFlowApiData(`/order/ship-confirm/${transactionNumber}`, instanceName).catch(() => ({ items: [] }))
             ]);
 
             // Store data
@@ -1831,9 +1807,9 @@ async function loadAndRenderProcessFlow(transactionNumber, type, instanceName) {
         } else if (type === 'S2V') {
             // Fetch all S2V-related data in parallel
             const [transDetails, qohDetails, allocatedLots] = await Promise.all([
-                fetchApiData(`/s2v/transaction-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchApiData(`/s2v/qoh-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchApiData(`/s2v/allocated-lots/${transactionNumber}`, instanceName).catch(() => ({ items: [] }))
+                fetchProcessFlowApiData(`/s2v/transaction-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
+                fetchProcessFlowApiData(`/s2v/qoh-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
+                fetchProcessFlowApiData(`/s2v/allocated-lots/${transactionNumber}`, instanceName).catch(() => ({ items: [] }))
             ]);
 
             // Store data
@@ -1862,8 +1838,8 @@ async function loadAndRenderProcessFlow(transactionNumber, type, instanceName) {
     }
 }
 
-// Fetch API Data helper
-async function fetchApiData(endpoint, instanceName) {
+// Fetch API Data helper for Process Flow
+async function fetchProcessFlowApiData(endpoint, instanceName) {
     return new Promise((resolve, reject) => {
         if (typeof callApexAPINew === 'function') {
             callApexAPINew(endpoint, 'GET', null, instanceName)
@@ -2005,12 +1981,12 @@ function renderOrderProcessFlow(container, transactionNumber) {
 
         <!-- Data Summary Cards -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem;">
-            ${renderDataCard('Sales Order Lines', data.salesOrderLines, 'fas fa-shopping-cart', '#3b82f6', ['LINE_NUMBER', 'ITEM_NAME', 'ORDERED_QTY', 'LINE_STATUS'])}
-            ${renderDataCard('Pick Release Details', data.pickReleaseDetails, 'fas fa-box-open', '#10b981', ['PICK_RELEASE_ID', 'ITEM', 'QUANTITY', 'STATUS'])}
-            ${renderDataCard('Lot Details', data.lotDetails, 'fas fa-barcode', '#8b5cf6', ['LOT_NUMBER', 'QUANTITY', 'EXPIRY_DATE'])}
-            ${renderDataCard('Shipment Details', data.shipmentDetails, 'fas fa-truck', '#f59e0b', ['SHIPMENT_NUMBER', 'STATUS', 'SHIP_DATE'])}
-            ${renderDataCard('Pick Confirmations', data.pickConfirmResponses, 'fas fa-check-double', '#14b8a6', ['RESPONSE_ID', 'STATUS', 'TIMESTAMP'])}
-            ${renderDataCard('Ship Confirmations', data.shipConfirmResponses, 'fas fa-flag-checkered', '#ec4899', ['RESPONSE_ID', 'STATUS', 'TIMESTAMP'])}
+            ${renderProcessFlowDataCard('Sales Order Lines', data.salesOrderLines, 'fas fa-shopping-cart', '#3b82f6', ['LINE_NUMBER', 'ITEM_NAME', 'ORDERED_QTY', 'LINE_STATUS'])}
+            ${renderProcessFlowDataCard('Pick Release Details', data.pickReleaseDetails, 'fas fa-box-open', '#10b981', ['PICK_RELEASE_ID', 'ITEM', 'QUANTITY', 'STATUS'])}
+            ${renderProcessFlowDataCard('Lot Details', data.lotDetails, 'fas fa-barcode', '#8b5cf6', ['LOT_NUMBER', 'QUANTITY', 'EXPIRY_DATE'])}
+            ${renderProcessFlowDataCard('Shipment Details', data.shipmentDetails, 'fas fa-truck', '#f59e0b', ['SHIPMENT_NUMBER', 'STATUS', 'SHIP_DATE'])}
+            ${renderProcessFlowDataCard('Pick Confirmations', data.pickConfirmResponses, 'fas fa-check-double', '#14b8a6', ['RESPONSE_ID', 'STATUS', 'TIMESTAMP'])}
+            ${renderProcessFlowDataCard('Ship Confirmations', data.shipConfirmResponses, 'fas fa-flag-checkered', '#ec4899', ['RESPONSE_ID', 'STATUS', 'TIMESTAMP'])}
         </div>
     `;
 }
@@ -2112,15 +2088,15 @@ function renderS2VProcessFlow(container, transactionNumber) {
 
         <!-- Data Summary Cards -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; margin-top: 2rem;">
-            ${renderDataCard('Transaction Details', data.transactionDetails, 'fas fa-list-alt', '#3b82f6', ['LINE_NUMBER', 'ITEM', 'QUANTITY', 'STATUS'])}
-            ${renderDataCard('QOH Details', data.qohDetails, 'fas fa-warehouse', '#10b981', ['ITEM', 'LOT_NUMBER', 'ON_HAND_QTY', 'SUBINVENTORY'])}
-            ${renderDataCard('Allocated Lots', data.allocatedLots, 'fas fa-check-circle', '#8b5cf6', ['LOT_NUMBER', 'ALLOCATED_QTY', 'EXPIRY_DATE'])}
+            ${renderProcessFlowDataCard('Transaction Details', data.transactionDetails, 'fas fa-list-alt', '#3b82f6', ['LINE_NUMBER', 'ITEM', 'QUANTITY', 'STATUS'])}
+            ${renderProcessFlowDataCard('QOH Details', data.qohDetails, 'fas fa-warehouse', '#10b981', ['ITEM', 'LOT_NUMBER', 'ON_HAND_QTY', 'SUBINVENTORY'])}
+            ${renderProcessFlowDataCard('Allocated Lots', data.allocatedLots, 'fas fa-check-circle', '#8b5cf6', ['LOT_NUMBER', 'ALLOCATED_QTY', 'EXPIRY_DATE'])}
         </div>
     `;
 }
 
-// Helper function to render data cards
-function renderDataCard(title, data, icon, color, fields) {
+// Helper function to render data cards for Process Flow
+function renderProcessFlowDataCard(title, data, icon, color, fields) {
     const hasData = data && data.length > 0;
     const displayData = hasData ? data.slice(0, 5) : []; // Show max 5 rows
 
