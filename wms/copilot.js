@@ -1638,6 +1638,7 @@ window.addChatMessageWithProcessFlowLink = function(role, content, transactionNu
 window.processFlowData = {
     transactionNumber: null,
     type: null,
+    orderInfo: null,
     pickReleaseDetails: [],
     salesOrderLines: [],
     lotDetails: [],
@@ -1781,41 +1782,50 @@ async function loadAndRenderProcessFlow(transactionNumber, type, instanceName) {
     const content = document.getElementById('process-flow-content');
     if (!content) return;
 
+    // Base URL for APEX REST API
+    const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+
     try {
         if (type === 'Order') {
-            // Fetch all Order-related data in parallel
-            const [pickRelease, salesOrderLines, lotDetails, shipmentDetails, pickConfirm, shipConfirm] = await Promise.all([
-                fetchProcessFlowApiData(`/order/pick-release/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchProcessFlowApiData(`/order/sales-lines/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchProcessFlowApiData(`/order/lot-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchProcessFlowApiData(`/order/shipment/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchProcessFlowApiData(`/order/pick-confirm/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchProcessFlowApiData(`/order/ship-confirm/${transactionNumber}`, instanceName).catch(() => ({ items: [] }))
+            // Fetch all Order-related data in parallel using the actual API endpoints
+            const [pickRelease, salesOrderLines, lotDetails] = await Promise.all([
+                fetchProcessFlowApiDataDirect(`${baseUrl}/trips/orders/getpickreleasedetails/${transactionNumber}`).catch(() => ({ items: [] })),
+                fetchProcessFlowApiDataDirect(`${baseUrl}/trip/orders/getsalesorderlines/${transactionNumber}`).catch(() => ({ items: [] })),
+                fetchProcessFlowApiDataDirect(`${baseUrl}/trips/orders/getlotdetails/${transactionNumber}`).catch(() => ({ items: [] }))
             ]);
 
             // Store data
-            window.processFlowData.pickReleaseDetails = pickRelease.items || [];
-            window.processFlowData.salesOrderLines = salesOrderLines.items || [];
-            window.processFlowData.lotDetails = lotDetails.items || [];
-            window.processFlowData.shipmentDetails = shipmentDetails.items || [];
-            window.processFlowData.pickConfirmResponses = pickConfirm.items || [];
-            window.processFlowData.shipConfirmResponses = shipConfirm.items || [];
+            window.processFlowData.pickReleaseDetails = pickRelease.items || pickRelease || [];
+            window.processFlowData.salesOrderLines = salesOrderLines.items || salesOrderLines || [];
+            window.processFlowData.lotDetails = lotDetails.items || lotDetails || [];
+
+            // Extract order info from first sales order line if available
+            if (window.processFlowData.salesOrderLines.length > 0) {
+                const firstLine = window.processFlowData.salesOrderLines[0];
+                window.processFlowData.orderInfo = {
+                    orderNumber: transactionNumber,
+                    accountNumber: firstLine.ACCOUNT_NUMBER || firstLine.account_number || '',
+                    accountName: firstLine.ACCOUNT_NAME || firstLine.account_name || firstLine.CUSTOMER_NAME || '',
+                    orderDate: firstLine.ORDER_DATE || firstLine.order_date || '',
+                    orderType: firstLine.ORDER_TYPE || firstLine.order_type || ''
+                };
+            }
 
             // Render Order process flow
             renderOrderProcessFlow(content, transactionNumber);
 
         } else if (type === 'S2V') {
-            // Fetch all S2V-related data in parallel
+            // For S2V, use store transaction APIs
             const [transDetails, qohDetails, allocatedLots] = await Promise.all([
-                fetchProcessFlowApiData(`/s2v/transaction-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchProcessFlowApiData(`/s2v/qoh-details/${transactionNumber}`, instanceName).catch(() => ({ items: [] })),
-                fetchProcessFlowApiData(`/s2v/allocated-lots/${transactionNumber}`, instanceName).catch(() => ({ items: [] }))
+                fetchProcessFlowApiDataDirect(`${baseUrl}/s2v/gettransactiondetails/${transactionNumber}`).catch(() => ({ items: [] })),
+                fetchProcessFlowApiDataDirect(`${baseUrl}/s2v/getqohdetails/${transactionNumber}`).catch(() => ({ items: [] })),
+                fetchProcessFlowApiDataDirect(`${baseUrl}/s2v/getallocatedlots/${transactionNumber}`).catch(() => ({ items: [] }))
             ]);
 
             // Store data
-            window.processFlowData.transactionDetails = transDetails.items || [];
-            window.processFlowData.qohDetails = qohDetails.items || [];
-            window.processFlowData.allocatedLots = allocatedLots.items || [];
+            window.processFlowData.transactionDetails = transDetails.items || transDetails || [];
+            window.processFlowData.qohDetails = qohDetails.items || qohDetails || [];
+            window.processFlowData.allocatedLots = allocatedLots.items || allocatedLots || [];
 
             // Render S2V process flow
             renderS2VProcessFlow(content, transactionNumber);
@@ -1838,16 +1848,36 @@ async function loadAndRenderProcessFlow(transactionNumber, type, instanceName) {
     }
 }
 
-// Fetch API Data helper for Process Flow
-async function fetchProcessFlowApiData(endpoint, instanceName) {
+// Fetch API Data helper for Process Flow - Direct URL call via C#
+async function fetchProcessFlowApiDataDirect(fullUrl) {
     return new Promise((resolve, reject) => {
-        if (typeof callApexAPINew === 'function') {
-            callApexAPINew(endpoint, 'GET', null, instanceName)
-                .then(resolve)
-                .catch(reject);
+        console.log('[Process Flow] Fetching:', fullUrl);
+
+        if (typeof sendMessageToCSharp === 'function') {
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: fullUrl
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Process Flow] API Error:', error);
+                    reject(new Error(error));
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Process Flow] API Response:', result);
+                        resolve(result);
+                    } catch (parseError) {
+                        console.error('[Process Flow] Parse Error:', parseError);
+                        reject(parseError);
+                    }
+                }
+            });
         } else {
-            // Fallback - return empty for demo
-            resolve({ items: [] });
+            // Fallback for browser testing - try fetch
+            fetch(fullUrl)
+                .then(response => response.json())
+                .then(resolve)
+                .catch(() => resolve({ items: [] }));
         }
     });
 }
@@ -1855,138 +1885,235 @@ async function fetchProcessFlowApiData(endpoint, instanceName) {
 // Render Order Process Flow
 function renderOrderProcessFlow(container, transactionNumber) {
     const data = window.processFlowData;
+    const orderInfo = data.orderInfo || {};
 
-    // Calculate statuses based on data
-    const hasPickRelease = data.pickReleaseDetails.length > 0;
-    const hasSalesLines = data.salesOrderLines.length > 0;
-    const hasLots = data.lotDetails.length > 0;
-    const hasShipment = data.shipmentDetails.length > 0;
-    const hasPickConfirm = data.pickConfirmResponses.length > 0;
-    const hasShipConfirm = data.shipConfirmResponses.length > 0;
+    // Calculate statuses based on actual data
+    const hasSalesLines = Array.isArray(data.salesOrderLines) && data.salesOrderLines.length > 0;
+    const hasPickRelease = Array.isArray(data.pickReleaseDetails) && data.pickReleaseDetails.length > 0;
+    const hasLots = Array.isArray(data.lotDetails) && data.lotDetails.length > 0;
+
+    // Calculate counts and summaries
+    const totalLines = hasSalesLines ? data.salesOrderLines.length : 0;
+    const totalPickReleased = hasPickRelease ? data.pickReleaseDetails.length : 0;
+    const totalLots = hasLots ? data.lotDetails.length : 0;
+
+    // Calculate picked status from sales order lines or pick release
+    let pickedLines = 0;
+    let totalOrderedQty = 0;
+    let totalPickedQty = 0;
+    let pickConfirmedLines = 0;
+    let shipConfirmedLines = 0;
+
+    if (hasSalesLines) {
+        data.salesOrderLines.forEach(line => {
+            const orderedQty = parseFloat(line.ORDERED_QUANTITY || line.ordered_quantity || line.ORDERED_QTY || line.ordered_qty || 0);
+            const pickedQty = parseFloat(line.PICKED_QUANTITY || line.picked_quantity || line.PICKED_QTY || line.picked_qty || 0);
+            const pickConfirmSt = (line.PICK_CONFIRM_ST || line.pick_confirm_st || '').toUpperCase();
+            const shipConfirmSt = (line.SHIP_CONFIRM_ST || line.ship_confirm_st || '').toUpperCase();
+
+            totalOrderedQty += orderedQty;
+            totalPickedQty += pickedQty;
+
+            if (pickedQty > 0) pickedLines++;
+            if (pickConfirmSt === 'Y' || pickConfirmSt === 'YES' || pickConfirmSt === 'CONFIRMED') pickConfirmedLines++;
+            if (shipConfirmSt === 'Y' || shipConfirmSt === 'YES' || shipConfirmSt === 'CONFIRMED' || shipConfirmSt === 'SHIPPED') shipConfirmedLines++;
+        });
+    }
+
+    // Determine process stages based on actual data
+    const isOrderCreated = hasSalesLines;
+    const isPickReleased = hasPickRelease;
+    const isLotAllocated = hasLots;
+    const isPicked = pickedLines > 0 || totalPickedQty > 0;
+    const isPickConfirmed = pickConfirmedLines > 0;
+    const isShipConfirmed = shipConfirmedLines > 0;
 
     // Determine current stage
-    let currentStage = 1;
-    if (hasPickRelease) currentStage = 2;
-    if (hasLots) currentStage = 3;
-    if (hasPickConfirm) currentStage = 4;
-    if (hasShipment) currentStage = 5;
-    if (hasShipConfirm) currentStage = 6;
+    let currentStage = 0;
+    if (isOrderCreated) currentStage = 1;
+    if (isPickReleased) currentStage = 2;
+    if (isLotAllocated) currentStage = 3;
+    if (isPicked || isPickConfirmed) currentStage = 4;
+    if (isShipConfirmed) currentStage = 5;
+
+    // Calculate picking progress percentage
+    const pickingProgress = totalLines > 0 ? Math.round((pickedLines / totalLines) * 100) : 0;
 
     container.innerHTML = `
+        <!-- Order Info Header -->
+        <div style="background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; border: 1px solid #c7d2fe;">
+            <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3 style="color: #1e293b; font-size: 1.4rem; margin: 0; font-weight: 700;">
+                        <i class="fas fa-file-invoice" style="color: #667eea; margin-right: 0.5rem;"></i>
+                        Order #${transactionNumber}
+                    </h3>
+                    ${orderInfo.accountName ? `<p style="color: #64748b; margin: 0.25rem 0 0 0; font-size: 0.9rem;"><i class="fas fa-user" style="margin-right: 0.4rem;"></i>${orderInfo.accountName} ${orderInfo.accountNumber ? '(' + orderInfo.accountNumber + ')' : ''}</p>` : ''}
+                </div>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <div style="text-align: center; padding: 0.5rem 1rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #3b82f6;">${totalLines}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">ORDER LINES</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.5rem 1rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #10b981;">${totalPickReleased}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">PICK RELEASED</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.5rem 1rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #8b5cf6;">${totalLots}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">LOTS ALLOCATED</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.5rem 1rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;">${pickedLines}/${totalLines}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">LINES PICKED</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Process Flow Header -->
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <h3 style="color: #1e293b; font-size: 1.5rem; margin: 0;">Sales Order Lifecycle</h3>
-            <p style="color: #64748b; margin: 0.5rem 0 0 0;">Track the complete journey of Order #${transactionNumber}</p>
+        <div style="text-align: center; margin-bottom: 1.5rem;">
+            <h3 style="color: #1e293b; font-size: 1.3rem; margin: 0;">Sales Order Lifecycle</h3>
+            <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.85rem;">Track the complete journey of this order</p>
         </div>
 
         <!-- Main Flow Diagram -->
-        <div style="display: flex; justify-content: center; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem;">
+        <div style="display: flex; justify-content: center; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
 
             <!-- Step 1: Order Created -->
-            <div class="flow-step" style="text-align: center; width: 160px;">
-                <div style="width: 80px; height: 80px; margin: 0 auto 0.75rem; border-radius: 50%; background: ${currentStage >= 1 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px ${currentStage >= 1 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
-                    <i class="fas fa-file-invoice" style="font-size: 1.8rem; color: white;"></i>
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isOrderCreated ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isOrderCreated ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-file-invoice" style="font-size: 1.5rem; color: white;"></i>
                 </div>
-                <h4 style="margin: 0; font-size: 0.95rem; color: #1e293b; font-weight: 600;">Order Created</h4>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: #64748b;">${hasSalesLines ? data.salesOrderLines.length + ' lines' : 'Pending'}</p>
-                ${currentStage === 1 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.2rem 0.6rem; background: #fef3c7; color: #92400e; font-size: 0.65rem; border-radius: 10px; font-weight: 600;">CURRENT</span>' : ''}
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Order Created</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isOrderCreated ? '#22c55e' : '#64748b'};">${isOrderCreated ? totalLines + ' lines' : 'Pending'}</p>
+                ${currentStage === 1 && !isPickReleased ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #fef3c7; color: #92400e; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">CURRENT</span>' : ''}
             </div>
 
-            <!-- Connector -->
-            <div style="display: flex; align-items: center; padding-top: 35px;">
-                <i class="fas fa-chevron-right" style="color: ${currentStage >= 2 ? '#667eea' : '#cbd5e1'}; font-size: 1.5rem;"></i>
-            </div>
+            <div style="display: flex; align-items: center; padding-top: 30px;"><i class="fas fa-chevron-right" style="color: ${isPickReleased ? '#667eea' : '#cbd5e1'}; font-size: 1.2rem;"></i></div>
 
             <!-- Step 2: Pick Release -->
-            <div class="flow-step" style="text-align: center; width: 160px;">
-                <div style="width: 80px; height: 80px; margin: 0 auto 0.75rem; border-radius: 50%; background: ${currentStage >= 2 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px ${currentStage >= 2 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
-                    <i class="fas fa-box-open" style="font-size: 1.8rem; color: white;"></i>
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isPickReleased ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isPickReleased ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-box-open" style="font-size: 1.5rem; color: white;"></i>
                 </div>
-                <h4 style="margin: 0; font-size: 0.95rem; color: #1e293b; font-weight: 600;">Pick Release</h4>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: #64748b;">${hasPickRelease ? data.pickReleaseDetails.length + ' released' : 'Pending'}</p>
-                ${currentStage === 2 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.2rem 0.6rem; background: #fef3c7; color: #92400e; font-size: 0.65rem; border-radius: 10px; font-weight: 600;">CURRENT</span>' : ''}
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Pick Released</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isPickReleased ? '#22c55e' : '#64748b'};">${isPickReleased ? totalPickReleased + ' released' : 'Pending'}</p>
+                ${currentStage === 2 && !isLotAllocated ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #fef3c7; color: #92400e; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">CURRENT</span>' : ''}
             </div>
 
-            <!-- Connector -->
-            <div style="display: flex; align-items: center; padding-top: 35px;">
-                <i class="fas fa-chevron-right" style="color: ${currentStage >= 3 ? '#667eea' : '#cbd5e1'}; font-size: 1.5rem;"></i>
-            </div>
+            <div style="display: flex; align-items: center; padding-top: 30px;"><i class="fas fa-chevron-right" style="color: ${isLotAllocated ? '#667eea' : '#cbd5e1'}; font-size: 1.2rem;"></i></div>
 
             <!-- Step 3: Lot Allocation -->
-            <div class="flow-step" style="text-align: center; width: 160px;">
-                <div style="width: 80px; height: 80px; margin: 0 auto 0.75rem; border-radius: 50%; background: ${currentStage >= 3 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px ${currentStage >= 3 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
-                    <i class="fas fa-barcode" style="font-size: 1.8rem; color: white;"></i>
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isLotAllocated ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isLotAllocated ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-barcode" style="font-size: 1.5rem; color: white;"></i>
                 </div>
-                <h4 style="margin: 0; font-size: 0.95rem; color: #1e293b; font-weight: 600;">Lot Allocated</h4>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: #64748b;">${hasLots ? data.lotDetails.length + ' lots' : 'Pending'}</p>
-                ${currentStage === 3 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.2rem 0.6rem; background: #fef3c7; color: #92400e; font-size: 0.65rem; border-radius: 10px; font-weight: 600;">CURRENT</span>' : ''}
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Lot Allocated</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isLotAllocated ? '#22c55e' : '#64748b'};">${isLotAllocated ? totalLots + ' lots' : 'Pending'}</p>
+                ${currentStage === 3 && !isPicked ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #fef3c7; color: #92400e; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">CURRENT</span>' : ''}
             </div>
 
-            <!-- Connector -->
-            <div style="display: flex; align-items: center; padding-top: 35px;">
-                <i class="fas fa-chevron-right" style="color: ${currentStage >= 4 ? '#667eea' : '#cbd5e1'}; font-size: 1.5rem;"></i>
-            </div>
+            <div style="display: flex; align-items: center; padding-top: 30px;"><i class="fas fa-chevron-right" style="color: ${isPicked ? '#667eea' : '#cbd5e1'}; font-size: 1.2rem;"></i></div>
 
-            <!-- Step 4: Pick Confirmed -->
-            <div class="flow-step" style="text-align: center; width: 160px;">
-                <div style="width: 80px; height: 80px; margin: 0 auto 0.75rem; border-radius: 50%; background: ${currentStage >= 4 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px ${currentStage >= 4 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
-                    <i class="fas fa-check-double" style="font-size: 1.8rem; color: white;"></i>
+            <!-- Step 4: Picking Done -->
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isPicked ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isPicked ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-check-double" style="font-size: 1.5rem; color: white;"></i>
                 </div>
-                <h4 style="margin: 0; font-size: 0.95rem; color: #1e293b; font-weight: 600;">Pick Confirmed</h4>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: #64748b;">${hasPickConfirm ? data.pickConfirmResponses.length + ' confirmed' : 'Pending'}</p>
-                ${currentStage === 4 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.2rem 0.6rem; background: #fef3c7; color: #92400e; font-size: 0.65rem; border-radius: 10px; font-weight: 600;">CURRENT</span>' : ''}
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Picking Done</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isPicked ? '#22c55e' : '#64748b'};">${isPicked ? pickingProgress + '% complete' : 'Pending'}</p>
+                ${currentStage === 4 && !isShipConfirmed ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #fef3c7; color: #92400e; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">CURRENT</span>' : ''}
             </div>
 
-            <!-- Connector -->
-            <div style="display: flex; align-items: center; padding-top: 35px;">
-                <i class="fas fa-chevron-right" style="color: ${currentStage >= 5 ? '#667eea' : '#cbd5e1'}; font-size: 1.5rem;"></i>
-            </div>
+            <div style="display: flex; align-items: center; padding-top: 30px;"><i class="fas fa-chevron-right" style="color: ${isShipConfirmed ? '#667eea' : '#cbd5e1'}; font-size: 1.2rem;"></i></div>
 
-            <!-- Step 5: Shipment -->
-            <div class="flow-step" style="text-align: center; width: 160px;">
-                <div style="width: 80px; height: 80px; margin: 0 auto 0.75rem; border-radius: 50%; background: ${currentStage >= 5 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px ${currentStage >= 5 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
-                    <i class="fas fa-shipping-fast" style="font-size: 1.8rem; color: white;"></i>
+            <!-- Step 5: Ship Confirmed -->
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isShipConfirmed ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isShipConfirmed ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-truck" style="font-size: 1.5rem; color: white;"></i>
                 </div>
-                <h4 style="margin: 0; font-size: 0.95rem; color: #1e293b; font-weight: 600;">Shipment</h4>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: #64748b;">${hasShipment ? data.shipmentDetails.length + ' shipments' : 'Pending'}</p>
-                ${currentStage === 5 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.2rem 0.6rem; background: #fef3c7; color: #92400e; font-size: 0.65rem; border-radius: 10px; font-weight: 600;">CURRENT</span>' : ''}
-            </div>
-
-            <!-- Connector -->
-            <div style="display: flex; align-items: center; padding-top: 35px;">
-                <i class="fas fa-chevron-right" style="color: ${currentStage >= 6 ? '#667eea' : '#cbd5e1'}; font-size: 1.5rem;"></i>
-            </div>
-
-            <!-- Step 6: Ship Confirmed -->
-            <div class="flow-step" style="text-align: center; width: 160px;">
-                <div style="width: 80px; height: 80px; margin: 0 auto 0.75rem; border-radius: 50%; background: ${currentStage >= 6 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 25px ${currentStage >= 6 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
-                    <i class="fas fa-flag-checkered" style="font-size: 1.8rem; color: white;"></i>
-                </div>
-                <h4 style="margin: 0; font-size: 0.95rem; color: #1e293b; font-weight: 600;">Ship Confirmed</h4>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem; color: #64748b;">${hasShipConfirm ? 'Completed' : 'Pending'}</p>
-                ${currentStage === 6 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.2rem 0.6rem; background: #dcfce7; color: #166534; font-size: 0.65rem; border-radius: 10px; font-weight: 600;">COMPLETED</span>' : ''}
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Shipped</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isShipConfirmed ? '#22c55e' : '#64748b'};">${isShipConfirmed ? shipConfirmedLines + ' shipped' : 'Pending'}</p>
+                ${isShipConfirmed ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #dcfce7; color: #166534; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">COMPLETE</span>' : ''}
             </div>
         </div>
 
         <!-- Progress Bar -->
-        <div style="margin: 2rem auto; max-width: 1000px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                <span style="font-size: 0.8rem; color: #64748b;">Progress</span>
-                <span style="font-size: 0.8rem; color: #667eea; font-weight: 600;">${Math.round((currentStage / 6) * 100)}%</span>
+        <div style="margin: 1.5rem auto; max-width: 900px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
+                <span style="font-size: 0.75rem; color: #64748b;">Overall Progress</span>
+                <span style="font-size: 0.75rem; color: #667eea; font-weight: 600;">${Math.round((currentStage / 5) * 100)}%</span>
             </div>
-            <div style="height: 10px; background: #e2e8f0; border-radius: 5px; overflow: hidden;">
-                <div style="height: 100%; width: ${(currentStage / 6) * 100}%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 5px; transition: width 0.5s ease;"></div>
+            <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                <div style="height: 100%; width: ${(currentStage / 5) * 100}%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 4px; transition: width 0.5s ease;"></div>
             </div>
         </div>
 
         <!-- Data Summary Cards -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem;">
-            ${renderProcessFlowDataCard('Sales Order Lines', data.salesOrderLines, 'fas fa-shopping-cart', '#3b82f6', ['LINE_NUMBER', 'ITEM_NAME', 'ORDERED_QTY', 'LINE_STATUS'])}
-            ${renderProcessFlowDataCard('Pick Release Details', data.pickReleaseDetails, 'fas fa-box-open', '#10b981', ['PICK_RELEASE_ID', 'ITEM', 'QUANTITY', 'STATUS'])}
-            ${renderProcessFlowDataCard('Lot Details', data.lotDetails, 'fas fa-barcode', '#8b5cf6', ['LOT_NUMBER', 'QUANTITY', 'EXPIRY_DATE'])}
-            ${renderProcessFlowDataCard('Shipment Details', data.shipmentDetails, 'fas fa-truck', '#f59e0b', ['SHIPMENT_NUMBER', 'STATUS', 'SHIP_DATE'])}
-            ${renderProcessFlowDataCard('Pick Confirmations', data.pickConfirmResponses, 'fas fa-check-double', '#14b8a6', ['RESPONSE_ID', 'STATUS', 'TIMESTAMP'])}
-            ${renderProcessFlowDataCard('Ship Confirmations', data.shipConfirmResponses, 'fas fa-flag-checkered', '#ec4899', ['RESPONSE_ID', 'STATUS', 'TIMESTAMP'])}
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: 1.5rem;">
+            ${renderProcessFlowDataCardAuto('Sales Order Lines', data.salesOrderLines, 'fas fa-shopping-cart', '#3b82f6')}
+            ${renderProcessFlowDataCardAuto('Pick Release Details', data.pickReleaseDetails, 'fas fa-box-open', '#10b981')}
+            ${renderProcessFlowDataCardAuto('Lot Details', data.lotDetails, 'fas fa-barcode', '#8b5cf6')}
+        </div>
+    `;
+}
+
+// Auto-detect fields and render data card
+function renderProcessFlowDataCardAuto(title, data, icon, color) {
+    const hasData = Array.isArray(data) && data.length > 0;
+    const displayData = hasData ? data.slice(0, 5) : [];
+
+    // Auto-detect fields from first item
+    let fields = [];
+    if (hasData && data[0]) {
+        fields = Object.keys(data[0]).slice(0, 6); // Show first 6 fields
+    }
+
+    return `
+        <div style="background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #e2e8f0;">
+            <div style="padding: 0.75rem 1rem; background: linear-gradient(135deg, ${color}15, ${color}08); border-bottom: 1px solid ${color}30; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <div style="width: 32px; height: 32px; background: ${color}; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                        <i class="${icon}" style="color: white; font-size: 0.9rem;"></i>
+                    </div>
+                    <div>
+                        <h4 style="margin: 0; font-size: 0.9rem; color: #1e293b; font-weight: 600;">${title}</h4>
+                        <p style="margin: 0; font-size: 0.65rem; color: #64748b;">${hasData ? data.length + ' record(s)' : 'No data'}</p>
+                    </div>
+                </div>
+                <span style="padding: 0.2rem 0.5rem; background: ${hasData ? '#dcfce7' : '#fef3c7'}; color: ${hasData ? '#166534' : '#92400e'}; font-size: 0.6rem; border-radius: 6px; font-weight: 600;">
+                    ${hasData ? 'LOADED' : 'EMPTY'}
+                </span>
+            </div>
+            <div style="padding: 0.5rem; max-height: 180px; overflow-y: auto;">
+                ${hasData ? `
+                    <table style="width: 100%; font-size: 0.7rem; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8fafc;">
+                                ${fields.map(f => `<th style="padding: 0.3rem 0.4rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0; white-space: nowrap;">${f.replace(/_/g, ' ').substring(0, 15)}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${displayData.map(row => `
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    ${fields.map(f => {
+                                        let val = row[f] !== null && row[f] !== undefined ? row[f] : '-';
+                                        if (typeof val === 'string' && val.length > 20) val = val.substring(0, 18) + '...';
+                                        return `<td style="padding: 0.3rem 0.4rem; color: #1e293b;">${val}</td>`;
+                                    }).join('')}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    ${data.length > 5 ? `<p style="margin: 0.4rem 0 0 0; text-align: center; font-size: 0.65rem; color: #64748b;">... and ${data.length - 5} more</p>` : ''}
+                ` : `
+                    <div style="text-align: center; padding: 1rem; color: #94a3b8;">
+                        <i class="fas fa-inbox" style="font-size: 1.2rem; margin-bottom: 0.4rem;"></i>
+                        <p style="margin: 0; font-size: 0.75rem;">No data available</p>
+                    </div>
+                `}
+            </div>
         </div>
     `;
 }
