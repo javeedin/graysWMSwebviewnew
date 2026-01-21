@@ -6637,25 +6637,6 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
-        if (!lines || lines.length === 0) {
-            showNotification('No lines selected to cancel', 'warning');
-            return;
-        }
-
-        console.log('[Order Transactions] Executing cancel for', lines.length, 'lines');
-        console.log('[Order Transactions] Lines to cancel:', lines);
-
-        // TODO: Add webservice call here to cancel the lines
-        // For now, just show a message
-        showNotification(`Ready to cancel ${lines.length} line(s). Webservice integration pending.`, 'info');
-
-        // Close the modal
-        // closeCancelLinesModal();
-
-        // Refresh the grid after cancellation
-        // refreshSalesOrderLines(orderNumber);
-    };
-
     window.refreshLotDetails = function(orderNumber) {
         console.log('[Order Transactions] Refresh Lot Details for:', orderNumber);
         const gridContainer = document.getElementById('lot-details-grid');
