@@ -916,6 +916,10 @@ namespace WMSApp
                                     await HandleRestApiPostRequest(wv, messageJson, requestId);
                                     break;
 
+                                case "executePatchWithAuth":
+                                    await HandleRestApiPatchWithAuth(wv, messageJson, requestId);
+                                    break;
+
                                 case "claudeApiTest":
                                     await HandleClaudeApiTest(wv, messageJson, requestId);
                                     break;
@@ -1091,6 +1095,88 @@ namespace WMSApp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST POST call failed: {ex.Message}");
+
+                var errorMessage = new
+                {
+                    action = "error",
+                    requestId = requestId,
+                    data = new { message = ex.Message }
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        // ========== PATCH WITH AUTH HANDLER ==========
+        private async Task HandleRestApiPatchWithAuth(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(messageJson);
+                var root = doc.RootElement;
+
+                string fullUrl = root.GetProperty("fullUrl").GetString();
+                string username = root.GetProperty("username").GetString();
+                string password = root.GetProperty("password").GetString();
+                var payload = root.GetProperty("payload");
+                string payloadJson = payload.GetRawText();
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing PATCH with Auth request: {fullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[C#] Username: {username}");
+                System.Diagnostics.Debug.WriteLine($"[C#] PATCH Body: {payloadJson}");
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(60);
+
+                    // Add Basic Authentication header
+                    var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
+                    httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
+
+                    // Create PATCH request
+                    var request = new HttpRequestMessage(new HttpMethod("PATCH"), fullUrl);
+                    request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
+
+                    var response = await httpClient.SendAsync(request);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] PATCH completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response: {responseContent}");
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        var resultMessage = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = responseContent
+                        };
+
+                        string resultJson = JsonSerializer.Serialize(resultMessage);
+                        wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    }
+                    else
+                    {
+                        var errorMessage = new
+                        {
+                            action = "error",
+                            requestId = requestId,
+                            data = new {
+                                message = $"HTTP {(int)response.StatusCode}: {response.ReasonPhrase}",
+                                statusCode = (int)response.StatusCode,
+                                response = responseContent
+                            }
+                        };
+
+                        string errorJson = JsonSerializer.Serialize(errorMessage);
+                        wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] PATCH call failed: {ex.Message}");
 
                 var errorMessage = new
                 {

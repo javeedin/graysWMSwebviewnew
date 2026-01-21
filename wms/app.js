@@ -6269,7 +6269,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // ============================================================================
-    // CANCEL SELECTED LINES POPUP
+    // CANCEL SELECTED LINES POPUP WITH TABS
     // ============================================================================
 
     // Open Cancel Selected Lines Popup
@@ -6297,10 +6297,27 @@ document.addEventListener('DOMContentLoaded', function() {
         window.linesToCancel = selectedLines;
         window.cancelLinesOrderNumber = orderNumber;
 
+        // Build the API URL
+        const apiUrl = `https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${orderNumber}`;
+
+        // Build the JSON payload
+        const jsonPayload = {
+            lines: selectedLines.map(line => ({
+                FulfillLineId: line.FULFILL_LINE_ID || line.fulfill_line_id || line.FULFILLMENT_LINE_ID || line.fulfillment_line_id || line.LINE_ID || line.line_id,
+                OrderedQuantity: 0,
+                CancelReason: ".BARCODE PROBLEM"
+            }))
+        };
+
+        // Store for API call
+        window.cancelLinesApiUrl = apiUrl;
+        window.cancelLinesPayload = jsonPayload;
+
         // Build the table rows for selected lines
         let tableRows = '';
         selectedLines.forEach((line, index) => {
             const lineNumber = line.LINE_NUMBER || line.line_number || line.LINE_ID || line.line_id || (index + 1);
+            const fulfillLineId = line.FULFILL_LINE_ID || line.fulfill_line_id || line.FULFILLMENT_LINE_ID || line.fulfillment_line_id || line.LINE_ID || line.line_id || '-';
             const itemName = line.ITEM_NAME || line.item_name || line.ITEM || line.item || line.ITEM_DESCRIPTION || '-';
             const orderedQty = line.ORDERED_QUANTITY || line.ordered_quantity || line.ORDERED_QTY || line.ordered_qty || '-';
             const pickedQty = line.PICKED_QUANTITY || line.picked_quantity || line.PICKED_QTY || line.picked_qty || '0';
@@ -6308,12 +6325,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             tableRows += `
                 <tr style="border-bottom: 1px solid #e2e8f0;">
-                    <td style="padding: 0.6rem 0.75rem; font-weight: 600; color: #1e293b;">${lineNumber}</td>
-                    <td style="padding: 0.6rem 0.75rem; color: #475569; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${itemName}">${itemName}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center; color: #1e293b;">${orderedQty}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center; color: #1e293b;">${pickedQty}</td>
-                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
-                        <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; background: ${status === 'PICKED' ? '#dcfce7' : status === 'CANCELLED' ? '#fee2e2' : '#fef3c7'}; color: ${status === 'PICKED' ? '#166534' : status === 'CANCELLED' ? '#dc2626' : '#92400e'};">
+                    <td style="padding: 0.5rem 0.6rem; font-weight: 600; color: #1e293b; font-size: 0.8rem;">${lineNumber}</td>
+                    <td style="padding: 0.5rem 0.6rem; color: #3b82f6; font-size: 0.75rem; font-family: monospace;">${fulfillLineId}</td>
+                    <td style="padding: 0.5rem 0.6rem; color: #475569; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.8rem;" title="${itemName}">${itemName}</td>
+                    <td style="padding: 0.5rem 0.6rem; text-align: center; color: #1e293b; font-size: 0.8rem;">${orderedQty}</td>
+                    <td style="padding: 0.5rem 0.6rem; text-align: center; color: #1e293b; font-size: 0.8rem;">${pickedQty}</td>
+                    <td style="padding: 0.5rem 0.6rem; text-align: center;">
+                        <span style="padding: 0.15rem 0.4rem; border-radius: 4px; font-size: 0.65rem; font-weight: 600; background: ${status === 'PICKED' ? '#dcfce7' : status === 'CANCELLED' ? '#fee2e2' : '#fef3c7'}; color: ${status === 'PICKED' ? '#166534' : status === 'CANCELLED' ? '#dc2626' : '#92400e'};">
                             ${status}
                         </span>
                     </td>
@@ -6321,61 +6339,115 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         });
 
-        // Create the popup modal
+        // Create the popup modal with tabs
         const modalHtml = `
             <div id="cancel-lines-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 26000; justify-content: center; align-items: center;">
-                <div style="background: white; width: 90%; max-width: 800px; max-height: 80%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                <div style="background: white; width: 95%; max-width: 950px; max-height: 85%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
                     <!-- Modal Header - Light Color -->
-                    <div style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 0.75rem;">
-                            <div style="width: 40px; height: 40px; background: #fee2e2; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-times-circle" style="color: #dc2626; font-size: 1.2rem;"></i>
+                    <div style="padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.6rem;">
+                            <div style="width: 36px; height: 36px; background: #fee2e2; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-times-circle" style="color: #dc2626; font-size: 1rem;"></i>
                             </div>
                             <div>
-                                <h3 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">Cancel Selected Lines</h3>
-                                <p style="margin: 0.15rem 0 0 0; color: #64748b; font-size: 0.8rem;">
+                                <h3 style="margin: 0; font-size: 1rem; color: #1e293b; font-weight: 700;">Cancel Selected Lines</h3>
+                                <p style="margin: 0.1rem 0 0 0; color: #64748b; font-size: 0.75rem;">
                                     Order #${orderNumber} • ${selectedLines.length} line(s) selected
                                 </p>
                             </div>
                         </div>
-                        <button id="cancel-lines-close-btn" style="background: #e2e8f0; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                        <button id="cancel-lines-close-btn" style="background: #e2e8f0; border: none; font-size: 1rem; cursor: pointer; color: #64748b; width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center;">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
 
-                    <!-- Warning Message -->
-                    <div style="padding: 0.75rem 1.25rem; background: #fef3c7; border-bottom: 1px solid #fcd34d; display: flex; align-items: center; gap: 0.6rem;">
-                        <i class="fas fa-exclamation-triangle" style="color: #d97706; font-size: 1rem;"></i>
-                        <p style="margin: 0; color: #92400e; font-size: 0.85rem;">
-                            <strong>Warning:</strong> This action will cancel the selected order lines. This cannot be undone.
-                        </p>
+                    <!-- Tab Navigation -->
+                    <div style="display: flex; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; padding: 0 1rem;">
+                        <button id="cancel-tab-lines" class="cancel-lines-tab active" style="padding: 0.6rem 1rem; background: white; border: none; border-bottom: 2px solid #3b82f6; color: #3b82f6; font-weight: 600; font-size: 0.8rem; cursor: pointer; margin-bottom: -1px;">
+                            <i class="fas fa-list"></i> Selected Lines
+                        </button>
+                        <button id="cancel-tab-request" class="cancel-lines-tab" style="padding: 0.6rem 1rem; background: transparent; border: none; border-bottom: 2px solid transparent; color: #64748b; font-weight: 600; font-size: 0.8rem; cursor: pointer;">
+                            <i class="fas fa-code"></i> API Request
+                        </button>
+                        <button id="cancel-tab-response" class="cancel-lines-tab" style="padding: 0.6rem 1rem; background: transparent; border: none; border-bottom: 2px solid transparent; color: #64748b; font-weight: 600; font-size: 0.8rem; cursor: pointer;">
+                            <i class="fas fa-reply"></i> API Response
+                        </button>
                     </div>
 
-                    <!-- Lines Table -->
-                    <div style="flex: 1; overflow: auto; padding: 1rem 1.25rem;">
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
-                            <thead>
-                                <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
-                                    <th style="padding: 0.6rem 0.75rem; text-align: left; font-weight: 600; color: #64748b;">Line #</th>
-                                    <th style="padding: 0.6rem 0.75rem; text-align: left; font-weight: 600; color: #64748b;">Item</th>
-                                    <th style="padding: 0.6rem 0.75rem; text-align: center; font-weight: 600; color: #64748b;">Ordered Qty</th>
-                                    <th style="padding: 0.6rem 0.75rem; text-align: center; font-weight: 600; color: #64748b;">Picked Qty</th>
-                                    <th style="padding: 0.6rem 0.75rem; text-align: center; font-weight: 600; color: #64748b;">Status</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                ${tableRows}
-                            </tbody>
-                        </table>
+                    <!-- Tab Content -->
+                    <div style="flex: 1; overflow: hidden;">
+
+                        <!-- Tab 1: Selected Lines -->
+                        <div id="cancel-content-lines" class="cancel-lines-content" style="height: 100%; overflow: auto; padding: 0.75rem 1rem;">
+                            <!-- Warning Message -->
+                            <div style="padding: 0.5rem 0.75rem; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px; display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                                <i class="fas fa-exclamation-triangle" style="color: #d97706; font-size: 0.9rem;"></i>
+                                <p style="margin: 0; color: #92400e; font-size: 0.8rem;">
+                                    <strong>Warning:</strong> This action will cancel the selected order lines. This cannot be undone.
+                                </p>
+                            </div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                                <thead>
+                                    <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                                        <th style="padding: 0.5rem 0.6rem; text-align: left; font-weight: 600; color: #64748b; font-size: 0.75rem;">Line #</th>
+                                        <th style="padding: 0.5rem 0.6rem; text-align: left; font-weight: 600; color: #64748b; font-size: 0.75rem;">Fulfill Line ID</th>
+                                        <th style="padding: 0.5rem 0.6rem; text-align: left; font-weight: 600; color: #64748b; font-size: 0.75rem;">Item</th>
+                                        <th style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 600; color: #64748b; font-size: 0.75rem;">Ordered</th>
+                                        <th style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 600; color: #64748b; font-size: 0.75rem;">Picked</th>
+                                        <th style="padding: 0.5rem 0.6rem; text-align: center; font-weight: 600; color: #64748b; font-size: 0.75rem;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${tableRows}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Tab 2: API Request -->
+                        <div id="cancel-content-request" class="cancel-lines-content" style="height: 100%; overflow: auto; padding: 0.75rem 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem;">
+                                <label style="display: block; font-weight: 600; color: #1e293b; font-size: 0.8rem; margin-bottom: 0.3rem;">
+                                    <i class="fas fa-link" style="color: #3b82f6; margin-right: 0.3rem;"></i> API URL (PATCH)
+                                </label>
+                                <div style="background: #1e293b; border-radius: 6px; padding: 0.6rem 0.75rem; font-family: monospace; font-size: 0.75rem; color: #22c55e; word-break: break-all;">
+                                    ${apiUrl}
+                                </div>
+                            </div>
+                            <div style="margin-bottom: 0.75rem;">
+                                <label style="display: block; font-weight: 600; color: #1e293b; font-size: 0.8rem; margin-bottom: 0.3rem;">
+                                    <i class="fas fa-key" style="color: #f59e0b; margin-right: 0.3rem;"></i> Credentials (Basic Auth)
+                                </label>
+                                <div style="background: #fef3c7; border-radius: 6px; padding: 0.5rem 0.75rem; font-family: monospace; font-size: 0.75rem; color: #92400e;">
+                                    Username: shaik | Password: ********
+                                </div>
+                            </div>
+                            <div>
+                                <label style="display: block; font-weight: 600; color: #1e293b; font-size: 0.8rem; margin-bottom: 0.3rem;">
+                                    <i class="fas fa-file-code" style="color: #8b5cf6; margin-right: 0.3rem;"></i> JSON Payload
+                                </label>
+                                <pre id="cancel-json-payload" style="background: #1e293b; border-radius: 6px; padding: 0.75rem; font-family: monospace; font-size: 0.7rem; color: #e2e8f0; margin: 0; max-height: 250px; overflow: auto; white-space: pre-wrap;">${JSON.stringify(jsonPayload, null, 2)}</pre>
+                            </div>
+                        </div>
+
+                        <!-- Tab 3: API Response -->
+                        <div id="cancel-content-response" class="cancel-lines-content" style="height: 100%; overflow: auto; padding: 0.75rem 1rem; display: none;">
+                            <div id="cancel-response-container">
+                                <div style="text-align: center; padding: 2rem; color: #64748b;">
+                                    <i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 0.5rem; color: #94a3b8;"></i>
+                                    <p style="margin: 0; font-size: 0.85rem;">Click "Cancel Lines" button to execute the API call.</p>
+                                    <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem;">The response will be displayed here.</p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Modal Footer -->
-                    <div style="padding: 1rem 1.25rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 0.75rem;">
-                        <button id="cancel-lines-close-footer-btn" style="padding: 0.6rem 1.25rem; background: white; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;">
+                    <div style="padding: 0.75rem 1rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 0.6rem;">
+                        <button id="cancel-lines-close-footer-btn" style="padding: 0.5rem 1rem; background: white; color: #64748b; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.3rem;">
                             <i class="fas fa-times"></i> Close
                         </button>
-                        <button id="cancel-lines-execute-btn" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);">
-                            <i class="fas fa-ban"></i> Cancel
+                        <button id="cancel-lines-execute-btn" style="padding: 0.5rem 1rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.3rem; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);">
+                            <i class="fas fa-ban"></i> Cancel Lines
                         </button>
                     </div>
                 </div>
@@ -6391,13 +6463,47 @@ document.addEventListener('DOMContentLoaded', function() {
         // Add modal to body
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-        // Add event listeners after modal is in DOM
+        // Tab switching function
+        const switchCancelTab = function(tabName) {
+            // Update tab buttons
+            document.querySelectorAll('.cancel-lines-tab').forEach(tab => {
+                if (tab.id === 'cancel-tab-' + tabName) {
+                    tab.style.background = 'white';
+                    tab.style.color = '#3b82f6';
+                    tab.style.borderBottom = '2px solid #3b82f6';
+                } else {
+                    tab.style.background = 'transparent';
+                    tab.style.color = '#64748b';
+                    tab.style.borderBottom = '2px solid transparent';
+                }
+            });
+
+            // Update content
+            document.querySelectorAll('.cancel-lines-content').forEach(content => {
+                content.style.display = 'none';
+            });
+            document.getElementById('cancel-content-' + tabName).style.display = 'block';
+        };
+
+        // Add event listeners
         document.getElementById('cancel-lines-close-btn').addEventListener('click', function() {
             document.getElementById('cancel-lines-modal').remove();
         });
 
         document.getElementById('cancel-lines-close-footer-btn').addEventListener('click', function() {
             document.getElementById('cancel-lines-modal').remove();
+        });
+
+        document.getElementById('cancel-tab-lines').addEventListener('click', function() {
+            switchCancelTab('lines');
+        });
+
+        document.getElementById('cancel-tab-request').addEventListener('click', function() {
+            switchCancelTab('request');
+        });
+
+        document.getElementById('cancel-tab-response').addEventListener('click', function() {
+            switchCancelTab('response');
         });
 
         document.getElementById('cancel-lines-execute-btn').addEventListener('click', function() {
@@ -6413,10 +6519,123 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Execute Cancel Selected Lines (placeholder for API call)
+    // Execute Cancel Selected Lines - PATCH API call
     window.executeCancelSelectedLines = function() {
-        const lines = window.linesToCancel;
+        const apiUrl = window.cancelLinesApiUrl;
+        const payload = window.cancelLinesPayload;
         const orderNumber = window.cancelLinesOrderNumber;
+
+        if (!apiUrl || !payload) {
+            showNotification('No lines selected to cancel', 'warning');
+            return;
+        }
+
+        console.log('[Order Transactions] Executing PATCH cancel for order:', orderNumber);
+        console.log('[Order Transactions] API URL:', apiUrl);
+        console.log('[Order Transactions] Payload:', JSON.stringify(payload, null, 2));
+
+        // Switch to response tab
+        document.querySelectorAll('.cancel-lines-tab').forEach(tab => {
+            if (tab.id === 'cancel-tab-response') {
+                tab.style.background = 'white';
+                tab.style.color = '#3b82f6';
+                tab.style.borderBottom = '2px solid #3b82f6';
+            } else {
+                tab.style.background = 'transparent';
+                tab.style.color = '#64748b';
+                tab.style.borderBottom = '2px solid transparent';
+            }
+        });
+        document.querySelectorAll('.cancel-lines-content').forEach(c => c.style.display = 'none');
+        document.getElementById('cancel-content-response').style.display = 'block';
+
+        // Show loading state
+        const responseContainer = document.getElementById('cancel-response-container');
+        responseContainer.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #64748b;">
+                <i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 0.5rem; color: #3b82f6;"></i>
+                <p style="margin: 0; font-size: 0.85rem;">Executing PATCH request...</p>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.75rem;">Please wait while cancelling ${payload.lines.length} line(s).</p>
+            </div>
+        `;
+
+        // Disable execute button
+        const executeBtn = document.getElementById('cancel-lines-execute-btn');
+        executeBtn.disabled = true;
+        executeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+        // Call C# to execute PATCH with Basic Auth
+        sendMessageToCSharp({
+            action: 'executePatchWithAuth',
+            fullUrl: apiUrl,
+            payload: payload,
+            username: 'shaik',
+            password: 'fusion1234'
+        }, function(error, data) {
+            // Re-enable button
+            executeBtn.disabled = false;
+            executeBtn.innerHTML = '<i class="fas fa-ban"></i> Cancel Lines';
+
+            if (error) {
+                console.error('[Order Transactions] PATCH Error:', error);
+                responseContainer.innerHTML = `
+                    <div style="padding: 1rem;">
+                        <div style="padding: 0.75rem; background: #fee2e2; border: 1px solid #fecaca; border-radius: 6px; margin-bottom: 0.75rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <i class="fas fa-times-circle" style="color: #dc2626; font-size: 1.1rem;"></i>
+                                <span style="font-weight: 700; color: #dc2626; font-size: 0.9rem;">Error</span>
+                            </div>
+                            <p style="margin: 0; color: #991b1b; font-size: 0.8rem;">${error}</p>
+                        </div>
+                        <div>
+                            <label style="display: block; font-weight: 600; color: #1e293b; font-size: 0.8rem; margin-bottom: 0.3rem;">
+                                <i class="fas fa-bug" style="color: #ef4444; margin-right: 0.3rem;"></i> Error Details
+                            </label>
+                            <pre style="background: #1e293b; border-radius: 6px; padding: 0.75rem; font-family: monospace; font-size: 0.7rem; color: #fca5a5; margin: 0; max-height: 200px; overflow: auto; white-space: pre-wrap;">${typeof error === 'object' ? JSON.stringify(error, null, 2) : error}</pre>
+                        </div>
+                    </div>
+                `;
+                showNotification('Error cancelling lines: ' + error, 'error');
+                return;
+            }
+
+            console.log('[Order Transactions] PATCH Response:', data);
+
+            // Parse response
+            let responseData;
+            try {
+                responseData = typeof data === 'string' ? JSON.parse(data) : data;
+            } catch (e) {
+                responseData = data;
+            }
+
+            // Show success response
+            responseContainer.innerHTML = `
+                <div style="padding: 1rem;">
+                    <div style="padding: 0.75rem; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 6px; margin-bottom: 0.75rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                            <i class="fas fa-check-circle" style="color: #16a34a; font-size: 1.1rem;"></i>
+                            <span style="font-weight: 700; color: #16a34a; font-size: 0.9rem;">Success</span>
+                        </div>
+                        <p style="margin: 0; color: #166534; font-size: 0.8rem;">Lines cancelled successfully for Order #${orderNumber}</p>
+                    </div>
+                    <div>
+                        <label style="display: block; font-weight: 600; color: #1e293b; font-size: 0.8rem; margin-bottom: 0.3rem;">
+                            <i class="fas fa-reply" style="color: #22c55e; margin-right: 0.3rem;"></i> API Response
+                        </label>
+                        <pre style="background: #1e293b; border-radius: 6px; padding: 0.75rem; font-family: monospace; font-size: 0.7rem; color: #86efac; margin: 0; max-height: 250px; overflow: auto; white-space: pre-wrap;">${JSON.stringify(responseData, null, 2)}</pre>
+                    </div>
+                </div>
+            `;
+
+            showNotification(`Successfully cancelled ${payload.lines.length} line(s)`, 'success');
+
+            // Refresh the Sales Order Lines grid
+            if (typeof refreshSalesOrderLines === 'function') {
+                setTimeout(() => refreshSalesOrderLines(orderNumber), 1000);
+            }
+        });
+    };
 
         if (!lines || lines.length === 0) {
             showNotification('No lines selected to cancel', 'warning');
