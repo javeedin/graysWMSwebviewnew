@@ -6323,22 +6323,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Create the popup modal
         const modalHtml = `
-            <div id="cancel-lines-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 26000; justify-content: center; align-items: center; animation: fadeIn 0.2s ease;">
+            <div id="cancel-lines-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 26000; justify-content: center; align-items: center;">
                 <div style="background: white; width: 90%; max-width: 800px; max-height: 80%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
-                    <!-- Modal Header -->
-                    <div style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); display: flex; justify-content: space-between; align-items: center;">
+                    <!-- Modal Header - Light Color -->
+                    <div style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #cbd5e1; display: flex; justify-content: space-between; align-items: center;">
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
-                            <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-times-circle" style="color: white; font-size: 1.2rem;"></i>
+                            <div style="width: 40px; height: 40px; background: #fee2e2; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-times-circle" style="color: #dc2626; font-size: 1.2rem;"></i>
                             </div>
                             <div>
-                                <h3 style="margin: 0; font-size: 1.1rem; color: white; font-weight: 700;">Cancel Selected Lines</h3>
-                                <p style="margin: 0.15rem 0 0 0; color: rgba(255,255,255,0.85); font-size: 0.8rem;">
+                                <h3 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">Cancel Selected Lines</h3>
+                                <p style="margin: 0.15rem 0 0 0; color: #64748b; font-size: 0.8rem;">
                                     Order #${orderNumber} • ${selectedLines.length} line(s) selected
                                 </p>
                             </div>
                         </div>
-                        <button onclick="closeCancelLinesModal()" style="background: rgba(255,255,255,0.2); border: none; font-size: 1.2rem; cursor: pointer; color: white; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)';" onmouseout="this.style.background='rgba(255,255,255,0.2)';">
+                        <button id="cancel-lines-close-btn" style="background: #e2e8f0; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
@@ -6371,11 +6371,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     <!-- Modal Footer -->
                     <div style="padding: 1rem 1.25rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 0.75rem;">
-                        <button onclick="closeCancelLinesModal()" style="padding: 0.6rem 1.25rem; background: white; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#f1f5f9';" onmouseout="this.style.background='white';">
+                        <button id="cancel-lines-close-footer-btn" style="padding: 0.6rem 1.25rem; background: white; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem;">
                             <i class="fas fa-times"></i> Close
                         </button>
-                        <button onclick="executeCancelSelectedLines()" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(239, 68, 68, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(239, 68, 68, 0.3)';">
-                            <i class="fas fa-ban"></i> Cancel Lines
+                        <button id="cancel-lines-execute-btn" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);">
+                            <i class="fas fa-ban"></i> Cancel
                         </button>
                     </div>
                 </div>
@@ -6390,14 +6390,26 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Add modal to body
         document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Add event listeners after modal is in DOM
+        document.getElementById('cancel-lines-close-btn').addEventListener('click', function() {
+            document.getElementById('cancel-lines-modal').remove();
+        });
+
+        document.getElementById('cancel-lines-close-footer-btn').addEventListener('click', function() {
+            document.getElementById('cancel-lines-modal').remove();
+        });
+
+        document.getElementById('cancel-lines-execute-btn').addEventListener('click', function() {
+            window.executeCancelSelectedLines();
+        });
     };
 
     // Close Cancel Lines Modal
     window.closeCancelLinesModal = function() {
         const modal = document.getElementById('cancel-lines-modal');
         if (modal) {
-            modal.style.animation = 'fadeIn 0.2s ease reverse';
-            setTimeout(() => modal.remove(), 150);
+            modal.remove();
         }
     };
 
