@@ -2067,7 +2067,7 @@ function renderOrderProcessFlow(container, transactionNumber) {
         </div>
     `;
 
-    // Add print button click handler
+    // Add print button click handler and initialize card expand/collapse
     setTimeout(() => {
         const printBtn = document.getElementById('process-flow-print-btn');
         if (printBtn) {
@@ -2075,6 +2075,8 @@ function renderOrderProcessFlow(container, transactionNumber) {
                 printSalesOrderFromProcessFlow(transactionNumber);
             });
         }
+        // Initialize expand/collapse handlers for data cards
+        initProcessFlowCardHandlers();
     }, 100);
 }
 
@@ -2096,7 +2098,7 @@ function printSalesOrderFromProcessFlow(orderNumber) {
 
     modal = document.createElement('div');
     modal.id = modalId;
-    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 10001; display: flex; align-items: center; justify-content: center;';
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; align-items: center; justify-content: center;';
     modal.innerHTML = `
         <div style="background: white; border-radius: 12px; width: 90%; max-width: 900px; height: 85%; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.3);">
             <div style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center;">
@@ -2222,20 +2224,24 @@ function printSalesOrderFromProcessFlow(orderNumber) {
     });
 }
 
-// Auto-detect fields and render data card
+// Auto-detect fields and render expandable data card
 function renderProcessFlowDataCardAuto(title, data, icon, color) {
     const hasData = Array.isArray(data) && data.length > 0;
-    const displayData = hasData ? data.slice(0, 5) : [];
+    const cardId = 'pf-card-' + title.replace(/\s+/g, '-').toLowerCase();
 
-    // Auto-detect fields from first item
+    // Auto-detect fields from first item - show more fields
     let fields = [];
     if (hasData && data[0]) {
-        fields = Object.keys(data[0]).slice(0, 6); // Show first 6 fields
+        fields = Object.keys(data[0]).slice(0, 8); // Show first 8 fields
     }
 
+    // Store data globally for expansion
+    if (!window.processFlowCardData) window.processFlowCardData = {};
+    window.processFlowCardData[cardId] = { data, fields, title, icon, color };
+
     return `
-        <div style="background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #e2e8f0;">
-            <div style="padding: 0.75rem 1rem; background: linear-gradient(135deg, ${color}15, ${color}08); border-bottom: 1px solid ${color}30; display: flex; align-items: center; justify-content: space-between;">
+        <div id="${cardId}" style="background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #e2e8f0;">
+            <div class="pf-card-header" data-card-id="${cardId}" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, ${color}15, ${color}08); border-bottom: 1px solid ${color}30; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.2s ease;">
                 <div style="display: flex; align-items: center; gap: 0.6rem;">
                     <div style="width: 32px; height: 32px; background: ${color}; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
                         <i class="${icon}" style="color: white; font-size: 0.9rem;"></i>
@@ -2245,40 +2251,81 @@ function renderProcessFlowDataCardAuto(title, data, icon, color) {
                         <p style="margin: 0; font-size: 0.65rem; color: #64748b;">${hasData ? data.length + ' record(s)' : 'No data'}</p>
                     </div>
                 </div>
-                <span style="padding: 0.2rem 0.5rem; background: ${hasData ? '#dcfce7' : '#fef3c7'}; color: ${hasData ? '#166534' : '#92400e'}; font-size: 0.6rem; border-radius: 6px; font-weight: 600;">
-                    ${hasData ? 'LOADED' : 'EMPTY'}
-                </span>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="padding: 0.2rem 0.5rem; background: ${hasData ? '#dcfce7' : '#fef3c7'}; color: ${hasData ? '#166534' : '#92400e'}; font-size: 0.6rem; border-radius: 6px; font-weight: 600;">
+                        ${hasData ? 'LOADED' : 'EMPTY'}
+                    </span>
+                    <button class="pf-expand-btn" data-card-id="${cardId}" style="width: 28px; height: 28px; background: ${color}20; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">
+                        <i class="fas fa-chevron-down pf-expand-icon" style="color: ${color}; font-size: 0.75rem; transition: transform 0.3s ease;"></i>
+                    </button>
+                </div>
             </div>
-            <div style="padding: 0.5rem; max-height: 180px; overflow-y: auto;">
+            <div class="pf-card-body" data-card-id="${cardId}" style="max-height: 0; overflow: hidden; transition: max-height 0.3s ease;">
                 ${hasData ? `
-                    <table style="width: 100%; font-size: 0.7rem; border-collapse: collapse;">
-                        <thead>
-                            <tr style="background: #f8fafc;">
-                                ${fields.map(f => `<th style="padding: 0.3rem 0.4rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0; white-space: nowrap;">${f.replace(/_/g, ' ').substring(0, 15)}</th>`).join('')}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${displayData.map(row => `
-                                <tr style="border-bottom: 1px solid #f1f5f9;">
-                                    ${fields.map(f => {
-                                        let val = row[f] !== null && row[f] !== undefined ? row[f] : '-';
-                                        if (typeof val === 'string' && val.length > 20) val = val.substring(0, 18) + '...';
-                                        return `<td style="padding: 0.3rem 0.4rem; color: #1e293b;">${val}</td>`;
-                                    }).join('')}
+                    <div style="padding: 0.5rem; overflow-x: auto;">
+                        <table style="width: 100%; font-size: 0.7rem; border-collapse: collapse; min-width: 600px;">
+                            <thead>
+                                <tr style="background: #f8fafc; position: sticky; top: 0;">
+                                    ${fields.map(f => `<th style="padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 2px solid #e2e8f0; white-space: nowrap;">${f.replace(/_/g, ' ')}</th>`).join('')}
                                 </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                    ${data.length > 5 ? `<p style="margin: 0.4rem 0 0 0; text-align: center; font-size: 0.65rem; color: #64748b;">... and ${data.length - 5} more</p>` : ''}
+                            </thead>
+                            <tbody>
+                                ${data.map((row, idx) => `
+                                    <tr style="border-bottom: 1px solid #f1f5f9; ${idx % 2 === 0 ? 'background: #fafbfc;' : ''}">
+                                        ${fields.map(f => {
+                                            let val = row[f] !== null && row[f] !== undefined ? row[f] : '-';
+                                            if (typeof val === 'string' && val.length > 30) val = val.substring(0, 28) + '...';
+                                            return `<td style="padding: 0.4rem 0.5rem; color: #1e293b; white-space: nowrap;">${val}</td>`;
+                                        }).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
                 ` : `
-                    <div style="text-align: center; padding: 1rem; color: #94a3b8;">
-                        <i class="fas fa-inbox" style="font-size: 1.2rem; margin-bottom: 0.4rem;"></i>
-                        <p style="margin: 0; font-size: 0.75rem;">No data available</p>
+                    <div style="text-align: center; padding: 1.5rem; color: #94a3b8;">
+                        <i class="fas fa-inbox" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                        <p style="margin: 0; font-size: 0.8rem;">No data available</p>
                     </div>
                 `}
             </div>
         </div>
     `;
+}
+
+// Toggle expand/collapse for process flow cards
+function toggleProcessFlowCard(cardId) {
+    const body = document.querySelector(`.pf-card-body[data-card-id="${cardId}"]`);
+    const icon = document.querySelector(`#${cardId} .pf-expand-icon`);
+    const btn = document.querySelector(`.pf-expand-btn[data-card-id="${cardId}"]`);
+
+    if (!body) return;
+
+    const isExpanded = body.style.maxHeight && body.style.maxHeight !== '0px';
+
+    if (isExpanded) {
+        // Collapse
+        body.style.maxHeight = '0px';
+        if (icon) icon.style.transform = 'rotate(0deg)';
+        if (btn) btn.style.background = btn.style.background.replace('40', '20');
+    } else {
+        // Expand - calculate height based on content
+        body.style.maxHeight = Math.min(body.scrollHeight, 400) + 'px';
+        if (icon) icon.style.transform = 'rotate(180deg)';
+        if (btn) btn.style.background = btn.style.background.replace('20', '40');
+    }
+}
+
+// Initialize expand/collapse handlers for process flow cards
+function initProcessFlowCardHandlers() {
+    // Add click handlers for expand buttons and headers
+    document.querySelectorAll('.pf-expand-btn, .pf-card-header').forEach(el => {
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const cardId = el.getAttribute('data-card-id');
+            if (cardId) toggleProcessFlowCard(cardId);
+        });
+    });
 }
 
 // Render S2V Process Flow
