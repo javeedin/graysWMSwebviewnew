@@ -1926,7 +1926,8 @@ function renderOrderProcessFlow(container, transactionNumber) {
     const isLotAllocated = hasLots;
     const isPicked = pickedLines > 0 || totalPickedQty > 0;
     const isPickConfirmed = pickConfirmedLines > 0;
-    const isShipConfirmed = shipConfirmedLines > 0;
+    // When lines are picked (picked qty > 0), consider it as shipped as well
+    const isShipConfirmed = shipConfirmedLines > 0 || isPicked;
 
     // Determine current stage
     let currentStage = 0;
@@ -1939,15 +1940,23 @@ function renderOrderProcessFlow(container, transactionNumber) {
     // Calculate picking progress percentage
     const pickingProgress = totalLines > 0 ? Math.round((pickedLines / totalLines) * 100) : 0;
 
+    // Store order number for print function
+    window.processFlowOrderNumber = transactionNumber;
+
     container.innerHTML = `
         <!-- Order Info Header -->
         <div style="background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; border: 1px solid #c7d2fe;">
             <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: space-between; align-items: center;">
                 <div>
-                    <h3 style="color: #1e293b; font-size: 1.4rem; margin: 0; font-weight: 700;">
-                        <i class="fas fa-file-invoice" style="color: #667eea; margin-right: 0.5rem;"></i>
-                        Order #${transactionNumber}
-                    </h3>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <h3 style="color: #1e293b; font-size: 1.4rem; margin: 0; font-weight: 700;">
+                            <i class="fas fa-file-invoice" style="color: #667eea; margin-right: 0.5rem;"></i>
+                            Order #${transactionNumber}
+                        </h3>
+                        <button id="process-flow-print-btn" style="padding: 0.5rem 1rem; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3); transition: all 0.2s ease;">
+                            <i class="fas fa-print"></i> Print
+                        </button>
+                    </div>
                     ${orderInfo.accountName ? `<p style="color: #64748b; margin: 0.25rem 0 0 0; font-size: 0.9rem;"><i class="fas fa-user" style="margin-right: 0.4rem;"></i>${orderInfo.accountName} ${orderInfo.accountNumber ? '(' + orderInfo.accountNumber + ')' : ''}</p>` : ''}
                 </div>
                 <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
@@ -2057,6 +2066,160 @@ function renderOrderProcessFlow(container, transactionNumber) {
             ${renderProcessFlowDataCardAuto('Lot Details', data.lotDetails, 'fas fa-barcode', '#8b5cf6')}
         </div>
     `;
+
+    // Add print button click handler
+    setTimeout(() => {
+        const printBtn = document.getElementById('process-flow-print-btn');
+        if (printBtn) {
+            printBtn.addEventListener('click', () => {
+                printSalesOrderFromProcessFlow(transactionNumber);
+            });
+        }
+    }, 100);
+}
+
+// Print Sales Order from Process Flow
+function printSalesOrderFromProcessFlow(orderNumber) {
+    console.log('[Process Flow] Print button clicked for order:', orderNumber);
+
+    // Show loading state on button
+    const printBtn = document.getElementById('process-flow-print-btn');
+    if (printBtn) {
+        printBtn.disabled = true;
+        printBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+    }
+
+    // Create PDF preview modal
+    const modalId = 'process-flow-pdf-modal';
+    let modal = document.getElementById(modalId);
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 10001; display: flex; align-items: center; justify-content: center;';
+    modal.innerHTML = `
+        <div style="background: white; border-radius: 12px; width: 90%; max-width: 900px; height: 85%; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.3);">
+            <div style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: white; font-size: 1.1rem; font-weight: 600;">
+                    <i class="fas fa-file-pdf" style="margin-right: 0.5rem;"></i>
+                    Sales Order #${orderNumber}
+                </h3>
+                <button id="close-pdf-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1.1rem;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="pdf-preview-container" style="flex: 1; padding: 1rem; overflow: auto; display: flex; align-items: center; justify-content: center; background: #f1f5f9;">
+                <div style="text-align: center; color: #64748b;">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 3rem; color: #3b82f6; margin-bottom: 1rem;"></i>
+                    <p style="margin: 0; font-size: 1rem;">Generating PDF report...</p>
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem;">This may take a few seconds</p>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Add close button handler
+    document.getElementById('close-pdf-modal').addEventListener('click', () => {
+        modal.remove();
+    });
+
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+
+    // Call C# to download/generate the PDF
+    // Using downloadOrderPdf action which downloads from Oracle Fusion
+    sendMessageToCSharp({
+        action: 'downloadOrderPdf',
+        orderNumber: String(orderNumber),
+        tripId: 'PROCESSFLOW',
+        tripDate: new Date().toISOString().split('T')[0]
+    }, function(error, data) {
+        // Reset button
+        if (printBtn) {
+            printBtn.disabled = false;
+            printBtn.innerHTML = '<i class="fas fa-print"></i> Print';
+        }
+
+        const container = document.getElementById('pdf-preview-container');
+        if (!container) return;
+
+        if (error) {
+            console.error('[Process Flow] PDF generation error:', error);
+            container.innerHTML = `
+                <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                    <p style="margin: 0; font-size: 1rem; font-weight: 600;">Failed to generate PDF</p>
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #64748b;">${error}</p>
+                </div>
+            `;
+            return;
+        }
+
+        try {
+            const response = typeof data === 'string' ? JSON.parse(data) : data;
+            console.log('[Process Flow] PDF response:', response);
+
+            if (response.success && response.filePath) {
+                // PDF downloaded successfully, now get it as base64 to display
+                sendMessageToCSharp({
+                    action: 'getPdfAsBase64',
+                    filePath: response.filePath
+                }, function(pdfError, pdfData) {
+                    if (pdfError) {
+                        container.innerHTML = `
+                            <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                                <i class="fas fa-exclamation-circle" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                                <p style="margin: 0; font-size: 1rem; font-weight: 600;">Failed to load PDF</p>
+                                <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #64748b;">${pdfError}</p>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    try {
+                        const pdfResponse = typeof pdfData === 'string' ? JSON.parse(pdfData) : pdfData;
+                        if (pdfResponse.base64) {
+                            container.innerHTML = `
+                                <iframe src="data:application/pdf;base64,${pdfResponse.base64}"
+                                    style="width: 100%; height: 100%; border: none; border-radius: 8px;"
+                                    title="Sales Order PDF">
+                                </iframe>
+                            `;
+                        } else {
+                            throw new Error('No base64 data in response');
+                        }
+                    } catch (e) {
+                        console.error('[Process Flow] PDF parse error:', e);
+                        container.innerHTML = `
+                            <div style="text-align: center; padding: 2rem;">
+                                <i class="fas fa-check-circle" style="font-size: 3rem; color: #22c55e; margin-bottom: 1rem;"></i>
+                                <p style="margin: 0; font-size: 1rem; font-weight: 600; color: #1e293b;">PDF Generated Successfully</p>
+                                <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #64748b;">File saved to: ${response.filePath}</p>
+                                <button onclick="sendMessageToCSharp({action: 'openFileInExplorer', filePath: '${response.filePath.replace(/\\/g, '\\\\')}'})"
+                                    style="margin-top: 1rem; padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                                    <i class="fas fa-folder-open"></i> Open File Location
+                                </button>
+                            </div>
+                        `;
+                    }
+                });
+            } else {
+                throw new Error(response.message || 'Failed to generate PDF');
+            }
+        } catch (e) {
+            console.error('[Process Flow] Response parse error:', e);
+            container.innerHTML = `
+                <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                    <p style="margin: 0; font-size: 1rem; font-weight: 600;">Failed to process response</p>
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #64748b;">${e.message}</p>
+                </div>
+            `;
+        }
+    });
 }
 
 // Auto-detect fields and render data card
