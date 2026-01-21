@@ -1111,34 +1111,50 @@ namespace WMSApp
         // ========== PATCH WITH AUTH HANDLER ==========
         private async Task HandleRestApiPatchWithAuth(WebView2 wv, string messageJson, string requestId)
         {
+            string fullUrl = "";
+            string payloadJson = "";
+
             try
             {
+                System.Diagnostics.Debug.WriteLine($"[C#] ======== PATCH WITH AUTH HANDLER START ========");
+                System.Diagnostics.Debug.WriteLine($"[C#] Request ID: {requestId}");
+
                 using var doc = JsonDocument.Parse(messageJson);
                 var root = doc.RootElement;
 
-                string fullUrl = root.GetProperty("fullUrl").GetString();
+                fullUrl = root.GetProperty("fullUrl").GetString();
                 string username = root.GetProperty("username").GetString();
                 string password = root.GetProperty("password").GetString();
                 var payload = root.GetProperty("payload");
-                string payloadJson = payload.GetRawText();
+                payloadJson = payload.GetRawText();
 
-                System.Diagnostics.Debug.WriteLine($"[C#] Processing PATCH with Auth request: {fullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[C#] PATCH URL: {fullUrl}");
                 System.Diagnostics.Debug.WriteLine($"[C#] Username: {username}");
                 System.Diagnostics.Debug.WriteLine($"[C#] PATCH Body: {payloadJson}");
 
-                using (var httpClient = new HttpClient())
+                // Create handler with SSL bypass for testing
+                var handler = new HttpClientHandler();
+                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
+
+                using (var httpClient = new HttpClient(handler))
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(60);
+                    httpClient.Timeout = TimeSpan.FromSeconds(90);
 
                     // Add Basic Authentication header
                     var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
                     httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
+                    httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Creating PATCH request...");
 
                     // Create PATCH request
                     var request = new HttpRequestMessage(new HttpMethod("PATCH"), fullUrl);
                     request.Content = new StringContent(payloadJson, Encoding.UTF8, "application/json");
 
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending PATCH request...");
                     var response = await httpClient.SendAsync(request);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response received!");
+
                     string responseContent = await response.Content.ReadAsStringAsync();
 
                     System.Diagnostics.Debug.WriteLine($"[C#] PATCH completed. Status: {response.StatusCode}");
@@ -1154,10 +1170,13 @@ namespace WMSApp
                         };
 
                         string resultJson = JsonSerializer.Serialize(resultMessage);
+                        System.Diagnostics.Debug.WriteLine($"[C#] Sending success response to JS...");
                         wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                        System.Diagnostics.Debug.WriteLine($"[C#] Success response sent!");
                     }
                     else
                     {
+                        System.Diagnostics.Debug.WriteLine($"[C#] HTTP Error: {(int)response.StatusCode} {response.ReasonPhrase}");
                         var errorMessage = new
                         {
                             action = "error",
@@ -1170,23 +1189,54 @@ namespace WMSApp
                         };
 
                         string errorJson = JsonSerializer.Serialize(errorMessage);
+                        System.Diagnostics.Debug.WriteLine($"[C#] Sending error response to JS...");
                         wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+                        System.Diagnostics.Debug.WriteLine($"[C#] Error response sent!");
                     }
                 }
             }
+            catch (TaskCanceledException tcex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] PATCH request timed out: {tcex.Message}");
+                var errorMessage = new
+                {
+                    action = "error",
+                    requestId = requestId,
+                    data = new { message = $"Request timed out connecting to Oracle Fusion. URL: {fullUrl}" }
+                };
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+            catch (HttpRequestException hrex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] HTTP Request failed: {hrex.Message}");
+                var errorMessage = new
+                {
+                    action = "error",
+                    requestId = requestId,
+                    data = new { message = $"HTTP Request failed: {hrex.Message}" }
+                };
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[C# ERROR] PATCH call failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] PATCH call failed: {ex.GetType().Name}: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
 
                 var errorMessage = new
                 {
                     action = "error",
                     requestId = requestId,
-                    data = new { message = ex.Message }
+                    data = new { message = $"{ex.GetType().Name}: {ex.Message}" }
                 };
 
                 string errorJson = JsonSerializer.Serialize(errorMessage);
                 wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+            finally
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] ======== PATCH WITH AUTH HANDLER END ========");
             }
         }
 
