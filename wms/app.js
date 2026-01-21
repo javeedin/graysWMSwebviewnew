@@ -5772,8 +5772,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button class="btn btn-warning" onclick="cancelScheduledLines('${orderNumber}')" style="background: #f59e0b; color: white;">
                                     <i class="fas fa-clock"></i> Cancel Scheduled Lines
                                 </button>
-                                <button class="btn btn-danger" onclick="cancelSelectedSalesOrderLine('${orderNumber}')" style="background: #ef4444; color: white;">
-                                    <i class="fas fa-times-circle"></i> Cancel Selected Line
+                                <button class="btn btn-danger" onclick="openCancelSelectedLinesPopup('${orderNumber}')" style="background: #ef4444; color: white;">
+                                    <i class="fas fa-times-circle"></i> Cancel Selected Lines
                                 </button>
                                 <button class="btn btn-danger" onclick="cancelNotPickedLines('${orderNumber}')" style="background: #dc2626; color: white;">
                                     <i class="fas fa-ban"></i> Cancel Not Picked Lines
@@ -6067,8 +6067,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         columnAutoWidth: true,
                         height: '100%',
                         selection: {
-                            mode: 'single',
-                            showCheckBoxesMode: 'always'
+                            mode: 'multiple',
+                            showCheckBoxesMode: 'always',
+                            selectAllMode: 'allPages'
                         },
                         paging: { pageSize: 25 },
                         pager: {
@@ -6084,8 +6085,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             console.log('[Order Transactions] Sales Order Lines grid rendered');
                         },
                         onSelectionChanged: function(e) {
-                            window.selectedSalesOrderLine = e.selectedRowsData[0] || null;
-                            console.log('[Order Transactions] Selected Sales Order Line:', window.selectedSalesOrderLine);
+                            window.selectedSalesOrderLines = e.selectedRowsData || [];
+                            window.selectedSalesOrderLine = e.selectedRowsData[0] || null; // Keep for backward compatibility
+                            console.log('[Order Transactions] Selected Sales Order Lines:', window.selectedSalesOrderLines.length, 'lines');
                         }
                     });
                 } else {
@@ -6264,6 +6266,163 @@ document.addEventListener('DOMContentLoaded', function() {
             // Refresh the grid
             refreshSalesOrderLines(orderNumber);
         });
+    };
+
+    // ============================================================================
+    // CANCEL SELECTED LINES POPUP
+    // ============================================================================
+
+    // Open Cancel Selected Lines Popup
+    window.openCancelSelectedLinesPopup = function(orderNumber) {
+        console.log('[Order Transactions] Open Cancel Selected Lines Popup for order:', orderNumber);
+
+        // Get selected lines from the grid
+        let selectedLines = [];
+
+        if (window.salesOrderLinesGrid) {
+            selectedLines = window.salesOrderLinesGrid.getSelectedRowsData() || [];
+        } else if (window.selectedSalesOrderLines) {
+            selectedLines = window.selectedSalesOrderLines;
+        }
+
+        // Check if any lines are selected
+        if (!selectedLines || selectedLines.length === 0) {
+            showNotification('Please select at least one line to cancel', 'warning');
+            return;
+        }
+
+        console.log('[Order Transactions] Selected lines to cancel:', selectedLines.length);
+
+        // Store selected lines for later use
+        window.linesToCancel = selectedLines;
+        window.cancelLinesOrderNumber = orderNumber;
+
+        // Build the table rows for selected lines
+        let tableRows = '';
+        selectedLines.forEach((line, index) => {
+            const lineNumber = line.LINE_NUMBER || line.line_number || line.LINE_ID || line.line_id || (index + 1);
+            const itemName = line.ITEM_NAME || line.item_name || line.ITEM || line.item || line.ITEM_DESCRIPTION || '-';
+            const orderedQty = line.ORDERED_QUANTITY || line.ordered_quantity || line.ORDERED_QTY || line.ordered_qty || '-';
+            const pickedQty = line.PICKED_QUANTITY || line.picked_quantity || line.PICKED_QTY || line.picked_qty || '0';
+            const status = line.LINE_STATUS || line.line_status || line.STATUS || line.status || '-';
+
+            tableRows += `
+                <tr style="border-bottom: 1px solid #e2e8f0;">
+                    <td style="padding: 0.6rem 0.75rem; font-weight: 600; color: #1e293b;">${lineNumber}</td>
+                    <td style="padding: 0.6rem 0.75rem; color: #475569; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${itemName}">${itemName}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; color: #1e293b;">${orderedQty}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center; color: #1e293b;">${pickedQty}</td>
+                    <td style="padding: 0.6rem 0.75rem; text-align: center;">
+                        <span style="padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; background: ${status === 'PICKED' ? '#dcfce7' : status === 'CANCELLED' ? '#fee2e2' : '#fef3c7'}; color: ${status === 'PICKED' ? '#166534' : status === 'CANCELLED' ? '#dc2626' : '#92400e'};">
+                            ${status}
+                        </span>
+                    </td>
+                </tr>
+            `;
+        });
+
+        // Create the popup modal
+        const modalHtml = `
+            <div id="cancel-lines-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 26000; justify-content: center; align-items: center; animation: fadeIn 0.2s ease;">
+                <div style="background: white; width: 90%; max-width: 800px; max-height: 80%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Modal Header -->
+                    <div style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-times-circle" style="color: white; font-size: 1.2rem;"></i>
+                            </div>
+                            <div>
+                                <h3 style="margin: 0; font-size: 1.1rem; color: white; font-weight: 700;">Cancel Selected Lines</h3>
+                                <p style="margin: 0.15rem 0 0 0; color: rgba(255,255,255,0.85); font-size: 0.8rem;">
+                                    Order #${orderNumber} • ${selectedLines.length} line(s) selected
+                                </p>
+                            </div>
+                        </div>
+                        <button onclick="closeCancelLinesModal()" style="background: rgba(255,255,255,0.2); border: none; font-size: 1.2rem; cursor: pointer; color: white; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)';" onmouseout="this.style.background='rgba(255,255,255,0.2)';">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <!-- Warning Message -->
+                    <div style="padding: 0.75rem 1.25rem; background: #fef3c7; border-bottom: 1px solid #fcd34d; display: flex; align-items: center; gap: 0.6rem;">
+                        <i class="fas fa-exclamation-triangle" style="color: #d97706; font-size: 1rem;"></i>
+                        <p style="margin: 0; color: #92400e; font-size: 0.85rem;">
+                            <strong>Warning:</strong> This action will cancel the selected order lines. This cannot be undone.
+                        </p>
+                    </div>
+
+                    <!-- Lines Table -->
+                    <div style="flex: 1; overflow: auto; padding: 1rem 1.25rem;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="background: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                                    <th style="padding: 0.6rem 0.75rem; text-align: left; font-weight: 600; color: #64748b;">Line #</th>
+                                    <th style="padding: 0.6rem 0.75rem; text-align: left; font-weight: 600; color: #64748b;">Item</th>
+                                    <th style="padding: 0.6rem 0.75rem; text-align: center; font-weight: 600; color: #64748b;">Ordered Qty</th>
+                                    <th style="padding: 0.6rem 0.75rem; text-align: center; font-weight: 600; color: #64748b;">Picked Qty</th>
+                                    <th style="padding: 0.6rem 0.75rem; text-align: center; font-weight: 600; color: #64748b;">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Modal Footer -->
+                    <div style="padding: 1rem 1.25rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 0.75rem;">
+                        <button onclick="closeCancelLinesModal()" style="padding: 0.6rem 1.25rem; background: white; color: #64748b; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='#f1f5f9';" onmouseout="this.style.background='white';">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                        <button onclick="executeCancelSelectedLines()" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 8px; font-size: 0.9rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);" onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 4px 12px rgba(239, 68, 68, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(239, 68, 68, 0.3)';">
+                            <i class="fas fa-ban"></i> Cancel Lines
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing modal if any
+        const existingModal = document.getElementById('cancel-lines-modal');
+        if (existingModal) {
+            existingModal.remove();
+        }
+
+        // Add modal to body
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+
+    // Close Cancel Lines Modal
+    window.closeCancelLinesModal = function() {
+        const modal = document.getElementById('cancel-lines-modal');
+        if (modal) {
+            modal.style.animation = 'fadeIn 0.2s ease reverse';
+            setTimeout(() => modal.remove(), 150);
+        }
+    };
+
+    // Execute Cancel Selected Lines (placeholder for API call)
+    window.executeCancelSelectedLines = function() {
+        const lines = window.linesToCancel;
+        const orderNumber = window.cancelLinesOrderNumber;
+
+        if (!lines || lines.length === 0) {
+            showNotification('No lines selected to cancel', 'warning');
+            return;
+        }
+
+        console.log('[Order Transactions] Executing cancel for', lines.length, 'lines');
+        console.log('[Order Transactions] Lines to cancel:', lines);
+
+        // TODO: Add webservice call here to cancel the lines
+        // For now, just show a message
+        showNotification(`Ready to cancel ${lines.length} line(s). Webservice integration pending.`, 'info');
+
+        // Close the modal
+        // closeCancelLinesModal();
+
+        // Refresh the grid after cancellation
+        // refreshSalesOrderLines(orderNumber);
     };
 
     window.refreshLotDetails = function(orderNumber) {
