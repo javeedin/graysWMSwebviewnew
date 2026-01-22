@@ -130,29 +130,15 @@
         </div>
     </header>
 
-    <!-- Fetch and display latest version from GitHub -->
+    <!-- Version is set directly in the badge - no longer fetching from GitHub -->
     <script>
-        (async function() {
-            try {
-                console.log('[Version Badge] Fetching latest version from GitHub API...');
-                const response = await fetch('https://api.github.com/repos/javeedin/graysWMSwebviewnew/releases/latest');
-
-                if (response.ok) {
-                    const release = await response.json();
-                    const version = release.tag_name || 'Unknown';
-                    const badge = document.getElementById('app-version-badge');
-
-                    if (badge) {
-                        badge.textContent = version;
-                        console.log('[Version Badge] Updated to:', version);
-                    }
-                } else {
-                    console.warn('[Version Badge] Failed to fetch version:', response.status);
-                    // Keep "Loading..." if fetch fails
-                }
-            } catch (error) {
-                console.error('[Version Badge] Error fetching version:', error);
-                // Keep "Loading..." if error occurs
+        // Local version - update this when releasing new versions
+        const LOCAL_WMS_VERSION = 'v1.2.9';
+        (function() {
+            const badge = document.getElementById('app-version-badge');
+            if (badge) {
+                badge.textContent = LOCAL_WMS_VERSION;
+                console.log('[Version Badge] Set to local version:', LOCAL_WMS_VERSION);
             }
         })();
     </script>
