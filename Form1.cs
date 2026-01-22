@@ -1132,6 +1132,9 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine($"[C#] Username: {username}");
                 System.Diagnostics.Debug.WriteLine($"[C#] PATCH Body: {payloadJson}");
 
+                // Force TLS 1.2
+                System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
+
                 // Create handler with SSL bypass for testing
                 var handler = new HttpClientHandler();
                 handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true;
@@ -1143,7 +1146,11 @@ namespace WMSApp
                     // Add Basic Authentication header
                     var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
                     httpClient.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", authValue);
+
+                    // Add headers like Postman
+                    httpClient.DefaultRequestHeaders.Accept.Clear();
                     httpClient.DefaultRequestHeaders.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                    httpClient.DefaultRequestHeaders.Add("User-Agent", "GraysWMS/1.2.9");
 
                     System.Diagnostics.Debug.WriteLine($"[C#] Creating PATCH request...");
 
