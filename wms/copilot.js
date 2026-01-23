@@ -79,6 +79,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Open the New Trip modal directly
                 openNewTripModal();
                 break;
+            case 'createSalesOrder':
+                // Open the Create Sales Order Wizard
+                openCreateSalesOrderWizard();
+                break;
             case 'addToTrip':
             case 'printOrder':
             case 'searchTransaction':
@@ -2482,3 +2486,623 @@ function renderProcessFlowDataCard(title, data, icon, color, fields) {
 }
 
 console.log('[Co-Pilot] ✅ Process Flow functions loaded');
+
+// ============================================================================
+// CREATE SALES ORDER WIZARD
+// ============================================================================
+
+// Wizard state
+const SalesOrderWizardState = {
+    currentStep: 1,
+    selectedCustomer: null,
+    items: [],
+    draftId: null
+};
+
+// Open the Create Sales Order Wizard
+function openCreateSalesOrderWizard() {
+    console.log('[Sales Order Wizard] Opening wizard...');
+
+    // Reset state
+    SalesOrderWizardState.currentStep = 1;
+    SalesOrderWizardState.selectedCustomer = null;
+    SalesOrderWizardState.items = [];
+
+    // Create modal
+    const modalId = 'sales-order-wizard-modal';
+    let modal = document.getElementById(modalId);
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 50000; display: flex; align-items: center; justify-content: center;';
+
+    modal.innerHTML = `
+        <div style="background: white; border-radius: 16px; width: 95%; max-width: 900px; height: 85%; max-height: 700px; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0,0,0,0.3); overflow: hidden;">
+            <!-- Wizard Header -->
+            <div style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #10b981, #059669); display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i class="fas fa-file-invoice-dollar" style="font-size: 1.5rem; color: white;"></i>
+                    <div>
+                        <h2 style="margin: 0; color: white; font-size: 1.2rem; font-weight: 700;">Create Sales Order</h2>
+                        <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 0.8rem;">Step <span id="wizard-current-step">1</span> of 3</p>
+                    </div>
+                </div>
+                <button onclick="closeSalesOrderWizard()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 1.2rem; transition: background 0.2s;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Progress Steps -->
+            <div style="padding: 1rem 1.5rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; max-width: 600px; margin: 0 auto;">
+                    <div class="wizard-step-indicator" data-step="1" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                        <div id="wizard-step-1-circle" style="width: 40px; height: 40px; border-radius: 50%; background: #10b981; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; margin-bottom: 0.4rem;">1</div>
+                        <span style="font-size: 0.75rem; color: #10b981; font-weight: 600;">Customer</span>
+                    </div>
+                    <div style="flex: 0.5; height: 3px; background: #e2e8f0;" id="wizard-line-1-2"></div>
+                    <div class="wizard-step-indicator" data-step="2" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                        <div id="wizard-step-2-circle" style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; color: #64748b; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; margin-bottom: 0.4rem;">2</div>
+                        <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Items</span>
+                    </div>
+                    <div style="flex: 0.5; height: 3px; background: #e2e8f0;" id="wizard-line-2-3"></div>
+                    <div class="wizard-step-indicator" data-step="3" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                        <div id="wizard-step-3-circle" style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; color: #64748b; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; margin-bottom: 0.4rem;">3</div>
+                        <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Preview</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Wizard Content -->
+            <div id="wizard-content" style="flex: 1; overflow-y: auto; padding: 1.5rem;">
+                <!-- Step content will be rendered here -->
+            </div>
+
+            <!-- Wizard Footer -->
+            <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <button id="wizard-btn-cancel" onclick="closeSalesOrderWizard()" style="padding: 0.6rem 1.25rem; background: white; color: #64748b; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <div style="display: flex; gap: 0.75rem;">
+                    <button id="wizard-btn-back" onclick="wizardPrevStep()" style="padding: 0.6rem 1.25rem; background: white; color: #64748b; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: none; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                        <i class="fas fa-arrow-left"></i> Back
+                    </button>
+                    <button id="wizard-btn-draft" onclick="saveSalesOrderDraft()" style="padding: 0.6rem 1.25rem; background: #f59e0b; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: none; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                        <i class="fas fa-save"></i> Save Draft
+                    </button>
+                    <button id="wizard-btn-next" onclick="wizardNextStep()" style="padding: 0.6rem 1.25rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                        Next <i class="fas fa-arrow-right"></i>
+                    </button>
+                    <button id="wizard-btn-create" onclick="createSalesOrder()" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: none; align-items: center; gap: 0.4rem; transition: all 0.2s; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
+                        <i class="fas fa-check"></i> Create Order
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Render first step
+    renderWizardStep(1);
+
+    console.log('[Sales Order Wizard] Wizard opened');
+}
+
+// Close the wizard
+function closeSalesOrderWizard() {
+    const modal = document.getElementById('sales-order-wizard-modal');
+    if (modal) modal.remove();
+    console.log('[Sales Order Wizard] Wizard closed');
+}
+
+// Navigate to next step
+function wizardNextStep() {
+    if (SalesOrderWizardState.currentStep < 3) {
+        // Validate current step
+        if (!validateWizardStep(SalesOrderWizardState.currentStep)) {
+            return;
+        }
+        SalesOrderWizardState.currentStep++;
+        renderWizardStep(SalesOrderWizardState.currentStep);
+        updateWizardProgress();
+    }
+}
+
+// Navigate to previous step
+function wizardPrevStep() {
+    if (SalesOrderWizardState.currentStep > 1) {
+        SalesOrderWizardState.currentStep--;
+        renderWizardStep(SalesOrderWizardState.currentStep);
+        updateWizardProgress();
+    }
+}
+
+// Validate current step
+function validateWizardStep(step) {
+    if (step === 1) {
+        if (!SalesOrderWizardState.selectedCustomer) {
+            showNotification('Please select a customer', 'warning');
+            return false;
+        }
+    } else if (step === 2) {
+        if (SalesOrderWizardState.items.length === 0) {
+            showNotification('Please add at least one item', 'warning');
+            return false;
+        }
+    }
+    return true;
+}
+
+// Update progress indicators
+function updateWizardProgress() {
+    const step = SalesOrderWizardState.currentStep;
+
+    // Update step number
+    document.getElementById('wizard-current-step').textContent = step;
+
+    // Update circles and lines
+    for (let i = 1; i <= 3; i++) {
+        const circle = document.getElementById(`wizard-step-${i}-circle`);
+        const parentSpan = circle.parentElement.querySelector('span');
+
+        if (i < step) {
+            // Completed
+            circle.style.background = '#10b981';
+            circle.style.color = 'white';
+            circle.innerHTML = '<i class="fas fa-check"></i>';
+            parentSpan.style.color = '#10b981';
+        } else if (i === step) {
+            // Current
+            circle.style.background = '#10b981';
+            circle.style.color = 'white';
+            circle.innerHTML = i;
+            parentSpan.style.color = '#10b981';
+        } else {
+            // Future
+            circle.style.background = '#e2e8f0';
+            circle.style.color = '#64748b';
+            circle.innerHTML = i;
+            parentSpan.style.color = '#64748b';
+        }
+    }
+
+    // Update lines
+    document.getElementById('wizard-line-1-2').style.background = step > 1 ? '#10b981' : '#e2e8f0';
+    document.getElementById('wizard-line-2-3').style.background = step > 2 ? '#10b981' : '#e2e8f0';
+
+    // Update buttons
+    document.getElementById('wizard-btn-back').style.display = step > 1 ? 'flex' : 'none';
+    document.getElementById('wizard-btn-next').style.display = step < 3 ? 'flex' : 'none';
+    document.getElementById('wizard-btn-draft').style.display = step === 3 ? 'flex' : 'none';
+    document.getElementById('wizard-btn-create').style.display = step === 3 ? 'flex' : 'none';
+}
+
+// Render wizard step content
+function renderWizardStep(step) {
+    const content = document.getElementById('wizard-content');
+
+    if (step === 1) {
+        renderCustomerSelectionStep(content);
+    } else if (step === 2) {
+        renderItemsSelectionStep(content);
+    } else if (step === 3) {
+        renderPreviewStep(content);
+    }
+
+    updateWizardProgress();
+}
+
+// Step 1: Customer Selection
+function renderCustomerSelectionStep(container) {
+    container.innerHTML = `
+        <div style="max-width: 700px; margin: 0 auto;">
+            <h3 style="color: #1e293b; font-size: 1.1rem; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-user" style="color: #10b981;"></i> Select Customer
+            </h3>
+
+            <!-- Search Box -->
+            <div style="position: relative; margin-bottom: 1rem;">
+                <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #64748b;"></i>
+                <input type="text" id="customer-search-input" placeholder="Search by customer name or account number..."
+                    oninput="searchCustomers(this.value)"
+                    style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.5rem; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.95rem; transition: border-color 0.2s;"
+                    onfocus="this.style.borderColor='#10b981'" onblur="this.style.borderColor='#e2e8f0'">
+            </div>
+
+            <!-- Selected Customer Display -->
+            <div id="selected-customer-display" style="display: ${SalesOrderWizardState.selectedCustomer ? 'block' : 'none'}; padding: 1rem; background: #dcfce7; border: 2px solid #10b981; border-radius: 10px; margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <p style="margin: 0; font-weight: 700; color: #166534; font-size: 1rem;" id="selected-customer-name">${SalesOrderWizardState.selectedCustomer?.name || ''}</p>
+                        <p style="margin: 0.25rem 0 0 0; color: #15803d; font-size: 0.85rem;" id="selected-customer-account">${SalesOrderWizardState.selectedCustomer?.accountNumber || ''}</p>
+                    </div>
+                    <button onclick="clearSelectedCustomer()" style="background: #fee2e2; color: #dc2626; border: none; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600;">
+                        <i class="fas fa-times"></i> Clear
+                    </button>
+                </div>
+            </div>
+
+            <!-- Customer List -->
+            <div id="customer-list" style="max-height: 350px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 10px;">
+                <div style="text-align: center; padding: 2rem; color: #64748b;">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #10b981; margin-bottom: 0.5rem;"></i>
+                    <p style="margin: 0;">Loading customers...</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Load customers
+    loadCustomersForWizard();
+}
+
+// Load customers from API
+function loadCustomersForWizard() {
+    console.log('[Sales Order Wizard] Loading customers...');
+
+    // TODO: Replace with actual API call
+    // For now, using mock data
+    const mockCustomers = [
+        { accountNumber: 'ACC001', name: 'ABC Trading Co.', address: '123 Business St, Dubai', phone: '+971 4 123 4567' },
+        { accountNumber: 'ACC002', name: 'XYZ Enterprises', address: '456 Commerce Ave, Abu Dhabi', phone: '+971 2 234 5678' },
+        { accountNumber: 'ACC003', name: 'Global Imports LLC', address: '789 Trade Blvd, Sharjah', phone: '+971 6 345 6789' },
+        { accountNumber: 'ACC004', name: 'Premium Goods Store', address: '321 Retail Lane, Dubai', phone: '+971 4 456 7890' },
+        { accountNumber: 'ACC005', name: 'Quick Mart', address: '654 Shop Street, Ajman', phone: '+971 6 567 8901' },
+    ];
+
+    setTimeout(() => {
+        renderCustomerList(mockCustomers);
+    }, 500);
+}
+
+// Render customer list
+function renderCustomerList(customers) {
+    const container = document.getElementById('customer-list');
+    if (!container) return;
+
+    if (customers.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #64748b;">
+                <i class="fas fa-users-slash" style="font-size: 2rem; color: #94a3b8; margin-bottom: 0.5rem;"></i>
+                <p style="margin: 0;">No customers found</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = customers.map(customer => `
+        <div class="customer-item" onclick="selectCustomer('${customer.accountNumber}', '${customer.name}', '${customer.address}', '${customer.phone}')"
+            style="padding: 1rem; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s; ${SalesOrderWizardState.selectedCustomer?.accountNumber === customer.accountNumber ? 'background: #f0fdf4;' : ''}"
+            onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='${SalesOrderWizardState.selectedCustomer?.accountNumber === customer.accountNumber ? '#f0fdf4' : 'white'}'">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <p style="margin: 0; font-weight: 600; color: #1e293b; font-size: 0.95rem;">${customer.name}</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #3b82f6; font-size: 0.8rem; font-family: monospace;">${customer.accountNumber}</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.8rem;"><i class="fas fa-map-marker-alt" style="margin-right: 0.3rem;"></i>${customer.address}</p>
+                </div>
+                ${SalesOrderWizardState.selectedCustomer?.accountNumber === customer.accountNumber ?
+                    '<i class="fas fa-check-circle" style="color: #10b981; font-size: 1.2rem;"></i>' : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+// Search customers
+function searchCustomers(query) {
+    console.log('[Sales Order Wizard] Searching customers:', query);
+    // TODO: Implement actual search
+}
+
+// Select customer
+function selectCustomer(accountNumber, name, address, phone) {
+    SalesOrderWizardState.selectedCustomer = { accountNumber, name, address, phone };
+
+    // Update display
+    document.getElementById('selected-customer-display').style.display = 'block';
+    document.getElementById('selected-customer-name').textContent = name;
+    document.getElementById('selected-customer-account').textContent = accountNumber;
+
+    // Refresh list to show selection
+    loadCustomersForWizard();
+
+    console.log('[Sales Order Wizard] Customer selected:', SalesOrderWizardState.selectedCustomer);
+}
+
+// Clear selected customer
+function clearSelectedCustomer() {
+    SalesOrderWizardState.selectedCustomer = null;
+    document.getElementById('selected-customer-display').style.display = 'none';
+    loadCustomersForWizard();
+}
+
+// Step 2: Items Selection
+function renderItemsSelectionStep(container) {
+    container.innerHTML = `
+        <div style="max-width: 800px; margin: 0 auto;">
+            <h3 style="color: #1e293b; font-size: 1.1rem; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-boxes" style="color: #10b981;"></i> Add Items
+            </h3>
+
+            <!-- Tab buttons for different input methods -->
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem;">
+                <button id="items-tab-select" onclick="switchItemsTab('select')" class="items-tab-btn active" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                    <i class="fas fa-search"></i> Select Items
+                </button>
+                <button id="items-tab-paste" onclick="switchItemsTab('paste')" class="items-tab-btn" style="padding: 0.5rem 1rem; background: #e2e8f0; color: #64748b; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                    <i class="fas fa-paste"></i> Paste Items
+                </button>
+                <button id="items-tab-pdf" onclick="switchItemsTab('pdf')" class="items-tab-btn" style="padding: 0.5rem 1rem; background: #e2e8f0; color: #64748b; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                    <i class="fas fa-file-pdf"></i> Import from PDF
+                </button>
+            </div>
+
+            <!-- Tab content -->
+            <div id="items-tab-content-select" class="items-tab-content" style="display: block;">
+                <div style="position: relative; margin-bottom: 1rem;">
+                    <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #64748b;"></i>
+                    <input type="text" id="item-search-input" placeholder="Search items by name or code..."
+                        style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.5rem; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.95rem;">
+                </div>
+                <div id="item-search-results" style="max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 1rem;">
+                    <div style="padding: 1rem; text-align: center; color: #64748b;">Search for items to add</div>
+                </div>
+            </div>
+
+            <div id="items-tab-content-paste" class="items-tab-content" style="display: none;">
+                <textarea id="paste-items-textarea" placeholder="Paste items here (one per line)&#10;Format: Item Code, Quantity&#10;Example:&#10;ITEM001, 10&#10;ITEM002, 5"
+                    style="width: 100%; height: 150px; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: monospace; resize: vertical;"></textarea>
+                <button onclick="parsePastedItems()" style="margin-top: 0.5rem; padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    <i class="fas fa-plus"></i> Add Pasted Items
+                </button>
+            </div>
+
+            <div id="items-tab-content-pdf" class="items-tab-content" style="display: none;">
+                <div style="border: 2px dashed #e2e8f0; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: border-color 0.2s;"
+                    onclick="document.getElementById('pdf-file-input').click()"
+                    onmouseover="this.style.borderColor='#10b981'" onmouseout="this.style.borderColor='#e2e8f0'">
+                    <i class="fas fa-file-pdf" style="font-size: 3rem; color: #ef4444; margin-bottom: 0.5rem;"></i>
+                    <p style="margin: 0; color: #1e293b; font-weight: 600;">Click to upload PDF</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.85rem;">or drag and drop</p>
+                    <input type="file" id="pdf-file-input" accept=".pdf" style="display: none;" onchange="handlePdfUpload(this.files)">
+                </div>
+            </div>
+
+            <!-- Added Items List -->
+            <div style="margin-top: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <h4 style="margin: 0; color: #1e293b; font-size: 0.95rem;">Added Items (${SalesOrderWizardState.items.length})</h4>
+                    ${SalesOrderWizardState.items.length > 0 ? '<button onclick="clearAllItems()" style="background: #fee2e2; color: #dc2626; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600;">Clear All</button>' : ''}
+                </div>
+                <div id="added-items-list" style="max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    ${renderAddedItemsList()}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Switch items tab
+function switchItemsTab(tab) {
+    // Update tab buttons
+    document.querySelectorAll('.items-tab-btn').forEach(btn => {
+        btn.style.background = '#e2e8f0';
+        btn.style.color = '#64748b';
+    });
+    document.getElementById(`items-tab-${tab}`).style.background = '#10b981';
+    document.getElementById(`items-tab-${tab}`).style.color = 'white';
+
+    // Update content
+    document.querySelectorAll('.items-tab-content').forEach(content => {
+        content.style.display = 'none';
+    });
+    document.getElementById(`items-tab-content-${tab}`).style.display = 'block';
+}
+
+// Render added items list
+function renderAddedItemsList() {
+    if (SalesOrderWizardState.items.length === 0) {
+        return '<div style="padding: 1.5rem; text-align: center; color: #64748b;"><i class="fas fa-inbox" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i><p style="margin: 0;">No items added yet</p></div>';
+    }
+
+    return `
+        <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8fafc;">
+                    <th style="padding: 0.6rem; text-align: left; font-weight: 600; color: #64748b;">Item</th>
+                    <th style="padding: 0.6rem; text-align: center; font-weight: 600; color: #64748b; width: 100px;">Qty</th>
+                    <th style="padding: 0.6rem; text-align: right; font-weight: 600; color: #64748b; width: 60px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${SalesOrderWizardState.items.map((item, index) => `
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 0.6rem;">
+                            <div style="font-weight: 600; color: #1e293b;">${item.name}</div>
+                            <div style="font-size: 0.75rem; color: #64748b;">${item.code}</div>
+                        </td>
+                        <td style="padding: 0.6rem; text-align: center;">
+                            <input type="number" value="${item.quantity}" min="1" onchange="updateItemQuantity(${index}, this.value)"
+                                style="width: 60px; padding: 0.3rem; text-align: center; border: 1px solid #e2e8f0; border-radius: 4px;">
+                        </td>
+                        <td style="padding: 0.6rem; text-align: right;">
+                            <button onclick="removeItem(${index})" style="background: none; border: none; color: #dc2626; cursor: pointer; padding: 0.3rem;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+// Parse pasted items
+function parsePastedItems() {
+    const textarea = document.getElementById('paste-items-textarea');
+    const lines = textarea.value.trim().split('\n').filter(l => l.trim());
+
+    lines.forEach(line => {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length >= 2) {
+            SalesOrderWizardState.items.push({
+                code: parts[0],
+                name: parts[0], // Will be fetched from API
+                quantity: parseInt(parts[1]) || 1
+            });
+        }
+    });
+
+    textarea.value = '';
+    renderWizardStep(2); // Re-render to update items list
+    showNotification(`Added ${lines.length} item(s)`, 'success');
+}
+
+// Handle PDF upload
+function handlePdfUpload(files) {
+    if (files.length > 0) {
+        showNotification('PDF import coming soon', 'info');
+    }
+}
+
+// Update item quantity
+function updateItemQuantity(index, quantity) {
+    SalesOrderWizardState.items[index].quantity = parseInt(quantity) || 1;
+}
+
+// Remove item
+function removeItem(index) {
+    SalesOrderWizardState.items.splice(index, 1);
+    document.getElementById('added-items-list').innerHTML = renderAddedItemsList();
+}
+
+// Clear all items
+function clearAllItems() {
+    SalesOrderWizardState.items = [];
+    renderWizardStep(2);
+}
+
+// Step 3: Preview
+function renderPreviewStep(container) {
+    const customer = SalesOrderWizardState.selectedCustomer;
+    const items = SalesOrderWizardState.items;
+    const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+
+    container.innerHTML = `
+        <div style="max-width: 800px; margin: 0 auto;">
+            <h3 style="color: #1e293b; font-size: 1.1rem; margin: 0 0 1.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-clipboard-check" style="color: #10b981;"></i> Order Preview
+            </h3>
+
+            <!-- Customer Info Card -->
+            <div style="background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1px solid #86efac; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 0.75rem 0; color: #166534; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-user"></i> Customer Details
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div>
+                        <p style="margin: 0; color: #64748b; font-size: 0.75rem;">Customer Name</p>
+                        <p style="margin: 0.2rem 0 0 0; color: #1e293b; font-weight: 600;">${customer?.name || '-'}</p>
+                    </div>
+                    <div>
+                        <p style="margin: 0; color: #64748b; font-size: 0.75rem;">Account Number</p>
+                        <p style="margin: 0.2rem 0 0 0; color: #3b82f6; font-weight: 600; font-family: monospace;">${customer?.accountNumber || '-'}</p>
+                    </div>
+                    <div>
+                        <p style="margin: 0; color: #64748b; font-size: 0.75rem;">Address</p>
+                        <p style="margin: 0.2rem 0 0 0; color: #1e293b;">${customer?.address || '-'}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Order Summary -->
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="flex: 1; background: #f8fafc; border-radius: 10px; padding: 1rem; text-align: center; border: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #64748b; font-size: 0.8rem;">Line Items</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #1e293b; font-size: 1.5rem; font-weight: 700;">${items.length}</p>
+                </div>
+                <div style="flex: 1; background: #f8fafc; border-radius: 10px; padding: 1rem; text-align: center; border: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #64748b; font-size: 0.8rem;">Total Quantity</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #1e293b; font-size: 1.5rem; font-weight: 700;">${totalItems}</p>
+                </div>
+                <div style="flex: 1; background: #f8fafc; border-radius: 10px; padding: 1rem; text-align: center; border: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #64748b; font-size: 0.8rem;">Order Date</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #1e293b; font-size: 1rem; font-weight: 600;">${new Date().toLocaleDateString()}</p>
+                </div>
+            </div>
+
+            <!-- Items Table -->
+            <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                <div style="padding: 0.75rem 1rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                    <h4 style="margin: 0; color: #1e293b; font-size: 0.9rem;"><i class="fas fa-list" style="color: #10b981; margin-right: 0.5rem;"></i>Order Lines</h4>
+                </div>
+                <div style="max-height: 250px; overflow-y: auto;">
+                    <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8fafc; position: sticky; top: 0;">
+                                <th style="padding: 0.6rem 1rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">#</th>
+                                <th style="padding: 0.6rem 1rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">Item Code</th>
+                                <th style="padding: 0.6rem 1rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">Description</th>
+                                <th style="padding: 0.6rem 1rem; text-align: center; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">Quantity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map((item, index) => `
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 0.6rem 1rem; color: #64748b;">${index + 1}</td>
+                                    <td style="padding: 0.6rem 1rem; font-family: monospace; color: #3b82f6;">${item.code}</td>
+                                    <td style="padding: 0.6rem 1rem; color: #1e293b;">${item.name}</td>
+                                    <td style="padding: 0.6rem 1rem; text-align: center; font-weight: 600; color: #1e293b;">${item.quantity}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Save as draft
+function saveSalesOrderDraft() {
+    console.log('[Sales Order Wizard] Saving draft...');
+    showNotification('Draft saved successfully', 'success');
+    // TODO: Implement actual draft saving
+}
+
+// Create sales order
+function createSalesOrder() {
+    console.log('[Sales Order Wizard] Creating order...');
+    console.log('[Sales Order Wizard] Customer:', SalesOrderWizardState.selectedCustomer);
+    console.log('[Sales Order Wizard] Items:', SalesOrderWizardState.items);
+
+    // Show loading state
+    const createBtn = document.getElementById('wizard-btn-create');
+    createBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+    createBtn.disabled = true;
+
+    // TODO: Implement actual API call to create order
+    setTimeout(() => {
+        showNotification('Sales Order created successfully!', 'success');
+        closeSalesOrderWizard();
+    }, 1500);
+}
+
+// Make functions globally available
+window.openCreateSalesOrderWizard = openCreateSalesOrderWizard;
+window.closeSalesOrderWizard = closeSalesOrderWizard;
+window.wizardNextStep = wizardNextStep;
+window.wizardPrevStep = wizardPrevStep;
+window.selectCustomer = selectCustomer;
+window.clearSelectedCustomer = clearSelectedCustomer;
+window.switchItemsTab = switchItemsTab;
+window.parsePastedItems = parsePastedItems;
+window.handlePdfUpload = handlePdfUpload;
+window.updateItemQuantity = updateItemQuantity;
+window.removeItem = removeItem;
+window.clearAllItems = clearAllItems;
+window.saveSalesOrderDraft = saveSalesOrderDraft;
+window.createSalesOrder = createSalesOrder;
+window.searchCustomers = searchCustomers;
+
+console.log('[Co-Pilot] ✅ Sales Order Wizard loaded');
