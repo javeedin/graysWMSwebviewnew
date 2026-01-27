@@ -10,6 +10,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WMSApp.PrintManagement;
@@ -594,8 +595,27 @@ namespace WMSApp
 
             // Create initial tab - load WMS application
             string indexPath = Path.Combine(Application.StartupPath, "index.html");
-            string fileUrl = "file:///" + indexPath.Replace("\\", "/");
-            AddNewTab(fileUrl);
+            if (File.Exists(indexPath))
+            {
+                string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                AddNewTab(fileUrl);
+            }
+            else
+            {
+                // Fallback: try wms/index.html
+                string wmsIndexPath = Path.Combine(Application.StartupPath, "wms", "index.html");
+                if (File.Exists(wmsIndexPath))
+                {
+                    string fileUrl = "file:///" + wmsIndexPath.Replace("\\", "/");
+                    AddNewTab(fileUrl);
+                }
+                else
+                {
+                    MessageBox.Show($"WMS index.html not found.\n\nSearched:\n{indexPath}\n{wmsIndexPath}\n\nPlease rebuild the project.",
+                        "File Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    AddNewTab("https://www.google.com");
+                }
+            }
         }
 
         private void LogDebug(string message)
