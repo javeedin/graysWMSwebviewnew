@@ -35,4 +35,11 @@
     </None>
   </ItemGroup>
 
+  <!-- WMS Application Files -->
+  <ItemGroup>
+    <None Update="wms\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

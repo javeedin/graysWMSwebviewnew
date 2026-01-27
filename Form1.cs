@@ -593,25 +593,25 @@ namespace WMSApp
             this.Controls.Add(navPanel);
             this.Controls.Add(titleBarPanel);
 
-            // Create initial tab - load WMS application
-            string indexPath = Path.Combine(Application.StartupPath, "index.html");
-            if (File.Exists(indexPath))
+            // Create initial tab - load WMS application from wms folder
+            string wmsIndexPath = Path.Combine(Application.StartupPath, "wms", "index.html");
+            if (File.Exists(wmsIndexPath))
             {
-                string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                string fileUrl = "file:///" + wmsIndexPath.Replace("\\", "/");
                 AddNewTab(fileUrl);
             }
             else
             {
-                // Fallback: try wms/index.html
-                string wmsIndexPath = Path.Combine(Application.StartupPath, "wms", "index.html");
-                if (File.Exists(wmsIndexPath))
+                // Fallback: try root index.html
+                string indexPath = Path.Combine(Application.StartupPath, "index.html");
+                if (File.Exists(indexPath))
                 {
-                    string fileUrl = "file:///" + wmsIndexPath.Replace("\\", "/");
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
                     AddNewTab(fileUrl);
                 }
                 else
                 {
-                    MessageBox.Show($"WMS index.html not found.\n\nSearched:\n{indexPath}\n{wmsIndexPath}\n\nPlease rebuild the project.",
+                    MessageBox.Show($"WMS index.html not found.\n\nSearched:\n{wmsIndexPath}\n{indexPath}\n\nPlease rebuild the project.",
                         "File Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     AddNewTab("https://www.google.com");
                 }
