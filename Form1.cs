@@ -591,8 +591,10 @@ namespace WMSApp
             this.Controls.Add(navPanel);
             this.Controls.Add(titleBarPanel);
 
-            // Create initial tab
-            AddNewTab("https://www.google.com");
+            // Create initial tab - load WMS application
+            string indexPath = Path.Combine(Application.StartupPath, "index.html");
+            string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+            AddNewTab(fileUrl);
         }
 
         private void LogDebug(string message)
