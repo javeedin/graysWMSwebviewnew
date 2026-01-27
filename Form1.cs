@@ -61,25 +61,33 @@ namespace WMSApp
             InitializeComponent();
             InitializeComponent1();
 
-            // ⭐ ADD THIS TEST
             System.Diagnostics.Debug.WriteLine("========================================");
-            System.Diagnostics.Debug.WriteLine("🚀 APPLICATION STARTED - TESTING DEBUG OUTPUT");
+            System.Diagnostics.Debug.WriteLine("APPLICATION STARTED - TESTING DEBUG OUTPUT");
             System.Diagnostics.Debug.WriteLine("========================================");
 
+            try
+            {
+                SetupUI();
 
-            SetupUI();
+                // Initialize the APEX downloader
+                _apexDownloader = new ApexHtmlFileDownloader();
+                _messageRouters = new Dictionary<WebView2, WebViewMessageRouter>();
+                var restClient = new RestApiClient();
+                _claudeApiHandler = new ClaudeApiHandler();
+                _promptHistoryManager = new PromptHistoryManager();
 
-            // Initialize the APEX downloader
-            _apexDownloader = new ApexHtmlFileDownloader();
-            _messageRouters = new Dictionary<WebView2, WebViewMessageRouter>();
-            var restClient = new RestApiClient();
-            _claudeApiHandler = new ClaudeApiHandler();
-            _promptHistoryManager = new PromptHistoryManager();
-
-            // Initialize Print Management Services
-            _printJobManager = new PrintJobManager();
-            _storageManager = new LocalStorageManager();
-            _printerService = new PrinterService();
+                // Initialize Print Management Services
+                _printJobManager = new PrintJobManager();
+                _storageManager = new LocalStorageManager();
+                _printerService = new PrinterService();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[STARTUP ERROR] {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[STARTUP ERROR] Stack: {ex.StackTrace}");
+                MessageBox.Show($"Application startup error: {ex.Message}\n\nStack trace:\n{ex.StackTrace}",
+                    "Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void InitializeComponent1()
