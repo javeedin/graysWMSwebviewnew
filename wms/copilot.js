@@ -79,6 +79,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Open the New Trip modal directly
                 openNewTripModal();
                 break;
+            case 'createSalesOrder':
+                // Open the Create Sales Order Wizard
+                openCreateSalesOrderWizard();
+                break;
             case 'addToTrip':
             case 'printOrder':
             case 'searchTransaction':
@@ -761,12 +765,19 @@ window.handleTransactionSearch = function(type) {
 
     console.log('[Co-Pilot] Searching transaction:', transactionNumber, 'Type:', type);
 
+    // Store in global for process flow
+    window.lastSearchedTransaction = {
+        transactionNumber: transactionNumber,
+        type: type,
+        timestamp: new Date()
+    };
+
     // Add user message
     addChatMessage('user', `Search ${type}: ${transactionNumber}`);
 
     if (type === 'S2V') {
         // For S2V (Store to Van), open Store Transactions dialog
-        addChatMessage('assistant', `✅ Opening Store Transactions for: ${transactionNumber}`);
+        addChatMessageWithProcessFlowLink('assistant', `✅ Opening Store Transactions for: ${transactionNumber}`, transactionNumber, type);
 
         // Close copilot panel
         toggleCopilot();
@@ -806,7 +817,7 @@ window.handleTransactionSearch = function(type) {
 
     } else if (type === 'Order') {
         // For regular Order search, open Order Transactions dialog
-        addChatMessage('assistant', `✅ Opening Order Transactions for: ${transactionNumber}`);
+        addChatMessageWithProcessFlowLink('assistant', `✅ Opening Order Transactions for: ${transactionNumber}`, transactionNumber, type);
 
         // Close copilot panel
         toggleCopilot();
@@ -1585,3 +1596,1513 @@ function initializeTripDetailsDialogGrid(tripData) {
 }
 
 console.log('[Co-Pilot] ✅ New Trip functions loaded');
+
+// ============================================================================
+// PROCESS FLOW VISUALIZATION
+// ============================================================================
+
+// Add chat message with Process Flow link
+window.addChatMessageWithProcessFlowLink = function(role, content, transactionNumber, type) {
+    const chatMessages = document.getElementById('copilot-chat-messages');
+    if (!chatMessages) return;
+
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `copilot-message copilot-message-${role}`;
+
+    const avatar = document.createElement('div');
+    avatar.className = 'copilot-message-avatar';
+    avatar.innerHTML = role === 'user' ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'copilot-message-bubble';
+    bubble.innerHTML = `
+        <div>${content}</div>
+        <div style="margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid #e2e8f0;">
+            <a href="#" onclick="showProcessFlowPopup('${transactionNumber}', '${type}'); return false;"
+               style="color: #667eea; font-weight: 600; text-decoration: none; display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 1rem; background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%); border-radius: 8px; transition: all 0.2s; border: 1px solid #c7d2fe;"
+               onmouseover="this.style.background='linear-gradient(135deg, #667eea 0%, #764ba2 100%)'; this.style.color='white';"
+               onmouseout="this.style.background='linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%)'; this.style.color='#667eea';">
+                <i class="fas fa-project-diagram"></i> Show Process Flow
+            </a>
+        </div>
+    `;
+
+    messageDiv.appendChild(avatar);
+    messageDiv.appendChild(bubble);
+    chatMessages.appendChild(messageDiv);
+
+    // Scroll to bottom
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+
+    // Store in history
+    CopilotState.chatHistory.push({ role, content, timestamp: new Date() });
+};
+
+// Global storage for process flow data
+window.processFlowData = {
+    transactionNumber: null,
+    type: null,
+    orderInfo: null,
+    pickReleaseDetails: [],
+    salesOrderLines: [],
+    lotDetails: [],
+    shipmentDetails: [],
+    pickConfirmResponses: [],
+    shipConfirmResponses: [],
+    transactionDetails: [],
+    qohDetails: [],
+    allocatedLots: []
+};
+
+// Show Process Flow Popup
+window.showProcessFlowPopup = async function(transactionNumber, type) {
+    console.log('[Process Flow] Opening popup for:', transactionNumber, 'Type:', type);
+
+    // Store transaction info
+    window.processFlowData.transactionNumber = transactionNumber;
+    window.processFlowData.type = type;
+
+    // Get instance
+    const instanceName = sessionStorage.getItem('loggedInInstance')
+        || document.getElementById('current-instance-display')?.textContent
+        || localStorage.getItem('fusionInstance')
+        || 'PROD';
+
+    // Create the popup modal
+    const modalHtml = `
+        <div id="process-flow-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 30000; justify-content: center; align-items: center; animation: fadeIn 0.3s ease;">
+            <div style="background: linear-gradient(180deg, #f8fafc 0%, #ffffff 100%); width: 95%; max-width: 1400px; height: 90%; border-radius: 16px; display: flex; flex-direction: column; box-shadow: 0 25px 80px rgba(0,0,0,0.3); overflow: hidden; animation: slideUp 0.3s ease;">
+                <!-- Modal Header -->
+                <div style="padding: 1.25rem 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <div style="width: 50px; height: 50px; background: rgba(255,255,255,0.2); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-project-diagram" style="color: white; font-size: 1.5rem;"></i>
+                        </div>
+                        <div>
+                            <h2 style="margin: 0; font-size: 1.3rem; color: white; font-weight: 700;">
+                                Process Flow - ${type === 'S2V' ? 'Store Transaction' : 'Sales Order'}
+                            </h2>
+                            <p style="margin: 0.25rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
+                                Transaction: <strong>${transactionNumber}</strong> | Instance: <strong>${instanceName}</strong>
+                            </p>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 0.75rem; align-items: center;">
+                        <button onclick="refreshProcessFlowData('${transactionNumber}', '${type}')" style="background: rgba(255,255,255,0.2); border: none; cursor: pointer; color: white; padding: 0.6rem 1.2rem; border-radius: 8px; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)';" onmouseout="this.style.background='rgba(255,255,255,0.2)';">
+                            <i class="fas fa-sync-alt"></i> Refresh
+                        </button>
+                        <button onclick="closeProcessFlowModal()" style="background: rgba(255,255,255,0.2); border: none; font-size: 1.5rem; cursor: pointer; color: white; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; transition: all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.3)';" onmouseout="this.style.background='rgba(255,255,255,0.2)';">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Flow Content -->
+                <div style="flex: 1; overflow: auto; padding: 1.5rem;">
+                    <div id="process-flow-content" style="min-height: 100%;">
+                        <div style="display: flex; justify-content: center; align-items: center; height: 300px;">
+                            <div style="text-align: center;">
+                                <i class="fas fa-circle-notch fa-spin" style="font-size: 3rem; color: #667eea;"></i>
+                                <p style="margin-top: 1rem; color: #64748b; font-size: 1rem;">Loading process flow data...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Add modal to body
+    const existingModal = document.getElementById('process-flow-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    // Add animation styles if not exists
+    if (!document.getElementById('process-flow-styles')) {
+        const styleSheet = document.createElement('style');
+        styleSheet.id = 'process-flow-styles';
+        styleSheet.textContent = `
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+            @keyframes slideUp {
+                from { transform: translateY(30px); opacity: 0; }
+                to { transform: translateY(0); opacity: 1; }
+            }
+            @keyframes pulse {
+                0%, 100% { transform: scale(1); }
+                50% { transform: scale(1.05); }
+            }
+            .flow-step {
+                transition: all 0.3s ease;
+            }
+            .flow-step:hover {
+                transform: translateY(-4px);
+                box-shadow: 0 12px 40px rgba(0,0,0,0.15) !important;
+            }
+            .status-active { background: linear-gradient(135deg, #10b981, #059669) !important; }
+            .status-pending { background: linear-gradient(135deg, #f59e0b, #d97706) !important; }
+            .status-completed { background: linear-gradient(135deg, #22c55e, #16a34a) !important; }
+            .status-failed { background: linear-gradient(135deg, #ef4444, #dc2626) !important; }
+        `;
+        document.head.appendChild(styleSheet);
+    }
+
+    // Load and render the flow data
+    await loadAndRenderProcessFlow(transactionNumber, type, instanceName);
+};
+
+// Close Process Flow Modal
+window.closeProcessFlowModal = function() {
+    const modal = document.getElementById('process-flow-modal');
+    if (modal) {
+        modal.style.animation = 'fadeIn 0.2s ease reverse';
+        setTimeout(() => modal.remove(), 200);
+    }
+};
+
+// Refresh Process Flow Data
+window.refreshProcessFlowData = async function(transactionNumber, type) {
+    const instanceName = sessionStorage.getItem('loggedInInstance') || 'PROD';
+    const content = document.getElementById('process-flow-content');
+    if (content) {
+        content.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; height: 300px;">
+                <div style="text-align: center;">
+                    <i class="fas fa-circle-notch fa-spin" style="font-size: 3rem; color: #667eea;"></i>
+                    <p style="margin-top: 1rem; color: #64748b; font-size: 1rem;">Refreshing process flow data...</p>
+                </div>
+            </div>
+        `;
+    }
+    await loadAndRenderProcessFlow(transactionNumber, type, instanceName);
+};
+
+// Load and Render Process Flow
+async function loadAndRenderProcessFlow(transactionNumber, type, instanceName) {
+    const content = document.getElementById('process-flow-content');
+    if (!content) return;
+
+    // Base URL for APEX REST API
+    const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+
+    try {
+        if (type === 'Order') {
+            // Fetch all Order-related data in parallel using the actual API endpoints
+            const [pickRelease, salesOrderLines, lotDetails] = await Promise.all([
+                fetchProcessFlowApiDataDirect(`${baseUrl}/trips/orders/getpickreleasedetails/${transactionNumber}`).catch(() => ({ items: [] })),
+                fetchProcessFlowApiDataDirect(`${baseUrl}/trip/orders/getsalesorderlines/${transactionNumber}`).catch(() => ({ items: [] })),
+                fetchProcessFlowApiDataDirect(`${baseUrl}/trips/orders/getlotdetails/${transactionNumber}`).catch(() => ({ items: [] }))
+            ]);
+
+            // Store data
+            window.processFlowData.pickReleaseDetails = pickRelease.items || pickRelease || [];
+            window.processFlowData.salesOrderLines = salesOrderLines.items || salesOrderLines || [];
+            window.processFlowData.lotDetails = lotDetails.items || lotDetails || [];
+
+            // Extract order info from first sales order line if available
+            if (window.processFlowData.salesOrderLines.length > 0) {
+                const firstLine = window.processFlowData.salesOrderLines[0];
+                window.processFlowData.orderInfo = {
+                    orderNumber: transactionNumber,
+                    accountNumber: firstLine.ACCOUNT_NUMBER || firstLine.account_number || '',
+                    accountName: firstLine.ACCOUNT_NAME || firstLine.account_name || firstLine.CUSTOMER_NAME || '',
+                    orderDate: firstLine.ORDER_DATE || firstLine.order_date || '',
+                    orderType: firstLine.ORDER_TYPE || firstLine.order_type || ''
+                };
+            }
+
+            // Render Order process flow
+            renderOrderProcessFlow(content, transactionNumber);
+
+        } else if (type === 'S2V') {
+            // For S2V, use store transaction APIs
+            const [transDetails, qohDetails, allocatedLots] = await Promise.all([
+                fetchProcessFlowApiDataDirect(`${baseUrl}/s2v/gettransactiondetails/${transactionNumber}`).catch(() => ({ items: [] })),
+                fetchProcessFlowApiDataDirect(`${baseUrl}/s2v/getqohdetails/${transactionNumber}`).catch(() => ({ items: [] })),
+                fetchProcessFlowApiDataDirect(`${baseUrl}/s2v/getallocatedlots/${transactionNumber}`).catch(() => ({ items: [] }))
+            ]);
+
+            // Store data
+            window.processFlowData.transactionDetails = transDetails.items || transDetails || [];
+            window.processFlowData.qohDetails = qohDetails.items || qohDetails || [];
+            window.processFlowData.allocatedLots = allocatedLots.items || allocatedLots || [];
+
+            // Render S2V process flow
+            renderS2VProcessFlow(content, transactionNumber);
+        }
+
+    } catch (error) {
+        console.error('[Process Flow] Error loading data:', error);
+        content.innerHTML = `
+            <div style="display: flex; justify-content: center; align-items: center; height: 300px;">
+                <div style="text-align: center; color: #ef4444;">
+                    <i class="fas fa-exclamation-triangle" style="font-size: 3rem;"></i>
+                    <p style="margin-top: 1rem; font-size: 1rem;">Error loading process flow data</p>
+                    <p style="color: #64748b; font-size: 0.85rem;">${error.message}</p>
+                    <button onclick="refreshProcessFlowData('${transactionNumber}', '${type}')" style="margin-top: 1rem; padding: 0.5rem 1rem; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                        <i class="fas fa-redo"></i> Retry
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+}
+
+// Fetch API Data helper for Process Flow - Direct URL call via C#
+async function fetchProcessFlowApiDataDirect(fullUrl) {
+    return new Promise((resolve, reject) => {
+        console.log('[Process Flow] Fetching:', fullUrl);
+
+        if (typeof sendMessageToCSharp === 'function') {
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: fullUrl
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Process Flow] API Error:', error);
+                    reject(new Error(error));
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Process Flow] API Response:', result);
+                        resolve(result);
+                    } catch (parseError) {
+                        console.error('[Process Flow] Parse Error:', parseError);
+                        reject(parseError);
+                    }
+                }
+            });
+        } else {
+            // Fallback for browser testing - try fetch
+            fetch(fullUrl)
+                .then(response => response.json())
+                .then(resolve)
+                .catch(() => resolve({ items: [] }));
+        }
+    });
+}
+
+// Render Order Process Flow
+function renderOrderProcessFlow(container, transactionNumber) {
+    const data = window.processFlowData;
+    const orderInfo = data.orderInfo || {};
+
+    // Calculate statuses based on actual data
+    const hasSalesLines = Array.isArray(data.salesOrderLines) && data.salesOrderLines.length > 0;
+    const hasPickRelease = Array.isArray(data.pickReleaseDetails) && data.pickReleaseDetails.length > 0;
+    const hasLots = Array.isArray(data.lotDetails) && data.lotDetails.length > 0;
+
+    // Calculate counts and summaries
+    const totalLines = hasSalesLines ? data.salesOrderLines.length : 0;
+    const totalPickReleased = hasPickRelease ? data.pickReleaseDetails.length : 0;
+    const totalLots = hasLots ? data.lotDetails.length : 0;
+
+    // Calculate picked status from sales order lines or pick release
+    let pickedLines = 0;
+    let totalOrderedQty = 0;
+    let totalPickedQty = 0;
+    let pickConfirmedLines = 0;
+    let shipConfirmedLines = 0;
+
+    if (hasSalesLines) {
+        data.salesOrderLines.forEach(line => {
+            const orderedQty = parseFloat(line.ORDERED_QUANTITY || line.ordered_quantity || line.ORDERED_QTY || line.ordered_qty || 0);
+            const pickedQty = parseFloat(line.PICKED_QUANTITY || line.picked_quantity || line.PICKED_QTY || line.picked_qty || 0);
+            const pickConfirmSt = (line.PICK_CONFIRM_ST || line.pick_confirm_st || '').toUpperCase();
+            const shipConfirmSt = (line.SHIP_CONFIRM_ST || line.ship_confirm_st || '').toUpperCase();
+
+            totalOrderedQty += orderedQty;
+            totalPickedQty += pickedQty;
+
+            if (pickedQty > 0) pickedLines++;
+            if (pickConfirmSt === 'Y' || pickConfirmSt === 'YES' || pickConfirmSt === 'CONFIRMED') pickConfirmedLines++;
+            if (shipConfirmSt === 'Y' || shipConfirmSt === 'YES' || shipConfirmSt === 'CONFIRMED' || shipConfirmSt === 'SHIPPED') shipConfirmedLines++;
+        });
+    }
+
+    // Determine process stages based on actual data
+    const isOrderCreated = hasSalesLines;
+    const isPickReleased = hasPickRelease;
+    const isLotAllocated = hasLots;
+    const isPicked = pickedLines > 0 || totalPickedQty > 0;
+    const isPickConfirmed = pickConfirmedLines > 0;
+    // When lines are picked (picked qty > 0), consider it as shipped as well
+    const isShipConfirmed = shipConfirmedLines > 0 || isPicked;
+
+    // Determine current stage
+    let currentStage = 0;
+    if (isOrderCreated) currentStage = 1;
+    if (isPickReleased) currentStage = 2;
+    if (isLotAllocated) currentStage = 3;
+    if (isPicked || isPickConfirmed) currentStage = 4;
+    if (isShipConfirmed) currentStage = 5;
+
+    // Calculate picking progress percentage
+    const pickingProgress = totalLines > 0 ? Math.round((pickedLines / totalLines) * 100) : 0;
+
+    // Store order number for print function
+    window.processFlowOrderNumber = transactionNumber;
+
+    container.innerHTML = `
+        <!-- Order Info Header -->
+        <div style="background: linear-gradient(135deg, #f0f4ff 0%, #e8f0fe 100%); border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem; border: 1px solid #c7d2fe;">
+            <div style="display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: space-between; align-items: center;">
+                <div>
+                    <div style="display: flex; align-items: center; gap: 1rem;">
+                        <h3 style="color: #1e293b; font-size: 1.4rem; margin: 0; font-weight: 700;">
+                            <i class="fas fa-file-invoice" style="color: #667eea; margin-right: 0.5rem;"></i>
+                            Order #${transactionNumber}
+                        </h3>
+                        <button id="process-flow-print-btn" style="padding: 0.5rem 1rem; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; border: none; border-radius: 8px; font-size: 0.85rem; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3); transition: all 0.2s ease;">
+                            <i class="fas fa-print"></i> Print
+                        </button>
+                    </div>
+                    ${orderInfo.accountName ? `<p style="color: #64748b; margin: 0.25rem 0 0 0; font-size: 0.9rem;"><i class="fas fa-user" style="margin-right: 0.4rem;"></i>${orderInfo.accountName} ${orderInfo.accountNumber ? '(' + orderInfo.accountNumber + ')' : ''}</p>` : ''}
+                </div>
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                    <div style="text-align: center; padding: 0.5rem 1rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #3b82f6;">${totalLines}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">ORDER LINES</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.5rem 1rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #10b981;">${totalPickReleased}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">PICK RELEASED</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.5rem 1rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #8b5cf6;">${totalLots}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">LOTS ALLOCATED</div>
+                    </div>
+                    <div style="text-align: center; padding: 0.5rem 1rem; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+                        <div style="font-size: 1.5rem; font-weight: 700; color: #f59e0b;">${pickedLines}/${totalLines}</div>
+                        <div style="font-size: 0.7rem; color: #64748b; font-weight: 600;">LINES PICKED</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Process Flow Header -->
+        <div style="text-align: center; margin-bottom: 1.5rem;">
+            <h3 style="color: #1e293b; font-size: 1.3rem; margin: 0;">Sales Order Lifecycle</h3>
+            <p style="color: #64748b; margin: 0.5rem 0 0 0; font-size: 0.85rem;">Track the complete journey of this order</p>
+        </div>
+
+        <!-- Main Flow Diagram -->
+        <div style="display: flex; justify-content: center; align-items: flex-start; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
+
+            <!-- Step 1: Order Created -->
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isOrderCreated ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isOrderCreated ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-file-invoice" style="font-size: 1.5rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Order Created</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isOrderCreated ? '#22c55e' : '#64748b'};">${isOrderCreated ? totalLines + ' lines' : 'Pending'}</p>
+                ${currentStage === 1 && !isPickReleased ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #fef3c7; color: #92400e; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">CURRENT</span>' : ''}
+            </div>
+
+            <div style="display: flex; align-items: center; padding-top: 30px;"><i class="fas fa-chevron-right" style="color: ${isPickReleased ? '#667eea' : '#cbd5e1'}; font-size: 1.2rem;"></i></div>
+
+            <!-- Step 2: Pick Release -->
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isPickReleased ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isPickReleased ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-box-open" style="font-size: 1.5rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Pick Released</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isPickReleased ? '#22c55e' : '#64748b'};">${isPickReleased ? totalPickReleased + ' released' : 'Pending'}</p>
+                ${currentStage === 2 && !isLotAllocated ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #fef3c7; color: #92400e; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">CURRENT</span>' : ''}
+            </div>
+
+            <div style="display: flex; align-items: center; padding-top: 30px;"><i class="fas fa-chevron-right" style="color: ${isLotAllocated ? '#667eea' : '#cbd5e1'}; font-size: 1.2rem;"></i></div>
+
+            <!-- Step 3: Lot Allocation -->
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isLotAllocated ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isLotAllocated ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-barcode" style="font-size: 1.5rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Lot Allocated</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isLotAllocated ? '#22c55e' : '#64748b'};">${isLotAllocated ? totalLots + ' lots' : 'Pending'}</p>
+                ${currentStage === 3 && !isPicked ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #fef3c7; color: #92400e; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">CURRENT</span>' : ''}
+            </div>
+
+            <div style="display: flex; align-items: center; padding-top: 30px;"><i class="fas fa-chevron-right" style="color: ${isPicked ? '#667eea' : '#cbd5e1'}; font-size: 1.2rem;"></i></div>
+
+            <!-- Step 4: Picking Done -->
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isPicked ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isPicked ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-check-double" style="font-size: 1.5rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Picking Done</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isPicked ? '#22c55e' : '#64748b'};">${isPicked ? pickingProgress + '% complete' : 'Pending'}</p>
+                ${currentStage === 4 && !isShipConfirmed ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #fef3c7; color: #92400e; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">CURRENT</span>' : ''}
+            </div>
+
+            <div style="display: flex; align-items: center; padding-top: 30px;"><i class="fas fa-chevron-right" style="color: ${isShipConfirmed ? '#667eea' : '#cbd5e1'}; font-size: 1.2rem;"></i></div>
+
+            <!-- Step 5: Ship Confirmed -->
+            <div class="flow-step" style="text-align: center; width: 140px;">
+                <div style="width: 70px; height: 70px; margin: 0 auto 0.5rem; border-radius: 50%; background: ${isShipConfirmed ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 6px 20px ${isShipConfirmed ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-truck" style="font-size: 1.5rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 0.85rem; color: #1e293b; font-weight: 600;">Shipped</h4>
+                <p style="margin: 0.2rem 0 0 0; font-size: 0.7rem; color: ${isShipConfirmed ? '#22c55e' : '#64748b'};">${isShipConfirmed ? shipConfirmedLines + ' shipped' : 'Pending'}</p>
+                ${isShipConfirmed ? '<span style="display: inline-block; margin-top: 0.4rem; padding: 0.15rem 0.5rem; background: #dcfce7; color: #166534; font-size: 0.6rem; border-radius: 8px; font-weight: 600;">COMPLETE</span>' : ''}
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div style="margin: 1.5rem auto; max-width: 900px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4rem;">
+                <span style="font-size: 0.75rem; color: #64748b;">Overall Progress</span>
+                <span style="font-size: 0.75rem; color: #667eea; font-weight: 600;">${Math.round((currentStage / 5) * 100)}%</span>
+            </div>
+            <div style="height: 8px; background: #e2e8f0; border-radius: 4px; overflow: hidden;">
+                <div style="height: 100%; width: ${(currentStage / 5) * 100}%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 4px; transition: width 0.5s ease;"></div>
+            </div>
+        </div>
+
+        <!-- Data Summary Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: 1.5rem;">
+            ${renderProcessFlowDataCardAuto('Sales Order Lines', data.salesOrderLines, 'fas fa-shopping-cart', '#3b82f6')}
+            ${renderProcessFlowDataCardAuto('Pick Release Details', data.pickReleaseDetails, 'fas fa-box-open', '#10b981')}
+            ${renderProcessFlowDataCardAuto('Lot Details', data.lotDetails, 'fas fa-barcode', '#8b5cf6')}
+        </div>
+    `;
+
+    // Add print button click handler and initialize card expand/collapse
+    setTimeout(() => {
+        const printBtn = document.getElementById('process-flow-print-btn');
+        if (printBtn) {
+            printBtn.addEventListener('click', () => {
+                printSalesOrderFromProcessFlow(transactionNumber);
+            });
+        }
+        // Initialize expand/collapse handlers for data cards
+        initProcessFlowCardHandlers();
+    }, 100);
+}
+
+// Print Sales Order from Process Flow
+function printSalesOrderFromProcessFlow(orderNumber) {
+    console.log('[Process Flow] Print button clicked for order:', orderNumber);
+
+    // Show loading state on button
+    const printBtn = document.getElementById('process-flow-print-btn');
+    if (printBtn) {
+        printBtn.disabled = true;
+        printBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+    }
+
+    // Create PDF preview modal
+    const modalId = 'process-flow-pdf-modal';
+    let modal = document.getElementById(modalId);
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 99999; display: flex; align-items: center; justify-content: center;';
+    modal.innerHTML = `
+        <div style="background: white; border-radius: 12px; width: 90%; max-width: 900px; height: 85%; display: flex; flex-direction: column; box-shadow: 0 25px 50px rgba(0,0,0,0.3);">
+            <div style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #3b82f6, #2563eb); border-radius: 12px 12px 0 0; display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin: 0; color: white; font-size: 1.1rem; font-weight: 600;">
+                    <i class="fas fa-file-pdf" style="margin-right: 0.5rem;"></i>
+                    Sales Order #${orderNumber}
+                </h3>
+                <button id="close-pdf-modal" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1.1rem;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div id="pdf-preview-container" style="flex: 1; padding: 1rem; overflow: auto; display: flex; align-items: center; justify-content: center; background: #f1f5f9;">
+                <div style="text-align: center; color: #64748b;">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 3rem; color: #3b82f6; margin-bottom: 1rem;"></i>
+                    <p style="margin: 0; font-size: 1rem;">Generating PDF report...</p>
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem;">This may take a few seconds</p>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Add close button handler
+    document.getElementById('close-pdf-modal').addEventListener('click', () => {
+        modal.remove();
+    });
+
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+
+    // Call C# to download/generate the PDF
+    // Using downloadOrderPdf action which downloads from Oracle Fusion
+    sendMessageToCSharp({
+        action: 'downloadOrderPdf',
+        orderNumber: String(orderNumber),
+        tripId: 'PROCESSFLOW',
+        tripDate: new Date().toISOString().split('T')[0]
+    }, function(error, data) {
+        // Reset button
+        if (printBtn) {
+            printBtn.disabled = false;
+            printBtn.innerHTML = '<i class="fas fa-print"></i> Print';
+        }
+
+        const container = document.getElementById('pdf-preview-container');
+        if (!container) return;
+
+        if (error) {
+            console.error('[Process Flow] PDF generation error:', error);
+            container.innerHTML = `
+                <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                    <p style="margin: 0; font-size: 1rem; font-weight: 600;">Failed to generate PDF</p>
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #64748b;">${error}</p>
+                </div>
+            `;
+            return;
+        }
+
+        try {
+            const response = typeof data === 'string' ? JSON.parse(data) : data;
+            console.log('[Process Flow] PDF response:', response);
+
+            if (response.success && response.filePath) {
+                // PDF downloaded successfully, now get it as base64 to display
+                sendMessageToCSharp({
+                    action: 'getPdfAsBase64',
+                    filePath: response.filePath
+                }, function(pdfError, pdfData) {
+                    if (pdfError) {
+                        container.innerHTML = `
+                            <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                                <i class="fas fa-exclamation-circle" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                                <p style="margin: 0; font-size: 1rem; font-weight: 600;">Failed to load PDF</p>
+                                <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #64748b;">${pdfError}</p>
+                            </div>
+                        `;
+                        return;
+                    }
+
+                    try {
+                        const pdfResponse = typeof pdfData === 'string' ? JSON.parse(pdfData) : pdfData;
+                        if (pdfResponse.base64) {
+                            container.innerHTML = `
+                                <iframe src="data:application/pdf;base64,${pdfResponse.base64}"
+                                    style="width: 100%; height: 100%; border: none; border-radius: 8px;"
+                                    title="Sales Order PDF">
+                                </iframe>
+                            `;
+                        } else {
+                            throw new Error('No base64 data in response');
+                        }
+                    } catch (e) {
+                        console.error('[Process Flow] PDF parse error:', e);
+                        container.innerHTML = `
+                            <div style="text-align: center; padding: 2rem;">
+                                <i class="fas fa-check-circle" style="font-size: 3rem; color: #22c55e; margin-bottom: 1rem;"></i>
+                                <p style="margin: 0; font-size: 1rem; font-weight: 600; color: #1e293b;">PDF Generated Successfully</p>
+                                <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #64748b;">File saved to: ${response.filePath}</p>
+                                <button onclick="sendMessageToCSharp({action: 'openFileInExplorer', filePath: '${response.filePath.replace(/\\/g, '\\\\')}'})"
+                                    style="margin-top: 1rem; padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 0.85rem;">
+                                    <i class="fas fa-folder-open"></i> Open File Location
+                                </button>
+                            </div>
+                        `;
+                    }
+                });
+            } else {
+                throw new Error(response.message || 'Failed to generate PDF');
+            }
+        } catch (e) {
+            console.error('[Process Flow] Response parse error:', e);
+            container.innerHTML = `
+                <div style="text-align: center; color: #dc2626; padding: 2rem;">
+                    <i class="fas fa-exclamation-circle" style="font-size: 3rem; margin-bottom: 1rem;"></i>
+                    <p style="margin: 0; font-size: 1rem; font-weight: 600;">Failed to process response</p>
+                    <p style="margin: 0.5rem 0 0 0; font-size: 0.85rem; color: #64748b;">${e.message}</p>
+                </div>
+            `;
+        }
+    });
+}
+
+// Auto-detect fields and render expandable data card
+function renderProcessFlowDataCardAuto(title, data, icon, color) {
+    const hasData = Array.isArray(data) && data.length > 0;
+    const cardId = 'pf-card-' + title.replace(/\s+/g, '-').toLowerCase();
+
+    // Auto-detect fields from first item - show more fields
+    let fields = [];
+    if (hasData && data[0]) {
+        fields = Object.keys(data[0]).slice(0, 8); // Show first 8 fields
+    }
+
+    // Store data globally for expansion
+    if (!window.processFlowCardData) window.processFlowCardData = {};
+    window.processFlowCardData[cardId] = { data, fields, title, icon, color };
+
+    return `
+        <div id="${cardId}" style="background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #e2e8f0;">
+            <div class="pf-card-header" data-card-id="${cardId}" style="padding: 0.75rem 1rem; background: linear-gradient(135deg, ${color}15, ${color}08); border-bottom: 1px solid ${color}30; display: flex; align-items: center; justify-content: space-between; cursor: pointer; transition: background 0.2s ease;">
+                <div style="display: flex; align-items: center; gap: 0.6rem;">
+                    <div style="width: 32px; height: 32px; background: ${color}; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                        <i class="${icon}" style="color: white; font-size: 0.9rem;"></i>
+                    </div>
+                    <div>
+                        <h4 style="margin: 0; font-size: 0.9rem; color: #1e293b; font-weight: 600;">${title}</h4>
+                        <p style="margin: 0; font-size: 0.65rem; color: #64748b;">${hasData ? data.length + ' record(s)' : 'No data'}</p>
+                    </div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <span style="padding: 0.2rem 0.5rem; background: ${hasData ? '#dcfce7' : '#fef3c7'}; color: ${hasData ? '#166534' : '#92400e'}; font-size: 0.6rem; border-radius: 6px; font-weight: 600;">
+                        ${hasData ? 'LOADED' : 'EMPTY'}
+                    </span>
+                    <button class="pf-expand-btn" data-card-id="${cardId}" style="width: 28px; height: 28px; background: ${color}20; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease;">
+                        <i class="fas fa-chevron-down pf-expand-icon" style="color: ${color}; font-size: 0.75rem; transition: transform 0.3s ease;"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="pf-card-body" data-card-id="${cardId}" style="max-height: 0; overflow: hidden; transition: max-height 0.3s ease;">
+                ${hasData ? `
+                    <div style="padding: 0.5rem; overflow-x: auto;">
+                        <table style="width: 100%; font-size: 0.7rem; border-collapse: collapse; min-width: 600px;">
+                            <thead>
+                                <tr style="background: #f8fafc; position: sticky; top: 0;">
+                                    ${fields.map(f => `<th style="padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 2px solid #e2e8f0; white-space: nowrap;">${f.replace(/_/g, ' ')}</th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${data.map((row, idx) => `
+                                    <tr style="border-bottom: 1px solid #f1f5f9; ${idx % 2 === 0 ? 'background: #fafbfc;' : ''}">
+                                        ${fields.map(f => {
+                                            let val = row[f] !== null && row[f] !== undefined ? row[f] : '-';
+                                            if (typeof val === 'string' && val.length > 30) val = val.substring(0, 28) + '...';
+                                            return `<td style="padding: 0.4rem 0.5rem; color: #1e293b; white-space: nowrap;">${val}</td>`;
+                                        }).join('')}
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                ` : `
+                    <div style="text-align: center; padding: 1.5rem; color: #94a3b8;">
+                        <i class="fas fa-inbox" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                        <p style="margin: 0; font-size: 0.8rem;">No data available</p>
+                    </div>
+                `}
+            </div>
+        </div>
+    `;
+}
+
+// Toggle expand/collapse for process flow cards
+function toggleProcessFlowCard(cardId) {
+    const body = document.querySelector(`.pf-card-body[data-card-id="${cardId}"]`);
+    const icon = document.querySelector(`#${cardId} .pf-expand-icon`);
+    const btn = document.querySelector(`.pf-expand-btn[data-card-id="${cardId}"]`);
+
+    if (!body) return;
+
+    const isExpanded = body.style.maxHeight && body.style.maxHeight !== '0px';
+
+    if (isExpanded) {
+        // Collapse
+        body.style.maxHeight = '0px';
+        if (icon) icon.style.transform = 'rotate(0deg)';
+        if (btn) btn.style.background = btn.style.background.replace('40', '20');
+    } else {
+        // Expand - calculate height based on content
+        body.style.maxHeight = Math.min(body.scrollHeight, 400) + 'px';
+        if (icon) icon.style.transform = 'rotate(180deg)';
+        if (btn) btn.style.background = btn.style.background.replace('20', '40');
+    }
+}
+
+// Initialize expand/collapse handlers for process flow cards
+function initProcessFlowCardHandlers() {
+    // Add click handlers for expand buttons and headers
+    document.querySelectorAll('.pf-expand-btn, .pf-card-header').forEach(el => {
+        el.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const cardId = el.getAttribute('data-card-id');
+            if (cardId) toggleProcessFlowCard(cardId);
+        });
+    });
+}
+
+// Render S2V Process Flow
+function renderS2VProcessFlow(container, transactionNumber) {
+    const data = window.processFlowData;
+
+    // Calculate statuses based on data
+    const hasTransDetails = data.transactionDetails.length > 0;
+    const hasQoh = data.qohDetails.length > 0;
+    const hasAllocatedLots = data.allocatedLots.length > 0;
+
+    // Determine current stage
+    let currentStage = 1;
+    if (hasTransDetails) currentStage = 2;
+    if (hasQoh) currentStage = 3;
+    if (hasAllocatedLots) currentStage = 4;
+
+    container.innerHTML = `
+        <!-- Process Flow Header -->
+        <div style="text-align: center; margin-bottom: 2rem;">
+            <h3 style="color: #1e293b; font-size: 1.5rem; margin: 0;">Store to Van (S2V) Transaction Flow</h3>
+            <p style="color: #64748b; margin: 0.5rem 0 0 0;">Track the complete journey of Transaction #${transactionNumber}</p>
+        </div>
+
+        <!-- Main Flow Diagram -->
+        <div style="display: flex; justify-content: center; align-items: flex-start; gap: 2rem; flex-wrap: wrap; margin-bottom: 2rem;">
+
+            <!-- Step 1: Transaction Created -->
+            <div class="flow-step" style="text-align: center; width: 200px;">
+                <div style="width: 100px; height: 100px; margin: 0 auto 1rem; border-radius: 50%; background: ${currentStage >= 1 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 30px ${currentStage >= 1 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-file-alt" style="font-size: 2.2rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 600;">Transaction Created</h4>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: #64748b;">Store request initiated</p>
+                ${currentStage === 1 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.25rem 0.75rem; background: #fef3c7; color: #92400e; font-size: 0.7rem; border-radius: 12px; font-weight: 600;">CURRENT STAGE</span>' : ''}
+            </div>
+
+            <!-- Connector -->
+            <div style="display: flex; align-items: center; padding-top: 45px;">
+                <div style="width: 60px; height: 4px; background: ${currentStage >= 2 ? 'linear-gradient(90deg, #667eea, #764ba2)' : '#cbd5e1'}; border-radius: 2px;"></div>
+                <i class="fas fa-arrow-right" style="color: ${currentStage >= 2 ? '#667eea' : '#cbd5e1'}; font-size: 1.5rem; margin: 0 -5px;"></i>
+            </div>
+
+            <!-- Step 2: Transaction Details -->
+            <div class="flow-step" style="text-align: center; width: 200px;">
+                <div style="width: 100px; height: 100px; margin: 0 auto 1rem; border-radius: 50%; background: ${currentStage >= 2 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 30px ${currentStage >= 2 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-list-alt" style="font-size: 2.2rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 600;">Details Loaded</h4>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: #64748b;">${hasTransDetails ? data.transactionDetails.length + ' line(s)' : 'Pending'}</p>
+                ${currentStage === 2 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.25rem 0.75rem; background: #fef3c7; color: #92400e; font-size: 0.7rem; border-radius: 12px; font-weight: 600;">CURRENT STAGE</span>' : ''}
+            </div>
+
+            <!-- Connector -->
+            <div style="display: flex; align-items: center; padding-top: 45px;">
+                <div style="width: 60px; height: 4px; background: ${currentStage >= 3 ? 'linear-gradient(90deg, #667eea, #764ba2)' : '#cbd5e1'}; border-radius: 2px;"></div>
+                <i class="fas fa-arrow-right" style="color: ${currentStage >= 3 ? '#667eea' : '#cbd5e1'}; font-size: 1.5rem; margin: 0 -5px;"></i>
+            </div>
+
+            <!-- Step 3: QOH Check -->
+            <div class="flow-step" style="text-align: center; width: 200px;">
+                <div style="width: 100px; height: 100px; margin: 0 auto 1rem; border-radius: 50%; background: ${currentStage >= 3 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 30px ${currentStage >= 3 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-warehouse" style="font-size: 2.2rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 600;">QOH Verified</h4>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: #64748b;">${hasQoh ? data.qohDetails.length + ' item(s)' : 'Pending'}</p>
+                ${currentStage === 3 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.25rem 0.75rem; background: #fef3c7; color: #92400e; font-size: 0.7rem; border-radius: 12px; font-weight: 600;">CURRENT STAGE</span>' : ''}
+            </div>
+
+            <!-- Connector -->
+            <div style="display: flex; align-items: center; padding-top: 45px;">
+                <div style="width: 60px; height: 4px; background: ${currentStage >= 4 ? 'linear-gradient(90deg, #667eea, #764ba2)' : '#cbd5e1'}; border-radius: 2px;"></div>
+                <i class="fas fa-arrow-right" style="color: ${currentStage >= 4 ? '#667eea' : '#cbd5e1'}; font-size: 1.5rem; margin: 0 -5px;"></i>
+            </div>
+
+            <!-- Step 4: Lots Allocated -->
+            <div class="flow-step" style="text-align: center; width: 200px;">
+                <div style="width: 100px; height: 100px; margin: 0 auto 1rem; border-radius: 50%; background: ${currentStage >= 4 ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #cbd5e1, #94a3b8)'}; display: flex; align-items: center; justify-content: center; box-shadow: 0 10px 30px ${currentStage >= 4 ? 'rgba(34, 197, 94, 0.3)' : 'rgba(0,0,0,0.1)'};">
+                    <i class="fas fa-check-circle" style="font-size: 2.2rem; color: white;"></i>
+                </div>
+                <h4 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 600;">Lots Allocated</h4>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: #64748b;">${hasAllocatedLots ? data.allocatedLots.length + ' lot(s)' : 'Pending'}</p>
+                ${currentStage === 4 ? '<span style="display: inline-block; margin-top: 0.5rem; padding: 0.25rem 0.75rem; background: #dcfce7; color: #166534; font-size: 0.7rem; border-radius: 12px; font-weight: 600;">COMPLETED</span>' : ''}
+            </div>
+        </div>
+
+        <!-- Progress Bar -->
+        <div style="margin: 2rem auto; max-width: 800px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                <span style="font-size: 0.85rem; color: #64748b;">Progress</span>
+                <span style="font-size: 0.85rem; color: #667eea; font-weight: 600;">${Math.round((currentStage / 4) * 100)}%</span>
+            </div>
+            <div style="height: 12px; background: #e2e8f0; border-radius: 6px; overflow: hidden;">
+                <div style="height: 100%; width: ${(currentStage / 4) * 100}%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 6px; transition: width 0.5s ease;"></div>
+            </div>
+        </div>
+
+        <!-- Data Summary Cards -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.25rem; margin-top: 2rem;">
+            ${renderProcessFlowDataCard('Transaction Details', data.transactionDetails, 'fas fa-list-alt', '#3b82f6', ['LINE_NUMBER', 'ITEM', 'QUANTITY', 'STATUS'])}
+            ${renderProcessFlowDataCard('QOH Details', data.qohDetails, 'fas fa-warehouse', '#10b981', ['ITEM', 'LOT_NUMBER', 'ON_HAND_QTY', 'SUBINVENTORY'])}
+            ${renderProcessFlowDataCard('Allocated Lots', data.allocatedLots, 'fas fa-check-circle', '#8b5cf6', ['LOT_NUMBER', 'ALLOCATED_QTY', 'EXPIRY_DATE'])}
+        </div>
+    `;
+}
+
+// Helper function to render data cards for Process Flow
+function renderProcessFlowDataCard(title, data, icon, color, fields) {
+    const hasData = data && data.length > 0;
+    const displayData = hasData ? data.slice(0, 5) : []; // Show max 5 rows
+
+    return `
+        <div style="background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.08); overflow: hidden; border: 1px solid #e2e8f0;">
+            <div style="padding: 1rem 1.25rem; background: linear-gradient(135deg, ${color}15, ${color}08); border-bottom: 1px solid ${color}30; display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <div style="width: 36px; height: 36px; background: ${color}; border-radius: 8px; display: flex; align-items: center; justify-content: center;">
+                        <i class="${icon}" style="color: white; font-size: 1rem;"></i>
+                    </div>
+                    <div>
+                        <h4 style="margin: 0; font-size: 0.95rem; color: #1e293b; font-weight: 600;">${title}</h4>
+                        <p style="margin: 0; font-size: 0.7rem; color: #64748b;">${hasData ? data.length + ' record(s)' : 'No data'}</p>
+                    </div>
+                </div>
+                <span style="padding: 0.25rem 0.6rem; background: ${hasData ? '#dcfce7' : '#fef3c7'}; color: ${hasData ? '#166534' : '#92400e'}; font-size: 0.65rem; border-radius: 8px; font-weight: 600;">
+                    ${hasData ? 'LOADED' : 'EMPTY'}
+                </span>
+            </div>
+            <div style="padding: 0.75rem; max-height: 200px; overflow-y: auto;">
+                ${hasData ? `
+                    <table style="width: 100%; font-size: 0.75rem; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8fafc;">
+                                ${fields.map(f => `<th style="padding: 0.4rem 0.5rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">${f.replace(/_/g, ' ')}</th>`).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${displayData.map(row => `
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    ${fields.map(f => `<td style="padding: 0.4rem 0.5rem; color: #1e293b;">${row[f] || row[f.toLowerCase()] || '-'}</td>`).join('')}
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                    ${data.length > 5 ? `<p style="margin: 0.5rem 0 0 0; text-align: center; font-size: 0.7rem; color: #64748b;">... and ${data.length - 5} more</p>` : ''}
+                ` : `
+                    <div style="text-align: center; padding: 1.5rem; color: #94a3b8;">
+                        <i class="fas fa-inbox" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i>
+                        <p style="margin: 0; font-size: 0.8rem;">No data available</p>
+                    </div>
+                `}
+            </div>
+        </div>
+    `;
+}
+
+console.log('[Co-Pilot] ✅ Process Flow functions loaded');
+
+// ============================================================================
+// CREATE SALES ORDER WIZARD
+// ============================================================================
+
+// Wizard state
+const SalesOrderWizardState = {
+    currentStep: 1,
+    selectedCustomer: null,
+    items: [],
+    draftId: null
+};
+
+// Open the Create Sales Order Wizard
+function openCreateSalesOrderWizard() {
+    console.log('[Sales Order Wizard] Opening wizard...');
+
+    // Reset state
+    SalesOrderWizardState.currentStep = 1;
+    SalesOrderWizardState.selectedCustomer = null;
+    SalesOrderWizardState.items = [];
+
+    // Create modal
+    const modalId = 'sales-order-wizard-modal';
+    let modal = document.getElementById(modalId);
+    if (modal) modal.remove();
+
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.cssText = 'position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.6); z-index: 50000; display: flex; align-items: center; justify-content: center;';
+
+    modal.innerHTML = `
+        <div style="background: white; border-radius: 16px; width: 95%; max-width: 900px; height: 85%; max-height: 700px; display: flex; flex-direction: column; box-shadow: 0 25px 60px rgba(0,0,0,0.3); overflow: hidden;">
+            <!-- Wizard Header -->
+            <div style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #10b981, #059669); display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <i class="fas fa-file-invoice-dollar" style="font-size: 1.5rem; color: white;"></i>
+                    <div>
+                        <h2 style="margin: 0; color: white; font-size: 1.2rem; font-weight: 700;">Create Sales Order</h2>
+                        <p style="margin: 0; color: rgba(255,255,255,0.8); font-size: 0.8rem;">Step <span id="wizard-current-step">1</span> of 3</p>
+                    </div>
+                </div>
+                <button onclick="closeSalesOrderWizard()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 36px; height: 36px; border-radius: 8px; cursor: pointer; font-size: 1.2rem; transition: background 0.2s;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Progress Steps -->
+            <div style="padding: 1rem 1.5rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                <div style="display: flex; justify-content: space-between; align-items: center; max-width: 600px; margin: 0 auto;">
+                    <div class="wizard-step-indicator" data-step="1" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                        <div id="wizard-step-1-circle" style="width: 40px; height: 40px; border-radius: 50%; background: #10b981; color: white; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; margin-bottom: 0.4rem;">1</div>
+                        <span style="font-size: 0.75rem; color: #10b981; font-weight: 600;">Customer</span>
+                    </div>
+                    <div style="flex: 0.5; height: 3px; background: #e2e8f0;" id="wizard-line-1-2"></div>
+                    <div class="wizard-step-indicator" data-step="2" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                        <div id="wizard-step-2-circle" style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; color: #64748b; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; margin-bottom: 0.4rem;">2</div>
+                        <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Items</span>
+                    </div>
+                    <div style="flex: 0.5; height: 3px; background: #e2e8f0;" id="wizard-line-2-3"></div>
+                    <div class="wizard-step-indicator" data-step="3" style="display: flex; flex-direction: column; align-items: center; flex: 1;">
+                        <div id="wizard-step-3-circle" style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; color: #64748b; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; margin-bottom: 0.4rem;">3</div>
+                        <span style="font-size: 0.75rem; color: #64748b; font-weight: 600;">Preview</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Wizard Content -->
+            <div id="wizard-content" style="flex: 1; overflow-y: auto; padding: 1.5rem;">
+                <!-- Step content will be rendered here -->
+            </div>
+
+            <!-- Wizard Footer -->
+            <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <button id="wizard-btn-cancel" onclick="closeSalesOrderWizard()" style="padding: 0.6rem 1.25rem; background: white; color: #64748b; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <div style="display: flex; gap: 0.75rem;">
+                    <button id="wizard-btn-back" onclick="wizardPrevStep()" style="padding: 0.6rem 1.25rem; background: white; color: #64748b; border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: none; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                        <i class="fas fa-arrow-left"></i> Back
+                    </button>
+                    <button id="wizard-btn-draft" onclick="saveSalesOrderDraft()" style="padding: 0.6rem 1.25rem; background: #f59e0b; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: none; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                        <i class="fas fa-save"></i> Save Draft
+                    </button>
+                    <button id="wizard-btn-next" onclick="wizardNextStep()" style="padding: 0.6rem 1.25rem; background: #10b981; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: flex; align-items: center; gap: 0.4rem; transition: all 0.2s;">
+                        Next <i class="fas fa-arrow-right"></i>
+                    </button>
+                    <button id="wizard-btn-create" onclick="createSalesOrder()" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.85rem; display: none; align-items: center; gap: 0.4rem; transition: all 0.2s; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
+                        <i class="fas fa-check"></i> Create Order
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    // Render first step
+    renderWizardStep(1);
+
+    console.log('[Sales Order Wizard] Wizard opened');
+}
+
+// Close the wizard
+function closeSalesOrderWizard() {
+    const modal = document.getElementById('sales-order-wizard-modal');
+    if (modal) modal.remove();
+    console.log('[Sales Order Wizard] Wizard closed');
+}
+
+// Navigate to next step
+function wizardNextStep() {
+    if (SalesOrderWizardState.currentStep < 3) {
+        // Validate current step
+        if (!validateWizardStep(SalesOrderWizardState.currentStep)) {
+            return;
+        }
+        SalesOrderWizardState.currentStep++;
+        renderWizardStep(SalesOrderWizardState.currentStep);
+        updateWizardProgress();
+    }
+}
+
+// Navigate to previous step
+function wizardPrevStep() {
+    if (SalesOrderWizardState.currentStep > 1) {
+        SalesOrderWizardState.currentStep--;
+        renderWizardStep(SalesOrderWizardState.currentStep);
+        updateWizardProgress();
+    }
+}
+
+// Validate current step
+function validateWizardStep(step) {
+    if (step === 1) {
+        if (!SalesOrderWizardState.selectedCustomer) {
+            showNotification('Please select a customer', 'warning');
+            return false;
+        }
+    } else if (step === 2) {
+        if (SalesOrderWizardState.items.length === 0) {
+            showNotification('Please add at least one item', 'warning');
+            return false;
+        }
+    }
+    return true;
+}
+
+// Update progress indicators
+function updateWizardProgress() {
+    const step = SalesOrderWizardState.currentStep;
+
+    // Update step number
+    document.getElementById('wizard-current-step').textContent = step;
+
+    // Update circles and lines
+    for (let i = 1; i <= 3; i++) {
+        const circle = document.getElementById(`wizard-step-${i}-circle`);
+        const parentSpan = circle.parentElement.querySelector('span');
+
+        if (i < step) {
+            // Completed
+            circle.style.background = '#10b981';
+            circle.style.color = 'white';
+            circle.innerHTML = '<i class="fas fa-check"></i>';
+            parentSpan.style.color = '#10b981';
+        } else if (i === step) {
+            // Current
+            circle.style.background = '#10b981';
+            circle.style.color = 'white';
+            circle.innerHTML = i;
+            parentSpan.style.color = '#10b981';
+        } else {
+            // Future
+            circle.style.background = '#e2e8f0';
+            circle.style.color = '#64748b';
+            circle.innerHTML = i;
+            parentSpan.style.color = '#64748b';
+        }
+    }
+
+    // Update lines
+    document.getElementById('wizard-line-1-2').style.background = step > 1 ? '#10b981' : '#e2e8f0';
+    document.getElementById('wizard-line-2-3').style.background = step > 2 ? '#10b981' : '#e2e8f0';
+
+    // Update buttons
+    document.getElementById('wizard-btn-back').style.display = step > 1 ? 'flex' : 'none';
+    document.getElementById('wizard-btn-next').style.display = step < 3 ? 'flex' : 'none';
+    document.getElementById('wizard-btn-draft').style.display = step === 3 ? 'flex' : 'none';
+    document.getElementById('wizard-btn-create').style.display = step === 3 ? 'flex' : 'none';
+}
+
+// Render wizard step content
+function renderWizardStep(step) {
+    const content = document.getElementById('wizard-content');
+
+    if (step === 1) {
+        renderCustomerSelectionStep(content);
+    } else if (step === 2) {
+        renderItemsSelectionStep(content);
+    } else if (step === 3) {
+        renderPreviewStep(content);
+    }
+
+    updateWizardProgress();
+}
+
+// Step 1: Customer Selection
+function renderCustomerSelectionStep(container) {
+    container.innerHTML = `
+        <div style="max-width: 700px; margin: 0 auto;">
+            <h3 style="color: #1e293b; font-size: 1.1rem; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-user" style="color: #10b981;"></i> Select Customer
+            </h3>
+
+            <!-- Search Box -->
+            <div style="position: relative; margin-bottom: 1rem;">
+                <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #64748b;"></i>
+                <input type="text" id="customer-search-input" placeholder="Search by customer name or account number..."
+                    oninput="searchCustomers(this.value)"
+                    style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.5rem; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.95rem; transition: border-color 0.2s;"
+                    onfocus="this.style.borderColor='#10b981'" onblur="this.style.borderColor='#e2e8f0'">
+            </div>
+
+            <!-- Selected Customer Display -->
+            <div id="selected-customer-display" style="display: ${SalesOrderWizardState.selectedCustomer ? 'block' : 'none'}; padding: 1rem; background: #dcfce7; border: 2px solid #10b981; border-radius: 10px; margin-bottom: 1rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <p style="margin: 0; font-weight: 700; color: #166534; font-size: 1rem;" id="selected-customer-name">${SalesOrderWizardState.selectedCustomer?.name || ''}</p>
+                        <p style="margin: 0.25rem 0 0 0; color: #15803d; font-size: 0.85rem;" id="selected-customer-account">${SalesOrderWizardState.selectedCustomer?.accountNumber || ''}</p>
+                    </div>
+                    <button onclick="clearSelectedCustomer()" style="background: #fee2e2; color: #dc2626; border: none; padding: 0.4rem 0.8rem; border-radius: 6px; cursor: pointer; font-size: 0.8rem; font-weight: 600;">
+                        <i class="fas fa-times"></i> Clear
+                    </button>
+                </div>
+            </div>
+
+            <!-- Customer List -->
+            <div id="customer-list" style="max-height: 350px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 10px;">
+                <div style="text-align: center; padding: 2rem; color: #64748b;">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #10b981; margin-bottom: 0.5rem;"></i>
+                    <p style="margin: 0;">Loading customers...</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Load customers
+    loadCustomersForWizard();
+}
+
+// Load customers from API
+function loadCustomersForWizard() {
+    console.log('[Sales Order Wizard] Loading customers...');
+
+    // TODO: Replace with actual API call
+    // For now, using mock data
+    const mockCustomers = [
+        { accountNumber: 'ACC001', name: 'ABC Trading Co.', address: '123 Business St, Dubai', phone: '+971 4 123 4567' },
+        { accountNumber: 'ACC002', name: 'XYZ Enterprises', address: '456 Commerce Ave, Abu Dhabi', phone: '+971 2 234 5678' },
+        { accountNumber: 'ACC003', name: 'Global Imports LLC', address: '789 Trade Blvd, Sharjah', phone: '+971 6 345 6789' },
+        { accountNumber: 'ACC004', name: 'Premium Goods Store', address: '321 Retail Lane, Dubai', phone: '+971 4 456 7890' },
+        { accountNumber: 'ACC005', name: 'Quick Mart', address: '654 Shop Street, Ajman', phone: '+971 6 567 8901' },
+    ];
+
+    setTimeout(() => {
+        renderCustomerList(mockCustomers);
+    }, 500);
+}
+
+// Render customer list
+function renderCustomerList(customers) {
+    const container = document.getElementById('customer-list');
+    if (!container) return;
+
+    if (customers.length === 0) {
+        container.innerHTML = `
+            <div style="text-align: center; padding: 2rem; color: #64748b;">
+                <i class="fas fa-users-slash" style="font-size: 2rem; color: #94a3b8; margin-bottom: 0.5rem;"></i>
+                <p style="margin: 0;">No customers found</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = customers.map(customer => `
+        <div class="customer-item" onclick="selectCustomer('${customer.accountNumber}', '${customer.name}', '${customer.address}', '${customer.phone}')"
+            style="padding: 1rem; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.2s; ${SalesOrderWizardState.selectedCustomer?.accountNumber === customer.accountNumber ? 'background: #f0fdf4;' : ''}"
+            onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background='${SalesOrderWizardState.selectedCustomer?.accountNumber === customer.accountNumber ? '#f0fdf4' : 'white'}'">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div>
+                    <p style="margin: 0; font-weight: 600; color: #1e293b; font-size: 0.95rem;">${customer.name}</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #3b82f6; font-size: 0.8rem; font-family: monospace;">${customer.accountNumber}</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.8rem;"><i class="fas fa-map-marker-alt" style="margin-right: 0.3rem;"></i>${customer.address}</p>
+                </div>
+                ${SalesOrderWizardState.selectedCustomer?.accountNumber === customer.accountNumber ?
+                    '<i class="fas fa-check-circle" style="color: #10b981; font-size: 1.2rem;"></i>' : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+// Search customers
+function searchCustomers(query) {
+    console.log('[Sales Order Wizard] Searching customers:', query);
+    // TODO: Implement actual search
+}
+
+// Select customer
+function selectCustomer(accountNumber, name, address, phone) {
+    SalesOrderWizardState.selectedCustomer = { accountNumber, name, address, phone };
+
+    // Update display
+    document.getElementById('selected-customer-display').style.display = 'block';
+    document.getElementById('selected-customer-name').textContent = name;
+    document.getElementById('selected-customer-account').textContent = accountNumber;
+
+    // Refresh list to show selection
+    loadCustomersForWizard();
+
+    console.log('[Sales Order Wizard] Customer selected:', SalesOrderWizardState.selectedCustomer);
+}
+
+// Clear selected customer
+function clearSelectedCustomer() {
+    SalesOrderWizardState.selectedCustomer = null;
+    document.getElementById('selected-customer-display').style.display = 'none';
+    loadCustomersForWizard();
+}
+
+// Step 2: Items Selection
+function renderItemsSelectionStep(container) {
+    container.innerHTML = `
+        <div style="max-width: 800px; margin: 0 auto;">
+            <h3 style="color: #1e293b; font-size: 1.1rem; margin: 0 0 1rem 0; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-boxes" style="color: #10b981;"></i> Add Items
+            </h3>
+
+            <!-- Tab buttons for different input methods -->
+            <div style="display: flex; gap: 0.5rem; margin-bottom: 1rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.5rem;">
+                <button id="items-tab-select" onclick="switchItemsTab('select')" class="items-tab-btn active" style="padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                    <i class="fas fa-search"></i> Select Items
+                </button>
+                <button id="items-tab-paste" onclick="switchItemsTab('paste')" class="items-tab-btn" style="padding: 0.5rem 1rem; background: #e2e8f0; color: #64748b; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                    <i class="fas fa-paste"></i> Paste Items
+                </button>
+                <button id="items-tab-pdf" onclick="switchItemsTab('pdf')" class="items-tab-btn" style="padding: 0.5rem 1rem; background: #e2e8f0; color: #64748b; border: none; border-radius: 6px 6px 0 0; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                    <i class="fas fa-file-pdf"></i> Import from PDF
+                </button>
+            </div>
+
+            <!-- Tab content -->
+            <div id="items-tab-content-select" class="items-tab-content" style="display: block;">
+                <div style="position: relative; margin-bottom: 1rem;">
+                    <i class="fas fa-search" style="position: absolute; left: 1rem; top: 50%; transform: translateY(-50%); color: #64748b;"></i>
+                    <input type="text" id="item-search-input" placeholder="Search items by name or code..."
+                        style="width: 100%; padding: 0.75rem 1rem 0.75rem 2.5rem; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.95rem;">
+                </div>
+                <div id="item-search-results" style="max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 1rem;">
+                    <div style="padding: 1rem; text-align: center; color: #64748b;">Search for items to add</div>
+                </div>
+            </div>
+
+            <div id="items-tab-content-paste" class="items-tab-content" style="display: none;">
+                <textarea id="paste-items-textarea" placeholder="Paste items here (one per line)&#10;Format: Item Code, Quantity&#10;Example:&#10;ITEM001, 10&#10;ITEM002, 5"
+                    style="width: 100%; height: 150px; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 10px; font-size: 0.9rem; font-family: monospace; resize: vertical;"></textarea>
+                <button onclick="parsePastedItems()" style="margin-top: 0.5rem; padding: 0.5rem 1rem; background: #10b981; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    <i class="fas fa-plus"></i> Add Pasted Items
+                </button>
+            </div>
+
+            <div id="items-tab-content-pdf" class="items-tab-content" style="display: none;">
+                <div style="border: 2px dashed #e2e8f0; border-radius: 10px; padding: 2rem; text-align: center; cursor: pointer; transition: border-color 0.2s;"
+                    onclick="document.getElementById('pdf-file-input').click()"
+                    onmouseover="this.style.borderColor='#10b981'" onmouseout="this.style.borderColor='#e2e8f0'">
+                    <i class="fas fa-file-pdf" style="font-size: 3rem; color: #ef4444; margin-bottom: 0.5rem;"></i>
+                    <p style="margin: 0; color: #1e293b; font-weight: 600;">Click to upload PDF</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #64748b; font-size: 0.85rem;">or drag and drop</p>
+                    <input type="file" id="pdf-file-input" accept=".pdf" style="display: none;" onchange="handlePdfUpload(this.files)">
+                </div>
+            </div>
+
+            <!-- Added Items List -->
+            <div style="margin-top: 1.5rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                    <h4 style="margin: 0; color: #1e293b; font-size: 0.95rem;">Added Items (${SalesOrderWizardState.items.length})</h4>
+                    ${SalesOrderWizardState.items.length > 0 ? '<button onclick="clearAllItems()" style="background: #fee2e2; color: #dc2626; border: none; padding: 0.3rem 0.6rem; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600;">Clear All</button>' : ''}
+                </div>
+                <div id="added-items-list" style="max-height: 200px; overflow-y: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                    ${renderAddedItemsList()}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Switch items tab
+function switchItemsTab(tab) {
+    // Update tab buttons
+    document.querySelectorAll('.items-tab-btn').forEach(btn => {
+        btn.style.background = '#e2e8f0';
+        btn.style.color = '#64748b';
+    });
+    document.getElementById(`items-tab-${tab}`).style.background = '#10b981';
+    document.getElementById(`items-tab-${tab}`).style.color = 'white';
+
+    // Update content
+    document.querySelectorAll('.items-tab-content').forEach(content => {
+        content.style.display = 'none';
+    });
+    document.getElementById(`items-tab-content-${tab}`).style.display = 'block';
+}
+
+// Render added items list
+function renderAddedItemsList() {
+    if (SalesOrderWizardState.items.length === 0) {
+        return '<div style="padding: 1.5rem; text-align: center; color: #64748b;"><i class="fas fa-inbox" style="font-size: 1.5rem; margin-bottom: 0.5rem;"></i><p style="margin: 0;">No items added yet</p></div>';
+    }
+
+    return `
+        <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+            <thead>
+                <tr style="background: #f8fafc;">
+                    <th style="padding: 0.6rem; text-align: left; font-weight: 600; color: #64748b;">Item</th>
+                    <th style="padding: 0.6rem; text-align: center; font-weight: 600; color: #64748b; width: 100px;">Qty</th>
+                    <th style="padding: 0.6rem; text-align: right; font-weight: 600; color: #64748b; width: 60px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                ${SalesOrderWizardState.items.map((item, index) => `
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 0.6rem;">
+                            <div style="font-weight: 600; color: #1e293b;">${item.name}</div>
+                            <div style="font-size: 0.75rem; color: #64748b;">${item.code}</div>
+                        </td>
+                        <td style="padding: 0.6rem; text-align: center;">
+                            <input type="number" value="${item.quantity}" min="1" onchange="updateItemQuantity(${index}, this.value)"
+                                style="width: 60px; padding: 0.3rem; text-align: center; border: 1px solid #e2e8f0; border-radius: 4px;">
+                        </td>
+                        <td style="padding: 0.6rem; text-align: right;">
+                            <button onclick="removeItem(${index})" style="background: none; border: none; color: #dc2626; cursor: pointer; padding: 0.3rem;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `).join('')}
+            </tbody>
+        </table>
+    `;
+}
+
+// Parse pasted items
+function parsePastedItems() {
+    const textarea = document.getElementById('paste-items-textarea');
+    const lines = textarea.value.trim().split('\n').filter(l => l.trim());
+
+    lines.forEach(line => {
+        const parts = line.split(',').map(p => p.trim());
+        if (parts.length >= 2) {
+            SalesOrderWizardState.items.push({
+                code: parts[0],
+                name: parts[0], // Will be fetched from API
+                quantity: parseInt(parts[1]) || 1
+            });
+        }
+    });
+
+    textarea.value = '';
+    renderWizardStep(2); // Re-render to update items list
+    showNotification(`Added ${lines.length} item(s)`, 'success');
+}
+
+// Handle PDF upload
+function handlePdfUpload(files) {
+    if (files.length > 0) {
+        showNotification('PDF import coming soon', 'info');
+    }
+}
+
+// Update item quantity
+function updateItemQuantity(index, quantity) {
+    SalesOrderWizardState.items[index].quantity = parseInt(quantity) || 1;
+}
+
+// Remove item
+function removeItem(index) {
+    SalesOrderWizardState.items.splice(index, 1);
+    document.getElementById('added-items-list').innerHTML = renderAddedItemsList();
+}
+
+// Clear all items
+function clearAllItems() {
+    SalesOrderWizardState.items = [];
+    renderWizardStep(2);
+}
+
+// Step 3: Preview
+function renderPreviewStep(container) {
+    const customer = SalesOrderWizardState.selectedCustomer;
+    const items = SalesOrderWizardState.items;
+    const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
+
+    container.innerHTML = `
+        <div style="max-width: 800px; margin: 0 auto;">
+            <h3 style="color: #1e293b; font-size: 1.1rem; margin: 0 0 1.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+                <i class="fas fa-clipboard-check" style="color: #10b981;"></i> Order Preview
+            </h3>
+
+            <!-- Customer Info Card -->
+            <div style="background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1px solid #86efac; border-radius: 12px; padding: 1.25rem; margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 0.75rem 0; color: #166534; font-size: 0.9rem; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-user"></i> Customer Details
+                </h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+                    <div>
+                        <p style="margin: 0; color: #64748b; font-size: 0.75rem;">Customer Name</p>
+                        <p style="margin: 0.2rem 0 0 0; color: #1e293b; font-weight: 600;">${customer?.name || '-'}</p>
+                    </div>
+                    <div>
+                        <p style="margin: 0; color: #64748b; font-size: 0.75rem;">Account Number</p>
+                        <p style="margin: 0.2rem 0 0 0; color: #3b82f6; font-weight: 600; font-family: monospace;">${customer?.accountNumber || '-'}</p>
+                    </div>
+                    <div>
+                        <p style="margin: 0; color: #64748b; font-size: 0.75rem;">Address</p>
+                        <p style="margin: 0.2rem 0 0 0; color: #1e293b;">${customer?.address || '-'}</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Order Summary -->
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem;">
+                <div style="flex: 1; background: #f8fafc; border-radius: 10px; padding: 1rem; text-align: center; border: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #64748b; font-size: 0.8rem;">Line Items</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #1e293b; font-size: 1.5rem; font-weight: 700;">${items.length}</p>
+                </div>
+                <div style="flex: 1; background: #f8fafc; border-radius: 10px; padding: 1rem; text-align: center; border: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #64748b; font-size: 0.8rem;">Total Quantity</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #1e293b; font-size: 1.5rem; font-weight: 700;">${totalItems}</p>
+                </div>
+                <div style="flex: 1; background: #f8fafc; border-radius: 10px; padding: 1rem; text-align: center; border: 1px solid #e2e8f0;">
+                    <p style="margin: 0; color: #64748b; font-size: 0.8rem;">Order Date</p>
+                    <p style="margin: 0.25rem 0 0 0; color: #1e293b; font-size: 1rem; font-weight: 600;">${new Date().toLocaleDateString()}</p>
+                </div>
+            </div>
+
+            <!-- Items Table -->
+            <div style="background: white; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+                <div style="padding: 0.75rem 1rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                    <h4 style="margin: 0; color: #1e293b; font-size: 0.9rem;"><i class="fas fa-list" style="color: #10b981; margin-right: 0.5rem;"></i>Order Lines</h4>
+                </div>
+                <div style="max-height: 250px; overflow-y: auto;">
+                    <table style="width: 100%; font-size: 0.85rem; border-collapse: collapse;">
+                        <thead>
+                            <tr style="background: #f8fafc; position: sticky; top: 0;">
+                                <th style="padding: 0.6rem 1rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">#</th>
+                                <th style="padding: 0.6rem 1rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">Item Code</th>
+                                <th style="padding: 0.6rem 1rem; text-align: left; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">Description</th>
+                                <th style="padding: 0.6rem 1rem; text-align: center; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">Quantity</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${items.map((item, index) => `
+                                <tr style="border-bottom: 1px solid #f1f5f9;">
+                                    <td style="padding: 0.6rem 1rem; color: #64748b;">${index + 1}</td>
+                                    <td style="padding: 0.6rem 1rem; font-family: monospace; color: #3b82f6;">${item.code}</td>
+                                    <td style="padding: 0.6rem 1rem; color: #1e293b;">${item.name}</td>
+                                    <td style="padding: 0.6rem 1rem; text-align: center; font-weight: 600; color: #1e293b;">${item.quantity}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+// Save as draft
+function saveSalesOrderDraft() {
+    console.log('[Sales Order Wizard] Saving draft...');
+    showNotification('Draft saved successfully', 'success');
+    // TODO: Implement actual draft saving
+}
+
+// Create sales order
+function createSalesOrder() {
+    console.log('[Sales Order Wizard] Creating order...');
+    console.log('[Sales Order Wizard] Customer:', SalesOrderWizardState.selectedCustomer);
+    console.log('[Sales Order Wizard] Items:', SalesOrderWizardState.items);
+
+    // Show loading state
+    const createBtn = document.getElementById('wizard-btn-create');
+    createBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+    createBtn.disabled = true;
+
+    // TODO: Implement actual API call to create order
+    setTimeout(() => {
+        showNotification('Sales Order created successfully!', 'success');
+        closeSalesOrderWizard();
+    }, 1500);
+}
+
+// Make functions globally available
+window.openCreateSalesOrderWizard = openCreateSalesOrderWizard;
+window.closeSalesOrderWizard = closeSalesOrderWizard;
+window.wizardNextStep = wizardNextStep;
+window.wizardPrevStep = wizardPrevStep;
+window.selectCustomer = selectCustomer;
+window.clearSelectedCustomer = clearSelectedCustomer;
+window.switchItemsTab = switchItemsTab;
+window.parsePastedItems = parsePastedItems;
+window.handlePdfUpload = handlePdfUpload;
+window.updateItemQuantity = updateItemQuantity;
+window.removeItem = removeItem;
+window.clearAllItems = clearAllItems;
+window.saveSalesOrderDraft = saveSalesOrderDraft;
+window.createSalesOrder = createSalesOrder;
+window.searchCustomers = searchCustomers;
+
+console.log('[Co-Pilot] ✅ Sales Order Wizard loaded');

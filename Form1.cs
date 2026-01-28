@@ -13,6 +13,7 @@ using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WMSApp.PrintManagement;
@@ -69,25 +70,34 @@ namespace WMSApp
             InitializeComponent();
             InitializeComponent1();
 
-            // ⭐ ADD THIS TEST
             System.Diagnostics.Debug.WriteLine("========================================");
-            System.Diagnostics.Debug.WriteLine("🚀 APPLICATION STARTED - TESTING DEBUG OUTPUT");
+            System.Diagnostics.Debug.WriteLine("APPLICATION STARTED - TESTING DEBUG OUTPUT");
             System.Diagnostics.Debug.WriteLine("========================================");
 
-            SetupUI();
+try
+            {
+                SetupUI();
 
-            // Initialize the APEX downloader
-            _apexDownloader = new ApexHtmlFileDownloader();
-            _messageRouters = new Dictionary<WebView2, WebViewMessageRouter>();
-            var restClient = new RestApiClient();
-            _claudeApiHandler = new ClaudeApiHandler();
-            _promptHistoryManager = new PromptHistoryManager();
+                // Initialize the APEX downloader
+                _apexDownloader = new ApexHtmlFileDownloader();
+                _messageRouters = new Dictionary<WebView2, WebViewMessageRouter>();
+                var restClient = new RestApiClient();
+                _claudeApiHandler = new ClaudeApiHandler();
+                _promptHistoryManager = new PromptHistoryManager();
 
-            // Initialize Print Management Services
-            _printJobManager = new PrintJobManager();
-            _storageManager = new LocalStorageManager();
-            _printerService = new PrinterService();
-            _restApiClient = new RestApiClient();
+                // Initialize Print Management Services
+                _printJobManager = new PrintJobManager();
+                _storageManager = new LocalStorageManager();
+                _printerService = new PrinterService();
+                _restApiClient = new RestApiClient();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[STARTUP ERROR] {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[STARTUP ERROR] Stack: {ex.StackTrace}");
+                MessageBox.Show($"Application startup error: {ex.Message}\n\nStack trace:\n{ex.StackTrace}",
+                    "Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         private void InitializeComponent1()
@@ -1099,7 +1109,7 @@ namespace WMSApp
             navPanel.Controls.Add(homeButton);
             navPanel.Controls.Add(openFileButton);
             navPanel.Controls.Add(clearCacheButton);
-            navPanel.Controls.Add(wmsDevButton);
+navPanel.Controls.Add(wmsDevButton);
             navPanel.Controls.Add(wmsProdButton);
             navPanel.Controls.Add(modulesButton);
             // navPanel.Controls.Add(urlPanel); // HIDDEN: Address bar removed per user request
@@ -1118,8 +1128,29 @@ namespace WMSApp
             this.Controls.Add(navPanel);
             this.Controls.Add(titleBarPanel);
 
-            // Create initial tab
-            AddNewTab("https://www.google.com");
+            // Create initial tab - load WMS application from wms folder
+            string wmsIndexPath = Path.Combine(Application.StartupPath, "wms", "index.html");
+            if (File.Exists(wmsIndexPath))
+            {
+                string fileUrl = "file:///" + wmsIndexPath.Replace("\\", "/");
+                AddNewTab(fileUrl);
+            }
+            else
+            {
+                // Fallback: try root index.html
+                string indexPath = Path.Combine(Application.StartupPath, "index.html");
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    AddNewTab(fileUrl);
+                }
+                else
+                {
+                    MessageBox.Show($"WMS index.html not found.\n\nSearched:\n{wmsIndexPath}\n{indexPath}\n\nPlease rebuild the project.",
+                        "File Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    AddNewTab("https://www.google.com");
+                }
+            }
         }
 
         private void LogDebug(string message)
