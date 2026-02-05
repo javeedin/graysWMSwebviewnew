@@ -3358,17 +3358,17 @@ document.addEventListener('DOMContentLoaded', function() {
             <div style="padding: 1rem;">
                 <!-- Trip Summary Section -->
                 <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden;">
-                    <div onclick="toggleTripSummary('${tabId}')" style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                    <div onclick="toggleTripSummary('${tabId}')" style="padding: 1rem 1.25rem; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
-                            <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-route" style="color: white; font-size: 1.2rem;"></i>
+                            <div style="width: 40px; height: 40px; background: #e2e8f0; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: #475569; font-size: 1.2rem;"></i>
                             </div>
                             <div>
-                                <h2 style="font-size: 1.1rem; font-weight: 700; color: white; margin: 0;">Trip: ${tripId}</h2>
-                                <p style="color: rgba(255,255,255,0.9); font-size: 0.75rem; margin: 0.2rem 0 0 0;">Trip Summary & Statistics</p>
+                                <h2 style="font-size: 1.1rem; font-weight: 700; color: #1e293b; margin: 0;">Trip: ${tripId}</h2>
+                                <p style="color: #64748b; font-size: 0.75rem; margin: 0.2rem 0 0 0;">Trip Summary & Statistics</p>
                             </div>
                         </div>
-                        <i class="fas fa-chevron-down" id="summary-icon-${tabId}" style="color: white; font-size: 1rem; transition: transform 0.3s ease;"></i>
+                        <i class="fas fa-chevron-down" id="summary-icon-${tabId}" style="color: #64748b; font-size: 1rem; transition: transform 0.3s ease;"></i>
                     </div>
 
                     <div id="trip-summary-${tabId}" style="padding: 0.75rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
