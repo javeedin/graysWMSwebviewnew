@@ -20,9 +20,9 @@ const ADD_TO_TRIP_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.or
 // ============================================================================
 
 window.showAddOrdersAPIInfo = function() {
-    // Get current instance from Trip Management dropdown (same source as loadPendingOrders)
-    const instanceDropdown = document.getElementById('trip-instance-name');
-    const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
+    // Get current instance from the Add Orders modal dropdown (set from trip's instance)
+    const instanceDropdown = document.getElementById('add-orders-instance');
+    const currentInstance = instanceDropdown ? instanceDropdown.value : (window.currentTripInstance || 'PROD');
 
     const apiInfo = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -78,7 +78,7 @@ window.showAddOrdersAPIInfo = function() {
             <div style="margin-top: 1rem; padding: 0.75rem; background: #d1fae5; border-radius: 8px; border-left: 4px solid #10b981;">
                 <strong style="color: #065f46;"><i class="fas fa-info-circle"></i> Source:</strong>
                 <span style="color: #047857; font-size: 13px;">
-                    Instance name is taken from the "Instance Name" dropdown (#trip-instance-name) in Query Parameters.
+                    Instance name is taken from the current Trip's instance (shown in the Instance Name field above).
                 </span>
             </div>
         </div>
@@ -394,6 +394,13 @@ window.openAddOrdersModal = function() {
     if (modal) {
         modal.style.display = 'flex';
 
+        // Set instance dropdown from the current trip's instance
+        const instanceDropdown = document.getElementById('add-orders-instance');
+        if (instanceDropdown && window.currentTripInstance) {
+            instanceDropdown.value = window.currentTripInstance;
+            console.log('[Trip Details] Set add-orders-instance to:', window.currentTripInstance);
+        }
+
         // Initialize pending orders grid if not done
         if (!pendingOrdersGrid) {
             initializePendingOrdersGrid();
@@ -534,11 +541,11 @@ function initializePendingOrdersGrid() {
 window.loadPendingOrders = async function() {
     console.log('[Trip Details] Loading pending orders from API...');
 
-    // Get current instance from Trip Management dropdown (same as Fetch Trips uses)
-    const instanceDropdown = document.getElementById('trip-instance-name');
-    const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
+    // Get current instance from the Add Orders modal dropdown (set from trip's instance)
+    const instanceDropdown = document.getElementById('add-orders-instance');
+    const currentInstance = instanceDropdown ? instanceDropdown.value : (window.currentTripInstance || 'PROD');
 
-    console.log('[Trip Details] Loading orders for instance:', currentInstance);
+    console.log('[Trip Details] Loading orders for instance:', currentInstance, '(from add-orders-instance dropdown)');
 
     // Add instance parameter to API URL
     const apiUrl = `${PENDING_ORDERS_API}?instance=${currentInstance}`;

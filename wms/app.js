@@ -3141,6 +3141,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         console.log('[JS] Using instance:', instance, '(from:', instanceFromCard ? 'trip card' : 'localStorage', ')');
 
+        // Store the current trip's instance globally for use by Add Orders modal
+        window.currentTripInstance = instance;
+        console.log('[JS] Stored currentTripInstance:', window.currentTripInstance);
+
         // Show loading indicator
         const loadingDiv = document.createElement('div');
         loadingDiv.id = 'trip-details-loading';

@@ -817,16 +817,29 @@
                     <!-- Search and Filter -->
                     <div style="padding: 1rem 1.5rem; background: #f8f9fa; border-bottom: 2px solid #f0f0f0;">
                         <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                            <div style="flex: 0 0 120px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Instance Name</label>
+                                <select id="add-orders-instance" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: #e2e8f0; font-weight: 600;" disabled>
+                                    <option value="PROD">PROD</option>
+                                    <option value="TEST">TEST</option>
+                                    <option value="DEV">DEV</option>
+                                </select>
+                            </div>
                             <div class="form-group" style="margin: 0; flex: 1; min-width: 200px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Search Orders</label>
                                 <input type="text" id="orders-search" class="form-control" placeholder="Search orders...">
                             </div>
-                            <button class="btn btn-info" onclick="openPasteOrdersPopup()" title="Paste multiple order numbers">
-                                <i class="fas fa-paste"></i> Paste Orders
-                            </button>
-                            <button class="btn btn-secondary" onclick="loadPendingOrders()">
-                                <i class="fas fa-sync-alt"></i> Refresh
-                            </button>
-                            <div style="color: #666; font-size: 14px;">
+                            <div style="align-self: flex-end;">
+                                <button class="btn btn-info" onclick="openPasteOrdersPopup()" title="Paste multiple order numbers">
+                                    <i class="fas fa-paste"></i> Paste Orders
+                                </button>
+                            </div>
+                            <div style="align-self: flex-end;">
+                                <button class="btn btn-secondary" onclick="loadPendingOrders()">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div style="color: #666; font-size: 14px; align-self: flex-end; padding-bottom: 0.5rem;">
                                 <span id="pending-orders-count">0</span> pending orders
                             </div>
                         </div>
