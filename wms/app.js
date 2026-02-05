@@ -2747,13 +2747,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    window.openTripManagementTab = function(tabType) {
+    window.openTripManagementTab = function(tabType, forceRefresh = true) {
+        console.log('[Trip Tab] openTripManagementTab called for:', tabType, 'forceRefresh:', forceRefresh);
+
         const tabHeader = document.getElementById('trip-tab-header');
         const tabContent = document.getElementById('trip-tab-content');
-        
+
         const tabId = `trip-${tabType}`;
         const existingTab = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
-        if (existingTab) {
+
+        // If tab exists and we need to force refresh, remove it first
+        if (existingTab && forceRefresh) {
+            console.log('[Trip Tab] Removing existing tab for refresh');
+            const existingPane = document.getElementById(`trip-${tabId}-tab`);
+            if (existingTab) existingTab.remove();
+            if (existingPane) existingPane.remove();
+        } else if (existingTab) {
             activateTripTab(tabId);
             return;
         }
