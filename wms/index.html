@@ -847,6 +847,11 @@
                                 </button>
                             </div>
                             <div style="align-self: flex-end;">
+                                <button class="btn btn-success" onclick="openFetchPendingShipmentsPopup()" title="Fetch fresh pending shipments data">
+                                    <i class="fas fa-download"></i> Fetch Pending Shipments
+                                </button>
+                            </div>
+                            <div style="align-self: flex-end;">
                                 <button class="btn btn-secondary" onclick="loadPendingOrders()">
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
@@ -932,6 +937,62 @@
                         </button>
                         <button class="btn btn-primary" id="add-pasted-orders-btn" onclick="addPastedOrdersToTrip()" style="display: none;">
                             <i class="fas fa-plus-circle"></i> Add to Trip
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Fetch Pending Shipments Popup -->
+            <div id="fetch-pending-shipments-popup" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+                    <div style="padding: 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 18px; color: #333;">
+                            <i class="fas fa-download" style="color: #28a745;"></i>
+                            Fetch Pending Shipments
+                        </h3>
+                        <button onclick="closeFetchPendingShipmentsPopup()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666;">×</button>
+                    </div>
+
+                    <div style="padding: 1.5rem;">
+                        <div style="color: #666; font-size: 14px; margin-bottom: 1rem;">
+                            <i class="fas fa-info-circle" style="color: #28a745;"></i>
+                            Fetch fresh pending shipments data from Oracle Cloud.
+                        </div>
+
+                        <div style="display: grid; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="fetch-psl-instance" style="font-size: 12px; color: #64748b; font-weight: 600;">Instance Name *</label>
+                                <select id="fetch-psl-instance" class="form-control" style="padding: 0.5rem; border-radius: 6px;">
+                                    <option value="PROD">PROD</option>
+                                    <option value="TEST">TEST</option>
+                                    <option value="DEV">DEV</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="fetch-psl-organization" style="font-size: 12px; color: #64748b; font-weight: 600;">Organization *</label>
+                                <input type="text" id="fetch-psl-organization" class="form-control" value="GRAYS INC" style="padding: 0.5rem; border-radius: 6px;">
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="fetch-psl-from-date" style="font-size: 12px; color: #64748b; font-weight: 600;">From Date *</label>
+                                    <input type="date" id="fetch-psl-from-date" class="form-control" style="padding: 0.5rem; border-radius: 6px;">
+                                </div>
+                                <div class="form-group">
+                                    <label for="fetch-psl-to-date" style="font-size: 12px; color: #64748b; font-weight: 600;">To Date *</label>
+                                    <input type="date" id="fetch-psl-to-date" class="form-control" style="padding: 0.5rem; border-radius: 6px;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="closeFetchPendingShipmentsPopup()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-success" onclick="executeFetchPendingShipments()" id="fetch-psl-btn">
+                            <i class="fas fa-download" id="fetch-psl-icon"></i> Fetch Data
                         </button>
                     </div>
                 </div>

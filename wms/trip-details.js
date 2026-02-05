@@ -1514,4 +1514,194 @@ window.addPastedOrdersToTrip = async function() {
     }
 };
 
+// ============================================================================
+// FETCH PENDING SHIPMENTS FUNCTIONALITY
+// ============================================================================
+
+// API Endpoint for pending shipment lines (same as Pending Shipment Lines page)
+const FETCH_SHIPMENT_LINES_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/getpendingshipmentlines';
+
+window.openFetchPendingShipmentsPopup = function() {
+    console.log('[Trip Details] Opening Fetch Pending Shipments popup...');
+
+    // Set default dates (current month)
+    const today = new Date();
+    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+
+    const formatDate = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
+    document.getElementById('fetch-psl-from-date').value = formatDate(firstDay);
+    document.getElementById('fetch-psl-to-date').value = formatDate(lastDay);
+
+    // Set instance from current trip's instance
+    const instanceDropdown = document.getElementById('fetch-psl-instance');
+    if (instanceDropdown && window.currentTripInstance) {
+        instanceDropdown.value = window.currentTripInstance;
+        console.log('[Trip Details] Set fetch instance to:', window.currentTripInstance);
+    }
+
+    // Set default organization
+    document.getElementById('fetch-psl-organization').value = 'GRAYS INC';
+
+    // Show popup
+    const popup = document.getElementById('fetch-pending-shipments-popup');
+    if (popup) {
+        popup.style.display = 'flex';
+    }
+};
+
+window.closeFetchPendingShipmentsPopup = function() {
+    const popup = document.getElementById('fetch-pending-shipments-popup');
+    if (popup) {
+        popup.style.display = 'none';
+    }
+};
+
+window.executeFetchPendingShipments = function() {
+    console.log('[Trip Details] ========== FETCHING PENDING SHIPMENTS ==========');
+
+    // Get filter values from popup
+    const instance = document.getElementById('fetch-psl-instance').value;
+    const organization = document.getElementById('fetch-psl-organization').value || 'GRAYS INC';
+    const fromDate = document.getElementById('fetch-psl-from-date').value;
+    const toDate = document.getElementById('fetch-psl-to-date').value;
+
+    console.log('[Trip Details] Instance:', instance);
+    console.log('[Trip Details] Organization:', organization);
+    console.log('[Trip Details] From Date:', fromDate);
+    console.log('[Trip Details] To Date:', toDate);
+
+    if (!fromDate || !toDate) {
+        alert('Please select both From Date and To Date');
+        return;
+    }
+
+    // Build request body for POST (same as Pending Shipment Lines page)
+    const requestBody = {
+        p_instance_name: instance,
+        P2_ORG_D: organization,
+        P2_DATE_FROM_D: fromDate,
+        P2_DATE_TO_D: toDate
+    };
+
+    console.log('[Trip Details] API URL:', FETCH_SHIPMENT_LINES_API);
+    console.log('[Trip Details] Request Body:', requestBody);
+
+    // Show loading state
+    const fetchBtn = document.getElementById('fetch-psl-btn');
+    const fetchIcon = document.getElementById('fetch-psl-icon');
+    const originalBtnText = fetchBtn.innerHTML;
+    fetchBtn.disabled = true;
+    fetchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+
+    // Call API
+    if (window.chrome && window.chrome.webview) {
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: FETCH_SHIPMENT_LINES_API,
+            body: JSON.stringify(requestBody)
+        }, function(error, data) {
+            // Reset loading state
+            fetchBtn.disabled = false;
+            fetchBtn.innerHTML = originalBtnText;
+
+            if (error) {
+                console.error('[Trip Details] Error fetching shipment lines:', error);
+                alert('Error fetching pending shipments:\n' + error);
+            } else {
+                try {
+                    const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[Trip Details] Fetch response:', jsonData);
+                    handleFetchedShipmentData(jsonData, instance);
+                } catch (parseError) {
+                    console.error('[Trip Details] Error parsing response:', parseError);
+                    alert('Error parsing data: ' + parseError.message);
+                }
+            }
+        });
+    } else {
+        // Fallback for browser testing using POST
+        fetch(FETCH_SHIPMENT_LINES_API, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        })
+            .then(response => response.json())
+            .then(data => {
+                fetchBtn.disabled = false;
+                fetchBtn.innerHTML = originalBtnText;
+                console.log('[Trip Details] Fetch response:', data);
+                handleFetchedShipmentData(data, instance);
+            })
+            .catch(error => {
+                fetchBtn.disabled = false;
+                fetchBtn.innerHTML = originalBtnText;
+                console.error('[Trip Details] Fetch error:', error);
+                alert('Error fetching pending shipments:\n' + error.message);
+            });
+    }
+};
+
+function handleFetchedShipmentData(data, instance) {
+    console.log('[Trip Details] Handling fetched shipment data...');
+
+    // Extract items array
+    let items = [];
+    if (Array.isArray(data)) {
+        items = data;
+    } else if (data && data.items) {
+        items = data.items;
+    } else if (data && Array.isArray(data.data)) {
+        items = data.data;
+    }
+
+    console.log('[Trip Details] Extracted', items.length, 'items');
+
+    // Filter out orders that are already added to trip
+    const availableOrders = items.filter(order => {
+        return order.added_to_trip !== 'YES';
+    });
+
+    console.log('[Trip Details] Available orders (not added to trip):', availableOrders.length);
+
+    // Add instance to each order if not present
+    availableOrders.forEach(order => {
+        if (!order.instance) {
+            order.instance = instance;
+        }
+    });
+
+    // Store the data
+    pendingOrdersData = availableOrders;
+
+    // Update grid
+    if (pendingOrdersGrid) {
+        pendingOrdersGrid.option('dataSource', availableOrders);
+        pendingOrdersGrid.refresh();
+    }
+
+    // Update count
+    document.getElementById('pending-orders-count').textContent = availableOrders.length;
+
+    // Update Add Orders modal instance dropdown to match
+    const addOrdersInstance = document.getElementById('add-orders-instance');
+    if (addOrdersInstance) {
+        addOrdersInstance.value = instance;
+    }
+
+    // Close the popup
+    closeFetchPendingShipmentsPopup();
+
+    // Show success message
+    alert(`✅ Successfully loaded ${availableOrders.length} pending orders from ${instance}!`);
+}
+
 console.log('[Trip Details] ✅ Module loaded');
