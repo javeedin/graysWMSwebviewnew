@@ -1654,6 +1654,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         const fullUrl = `${baseUrl}?${params.toString()}`;
 
+        console.log('[Fetch Trips] ========================================');
+        console.log('[Fetch Trips] Instance Name:', instanceName);
+        console.log('[Fetch Trips] Date From:', dateFrom, '-> Formatted:', formatDate(dateFrom));
+        console.log('[Fetch Trips] Date To:', dateTo, '-> Formatted:', formatDate(dateTo));
+        console.log('[Fetch Trips] Full URL:', fullUrl);
+        console.log('[Fetch Trips] ========================================');
+
         currentParams = {
             fromDate: formatDate(dateFrom),
             toDate: formatDate(dateTo),
@@ -1684,13 +1691,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 `;
             } else {
                 try {
+                    console.log('[Fetch Trips] Raw Response:', data);
                     let trips = JSON.parse(data);
+                    console.log('[Fetch Trips] Parsed Response:', trips);
                     if (!Array.isArray(trips) && trips?.items) trips = trips.items;
                     if (!Array.isArray(trips)) trips = [];
+                    console.log('[Fetch Trips] Trips Count:', trips.length);
+                    if (trips.length > 0) {
+                        console.log('[Fetch Trips] Sample Trip:', trips[0]);
+                    }
                     displayTripData(trips);
                     currentFullData = trips;
                     window.currentFullData = trips;
                 } catch (e) {
+                    console.error('[Fetch Trips] Parse Error:', e);
                     gridContainer.innerHTML = `<div style="padding:2rem;color:#e53e3e;">Invalid JSON: ${e.message}</div>`;
                 }
             }
