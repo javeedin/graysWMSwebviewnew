@@ -121,10 +121,10 @@ window.showTripDetailsApiInfo = function() {
     const popup = document.createElement('div');
     popup.id = 'trip-details-api-info-popup';
     popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10003; display: flex; justify-content: center; align-items: center;';
-    popup.innerHTML = \`
+    popup.innerHTML = `
         <div style="background: white; width: 90%; max-width: 700px; max-height: 85%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
             <div style="padding: 1.5rem; max-height: calc(85vh - 60px); overflow-y: auto;">
-                \${apiInfo}
+                ${apiInfo}
             </div>
             <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; text-align: right;">
                 <button onclick="document.getElementById('trip-details-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
@@ -132,7 +132,7 @@ window.showTripDetailsApiInfo = function() {
                 </button>
             </div>
         </div>
-    \`;
+    `;
     document.body.appendChild(popup);
 };
 
