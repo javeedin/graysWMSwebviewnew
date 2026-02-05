@@ -777,26 +777,159 @@ function handlePendingOrdersData(data) {
 // ADD SELECTED ORDERS TO TRIP
 // ============================================================================
 
+// API Endpoint for adding orders to trip
+const ADD_ORDERS_TO_TRIP_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/addorders';
+
+// Show API Info for Add Orders to Trip
+window.showAddToTripApiInfo = function() {
+    // Get current trip ID
+    const tripId = tripDetailsData?.trip_id || document.getElementById('trip-detail-id')?.textContent || 'N/A';
+
+    // Get selected orders count
+    let selectedCount = 0;
+    let sampleOrders = [];
+    if (pendingOrdersGrid) {
+        try {
+            const selected = pendingOrdersGrid.getSelectedRowsData();
+            selectedCount = selected.length;
+            sampleOrders = selected.slice(0, 2); // Get first 2 for sample
+        } catch (e) {
+            console.log('[Trip Details] Could not get selected orders for API info');
+        }
+    }
+
+    // Build sample JSON payload
+    const samplePayload = {
+        trip_id: parseInt(tripId) || 0,
+        orders: sampleOrders.length > 0 ? sampleOrders.map(order => ({
+            order_number: order.source_order_number || 'SAMPLE_ORDER',
+            account_number: order.account_number || '12345',
+            account_name: order.account_name || 'Sample Customer',
+            order_date: order.order_date || '2026-01-01',
+            order_type: order.order_type_code || 'STANDARD',
+            salesrep_name: order.salesrep_name || 'Sales Rep',
+            instance: order.instance || 'PROD'
+        })) : [{
+            order_number: "SAMPLE_ORDER_123",
+            account_number: "12345",
+            account_name: "Sample Customer Name",
+            order_date: "2026-01-01",
+            order_type: "STANDARD",
+            salesrep_name: "Sales Rep Name",
+            instance: "PROD"
+        }]
+    };
+
+    const apiInfo = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <h4 style="margin: 0 0 1rem 0; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">
+                <i class="fas fa-code" style="color: #667eea;"></i> API Information - Add Orders to Trip
+            </h4>
+
+            <!-- Endpoint Info -->
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Endpoint Details</div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Method:</strong>
+                    <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Full URL:</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        ${ADD_ORDERS_TO_TRIP_API}
+                    </code>
+                </div>
+            </div>
+
+            <!-- Request Body -->
+            <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #22c55e;">
+                <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">Request Body (JSON)</div>
+                <pre style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; font-size: 11px; overflow-x: auto; margin: 0;">${JSON.stringify(samplePayload, null, 2)}</pre>
+            </div>
+
+            <!-- Current Selection -->
+            <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                <div style="font-weight: 600; color: #92400e; margin-bottom: 0.5rem;">Current Selection</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <tr>
+                        <td style="padding: 4px 8px; border: 1px solid #fcd34d;">Trip ID:</td>
+                        <td style="padding: 4px 8px; border: 1px solid #fcd34d; font-weight: 600;">${tripId}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 4px 8px; border: 1px solid #fcd34d;">Selected Orders:</td>
+                        <td style="padding: 4px 8px; border: 1px solid #fcd34d; font-weight: 600;">${selectedCount}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div style="margin-top: 1rem; padding: 0.75rem; background: #e0f2fe; border-radius: 8px; border-left: 4px solid #0284c7;">
+                <strong style="color: #0369a1;"><i class="fas fa-info-circle"></i> Note:</strong>
+                <span style="color: #0c4a6e; font-size: 12px;">
+                    Select orders from the grid, then click "Add to Trip" to add them. The API expects an array of order objects.
+                </span>
+            </div>
+        </div>
+    `;
+
+    // Create and show popup
+    const popup = document.createElement('div');
+    popup.id = 'add-to-trip-api-info-popup';
+    popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10003; display: flex; justify-content: center; align-items: center;';
+    popup.innerHTML = `
+        <div style="background: white; width: 90%; max-width: 700px; max-height: 85%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+            <div style="padding: 1.5rem; max-height: calc(85vh - 60px); overflow-y: auto;">
+                ${apiInfo}
+            </div>
+            <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; text-align: right;">
+                <button onclick="document.getElementById('add-to-trip-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                    <i class="fas fa-times"></i> Close
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(popup);
+};
+
 window.addSelectedOrdersToTrip = async function() {
     console.log('[Trip Details] Adding selected orders to trip...');
 
     if (!pendingOrdersGrid) {
-        alert('Grid not initialized');
+        alert('Grid not initialized. Please refresh the page and try again.');
         return;
     }
 
-    const selectedOrders = pendingOrdersGrid.getSelectedRowsData();
+    let selectedOrders;
+    try {
+        selectedOrders = pendingOrdersGrid.getSelectedRowsData();
+    } catch (gridError) {
+        console.error('[Trip Details] Error getting selected orders:', gridError);
+        alert('Error reading selected orders. Please refresh the page and try again.');
+        return;
+    }
 
     if (selectedOrders.length === 0) {
         alert('Please select at least one order');
         return;
     }
 
-    if (!tripDetailsData || !tripDetailsData.trip_id) {
-        alert('Trip ID not found');
+    // Get trip ID from various sources
+    let tripId = null;
+    if (tripDetailsData && tripDetailsData.trip_id) {
+        tripId = tripDetailsData.trip_id;
+    } else {
+        // Try to get from DOM
+        const tripIdElement = document.getElementById('trip-detail-id');
+        if (tripIdElement && tripIdElement.textContent) {
+            tripId = tripIdElement.textContent.trim();
+        }
+    }
+
+    if (!tripId) {
+        alert('Trip ID not found. Please refresh the page and try again.');
         return;
     }
 
+    console.log('[Trip Details] Trip ID:', tripId);
     console.log('[Trip Details] Selected orders:', selectedOrders);
 
     // Prepare data for POST
@@ -811,7 +944,7 @@ window.addSelectedOrdersToTrip = async function() {
     }));
 
     const postData = {
-        trip_id: parseInt(tripDetailsData.trip_id),
+        trip_id: parseInt(tripId),
         orders: ordersToAdd
     };
 
@@ -824,13 +957,11 @@ window.addSelectedOrdersToTrip = async function() {
     addBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Adding...';
 
     try {
-        const ADD_ORDERS_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/addorders';
-
         if (window.chrome && window.chrome.webview) {
             // WebView2 environment
             sendMessageToCSharp({
                 action: 'executePost',
-                fullUrl: ADD_ORDERS_API,
+                fullUrl: ADD_ORDERS_TO_TRIP_API,
                 body: JSON.stringify(postData)
             }, function(error, data) {
                 addBtn.disabled = false;
@@ -847,37 +978,25 @@ window.addSelectedOrdersToTrip = async function() {
                         if (response.success) {
                             alert(`✅ Successfully added ${response.orders_added} order(s) to trip!`);
 
-                            // Add to trip orders grid
-                            tripOrdersData = [...tripOrdersData, ...selectedOrders];
+                            // Update trip orders grid only if it exists and is initialized
                             if (tripOrdersGrid) {
-                                tripOrdersGrid.option('dataSource', tripOrdersData);
+                                try {
+                                    tripOrdersData = [...tripOrdersData, ...selectedOrders];
+                                    tripOrdersGrid.option('dataSource', tripOrdersData);
+                                } catch (gridError) {
+                                    console.log('[Trip Details] Trip orders grid not available, skipping update');
+                                }
                             }
 
-                            updateOrdersCount();
-                            // Keep Add Orders modal open so user can continue adding more orders
+                            // Call updateOrdersCount only if it can work
+                            try {
+                                updateOrdersCount();
+                            } catch (e) {
+                                console.log('[Trip Details] Could not update orders count');
+                            }
 
                             // Remove added orders from pending orders grid
-                            const addedOrderNumbers = selectedOrders.map(o => o.source_order_number);
-                            if (pendingOrdersGrid) {
-                                const currentData = pendingOrdersGrid.option('dataSource');
-                                const filteredData = currentData.filter(order =>
-                                    !addedOrderNumbers.includes(order.source_order_number)
-                                );
-                                pendingOrdersGrid.option('dataSource', filteredData);
-                                pendingOrdersGrid.clearSelection();
-
-                                // Update pending orders data cache
-                                pendingOrdersData = filteredData;
-
-                                // Update count
-                                document.getElementById('pending-orders-count').textContent = filteredData.length;
-                                document.getElementById('selected-orders-count').textContent = 0;
-                            }
-
-                            // Refresh Trip Management grid if function exists
-                            if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
-                                window.refreshTripManagementAfterAddOrders(tripDetailsData.trip_id);
-                            }
+                            handlePostAddOrdersCleanup(selectedOrders, tripId);
                         } else {
                             alert('Error adding orders:\n' + (response.error || 'Unknown error'));
                         }
@@ -889,7 +1008,7 @@ window.addSelectedOrdersToTrip = async function() {
             });
         } else {
             // Fallback for browser testing
-            const response = await fetch(ADD_ORDERS_API, {
+            const response = await fetch(ADD_ORDERS_TO_TRIP_API, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -906,37 +1025,25 @@ window.addSelectedOrdersToTrip = async function() {
                 console.log('[Trip Details] Orders added successfully:', result);
                 alert(`✅ Successfully added ${result.orders_added} order(s) to trip!`);
 
-                // Add to trip orders grid
-                tripOrdersData = [...tripOrdersData, ...selectedOrders];
+                // Update trip orders grid only if it exists and is initialized
                 if (tripOrdersGrid) {
-                    tripOrdersGrid.option('dataSource', tripOrdersData);
+                    try {
+                        tripOrdersData = [...tripOrdersData, ...selectedOrders];
+                        tripOrdersGrid.option('dataSource', tripOrdersData);
+                    } catch (gridError) {
+                        console.log('[Trip Details] Trip orders grid not available, skipping update');
+                    }
                 }
 
-                updateOrdersCount();
-                // Keep Add Orders modal open so user can continue adding more orders
+                // Call updateOrdersCount only if it can work
+                try {
+                    updateOrdersCount();
+                } catch (e) {
+                    console.log('[Trip Details] Could not update orders count');
+                }
 
                 // Remove added orders from pending orders grid
-                const addedOrderNumbers = selectedOrders.map(o => o.source_order_number);
-                if (pendingOrdersGrid) {
-                    const currentData = pendingOrdersGrid.option('dataSource');
-                    const filteredData = currentData.filter(order =>
-                        !addedOrderNumbers.includes(order.source_order_number)
-                    );
-                    pendingOrdersGrid.option('dataSource', filteredData);
-                    pendingOrdersGrid.clearSelection();
-
-                    // Update pending orders data cache
-                    pendingOrdersData = filteredData;
-
-                    // Update count
-                    document.getElementById('pending-orders-count').textContent = filteredData.length;
-                    document.getElementById('selected-orders-count').textContent = 0;
-                }
-
-                // Refresh Trip Management grid if function exists
-                if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
-                    window.refreshTripManagementAfterAddOrders(tripDetailsData.trip_id);
-                }
+                handlePostAddOrdersCleanup(selectedOrders, tripId);
             } else {
                 console.error('[Trip Details] Error response:', result);
                 alert('Error adding orders:\n' + (result.error || 'Unknown error'));
@@ -949,6 +1056,44 @@ window.addSelectedOrdersToTrip = async function() {
         alert('Error adding orders to trip:\n' + error.message);
     }
 };
+
+// Helper function to clean up after adding orders
+function handlePostAddOrdersCleanup(selectedOrders, tripId) {
+    // Remove added orders from pending orders grid
+    const addedOrderNumbers = selectedOrders.map(o => o.source_order_number);
+
+    if (pendingOrdersGrid) {
+        try {
+            const currentData = pendingOrdersGrid.option('dataSource');
+            const filteredData = currentData.filter(order =>
+                !addedOrderNumbers.includes(order.source_order_number)
+            );
+            pendingOrdersGrid.option('dataSource', filteredData);
+            pendingOrdersGrid.clearSelection();
+
+            // Update pending orders data cache
+            pendingOrdersData = filteredData;
+
+            // Update count
+            const countEl = document.getElementById('pending-orders-count');
+            if (countEl) countEl.textContent = filteredData.length;
+
+            const selectedEl = document.getElementById('selected-orders-count');
+            if (selectedEl) selectedEl.textContent = 0;
+        } catch (gridError) {
+            console.log('[Trip Details] Error updating pending orders grid:', gridError);
+        }
+    }
+
+    // Refresh Trip Management grid if function exists
+    if (typeof window.refreshTripManagementAfterAddOrders === 'function') {
+        try {
+            window.refreshTripManagementAfterAddOrders(tripId);
+        } catch (refreshError) {
+            console.log('[Trip Details] Could not refresh trip management:', refreshError);
+        }
+    }
+}
 
 // ============================================================================
 // REMOVE ORDER FROM TRIP
