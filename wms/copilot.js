@@ -350,6 +350,130 @@ window.closeNewTripModal = function() {
     }
 };
 
+// Show Create Trip API Info
+window.showCreateTripApiInfo = function() {
+    const instanceDropdown = document.getElementById('new-trip-instance');
+    const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
+    const tripDate = document.getElementById('new-trip-date')?.value || '';
+    const costDate = document.getElementById('new-trip-cost-date')?.value || '';
+    const vehicle = document.getElementById('new-trip-vehicle')?.value || '';
+    const picker = document.getElementById('new-trip-picker')?.value || '';
+    const priority = document.getElementById('new-trip-priority')?.value || '';
+    const loadingBay = document.getElementById('new-trip-loading-bay')?.value || '';
+    const notes = document.getElementById('new-trip-notes')?.value || '';
+
+    const CREATE_TRIP_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/create';
+
+    const requestBody = {
+        p_instance_name: currentInstance,
+        trip_date: tripDate,
+        cost_date: costDate,
+        vehicle: vehicle,
+        picker: picker ? parseInt(picker) : '',
+        priority: priority ? parseInt(priority) : '',
+        loading_bay: loadingBay,
+        notes: notes
+    };
+
+    const apiInfo = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <h4 style="margin: 0 0 1rem 0; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">
+                <i class="fas fa-code" style="color: #667eea;"></i> API Information - Create New Trip
+            </h4>
+
+            <!-- Create Trip API -->
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Create Trip API</div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Endpoint:</strong>
+                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">
+                        trips/create
+                    </code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Method:</strong>
+                    <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">URL:</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        ${CREATE_TRIP_API}
+                    </code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Request Body (JSON):</strong>
+                    <pre style="background: #edf2f7; padding: 8px; border-radius: 4px; font-size: 10px; word-break: break-all; margin-top: 4px; white-space: pre-wrap; max-height: 150px; overflow-y: auto;">${JSON.stringify(requestBody, null, 2)}</pre>
+                </div>
+            </div>
+
+            <!-- Parameters Table -->
+            <div style="background: #e6fffa; padding: 1rem; border-radius: 8px; border-left: 4px solid #38b2ac;">
+                <div style="font-weight: 600; color: #234e52; margin-bottom: 0.5rem;">Parameters:</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
+                    <tr style="background: #b2f5ea;">
+                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Parameter</th>
+                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Value</th>
+                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Source</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">p_instance_name</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${currentInstance}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Instance Dropdown</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">trip_date</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${tripDate}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Trip Date Field</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">cost_date</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${costDate}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Cost Date Field</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">vehicle</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${vehicle}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Vehicle Dropdown</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">picker</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${picker}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Picker Dropdown</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">priority</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${priority}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Priority Dropdown</span></td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">loading_bay</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${loadingBay}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Loading Bay Dropdown</span></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // Create and show popup
+    const popup = document.createElement('div');
+    popup.id = 'create-trip-api-info-popup';
+    popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10003; display: flex; justify-content: center; align-items: center;';
+    popup.innerHTML = `
+        <div style="background: white; width: 90%; max-width: 700px; max-height: 85%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+            <div style="padding: 1.5rem; max-height: calc(85vh - 60px); overflow-y: auto;">
+                ${apiInfo}
+            </div>
+            <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; text-align: right;">
+                <button onclick="document.getElementById('create-trip-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                    <i class="fas fa-times"></i> Close
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(popup);
+};
+
 // Load data for new trip (vehicles and pickers)
 async function loadDataForNewTrip() {
     const vehiclesStatus = document.getElementById('vehicles-status');
@@ -445,6 +569,17 @@ async function loadDataForNewTrip() {
 function populateNewTripForm() {
     console.log('[New Trip] Populating form...');
 
+    // Set instance from main dropdown
+    const topInstanceElement = document.getElementById('current-instance-display');
+    const newTripInstanceDropdown = document.getElementById('new-trip-instance');
+    if (topInstanceElement && newTripInstanceDropdown) {
+        const topInstance = topInstanceElement.textContent.trim();
+        if (topInstance && ['PROD', 'TEST', 'DEV'].includes(topInstance)) {
+            newTripInstanceDropdown.value = topInstance;
+            console.log('[New Trip] Instance set from top selector:', topInstance);
+        }
+    }
+
     // Set default dates to today
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('new-trip-date').value = today;
@@ -521,6 +656,8 @@ window.createNewTrip = async function() {
     console.log('[New Trip] Creating trip...');
 
     // Get form values
+    const instanceDropdown = document.getElementById('new-trip-instance');
+    const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
     const tripDate = document.getElementById('new-trip-date').value;
     const costDate = document.getElementById('new-trip-cost-date').value;
     const vehicle = document.getElementById('new-trip-vehicle').value;
@@ -528,6 +665,8 @@ window.createNewTrip = async function() {
     const priority = document.getElementById('new-trip-priority').value;
     const loadingBay = document.getElementById('new-trip-loading-bay').value;
     const notes = document.getElementById('new-trip-notes').value;
+
+    console.log('[New Trip] Instance:', instance);
 
     // Validate required fields
     if (!tripDate) {
@@ -562,6 +701,7 @@ window.createNewTrip = async function() {
 
     // Prepare trip data
     const tripData = {
+        p_instance_name: instance,
         trip_date: tripDate,
         cost_date: costDate,
         vehicle: vehicle,
