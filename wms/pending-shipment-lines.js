@@ -130,6 +130,7 @@ function initializePslGrid() {
 // ============================================================================
 
 function loadInitialPslData() {
+    console.log('[PSL] ========== REFRESH BUTTON CLICKED ==========');
     console.log('[PSL] Loading initial data...');
 
     // Get instance from main dropdown
@@ -138,7 +139,12 @@ function loadInitialPslData() {
 
     const apiUrl = `${PSL_PENDING_ORDERS_API}?instance=${instance}`;
 
-    console.log('[PSL] API URL:', apiUrl);
+    console.log('[PSL] Instance Dropdown Found:', !!instanceDropdown);
+    console.log('[PSL] Instance Value:', instance);
+    console.log('[PSL] Full API URL:', apiUrl);
+
+    // Show alert with API info for debugging
+    alert('REFRESH - Calling API:\n\n' + apiUrl);
 
     // Show loading state
     if (pslGrid) {
@@ -147,6 +153,7 @@ function loadInitialPslData() {
 
     // Call API via C# backend
     if (window.chrome && window.chrome.webview) {
+        console.log('[PSL] Using WebView2 to call API...');
         sendMessageToCSharp({
             action: 'executeGet',
             fullUrl: apiUrl
@@ -156,14 +163,24 @@ function loadInitialPslData() {
             }
 
             if (error) {
-                console.error('[PSL] Error loading initial data:', error);
+                console.error('[PSL] API Error:', error);
+                alert('API ERROR:\n\n' + error);
                 showPslError('Failed to load initial data: ' + error);
             } else {
+                console.log('[PSL] Raw Response:', data);
                 try {
                     const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
+                    console.log('[PSL] Parsed JSON:', JSON.stringify(jsonData, null, 2));
+
+                    // Show first few records for debugging
+                    const items = jsonData.items || jsonData || [];
+                    const sampleData = Array.isArray(items) ? items.slice(0, 2) : items;
+                    alert('API Response - Records: ' + (Array.isArray(items) ? items.length : 'N/A') + '\n\nSample:\n' + JSON.stringify(sampleData, null, 2));
+
                     handlePslData(jsonData, 'initial');
                 } catch (parseError) {
-                    console.error('[PSL] Error parsing response:', parseError);
+                    console.error('[PSL] Parse Error:', parseError);
+                    alert('PARSE ERROR:\n\n' + parseError.message + '\n\nRaw data:\n' + (typeof data === 'string' ? data.substring(0, 500) : JSON.stringify(data).substring(0, 500)));
                     showPslError('Error parsing data: ' + parseError.message);
                 }
             }
@@ -175,11 +192,14 @@ function loadInitialPslData() {
             .then(response => response.json())
             .then(data => {
                 if (pslGrid) pslGrid.endCustomLoading();
+                console.log('[PSL] Fetch Response:', data);
+                alert('Fetch Response:\n' + JSON.stringify(data, null, 2).substring(0, 1000));
                 handlePslData(data, 'initial');
             })
             .catch(error => {
                 if (pslGrid) pslGrid.endCustomLoading();
                 console.error('[PSL] Fetch error:', error);
+                alert('Fetch Error:\n' + error.message);
                 showPslError('Failed to load data: ' + error.message);
             });
     }
