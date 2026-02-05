@@ -209,17 +209,16 @@ window.fetchPendingShipmentLines = function() {
         return;
     }
 
-    // Build API URL with parameters
-    const params = new URLSearchParams({
+    // Build request body for POST
+    const requestBody = {
         p_instance_name: instance,
         P2_ORG_D: organization,
         P2_DATE_FROM_D: fromDate,
         P2_DATE_TO_D: toDate
-    });
+    };
 
-    const apiUrl = `${PSL_SHIPMENT_LINES_API}?${params.toString()}`;
-
-    console.log('[PSL] API URL:', apiUrl);
+    console.log('[PSL] API URL:', PSL_SHIPMENT_LINES_API);
+    console.log('[PSL] Request Body:', requestBody);
 
     // Show loading state
     const fetchIcon = document.getElementById('psl-fetch-icon');
@@ -231,11 +230,12 @@ window.fetchPendingShipmentLines = function() {
         pslGrid.beginCustomLoading('Loading shipment lines...');
     }
 
-    // Call API via C# backend
+    // Call API via C# backend using POST
     if (window.chrome && window.chrome.webview) {
         sendMessageToCSharp({
-            action: 'executeGet',
-            fullUrl: apiUrl
+            action: 'executePost',
+            fullUrl: PSL_SHIPMENT_LINES_API,
+            body: JSON.stringify(requestBody)
         }, function(error, data) {
             // Reset loading state
             if (fetchIcon) {
@@ -259,8 +259,14 @@ window.fetchPendingShipmentLines = function() {
             }
         });
     } else {
-        // Fallback for browser testing
-        fetch(apiUrl)
+        // Fallback for browser testing using POST
+        fetch(PSL_SHIPMENT_LINES_API, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(requestBody)
+        })
             .then(response => response.json())
             .then(data => {
                 if (fetchIcon) fetchIcon.className = 'fas fa-search';
@@ -387,12 +393,18 @@ window.showPslApiInfo = function() {
                 </div>
                 <div style="margin-bottom: 0.5rem;">
                     <strong style="color: #4a5568;">Method:</strong>
-                    <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                    <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
                 </div>
                 <div style="margin-bottom: 0.5rem;">
                     <strong style="color: #4a5568;">URL:</strong>
                     <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
-                        ${PSL_SHIPMENT_LINES_API}?p_instance_name=${currentInstance}&P2_ORG_D=${encodeURIComponent(organization)}&P2_DATE_FROM_D=${fromDate}&P2_DATE_TO_D=${toDate}
+                        ${PSL_SHIPMENT_LINES_API}
+                    </code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Request Body (JSON):</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        { "p_instance_name": "${currentInstance}", "P2_ORG_D": "${organization}", "P2_DATE_FROM_D": "${fromDate}", "P2_DATE_TO_D": "${toDate}" }
                     </code>
                 </div>
             </div>

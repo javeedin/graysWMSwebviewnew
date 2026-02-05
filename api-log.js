@@ -78,12 +78,12 @@ const API_ENDPOINTS_DATA = [
         feature: 'Fetch Shipment Lines (With Filters)',
         endpoint: 'WAREHOUSEMANAGEMENT/getpendingshipmentlines',
         fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/getpendingshipmentlines',
-        method: 'GET',
-        parameters: 'p_instance_name, P2_ORG_D, P2_DATE_FROM_D, P2_DATE_TO_D',
+        method: 'POST',
+        parameters: 'p_instance_name, P2_ORG_D, P2_DATE_FROM_D, P2_DATE_TO_D (in request body)',
         usesInstanceName: 'YES',
         sourceFile: 'wms/pending-shipment-lines.js',
-        lineNumber: 177,
-        description: 'Fetches pending shipment lines filtered by organization and date range'
+        lineNumber: 235,
+        description: 'Fetches pending shipment lines filtered by organization and date range (POST with JSON body)'
     },
 
     // ========================================
