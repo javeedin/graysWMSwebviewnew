@@ -59,6 +59,34 @@ const API_ENDPOINTS_DATA = [
     },
 
     // ========================================
+    // PENDING SHIPMENT LINES PAGE
+    // ========================================
+    {
+        page: 'Pending Shipment Lines',
+        feature: 'Load Initial Data (On Page Open)',
+        endpoint: 'WAREHOUSEMANAGEMENT/trips/getpendingorders',
+        fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/getpendingorders',
+        method: 'GET',
+        parameters: 'instance',
+        usesInstanceName: 'YES',
+        sourceFile: 'wms/pending-shipment-lines.js',
+        lineNumber: 127,
+        description: 'Loads pending orders when page opens, using instance from main dropdown'
+    },
+    {
+        page: 'Pending Shipment Lines',
+        feature: 'Fetch Shipment Lines (With Filters)',
+        endpoint: 'WAREHOUSEMANAGEMENT/getpendingshipmentlines',
+        fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/getpendingshipmentlines',
+        method: 'GET',
+        parameters: 'p_instance_name, P2_ORG_D, P2_DATE_FROM_D, P2_DATE_TO_D',
+        usesInstanceName: 'YES',
+        sourceFile: 'wms/pending-shipment-lines.js',
+        lineNumber: 177,
+        description: 'Fetches pending shipment lines filtered by organization and date range'
+    },
+
+    // ========================================
     // MONITOR PRINTING PAGE
     // ========================================
     {
