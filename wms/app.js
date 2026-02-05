@@ -3249,7 +3249,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         const tripData = result.items;
                         openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
                     } else {
-                        alert('No data found for trip: ' + tripId);
+                        // No orders yet - still open the trip page with empty data
+                        console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
+                        const emptyTripData = [{
+                            trip_id: tripId,
+                            TRIP_ID: tripId,
+                            trip_date: tripDate,
+                            TRIP_DATE: tripDate,
+                            trip_lorry: lorryNumber,
+                            TRIP_LORRY: lorryNumber,
+                            INSTANCE: instance
+                        }];
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true);
                     }
                 } catch (parseError) {
                     console.error('[JS] Error parsing trip details response:', parseError);
@@ -3271,7 +3282,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         const tripData = result.items;
                         openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
                     } else {
-                        alert('No data found for trip: ' + tripId);
+                        // No orders yet - still open the trip page with empty data
+                        console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
+                        const emptyTripData = [{
+                            trip_id: tripId,
+                            TRIP_ID: tripId,
+                            trip_date: tripDate,
+                            TRIP_DATE: tripDate,
+                            trip_lorry: lorryNumber,
+                            TRIP_LORRY: lorryNumber,
+                            INSTANCE: instance
+                        }];
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true);
                     }
                 })
                 .catch(error => {
@@ -3286,29 +3308,30 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Helper function to open trip details with data
-    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber) {
-        console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId);
-        
+    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false) {
+        console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId, 'isEmpty:', isEmpty);
+
         // Create unique tab ID
         const tabId = 'trip-detail-' + tripId;
-        
+
         // Check if tab already exists
         const existingTab = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
         if (existingTab) {
             activateTripTab(tabId);
             return;
         }
-        
+
         // Get first record for summary info
         const firstRecord = tripData[0];
-        const totalOrders = tripData.length;
+        const totalOrders = isEmpty ? 0 : tripData.length;
         
-        // Calculate KPI statistics
-        const uniqueCustomers = new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
-        const uniqueProducts = new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
-        const totalQuantity = tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
-        const totalWeight = tripData.reduce((sum, t) => sum + (parseFloat(t.WEIGHT || t.weight || 0)), 0);
+        // Calculate KPI statistics (handle empty trip case)
+        const uniqueCustomers = isEmpty ? 0 : new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
+        const uniqueProducts = isEmpty ? 0 : new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
+        const totalQuantity = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
+        const totalWeight = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.WEIGHT || t.weight || 0)), 0);
         const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+        const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
         
         // Create tab item
         const tabHeader = document.getElementById('trip-tab-header');
@@ -3490,8 +3513,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
 
-                if (tripData.length === 0) {
-                    gridContainer.html('<div style="padding:2rem;text-align:center;color:#64748b;">No data found</div>');
+                if (tripData.length === 0 || isEmpty) {
+                    gridContainer.html(`
+                        <div style="padding:3rem;text-align:center;color:#64748b;">
+                            <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                                <i class="fas fa-box-open" style="color: white; font-size: 2rem;"></i>
+                            </div>
+                            <h3 style="color: #1e293b; margin-bottom: 0.5rem;">No Orders Yet</h3>
+                            <p style="margin-bottom: 1.5rem;">This trip doesn't have any orders. Click "Add Orders" to start adding orders to this trip.</p>
+                            <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="padding: 0.75rem 1.5rem;">
+                                <i class="fas fa-plus"></i> Add Orders to Trip
+                            </button>
+                        </div>
+                    `);
                     return;
                 }
 
