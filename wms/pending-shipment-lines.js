@@ -133,18 +133,15 @@ function loadInitialPslData() {
     console.log('[PSL] ========== REFRESH BUTTON CLICKED ==========');
     console.log('[PSL] Loading initial data...');
 
-    // Get instance from main dropdown
-    const instanceDropdown = document.getElementById('trip-instance-name');
-    const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
+    // Get instance from main instance display (global selector)
+    const instanceElement = document.getElementById('current-instance-display');
+    const instance = instanceElement ? instanceElement.textContent.trim() : 'PROD';
 
     const apiUrl = `${PSL_PENDING_ORDERS_API}?instance=${instance}`;
 
-    console.log('[PSL] Instance Dropdown Found:', !!instanceDropdown);
+    console.log('[PSL] Instance Element Found:', !!instanceElement);
     console.log('[PSL] Instance Value:', instance);
     console.log('[PSL] Full API URL:', apiUrl);
-
-    // Show alert with API info for debugging
-    alert('REFRESH - Calling API:\n\n' + apiUrl);
 
     // Show loading state
     if (pslGrid) {
@@ -164,23 +161,15 @@ function loadInitialPslData() {
 
             if (error) {
                 console.error('[PSL] API Error:', error);
-                alert('API ERROR:\n\n' + error);
                 showPslError('Failed to load initial data: ' + error);
             } else {
                 console.log('[PSL] Raw Response:', data);
                 try {
                     const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
                     console.log('[PSL] Parsed JSON:', JSON.stringify(jsonData, null, 2));
-
-                    // Show first few records for debugging
-                    const items = jsonData.items || jsonData || [];
-                    const sampleData = Array.isArray(items) ? items.slice(0, 2) : items;
-                    alert('API Response - Records: ' + (Array.isArray(items) ? items.length : 'N/A') + '\n\nSample:\n' + JSON.stringify(sampleData, null, 2));
-
                     handlePslData(jsonData, 'initial');
                 } catch (parseError) {
                     console.error('[PSL] Parse Error:', parseError);
-                    alert('PARSE ERROR:\n\n' + parseError.message + '\n\nRaw data:\n' + (typeof data === 'string' ? data.substring(0, 500) : JSON.stringify(data).substring(0, 500)));
                     showPslError('Error parsing data: ' + parseError.message);
                 }
             }
@@ -193,13 +182,11 @@ function loadInitialPslData() {
             .then(data => {
                 if (pslGrid) pslGrid.endCustomLoading();
                 console.log('[PSL] Fetch Response:', data);
-                alert('Fetch Response:\n' + JSON.stringify(data, null, 2).substring(0, 1000));
                 handlePslData(data, 'initial');
             })
             .catch(error => {
                 if (pslGrid) pslGrid.endCustomLoading();
                 console.error('[PSL] Fetch error:', error);
-                alert('Fetch Error:\n' + error.message);
                 showPslError('Failed to load data: ' + error.message);
             });
     }
@@ -217,9 +204,9 @@ window.fetchPendingShipmentLines = function() {
     const fromDate = document.getElementById('psl-from-date').value;
     const toDate = document.getElementById('psl-to-date').value;
 
-    // Get instance from main dropdown
-    const instanceDropdown = document.getElementById('trip-instance-name');
-    const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
+    // Get instance from main instance display (global selector)
+    const instanceElement = document.getElementById('current-instance-display');
+    const instance = instanceElement ? instanceElement.textContent.trim() : 'PROD';
 
     if (!fromDate || !toDate) {
         alert('Please select both From Date and To Date');
@@ -366,8 +353,8 @@ window.exportPslToExcel = function() {
 // ============================================================================
 
 window.showPslApiInfo = function() {
-    const instanceDropdown = document.getElementById('trip-instance-name');
-    const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
+    const instanceElement = document.getElementById('current-instance-display');
+    const currentInstance = instanceElement ? instanceElement.textContent.trim() : 'PROD';
     const organization = document.getElementById('psl-organization')?.value || 'GRAYS INC';
     const fromDate = document.getElementById('psl-from-date')?.value || '';
     const toDate = document.getElementById('psl-to-date')?.value || '';
