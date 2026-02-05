@@ -517,26 +517,39 @@ function updateOrdersCount() {
 // ============================================================================
 
 window.openAddOrdersModal = function() {
-    console.log('[Trip Details] Opening add orders modal...');
+    console.log('[Trip Details] ========== OPENING ADD ORDERS MODAL ==========');
+    console.log('[Trip Details] window.currentTripInstance:', window.currentTripInstance);
 
     const modal = document.getElementById('add-orders-modal');
+    console.log('[Trip Details] Modal element found:', !!modal);
+
     if (modal) {
         modal.style.display = 'flex';
 
         // Set instance dropdown from the current trip's instance
         const instanceDropdown = document.getElementById('add-orders-instance');
+        console.log('[Trip Details] Instance dropdown found:', !!instanceDropdown);
+
         if (instanceDropdown && window.currentTripInstance) {
             instanceDropdown.value = window.currentTripInstance;
             console.log('[Trip Details] Set add-orders-instance to:', window.currentTripInstance);
+        } else if (instanceDropdown) {
+            console.log('[Trip Details] currentTripInstance not set, dropdown value is:', instanceDropdown.value);
         }
 
         // Initialize pending orders grid if not done
         if (!pendingOrdersGrid) {
+            console.log('[Trip Details] Initializing pending orders grid...');
             initializePendingOrdersGrid();
+        } else {
+            console.log('[Trip Details] Pending orders grid already initialized');
         }
 
         // Load pending orders
+        console.log('[Trip Details] Calling loadPendingOrders...');
         loadPendingOrders();
+    } else {
+        console.error('[Trip Details] Modal element not found!');
     }
 };
 
@@ -668,30 +681,45 @@ function initializePendingOrdersGrid() {
 // ============================================================================
 
 window.loadPendingOrders = async function() {
-    console.log('[Trip Details] Loading pending orders from API...');
+    console.log('[Trip Details] ========== LOADING PENDING ORDERS ==========');
 
     // Get current instance from the Add Orders modal dropdown (set from trip's instance)
     const instanceDropdown = document.getElementById('add-orders-instance');
     const currentInstance = instanceDropdown ? instanceDropdown.value : (window.currentTripInstance || 'PROD');
 
-    console.log('[Trip Details] Loading orders for instance:', currentInstance, '(from add-orders-instance dropdown)');
+    console.log('[Trip Details] Instance dropdown found:', !!instanceDropdown);
+    console.log('[Trip Details] Instance dropdown value:', instanceDropdown ? instanceDropdown.value : 'N/A');
+    console.log('[Trip Details] window.currentTripInstance:', window.currentTripInstance);
+    console.log('[Trip Details] Using instance:', currentInstance);
 
     // Add instance parameter to API URL
     const apiUrl = `${PENDING_ORDERS_API}?instance=${currentInstance}`;
+    console.log('[Trip Details] API URL:', apiUrl);
 
     try {
+        console.log('[Trip Details] Checking WebView2 availability...');
+        console.log('[Trip Details] window.chrome:', !!window.chrome);
+        console.log('[Trip Details] window.chrome.webview:', !!(window.chrome && window.chrome.webview));
+
         if (window.chrome && window.chrome.webview) {
             // WebView2 environment
+            console.log('[Trip Details] Using WebView2 to call API...');
             sendMessageToCSharp({
                 action: 'executeGet',
                 fullUrl: apiUrl
             }, function(error, data) {
+                console.log('[Trip Details] WebView2 callback received');
+                console.log('[Trip Details] Error:', error);
+                console.log('[Trip Details] Data type:', typeof data);
+                console.log('[Trip Details] Data length:', data ? data.length : 0);
+
                 if (error) {
                     console.error('[Trip Details] Error loading pending orders:', error);
                     alert('Error loading pending orders: ' + error);
                 } else {
                     try {
                         const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Trip Details] Parsed data:', jsonData);
                         handlePendingOrdersData(jsonData);
                     } catch (parseError) {
                         console.error('[Trip Details] Error parsing response:', parseError);
