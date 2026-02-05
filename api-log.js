@@ -31,6 +31,34 @@ const API_ENDPOINTS_DATA = [
     },
 
     // ========================================
+    // TRIP DETAILS PAGE (Add Orders Modal)
+    // ========================================
+    {
+        page: 'Trip Details',
+        feature: 'Load Pending Orders (Add Orders Modal)',
+        endpoint: 'WAREHOUSEMANAGEMENT/trips/getpendingorders',
+        fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/getpendingorders',
+        method: 'GET',
+        parameters: 'instance',
+        usesInstanceName: 'YES',
+        sourceFile: 'wms/trip-details.js',
+        lineNumber: 449,
+        description: 'Fetches pending orders available to add to a trip, filtered by instance name'
+    },
+    {
+        page: 'Trip Details',
+        feature: 'Add Orders to Trip',
+        endpoint: 'WAREHOUSEMANAGEMENT/trips/addtotrip',
+        fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/addtotrip',
+        method: 'POST',
+        parameters: 'trip_id, orders (array)',
+        usesInstanceName: 'NO',
+        sourceFile: 'wms/trip-details.js',
+        lineNumber: 568,
+        description: 'Adds selected orders to a trip'
+    },
+
+    // ========================================
     // MONITOR PRINTING PAGE
     // ========================================
     {
