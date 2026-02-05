@@ -102,17 +102,14 @@ function initializePslGrid() {
             fileName: 'PendingShipmentLines'
         },
         columns: [
-            { dataField: 'source_order_number', caption: 'Order Number', width: 140 },
+            { dataField: 'source_order_number', caption: 'Order Number', width: 180 },
             { dataField: 'account_number', caption: 'Account #', width: 100 },
-            { dataField: 'account_name', caption: 'Customer Name', width: 200 },
-            { dataField: 'order_date', caption: 'Order Date', dataType: 'date', format: 'yyyy-MM-dd', width: 110 },
-            { dataField: 'line_status', caption: 'Status', width: 100 },
+            { dataField: 'account_name', caption: 'Customer Name', width: 220 },
+            { dataField: 'order_date', caption: 'Order Date', dataType: 'date', format: 'yyyy-MM-dd', width: 120 },
+            { dataField: 'line_status', caption: 'Status', width: 120 },
+            { dataField: 'order_type_code', caption: 'Order Type', width: 130 },
             { dataField: 'salesrep_name', caption: 'Sales Rep', width: 150 },
-            { dataField: 'order_type_code', caption: 'Order Type', width: 100 },
-            { dataField: 'item_number', caption: 'Item', width: 120 },
-            { dataField: 'item_description', caption: 'Description', width: 200 },
-            { dataField: 'ordered_quantity', caption: 'Qty', width: 80, dataType: 'number' },
-            { dataField: 'uom', caption: 'UOM', width: 60 },
+            { dataField: 'added_to_trip', caption: 'Added to Trip', width: 110 },
             { dataField: 'instance', caption: 'Instance', width: 80 }
         ],
         onSelectionChanged: function(e) {
