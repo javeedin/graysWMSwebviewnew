@@ -1620,9 +1620,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Fetch Trips button
     document.getElementById('fetch-trips-btn').addEventListener('click', function() {
+        console.log('[Fetch Trips] ===== FETCH TRIPS BUTTON CLICKED =====');
+
         const instanceName = document.getElementById('trip-instance-name').value;
         const dateFrom = document.getElementById('trip-date-from').value;
         const dateTo = document.getElementById('trip-date-to').value;
+
+        console.log('[Fetch Trips] Parameters - Instance:', instanceName, 'From:', dateFrom, 'To:', dateTo);
 
         if (!dateFrom || !dateTo) {
             alert('Please select both From Date and To Date');
@@ -1632,6 +1636,11 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('From Date cannot be after To Date');
             return;
         }
+
+        // Clear old data before fetching new data
+        currentFullData = [];
+        window.currentFullData = [];
+        console.log('[Fetch Trips] Cleared old data');
 
         const fetchBtn = document.getElementById('fetch-trips-btn');
         const fetchIcon = document.getElementById('fetch-icon');
@@ -1764,8 +1773,24 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     function displayTripData(trips) {
+        console.log('[Fetch Trips] displayTripData called with', trips ? trips.length : 0, 'trips');
+
         const gridContainer = document.getElementById('trips-grid');
         const tripCount = document.getElementById('trip-count');
+
+        // Dispose existing grid instance if it exists
+        if (window.tripsGridInstance) {
+            try {
+                window.tripsGridInstance.dispose();
+                console.log('[Fetch Trips] Disposed existing grid instance');
+            } catch (e) {
+                console.log('[Fetch Trips] Error disposing grid:', e);
+            }
+            window.tripsGridInstance = null;
+        }
+
+        // Clear the container
+        $(gridContainer).empty();
 
         if (!trips || trips.length === 0) {
             gridContainer.innerHTML = `<div style="padding:3rem;text-align:center;color:#64748b;">
@@ -2912,6 +2937,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderTripsAsCards(tabId) {
+        console.log('[Fetch Trips] renderTripsAsCards called for tab:', tabId);
+        console.log('[Fetch Trips] currentFullData has', currentFullData ? currentFullData.length : 0, 'records');
+
         // Get the current selected instance from the dropdown
         const selectedInstanceDropdown = document.getElementById('trip-instance-name');
         const selectedInstance = selectedInstanceDropdown ? selectedInstanceDropdown.value : 'PROD';
