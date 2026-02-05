@@ -33,6 +33,17 @@ function initializePslPage() {
     // Set default organization
     document.getElementById('psl-organization').value = 'GRAYS INC';
 
+    // Set instance name from top-level selector
+    const topInstanceElement = document.getElementById('current-instance-display');
+    const pslInstanceDropdown = document.getElementById('psl-instance-name');
+    if (topInstanceElement && pslInstanceDropdown) {
+        const topInstance = topInstanceElement.textContent.trim();
+        if (topInstance && ['PROD', 'TEST', 'DEV'].includes(topInstance)) {
+            pslInstanceDropdown.value = topInstance;
+            console.log('[PSL] Instance set from top selector:', topInstance);
+        }
+    }
+
     // Initialize grid
     initializePslGrid();
 
@@ -133,13 +144,13 @@ function loadInitialPslData() {
     console.log('[PSL] ========== REFRESH BUTTON CLICKED ==========');
     console.log('[PSL] Loading initial data...');
 
-    // Get instance from main instance display (global selector)
-    const instanceElement = document.getElementById('current-instance-display');
-    const instance = instanceElement ? instanceElement.textContent.trim() : 'PROD';
+    // Get instance from the page's instance dropdown
+    const instanceDropdown = document.getElementById('psl-instance-name');
+    const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
 
     const apiUrl = `${PSL_PENDING_ORDERS_API}?instance=${instance}`;
 
-    console.log('[PSL] Instance Element Found:', !!instanceElement);
+    console.log('[PSL] Instance Dropdown Found:', !!instanceDropdown);
     console.log('[PSL] Instance Value:', instance);
     console.log('[PSL] Full API URL:', apiUrl);
 
@@ -204,9 +215,9 @@ window.fetchPendingShipmentLines = function() {
     const fromDate = document.getElementById('psl-from-date').value;
     const toDate = document.getElementById('psl-to-date').value;
 
-    // Get instance from main instance display (global selector)
-    const instanceElement = document.getElementById('current-instance-display');
-    const instance = instanceElement ? instanceElement.textContent.trim() : 'PROD';
+    // Get instance from the page's instance dropdown
+    const instanceDropdown = document.getElementById('psl-instance-name');
+    const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
 
     if (!fromDate || !toDate) {
         alert('Please select both From Date and To Date');
@@ -353,8 +364,8 @@ window.exportPslToExcel = function() {
 // ============================================================================
 
 window.showPslApiInfo = function() {
-    const instanceElement = document.getElementById('current-instance-display');
-    const currentInstance = instanceElement ? instanceElement.textContent.trim() : 'PROD';
+    const instanceDropdown = document.getElementById('psl-instance-name');
+    const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
     const organization = document.getElementById('psl-organization')?.value || 'GRAYS INC';
     const fromDate = document.getElementById('psl-from-date')?.value || '';
     const toDate = document.getElementById('psl-to-date')?.value || '';

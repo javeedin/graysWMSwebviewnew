@@ -2386,6 +2386,14 @@
                     <!-- Filters Section -->
                     <div style="background: white; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                         <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
+                            <div style="flex: 0 0 120px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Instance Name</label>
+                                <select id="psl-instance-name" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: white;">
+                                    <option value="PROD">PROD</option>
+                                    <option value="TEST">TEST</option>
+                                    <option value="DEV">DEV</option>
+                                </select>
+                            </div>
                             <div style="flex: 1; min-width: 180px;">
                                 <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Organization</label>
                                 <input type="text" id="psl-organization" list="psl-org-list" placeholder="Type or select..." style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
