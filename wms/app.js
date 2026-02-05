@@ -3728,35 +3728,37 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Find trip data from currentFullData
-        const tripRecords = currentFullData.filter(trip => {
+        // Try to find trip data from currentFullData (may not exist for newly created trips)
+        const tripRecords = currentFullData ? currentFullData.filter(trip => {
             const tripIdLower = (trip.trip_id || '').toString().toLowerCase();
             const tripIdUpper = (trip.TRIP_ID || '').toString().toLowerCase();
             const searchId = tripId.toString().toLowerCase();
             return tripIdLower === searchId || tripIdUpper === searchId;
-        });
+        }) : [];
 
-        if (tripRecords.length === 0) {
-            alert('Trip data not found. Please try again.');
-            return;
+        // If trip data found in currentFullData, use it to set modal data
+        if (tripRecords.length > 0) {
+            const firstRecord = tripRecords[0];
+
+            // Set trip details data for trip-details.js to use
+            if (typeof window.setTripDetailsDataForModal === 'function') {
+                window.setTripDetailsDataForModal({
+                    trip_id: tripId,
+                    trip_date: firstRecord.TRIP_DATE || firstRecord.trip_date,
+                    trip_lorry: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
+                    trip_loading_bay: firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay,
+                    trip_priority: firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY,
+                    vehicle: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
+                    status: firstRecord.TRIP_STATUS || firstRecord.trip_status || 'ACTIVE'
+                });
+            }
+        } else {
+            // Trip not in currentFullData (e.g., newly created trip)
+            // The instance should already be set in window.currentTripInstance from openTripDetails
+            console.log('[Trip Management] Trip not in currentFullData, using stored instance:', window.currentTripInstance);
         }
 
-        const firstRecord = tripRecords[0];
-
-        // Set trip details data for trip-details.js to use
-        if (typeof window.setTripDetailsDataForModal === 'function') {
-            window.setTripDetailsDataForModal({
-                trip_id: tripId,
-                trip_date: firstRecord.TRIP_DATE || firstRecord.trip_date,
-                trip_lorry: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
-                trip_loading_bay: firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay,
-                trip_priority: firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY,
-                vehicle: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
-                status: firstRecord.TRIP_STATUS || firstRecord.trip_status || 'ACTIVE'
-            });
-        }
-
-        // Open the modal
+        // Open the modal - it will use window.currentTripInstance for the instance
         window.openAddOrdersModal();
     };
 
