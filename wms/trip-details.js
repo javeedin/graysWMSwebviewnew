@@ -20,9 +20,9 @@ const ADD_TO_TRIP_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.or
 // ============================================================================
 
 window.showAddOrdersAPIInfo = function() {
-    const currentInstance = localStorage.getItem('fusionInstance') ||
-                           document.getElementById('current-instance-display')?.textContent ||
-                           'PROD';
+    // Get current instance from Trip Management dropdown (same source as loadPendingOrders)
+    const instanceDropdown = document.getElementById('trip-instance-name');
+    const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
 
     const apiInfo = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -61,24 +61,24 @@ window.showAddOrdersAPIInfo = function() {
                     <tr style="background: #b2f5ea;">
                         <th style="padding: 6px 10px; text-align: left; border: 1px solid #81e6d9;">Parameter</th>
                         <th style="padding: 6px 10px; text-align: left; border: 1px solid #81e6d9;">Value</th>
-                        <th style="padding: 6px 10px; text-align: left; border: 1px solid #81e6d9;">Status</th>
+                        <th style="padding: 6px 10px; text-align: left; border: 1px solid #81e6d9;">Source</th>
                     </tr>
                     <tr>
                         <td style="padding: 6px 10px; border: 1px solid #81e6d9; font-family: monospace;">instance</td>
                         <td style="padding: 6px 10px; border: 1px solid #81e6d9; font-weight: 600;">${currentInstance}</td>
                         <td style="padding: 6px 10px; border: 1px solid #81e6d9;">
                             <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">
-                                <i class="fas fa-check"></i> PASSED
+                                <i class="fas fa-check"></i> From Dropdown
                             </span>
                         </td>
                     </tr>
                 </table>
             </div>
 
-            <div style="margin-top: 1rem; padding: 0.75rem; background: #fef3c7; border-radius: 8px; border-left: 4px solid #f59e0b;">
-                <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Note:</strong>
-                <span style="color: #78350f; font-size: 13px;">
-                    Instance name is retrieved from localStorage or the current instance selector.
+            <div style="margin-top: 1rem; padding: 0.75rem; background: #d1fae5; border-radius: 8px; border-left: 4px solid #10b981;">
+                <strong style="color: #065f46;"><i class="fas fa-info-circle"></i> Source:</strong>
+                <span style="color: #047857; font-size: 13px;">
+                    Instance name is taken from the "Instance Name" dropdown (#trip-instance-name) in Query Parameters.
                 </span>
             </div>
         </div>
@@ -534,10 +534,9 @@ function initializePendingOrdersGrid() {
 window.loadPendingOrders = async function() {
     console.log('[Trip Details] Loading pending orders from API...');
 
-    // Get current instance from global selector
-    const currentInstance = localStorage.getItem('fusionInstance') ||
-                           document.getElementById('current-instance-display')?.textContent ||
-                           'PROD';
+    // Get current instance from Trip Management dropdown (same as Fetch Trips uses)
+    const instanceDropdown = document.getElementById('trip-instance-name');
+    const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
 
     console.log('[Trip Details] Loading orders for instance:', currentInstance);
 
