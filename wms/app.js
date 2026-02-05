@@ -2898,6 +2898,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderTripsAsCards(tabId) {
+        // Get the current selected instance from the dropdown
+        const selectedInstanceDropdown = document.getElementById('trip-instance-name');
+        const selectedInstance = selectedInstanceDropdown ? selectedInstanceDropdown.value : 'PROD';
+
         const tripMap = {};
         currentFullData.forEach(trip => {
             const tripId = trip.trip_id || trip.TRIP_ID || 'Unknown';
@@ -2905,21 +2909,21 @@ document.addEventListener('DOMContentLoaded', function() {
                 let tripDate = null;
                 for (let key in trip) {
                     const lowerKey = key.toLowerCase();
-                    if (lowerKey === 'order_date' || lowerKey === 'orderdate' || 
+                    if (lowerKey === 'order_date' || lowerKey === 'orderdate' ||
                         lowerKey === 'shipment_date' || lowerKey === 'shipmentdate' ||
                         lowerKey === 'trip_date' || lowerKey === 'tripdate') {
                         tripDate = trip[key];
                         break;
                     }
                 }
-                
+
                 tripMap[tripId] = {
                     TRIP_ID: tripId,
                     TRIP_DATE: tripDate ? String(tripDate).split(' ')[0] : 'N/A',
                     LORRY_NUMBER: trip.trip_lorry || trip.TRIP_LORRY || 'N/A',
                     PRIORITY: trip.TRIP_PRIORITY || trip.trip_priority || 'Medium',
                     STATUS: trip.TRIP_STATUS || trip.trip_status || trip.LINE_STATUS || 'ACTIVE',
-                    INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || null,
+                    INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || selectedInstance,
                     LOADING_BAY: trip.TRIP_LOADING_BAY || trip.trip_loading_bay || trip.LOADING_BAY || trip.loading_bay || null,
                     TOTAL_ORDERS: 0,
                     orders: []
@@ -3079,6 +3083,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div style="flex: 1; padding: 0.5rem; background: #fff7ed; border-radius: 5px; border-left: 2px solid #f59e0b;">
                                 <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
                                 <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            </div>
+
+                            <!-- Instance -->
+                            <div style="flex: 0 0 55px; padding: 0.5rem; background: #faf5ff; border-radius: 5px; border-left: 2px solid #8b5cf6;">
+                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Instance</div>
+                                <div style="font-size: 0.7rem; font-weight: 700; color: #7c3aed;">${trip.INSTANCE || 'N/A'}</div>
                             </div>
                         </div>
 
