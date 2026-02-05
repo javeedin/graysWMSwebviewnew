@@ -14,6 +14,127 @@ let tripOrdersData = [];
 // API Endpoints
 const PENDING_ORDERS_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/getpendingorders';
 const ADD_TO_TRIP_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/addtotrip'; // To be provided
+const CREATE_TRIP_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/create';
+
+// ============================================================================
+// SHOW API INFORMATION FOR TRIP DETAILS PAGE
+// ============================================================================
+
+window.showTripDetailsApiInfo = function() {
+    const tripId = tripDetailsData?.trip_id || document.getElementById('trip-detail-id')?.textContent || '-';
+    const currentInstance = window.currentTripInstance || document.getElementById('trip-detail-instance')?.textContent || 'PROD';
+
+    const apiInfo = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <h4 style="margin: 0 0 1rem 0; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">
+                <i class="fas fa-code" style="color: #667eea;"></i> API Information - Trip Details Page
+            </h4>
+
+            <!-- Create Trip API -->
+            <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #22c55e;">
+                <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">1. Create Trip API</div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Endpoint:</strong>
+                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">
+                        trips/create
+                    </code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Method:</strong>
+                    <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">URL:</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        ${CREATE_TRIP_API}
+                    </code>
+                </div>
+                <div style="font-size: 11px; color: #166534; margin-top: 0.5rem;">
+                    <i class="fas fa-info-circle"></i> This API was called to create the trip. Instance: <strong>${currentInstance}</strong>
+                </div>
+            </div>
+
+            <!-- Get Pending Orders API -->
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">2. Get Pending Orders API (Add Orders Modal)</div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Endpoint:</strong>
+                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">
+                        trips/getpendingorders
+                    </code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Method:</strong>
+                    <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">URL:</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        ${PENDING_ORDERS_API}?instance=${currentInstance}
+                    </code>
+                </div>
+            </div>
+
+            <!-- Add to Trip API -->
+            <div style="background: #fef3c7; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #f59e0b;">
+                <div style="font-weight: 600; color: #92400e; margin-bottom: 0.5rem;">3. Add Orders to Trip API</div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Endpoint:</strong>
+                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">
+                        trips/addtotrip
+                    </code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Method:</strong>
+                    <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">URL:</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        ${ADD_TO_TRIP_API}
+                    </code>
+                </div>
+            </div>
+
+            <!-- Current Trip Info -->
+            <div style="background: #e6fffa; padding: 1rem; border-radius: 8px; border-left: 4px solid #38b2ac;">
+                <div style="font-weight: 600; color: #234e52; margin-bottom: 0.5rem;">Current Trip Info:</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <tr style="background: #b2f5ea;">
+                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Property</th>
+                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Value</th>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;">Trip ID</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${tripId}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;">Instance</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600; color: #7c3aed;">${currentInstance}</td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // Create and show popup
+    const popup = document.createElement('div');
+    popup.id = 'trip-details-api-info-popup';
+    popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10003; display: flex; justify-content: center; align-items: center;';
+    popup.innerHTML = \`
+        <div style="background: white; width: 90%; max-width: 700px; max-height: 85%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+            <div style="padding: 1.5rem; max-height: calc(85vh - 60px); overflow-y: auto;">
+                \${apiInfo}
+            </div>
+            <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; text-align: right;">
+                <button onclick="document.getElementById('trip-details-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                    <i class="fas fa-times"></i> Close
+                </button>
+            </div>
+        </div>
+    \`;
+    document.body.appendChild(popup);
+};
 
 // ============================================================================
 // SHOW API INFORMATION FOR ADD ORDERS MODAL
@@ -166,6 +287,14 @@ function populateTripHeader(tripData) {
     document.getElementById('trip-detail-vehicle').textContent = tripData.trip_lorry || tripData.vehicle || '-';
     document.getElementById('trip-detail-loading-bay').textContent = tripData.trip_loading_bay || tripData.loading_bay || '-';
     document.getElementById('trip-detail-priority').textContent = tripData.trip_priority || tripData.priority || '-';
+
+    // Set and store instance
+    const instance = tripData.instance || tripData.p_instance_name || 'PROD';
+    document.getElementById('trip-detail-instance').textContent = instance;
+
+    // Store instance globally for Add Orders modal
+    window.currentTripInstance = instance;
+    console.log('[Trip Details] Instance set to:', instance);
 
     // Update status badge
     const status = tripData.status || 'DRAFT';

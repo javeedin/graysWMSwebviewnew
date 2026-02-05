@@ -759,11 +759,13 @@ window.createNewTrip = async function() {
                                     trip_loading_bay: originalLoadingBay,
                                     trip_priority: originalPriority,
                                     vehicle: response.trip_lorry,
-                                    status: 'DRAFT'
+                                    status: 'DRAFT',
+                                    instance: instance,
+                                    p_instance_name: instance
                                 };
                                 window.openTripDetailsPage(tripDetailsData);
                             } else {
-                                alert('✅ Trip created successfully!\n\nTrip Date: ' + response.trip_date + '\nVehicle: ' + response.trip_lorry);
+                                alert('✅ Trip created successfully!\n\nTrip Date: ' + response.trip_date + '\nVehicle: ' + response.trip_lorry + '\nInstance: ' + instance);
                             }
 
                             // Optionally refresh trips grid if on trip management page
@@ -808,11 +810,13 @@ window.createNewTrip = async function() {
                         trip_loading_bay: originalLoadingBay,
                         trip_priority: originalPriority,
                         vehicle: result.trip_lorry,
-                        status: 'DRAFT'
+                        status: 'DRAFT',
+                        instance: instance,
+                        p_instance_name: instance
                     };
                     window.openTripDetailsPage(tripDetailsData);
                 } else {
-                    alert('✅ Trip created successfully!\n\nTrip Date: ' + result.trip_date + '\nVehicle: ' + result.trip_lorry);
+                    alert('✅ Trip created successfully!\n\nTrip Date: ' + result.trip_date + '\nVehicle: ' + result.trip_lorry + '\nInstance: ' + instance);
                 }
 
                 // Optionally refresh trips grid
