@@ -3897,6 +3897,10 @@ document.addEventListener('DOMContentLoaded', function() {
     window.openAssignPickerDialog = function(tripId, selectedOrders) {
         console.log('[Assign Picker] Opening dialog for', selectedOrders.length, 'orders');
 
+        // Store for API info button
+        window.pendingAssignPickerTripId = tripId;
+        window.pendingAssignPickerOrders = selectedOrders;
+
         // Build the list of selected order numbers
         let orderListHtml = '';
         selectedOrders.forEach((order, index) => {
@@ -3977,13 +3981,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
 
                     <!-- Footer -->
-                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
-                        <button class="btn btn-secondary" onclick="closeAssignPickerDialog()">
-                            <i class="fas fa-times"></i> Cancel
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: space-between; align-items: center;">
+                        <button onclick="showAssignPickerApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
+                            <i class="fas fa-code"></i> API Info
                         </button>
-                        <button class="btn btn-primary" onclick="submitAssignPicker('${tripId}', ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})">
-                            <i class="fas fa-check"></i> Assign
-                        </button>
+                        <div style="display: flex; gap: 0.75rem;">
+                            <button class="btn btn-secondary" onclick="closeAssignPickerDialog()">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button class="btn btn-primary" onclick="submitAssignPicker('${tripId}', ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})">
+                                <i class="fas fa-check"></i> Assign
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -4004,6 +4013,107 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modal) {
             modal.remove();
         }
+    };
+
+    // Show API Information for Assign Picker
+    window.showAssignPickerApiInfo = function() {
+        const tripId = window.pendingAssignPickerTripId || 'N/A';
+        const selectedOrders = window.pendingAssignPickerOrders || [];
+        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Get sample order for display
+        const sampleOrder = selectedOrders[0] || {};
+        const sampleOrderNumber = sampleOrder.ORDER_NUMBER || sampleOrder.order_number || '{orderNumber}';
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/pickerassignment';
+
+        // Build sample payload
+        const samplePayload = {
+            orders: [{
+                orderNumber: sampleOrderNumber,
+                accountNumber: sampleOrder.ACCOUNT_NUMBER || sampleOrder.account_number || '',
+                accountName: sampleOrder.ACCOUNT_NAME || sampleOrder.account_name || '',
+                pickerName: '{selectedPickerName}',
+                loadingBay: sampleOrder.LOADING_BAY || sampleOrder.loading_bay || '',
+                orderTypeCode: sampleOrder.ORDER_TYPE_CODE || sampleOrder.order_type_code || '',
+                assignmentDate: new Date().toISOString().split('T')[0],
+                pickslip: sampleOrder.PICKSLIP || sampleOrder.pickslip || '',
+                pickwave: sampleOrder.PICKWAVE || sampleOrder.pickwave || '',
+                instance: instance
+            }]
+        };
+
+        const popupHtml = `
+            <div id="assign-picker-api-info-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 700px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;">
+                            <i class="fas fa-code"></i> Assign Picker API Information
+                        </h3>
+                        <button onclick="document.getElementById('assign-picker-api-info-popup').remove()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem; max-height: 70vh; overflow-y: auto;">
+                        <!-- Current Context -->
+                        <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                            <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Current Context</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Trip ID:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${tripId}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Orders Count:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${selectedOrders.length}</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- API Details -->
+                        <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #667eea;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span>
+                                <strong style="color: #1e293b; font-size: 12px;">Picker Assignment</strong>
+                            </div>
+                            <div style="margin-bottom: 0.5rem;">
+                                <strong style="color: #4a5568; font-size: 11px;">Full URL:</strong>
+                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${apiUrl}</code>
+                            </div>
+                        </div>
+
+                        <!-- Request Body -->
+                        <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #22c55e;">
+                            <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">Sample Request Body</div>
+                            <pre style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; font-size: 10px; overflow-x: auto; margin: 0;">${JSON.stringify(samplePayload, null, 2)}</pre>
+                        </div>
+
+                        <!-- Instance Note -->
+                        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Instance Parameter:</strong>
+                            <span style="color: #78350f; font-size: 12px;">
+                                The <code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">instance</code> field is included in each order object in the request body (not as a query parameter).
+                                Current value: <strong>${instance}</strong> (from localStorage)
+                            </span>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('assign-picker-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('assign-picker-api-info-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
     };
 
     // Submit Assign Picker (POST to API via C# backend)
