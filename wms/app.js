@@ -4868,8 +4868,9 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[With Lots] Calling Release Pick Wave:', apiUrl);
 
             sendMessageToCSharp({
-                action: 'executeGet',
-                fullUrl: apiUrl
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
             }, function(error, data) {
                 if (error) {
                     resolve({ success: false, error: error });
@@ -4892,8 +4893,9 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[With Lots] Calling Get Picks:', apiUrl);
 
             sendMessageToCSharp({
-                action: 'executeGet',
-                fullUrl: apiUrl
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
             }, function(error, data) {
                 if (error) {
                     resolve({ success: false, error: error });
@@ -4916,8 +4918,9 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[With Lots] Calling Get Pick Lots:', apiUrl);
 
             sendMessageToCSharp({
-                action: 'executeGet',
-                fullUrl: apiUrl
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
             }, function(error, data) {
                 if (error) {
                     resolve({ success: false, error: error });
