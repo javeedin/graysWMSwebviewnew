@@ -4696,6 +4696,173 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // ============================================================================
+    // FLOATING PROGRESS INDICATOR
+    // Shows processing status when popup is closed during processing
+    // ============================================================================
+
+    // Global processing state
+    window.pickReleaseProcessingState = {
+        isProcessing: false,
+        totalOrders: 0,
+        completedOrders: 0,
+        currentStep: '',
+        startTime: null
+    };
+
+    // Create or update floating indicator
+    function showFloatingProgressIndicator() {
+        let floatingDiv = document.getElementById('pick-release-floating-indicator');
+
+        if (!floatingDiv) {
+            floatingDiv = document.createElement('div');
+            floatingDiv.id = 'pick-release-floating-indicator';
+            floatingDiv.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                color: white;
+                padding: 12px 16px;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                z-index: 99999;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 13px;
+                font-weight: 500;
+                min-width: 200px;
+                transition: all 0.3s ease;
+            `;
+            floatingDiv.onclick = function() {
+                showFloatingProgressDetails();
+            };
+            document.body.appendChild(floatingDiv);
+        }
+
+        updateFloatingIndicator();
+    }
+
+    // Update floating indicator content
+    function updateFloatingIndicator() {
+        const floatingDiv = document.getElementById('pick-release-floating-indicator');
+        if (!floatingDiv) return;
+
+        const state = window.pickReleaseProcessingState;
+
+        if (!state.isProcessing) {
+            // Processing complete
+            floatingDiv.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+            floatingDiv.innerHTML = `
+                <i class="fas fa-check-circle" style="font-size: 18px;"></i>
+                <div>
+                    <div style="font-weight: 600;">Pick Release Complete</div>
+                    <div style="font-size: 11px; opacity: 0.9;">${state.completedOrders} orders processed</div>
+                </div>
+                <button onclick="event.stopPropagation(); hideFloatingIndicator();" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; margin-left: auto;">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+
+            // Auto-hide after 10 seconds
+            setTimeout(() => {
+                hideFloatingIndicator();
+            }, 10000);
+        } else {
+            // Still processing
+            const progress = state.totalOrders > 0 ? Math.round((state.completedOrders / state.totalOrders) * 100) : 0;
+            floatingDiv.innerHTML = `
+                <i class="fas fa-spinner fa-spin" style="font-size: 18px;"></i>
+                <div style="flex: 1;">
+                    <div style="font-weight: 600;">Pick Release Running...</div>
+                    <div style="font-size: 11px; opacity: 0.9;">${state.currentStep}</div>
+                    <div style="background: rgba(255,255,255,0.3); border-radius: 4px; height: 4px; margin-top: 6px; overflow: hidden;">
+                        <div style="background: white; height: 100%; width: ${progress}%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                <div style="font-size: 16px; font-weight: 700;">${progress}%</div>
+            `;
+        }
+    }
+
+    // Show detailed progress popup
+    function showFloatingProgressDetails() {
+        const state = window.pickReleaseProcessingState;
+        const data = window.withLotsPickReleaseData;
+
+        if (!data) return;
+
+        const elapsed = state.startTime ? formatDuration(Date.now() - state.startTime) : '-';
+
+        let detailsHtml = `
+            <div id="floating-details-popup" style="position: fixed; bottom: 80px; right: 20px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 99998; width: 350px; max-height: 400px; overflow: hidden;">
+                <div style="padding: 12px 16px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 600;"><i class="fas fa-tasks"></i> Pick Release Progress</span>
+                    <button onclick="document.getElementById('floating-details-popup').remove();" style="background: none; border: none; color: white; cursor: pointer; font-size: 16px;">&times;</button>
+                </div>
+                <div style="padding: 12px 16px; max-height: 300px; overflow-y: auto;">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 12px;">
+                        <span><strong>Status:</strong> ${state.isProcessing ? 'Processing...' : 'Complete'}</span>
+                        <span><strong>Time:</strong> ${elapsed}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 12px;">
+                        <span><strong>Orders:</strong> ${state.completedOrders} / ${state.totalOrders}</span>
+                        <span><strong>Step:</strong> ${state.currentStep}</span>
+                    </div>
+                    <div style="border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 10px;">
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">Order Progress:</div>
+        `;
+
+        // Show order status
+        if (data.orders) {
+            data.orders.forEach((order, i) => {
+                const orderNum = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+                const result = data.results[i];
+                let status = 'pending';
+                let statusIcon = '<i class="fas fa-clock" style="color: #94a3b8;"></i>';
+
+                if (result.step3 !== null) {
+                    status = result.step3.success ? 'complete' : 'error';
+                    statusIcon = result.step3.success ? '<i class="fas fa-check-circle" style="color: #10b981;"></i>' : '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
+                } else if (result.step2 !== null) {
+                    statusIcon = '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
+                } else if (result.step1 !== null) {
+                    statusIcon = '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
+                }
+
+                detailsHtml += `
+                    <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 11px;">
+                        ${statusIcon}
+                        <span>${orderNum}</span>
+                    </div>
+                `;
+            });
+        }
+
+        detailsHtml += `
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('floating-details-popup');
+        if (existingPopup) existingPopup.remove();
+
+        document.body.insertAdjacentHTML('beforeend', detailsHtml);
+    }
+
+    // Hide floating indicator
+    function hideFloatingIndicator() {
+        const floatingDiv = document.getElementById('pick-release-floating-indicator');
+        if (floatingDiv) floatingDiv.remove();
+
+        const detailsPopup = document.getElementById('floating-details-popup');
+        if (detailsPopup) detailsPopup.remove();
+    }
+
+    // ============================================================================
     // WITH LOTS PICK RELEASE - 3 Step Process
     // Step 1: Release Pick Wave (for all orders)
     // Step 2: Total Picks (per order)
@@ -4712,6 +4879,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Track counts for comparison
         const totalLinesCount = [];
         const totalPicksCount = [];
+
+        // Initialize processing state for floating indicator
+        window.pickReleaseProcessingState = {
+            isProcessing: true,
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Starting...',
+            startTime: overallStartTime
+        };
 
         // Show progress section
         const progressSection = document.getElementById('with-lots-progress-section');
@@ -4755,6 +4931,10 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[With Lots] Step 1: Release Pick Wave for all orders');
         document.getElementById('step-1-status').textContent = 'In Progress...';
 
+        // Update processing state
+        window.pickReleaseProcessingState.currentStep = 'Step 1: Release Pick Wave';
+        updateFloatingIndicator();
+
         for (let i = 0; i < orders.length; i++) {
             const order = orders[i];
             const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
@@ -4791,6 +4971,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // STEP 2 & 3: Total Picks and Lots in the Pick per order
         updateStepIndicator(2, 'in-progress');
         document.getElementById('step-2-status').textContent = 'In Progress...';
+
+        // Update processing state
+        window.pickReleaseProcessingState.currentStep = 'Step 2 & 3: Fetching Picks & Lots';
+        updateFloatingIndicator();
 
         for (let i = 0; i < orders.length; i++) {
             const order = orders[i];
@@ -4862,6 +5046,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Update time for this row
             updateOrderTime(i, orderStartTimes[i]);
+
+            // Update floating indicator progress
+            window.pickReleaseProcessingState.completedOrders = i + 1;
+            window.pickReleaseProcessingState.currentStep = `Processing order ${i + 1} of ${orders.length}`;
+            updateFloatingIndicator();
         }
 
         // Mark steps complete
@@ -4919,6 +5108,12 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
             btn.onclick = function() { closeSalesPickReleaseModal(); };
         }
+
+        // Mark processing as complete for floating indicator
+        window.pickReleaseProcessingState.isProcessing = false;
+        window.pickReleaseProcessingState.currentStep = 'Complete';
+        window.pickReleaseProcessingState.completedOrders = orders.length;
+        updateFloatingIndicator();
 
         console.log('[With Lots Pick Release] Process complete. Total time:', totalTimeFormatted);
     };
@@ -5342,6 +5537,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.closeSalesPickReleaseModal = function() {
         const modal = document.getElementById('sales-pick-release-modal');
+
+        // Check if processing is still in progress
+        if (window.pickReleaseProcessingState && window.pickReleaseProcessingState.isProcessing) {
+            // Show floating indicator before closing
+            showFloatingProgressIndicator();
+        }
+
         if (modal) modal.remove();
     };
 
