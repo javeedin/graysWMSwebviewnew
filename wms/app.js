@@ -11665,11 +11665,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Update floating button visibility based on selection
+    // Update floating button visibility based on grid availability
     function updateActionFloatingButton() {
-        if (!window.tripDetailsGridInstance) return;
-
-        const selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData();
         const btn = document.getElementById('action-floating-btn');
         const countEl = document.getElementById('action-selected-count');
 
@@ -11678,9 +11675,15 @@ document.addEventListener('DOMContentLoaded', function() {
             return updateActionFloatingButton();
         }
 
-        if (selectedOrders && selectedOrders.length > 0) {
+        // Show button when trip details grid exists
+        if (window.tripDetailsGridInstance) {
             btn.style.display = 'block';
-            if (countEl) countEl.textContent = selectedOrders.length;
+            const selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData();
+            const count = selectedOrders ? selectedOrders.length : 0;
+            if (countEl) {
+                countEl.textContent = count;
+                countEl.style.display = count > 0 ? 'flex' : 'none';
+            }
         } else {
             btn.style.display = 'none';
             // Hide menu too
@@ -11689,7 +11692,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Poll for selection changes (since dxDataGrid selection event might not be available)
+    // Poll for grid availability and selection changes
     setInterval(updateActionFloatingButton, 500);
 
     // Execute action from floating menu
