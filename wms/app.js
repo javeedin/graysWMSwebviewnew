@@ -6457,7 +6457,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Create confirmation popup
         const popupHtml = `
-            <div id="fetch-fusion-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10003; display: flex; justify-content: center; align-items: center;">
+            <div id="fetch-fusion-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
                 <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
                     <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 1rem 1.5rem;">
                         <h3 style="margin: 0; font-size: 1.1rem;">
