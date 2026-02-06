@@ -11966,8 +11966,28 @@ document.addEventListener('DOMContentLoaded', function() {
     function executeActionAssignPicker(selectedOrders) {
         console.log('[Action Float] Opening Assign Picker for', selectedOrders.length, 'orders');
 
-        // Get trip ID from first selected order
-        const tripId = selectedOrders[0].TRIP_ID || selectedOrders[0].trip_id || '';
+        // Filter out orders with lot_count = 0
+        const ordersWithLots = selectedOrders.filter(order => {
+            const lotCount = order.LOT_COUNT || order.lot_count || 0;
+            return lotCount > 0;
+        });
+
+        const skippedCount = selectedOrders.length - ordersWithLots.length;
+        if (skippedCount > 0) {
+            console.log('[Action Float] Skipped', skippedCount, 'orders with lot_count = 0');
+        }
+
+        if (ordersWithLots.length === 0) {
+            alert(`Cannot assign picker: All ${selectedOrders.length} selected order(s) have lot count = 0.`);
+            return;
+        }
+
+        if (skippedCount > 0) {
+            console.log('[Action Float] Proceeding with', ordersWithLots.length, 'orders (skipped', skippedCount, 'with lot_count = 0)');
+        }
+
+        // Get trip ID from first valid order
+        const tripId = ordersWithLots[0].TRIP_ID || ordersWithLots[0].trip_id || '';
 
         // Check if pickers data is loaded
         if (!window.pickersData || window.pickersData.length === 0) {
@@ -11987,7 +12007,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         clearInterval(checkInterval);
                         const msg = document.getElementById('loading-pickers-msg');
                         if (msg) msg.remove();
-                        window.openAssignPickerDialog(tripId, selectedOrders);
+                        window.openAssignPickerDialog(tripId, ordersWithLots);
                     }
                 }, 500);
 
@@ -12008,7 +12028,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Pickers already loaded, open dialog directly
-        window.openAssignPickerDialog(tripId, selectedOrders);
+        window.openAssignPickerDialog(tripId, ordersWithLots);
     }
 
     // Show action processing indicator
