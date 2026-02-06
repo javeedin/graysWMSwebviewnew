@@ -8504,8 +8504,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const lineNo = row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
             const picker = row.PICKER || row.picker || row.PICKED_BY || row.picked_by || '';
 
-            // Encode row data for button onclick
-            const rowDataEncoded = encodeURIComponent(JSON.stringify(row));
+            // Get today's date for JSON preview
+            const today = new Date();
+            const pickConfirmDate = today.toISOString().split('T')[0];
+            const pickerForJson = picker || 'System';
 
             tableRows += `
                 <tr data-index="${index}" id="pick-line-row-${index}">
@@ -8517,6 +8519,13 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
                         <input type="number" class="pick-qty-input" id="pick-qty-${index}" data-index="${index}" value="${quantity}" min="0" max="${quantity}"
                             style="width: 70px; padding: 0.3rem; border: 1px solid #d1d5db; border-radius: 4px; text-align: right; font-size: 0.85rem;">
+                    </td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <button onclick="showPickLineApiInfo(${index}, '${transactionId}', '${lineNo}', '${lotNumber}', '${pickerForJson}', '${pickConfirmDate}', '${instance}')"
+                            style="padding: 0.3rem 0.5rem; background: #f1f5f9; color: #6366f1; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer; font-size: 0.75rem;"
+                            title="View API Info">
+                            <i class="fas fa-code"></i>
+                        </button>
                     </td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
                         <button id="pick-btn-${index}" onclick="confirmPickByLine(${index}, '${orderNumber}', '${instance}')"
@@ -8557,6 +8566,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Lot Number</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: right; border-bottom: 2px solid #e2e8f0; width: 70px;">Qty</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Picked Qty</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 50px;">API</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Action</th>
                                 </tr>
                             </thead>
@@ -8699,6 +8709,96 @@ document.addEventListener('DOMContentLoaded', function() {
             // Show success notification
             showNotification(`Pick confirmed for ${itemCode} - Lot: ${lotNumber}`, 'success');
         });
+    };
+
+    // Show Pick Line API Info popup
+    window.showPickLineApiInfo = function(index, transactionId, lineNo, lotNumber, picker, pickConfirmDate, instance) {
+        // Get picked qty from input
+        const pickedQtyInput = document.getElementById(`pick-qty-${index}`);
+        const pickedQty = pickedQtyInput ? pickedQtyInput.value : '0';
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/confirmpickbyline';
+
+        const requestBody = {
+            task: "updatePickRelease",
+            transaction_id: String(transactionId),
+            line_no: String(lineNo),
+            lot_number: String(lotNumber),
+            pickedQty: String(pickedQty),
+            pickedBy: picker,
+            pickConfirmDate: pickConfirmDate,
+            pickConfirmStatus: "YES",
+            instance_name: instance
+        };
+
+        const jsonBodyFormatted = JSON.stringify(requestBody, null, 2);
+
+        const popupHtml = `
+            <div id="pick-api-info-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100010; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 90%; max-width: 700px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas fa-code" style="font-size: 1.25rem;"></i>
+                            <div>
+                                <div style="font-weight: 600; font-size: 1.1rem;">API Info - Line ${index + 1}</div>
+                                <div style="font-size: 0.8rem; opacity: 0.9;">Confirm Pick By Line API</div>
+                            </div>
+                        </div>
+                        <button onclick="document.getElementById('pick-api-info-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <!-- Content -->
+                    <div style="flex: 1; overflow: auto; padding: 1.5rem;">
+                        <!-- Method -->
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-exchange-alt" style="color: #10b981; margin-right: 0.5rem;"></i>Method
+                            </div>
+                            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; color: #166534;">
+                                POST
+                            </div>
+                        </div>
+
+                        <!-- URL -->
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-link" style="color: #6366f1; margin-right: 0.5rem;"></i>Full URL
+                            </div>
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; font-family: monospace; font-size: 0.75rem; word-break: break-all; color: #475569;">
+                                ${apiUrl}
+                            </div>
+                        </div>
+
+                        <!-- JSON Body -->
+                        <div>
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-file-code" style="color: #f59e0b; margin-right: 0.5rem;"></i>JSON Request Body
+                            </div>
+                            <pre style="background: #1e293b; border-radius: 6px; padding: 1rem; font-family: monospace; font-size: 0.8rem; color: #e2e8f0; overflow-x: auto; margin: 0; white-space: pre-wrap;">${jsonBodyFormatted}</pre>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('pick-api-info-popup').remove()" style="padding: 0.6rem 1.25rem; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('pick-api-info-popup');
+        if (existingPopup) {
+            existingPopup.remove();
+        }
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
     };
 
     // Ship Confirm Order
