@@ -3101,12 +3101,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     STATUS: trip.TRIP_STATUS || trip.trip_status || trip.LINE_STATUS || 'ACTIVE',
                     INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || selectedInstance,
                     LOADING_BAY: trip.TRIP_LOADING_BAY || trip.trip_loading_bay || trip.LOADING_BAY || trip.loading_bay || null,
-                    TOTAL_ORDERS: 0,
-                    orders: []
+                    // Use order_count from API instead of counting records
+                    TOTAL_ORDERS: trip.order_count || trip.ORDER_COUNT || 0,
+                    orders: [trip]
                 };
+            } else {
+                // If there are multiple records for the same trip, add to orders array
+                tripMap[tripId].orders.push(trip);
             }
-            tripMap[tripId].TOTAL_ORDERS++;
-            tripMap[tripId].orders.push(trip);
         });
         
         let tripsArray = Object.values(tripMap);
