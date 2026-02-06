@@ -11567,7 +11567,7 @@ document.addEventListener('DOMContentLoaded', function() {
         floatingBtn.id = 'action-floating-btn';
         floatingBtn.style.cssText = `
             position: fixed;
-            bottom: 100px;
+            bottom: 150px;
             right: 30px;
             z-index: 9999;
             display: none;
@@ -11612,7 +11612,7 @@ document.addEventListener('DOMContentLoaded', function() {
         menu.id = 'action-floating-menu';
         menu.style.cssText = `
             position: fixed;
-            bottom: 165px;
+            bottom: 215px;
             right: 30px;
             background: white;
             border-radius: 12px;
@@ -11665,6 +11665,53 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Check if any trip details grid is available
+    function isTripDetailsGridAvailable() {
+        if (window.tripDetailsGridInstance) return true;
+        try {
+            const gridContainer = document.querySelector('#trip-details-grid, [id*="trip"][id*="grid"]');
+            if (gridContainer && $(gridContainer).dxDataGrid('instance')) return true;
+        } catch (e) {}
+        return false;
+    }
+
+    // Helper to get selected orders from any available grid
+    function getSelectedOrdersFromGrid() {
+        let selectedOrders = [];
+
+        // Try trip details grid first
+        if (window.tripDetailsGridInstance) {
+            try {
+                selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData() || [];
+                if (selectedOrders.length > 0) {
+                    console.log('[Action Float] tripDetailsGridInstance selected:', selectedOrders.length);
+                }
+            } catch (e) {
+                console.log('[Action Float] Error getting selected from tripDetailsGridInstance:', e);
+            }
+        }
+
+        // If no selection, try to find grid from DOM
+        if (selectedOrders.length === 0) {
+            try {
+                const gridContainer = document.querySelector('#trip-details-grid, [id*="trip"][id*="grid"]');
+                if (gridContainer) {
+                    const gridInstance = $(gridContainer).dxDataGrid('instance');
+                    if (gridInstance) {
+                        selectedOrders = gridInstance.getSelectedRowsData() || [];
+                        if (selectedOrders.length > 0) {
+                            console.log('[Action Float] DOM grid selected:', selectedOrders.length);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.log('[Action Float] Error getting from DOM grid:', e);
+            }
+        }
+
+        return selectedOrders;
+    }
+
     // Update floating button visibility based on grid availability
     function updateActionFloatingButton() {
         const btn = document.getElementById('action-floating-btn');
@@ -11675,10 +11722,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return updateActionFloatingButton();
         }
 
-        // Show button when trip details grid exists
-        if (window.tripDetailsGridInstance) {
+        // Show button when any trip details grid exists
+        if (isTripDetailsGridAvailable()) {
             btn.style.display = 'block';
-            const selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData();
+            const selectedOrders = getSelectedOrdersFromGrid();
             const count = selectedOrders ? selectedOrders.length : 0;
             if (countEl) {
                 countEl.textContent = count;
@@ -11701,14 +11748,10 @@ document.addEventListener('DOMContentLoaded', function() {
         const menu = document.getElementById('action-floating-menu');
         if (menu) menu.style.display = 'none';
 
-        if (!window.tripDetailsGridInstance) {
-            alert('No grid data available.');
-            return;
-        }
+        const selectedOrders = getSelectedOrdersFromGrid();
 
-        const selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData();
         if (!selectedOrders || selectedOrders.length === 0) {
-            alert('Please select at least one order.');
+            alert('Please select at least one order by clicking the checkboxes in the grid.');
             return;
         }
 
