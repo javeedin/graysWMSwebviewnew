@@ -11966,12 +11966,49 @@ document.addEventListener('DOMContentLoaded', function() {
     function executeActionAssignPicker(selectedOrders) {
         console.log('[Action Float] Opening Assign Picker for', selectedOrders.length, 'orders');
 
-        // Use existing assign picker functionality
-        if (typeof window.assignPickerForSelectedOrders === 'function') {
-            window.assignPickerForSelectedOrders();
-        } else {
-            alert('Assign Picker function not available.');
+        // Get trip ID from first selected order
+        const tripId = selectedOrders[0].TRIP_ID || selectedOrders[0].trip_id || '';
+
+        // Check if pickers data is loaded
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Action Float] Pickers not loaded, loading now...');
+
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#667eea;color:white;padding:1rem 2rem;border-radius:8px;z-index:20000;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading pickers...';
+            document.body.appendChild(loadingMsg);
+
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        window.openAssignPickerDialog(tripId, selectedOrders);
+                    }
+                }, 500);
+
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again.');
+                    }
+                }, 10000);
+            } else {
+                const msg = document.getElementById('loading-pickers-msg');
+                if (msg) msg.remove();
+                alert('Pickers loading function not available.');
+            }
+            return;
         }
+
+        // Pickers already loaded, open dialog directly
+        window.openAssignPickerDialog(tripId, selectedOrders);
     }
 
     // Show action processing indicator
