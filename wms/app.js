@@ -8488,6 +8488,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         console.log('[Order Transactions] Selected rows for picking:', selectedRows.length);
+        console.log('[Order Transactions] First row data:', selectedRows[0]);
+
+        // Get instance
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
 
         // Build table rows for selected items
         let tableRows = '';
@@ -8496,17 +8500,29 @@ document.addEventListener('DOMContentLoaded', function() {
             const description = row.DESCRIPTION || row.description || row.ITEM_DESC || row.item_desc || row.ITEM_DESCRIPTION || '';
             const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
             const quantity = row.QUANTITY || row.quantity || row.QTY || row.qty || row.TRANSACTION_QUANTITY || 0;
+            const transactionId = row.TRANSACTION_ID || row.transaction_id || '';
+            const lineNo = row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
+            const picker = row.PICKER || row.picker || row.PICKED_BY || row.picked_by || '';
+
+            // Encode row data for button onclick
+            const rowDataEncoded = encodeURIComponent(JSON.stringify(row));
 
             tableRows += `
-                <tr data-index="${index}">
+                <tr data-index="${index}" id="pick-line-row-${index}">
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 600;">${itemCode}</td>
-                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${description}</td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-size: 0.8rem;">${description}</td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 500;">${lotNumber}</td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: right;">${quantity}</td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
-                        <input type="number" class="pick-qty-input" data-index="${index}" value="${quantity}" min="0" max="${quantity}"
-                            style="width: 80px; padding: 0.35rem; border: 1px solid #d1d5db; border-radius: 4px; text-align: right; font-size: 0.9rem;">
+                        <input type="number" class="pick-qty-input" id="pick-qty-${index}" data-index="${index}" value="${quantity}" min="0" max="${quantity}"
+                            style="width: 70px; padding: 0.3rem; border: 1px solid #d1d5db; border-radius: 4px; text-align: right; font-size: 0.85rem;">
+                    </td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <button id="pick-btn-${index}" onclick="confirmPickByLine(${index}, '${orderNumber}', '${instance}')"
+                            style="padding: 0.35rem 0.6rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
+                            <i class="fas fa-check"></i> Confirm
+                        </button>
                     </td>
                 </tr>
             `;
@@ -8515,14 +8531,14 @@ document.addEventListener('DOMContentLoaded', function() {
         // Create popup HTML
         const popupHtml = `
             <div id="pick-lines-popup-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100001; display: flex; align-items: center; justify-content: center;">
-                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 90%; max-width: 900px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 95%; max-width: 1000px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column;">
                     <!-- Header -->
                     <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
                             <i class="fas fa-check-square" style="font-size: 1.25rem;"></i>
                             <div>
                                 <div style="font-weight: 600; font-size: 1.1rem;">Pick Selected Lines</div>
-                                <div style="font-size: 0.8rem; opacity: 0.9;">Order: ${orderNumber} | ${selectedRows.length} line(s) selected</div>
+                                <div style="font-size: 0.8rem; opacity: 0.9;">Order: ${orderNumber} | ${selectedRows.length} line(s) selected | Instance: ${instance}</div>
                             </div>
                         </div>
                         <button onclick="closePickLinesPopup()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
@@ -8532,15 +8548,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     <!-- Content -->
                     <div style="flex: 1; overflow: auto; padding: 1rem;">
-                        <table style="width: 100%; border-collapse: collapse; font-size: 0.9rem;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
                             <thead>
                                 <tr style="background: #f8fafc;">
-                                    <th style="padding: 0.75rem 0.5rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 50px;">S.No</th>
-                                    <th style="padding: 0.75rem 0.5rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Item Code</th>
-                                    <th style="padding: 0.75rem 0.5rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Description</th>
-                                    <th style="padding: 0.75rem 0.5rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Lot Number</th>
-                                    <th style="padding: 0.75rem 0.5rem; text-align: right; border-bottom: 2px solid #e2e8f0; width: 80px;">Quantity</th>
-                                    <th style="padding: 0.75rem 0.5rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Picked Qty</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 40px;">S.No</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Item Code</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Description</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Lot Number</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: right; border-bottom: 2px solid #e2e8f0; width: 70px;">Qty</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Picked Qty</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -8552,10 +8569,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <!-- Footer -->
                     <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 0.75rem;">
                         <button onclick="closePickLinesPopup()" style="padding: 0.6rem 1.25rem; background: #e2e8f0; color: #475569; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
-                            <i class="fas fa-times"></i> Cancel
-                        </button>
-                        <button onclick="confirmPickLines('${orderNumber}')" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
-                            <i class="fas fa-check"></i> Confirm Pick
+                            <i class="fas fa-times"></i> Close
                         </button>
                     </div>
                 </div>
@@ -8580,54 +8594,111 @@ document.addEventListener('DOMContentLoaded', function() {
         window.pickLinesSelectedRows = null;
     };
 
-    // Confirm Pick Lines
-    window.confirmPickLines = function(orderNumber) {
-        console.log('[Order Transactions] Confirming pick for order:', orderNumber);
+    // Confirm Pick By Line - calls API for individual line
+    window.confirmPickByLine = function(index, orderNumber, instance) {
+        console.log('[Order Transactions] Confirming pick for line index:', index);
 
-        if (!window.pickLinesSelectedRows || window.pickLinesSelectedRows.length === 0) {
-            alert('No lines selected for picking.');
+        if (!window.pickLinesSelectedRows || !window.pickLinesSelectedRows[index]) {
+            alert('Line data not found.');
             return;
         }
 
-        // Collect picked quantities from inputs
-        const pickedItems = [];
-        const inputs = document.querySelectorAll('.pick-qty-input');
-        inputs.forEach((input, index) => {
-            const pickedQty = parseFloat(input.value) || 0;
-            if (pickedQty > 0) {
-                const row = window.pickLinesSelectedRows[index];
-                pickedItems.push({
-                    ...row,
-                    PICKED_QTY: pickedQty
-                });
-            }
-        });
+        const row = window.pickLinesSelectedRows[index];
+        const pickedQtyInput = document.getElementById(`pick-qty-${index}`);
+        const pickedQty = pickedQtyInput ? parseFloat(pickedQtyInput.value) || 0 : 0;
 
-        if (pickedItems.length === 0) {
-            alert('Please enter picked quantity for at least one item.');
+        if (pickedQty <= 0) {
+            alert('Please enter a valid picked quantity.');
             return;
         }
 
-        console.log('[Order Transactions] Items to pick:', pickedItems);
+        // Extract data from row
+        const transactionId = row.TRANSACTION_ID || row.transaction_id || '';
+        const lineNo = row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
+        const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
+        const picker = row.PICKER || row.picker || row.PICKED_BY || row.picked_by || 'System';
+        const itemCode = row.ITEM_CODE || row.item_code || row.ITEM || row.item || '';
 
-        // Get instance
-        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        // Get today's date in YYYY-MM-DD format
+        const today = new Date();
+        const pickConfirmDate = today.toISOString().split('T')[0];
 
-        // Show confirmation
-        const confirmMsg = `Are you sure you want to confirm pick for ${pickedItems.length} item(s)?`;
+        // Show confirmation dialog
+        const confirmMsg = `Confirm Pick for Line?\n\nItem: ${itemCode}\nLot: ${lotNumber}\nPicked Qty: ${pickedQty}\nPicker: ${picker}`;
         if (!confirm(confirmMsg)) {
             return;
         }
 
-        // TODO: Call API to confirm pick
-        // For now, show success message
-        alert(`Pick confirmed for ${pickedItems.length} item(s).\n\nNote: API integration pending.`);
+        // Prepare API request body
+        const requestBody = {
+            task: "updatePickRelease",
+            transaction_id: String(transactionId),
+            line_no: String(lineNo),
+            lot_number: String(lotNumber),
+            pickedQty: String(pickedQty),
+            pickedBy: picker,
+            pickConfirmDate: pickConfirmDate,
+            pickConfirmStatus: "YES",
+            instance_name: instance
+        };
 
-        // Close popup
-        closePickLinesPopup();
+        console.log('[Order Transactions] Confirm Pick API Request:', requestBody);
 
-        // Refresh lot details
-        refreshLotDetails(orderNumber);
+        // Disable button and show loading
+        const btn = document.getElementById(`pick-btn-${index}`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.style.background = '#9ca3af';
+        }
+
+        // Call API
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/confirmpickbyline';
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(requestBody)
+        }, function(error, data) {
+            if (error) {
+                console.error('[Order Transactions] Confirm Pick API Error:', error);
+                alert('Error confirming pick: ' + error);
+
+                // Re-enable button
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Confirm';
+                    btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                }
+                return;
+            }
+
+            console.log('[Order Transactions] Confirm Pick API Response:', data);
+
+            // Parse response
+            let response;
+            try {
+                response = typeof data === 'string' ? JSON.parse(data) : data;
+            } catch (e) {
+                response = data;
+            }
+
+            // Update button to show success
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-check-circle"></i> Done';
+                btn.style.background = '#22c55e';
+                btn.disabled = true;
+            }
+
+            // Mark row as confirmed
+            const rowEl = document.getElementById(`pick-line-row-${index}`);
+            if (rowEl) {
+                rowEl.style.background = '#f0fdf4';
+            }
+
+            // Show success notification
+            showNotification(`Pick confirmed for ${itemCode} - Lot: ${lotNumber}`, 'success');
+        });
     };
 
     // Ship Confirm Order
