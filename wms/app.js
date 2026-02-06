@@ -6960,7 +6960,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                         }
                                     }
                                 } catch (gridError) {
-                                    console.log('[Refresh Trip] Grid not available for update:', gridError.message);
+                                    console.log('[Refresh Trip] Grid not initialized, reopening trip with fresh data');
+                                    // Grid not initialized - close the tab and reopen with new data
+                                    if (typeof showTripDetails === 'function') {
+                                        showTripDetails(result.items, tripId);
+                                    }
                                 }
                             }
 
@@ -7013,7 +7017,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                     }
                                 }
                             } catch (gridError) {
-                                console.log('[Refresh Trip] Grid not available for update:', gridError.message);
+                                console.log('[Refresh Trip] Grid not initialized, reopening trip with fresh data');
+                                // Grid not initialized - close the tab and reopen with new data
+                                if (typeof showTripDetails === 'function') {
+                                    showTripDetails(result.items, tripId);
+                                }
                             }
                         }
 
