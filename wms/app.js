@@ -5036,9 +5036,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateStepIndicator(1, 'complete');
                 updateStepIndicator(2, 'complete');
                 updateStepIndicator(3, 'complete');
-                document.getElementById('step-1-status').textContent = 'Complete';
-                document.getElementById('step-2-status').textContent = 'Complete';
-                document.getElementById('step-3-status').textContent = 'Complete';
+                const s1El = document.getElementById('step-1-status');
+                const s2El = document.getElementById('step-2-status');
+                const s3El = document.getElementById('step-3-status');
+                if (s1El) s1El.textContent = 'Complete';
+                if (s2El) s2El.textContent = 'Complete';
+                if (s3El) s3El.textContent = 'Complete';
 
                 // Update button to show completed
                 const btn = document.getElementById('btn-start-pick-release');
@@ -5145,7 +5148,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // STEP 1: Release Pick Wave for ALL orders first
         console.log('[With Lots] Step 1: Release Pick Wave for all orders');
-        document.getElementById('step-1-status').textContent = 'In Progress...';
+        const step1StatusEl = document.getElementById('step-1-status');
+        if (step1StatusEl) step1StatusEl.textContent = 'In Progress...';
 
         // Update processing state
         window.pickReleaseProcessingState.currentStep = 'Step 1: Release Pick Wave';
@@ -5188,7 +5192,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Mark Step 1 complete
         updateStepIndicator(1, 'complete');
-        document.getElementById('step-1-status').textContent = 'Complete';
+        const step1CompleteEl = document.getElementById('step-1-status');
+        if (step1CompleteEl) step1CompleteEl.textContent = 'Complete';
 
         // Update floating indicator - Step 1 complete
         window.pickReleaseProcessingState.step1Status = 'complete';
@@ -5196,7 +5201,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // STEP 2 & 3: Total Picks and Lots in the Pick per order
         updateStepIndicator(2, 'in-progress');
-        document.getElementById('step-2-status').textContent = 'In Progress...';
+        const step2StatusEl = document.getElementById('step-2-status');
+        if (step2StatusEl) step2StatusEl.textContent = 'In Progress...';
 
         // Update processing state
         window.pickReleaseProcessingState.currentStep = 'Step 2: Fetching Picks';
@@ -5295,8 +5301,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Mark steps complete
         updateStepIndicator(2, 'complete');
         updateStepIndicator(3, 'complete');
-        document.getElementById('step-2-status').textContent = 'Complete';
-        document.getElementById('step-3-status').textContent = 'Complete';
+        const step2CompleteEl = document.getElementById('step-2-status');
+        const step3CompleteEl = document.getElementById('step-3-status');
+        if (step2CompleteEl) step2CompleteEl.textContent = 'Complete';
+        if (step3CompleteEl) step3CompleteEl.textContent = 'Complete';
 
         // Update floating indicator - all steps complete
         window.pickReleaseProcessingState.step2Status = 'complete';
@@ -5607,6 +5615,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!indicator) return;
 
         const circle = indicator.querySelector('div');
+        if (!circle) return;
+
         if (status === 'in-progress') {
             circle.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
             circle.style.color = 'white';
