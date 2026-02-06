@@ -4523,8 +4523,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         addSalesPRLog(`Processing order: ${orderNumber}...`, 'info');
 
-        // Build API URL with trip ID parameter
-        const PICK_RELEASE_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}?P_TRIP_ID1=${tripId}`;
+        // Get instance from order or fallback
+        const instance = order.INSTANCE_NAME || order.instance_name || window.currentTripInstance || 'TEST';
+
+        // Build API URL with trip ID and instance parameters
+        const PICK_RELEASE_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}?P_TRIP_ID1=${tripId}&P_INSTANCE_NAME=${instance}`;
 
         console.log('[Sales Order Pick Release] Calling API:', PICK_RELEASE_API);
 
