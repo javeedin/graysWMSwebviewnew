@@ -4475,14 +4475,16 @@ document.addEventListener('DOMContentLoaded', function() {
         window.pendingSalesOrdersForPickRelease = orders;
         window.pendingTripIdForPickRelease = tripId;
 
-        // Build order list HTML with status icons
-        let orderListHtml = '';
+        // Get instance
+        const instance = orders[0]?.INSTANCE_NAME || orders[0]?.instance_name || window.currentTripInstance || 'TEST';
+
+        // Build order list HTML for No Lots mode (simple list)
+        let noLotsOrderListHtml = '';
         orders.forEach((order, index) => {
             const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
             const customerName = order.ACCOUNT_NAME || order.account_name || order.CUSTOMER_NAME || order.customer_name || '';
-            const orderType = order.ORDER_TYPE || order.order_type || order.ORDER_TYPE_CODE || order.order_type_code || '';
 
-            orderListHtml += `
+            noLotsOrderListHtml += `
                 <div id="pr-order-row-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
                     <div style="display: flex; align-items: center; gap: 0.5rem;">
                         <span id="pr-order-status-${index}" style="width: 20px; text-align: center; color: #94a3b8;">
@@ -4496,42 +4498,138 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         });
 
+        // Build order table HTML for With Lots mode
+        let withLotsTableHtml = '';
+        orders.forEach((order, index) => {
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
+            const totalLines = order.TOTAL_LINES || order.total_lines || order.LINE_COUNT || order.line_count || '-';
+
+            withLotsTableHtml += `
+                <tr id="wl-order-row-${index}" data-order-number="${orderNumber}" data-index="${index}">
+                    <td style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #1f2937; font-size: 11px;">${orderNumber}</td>
+                    <td style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 11px;">${totalLines}</td>
+                    <td id="wl-release-st-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
+                    </td>
+                    <td id="wl-get-picks-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
+                    </td>
+                    <td id="wl-get-lots-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
+                    </td>
+                    <td id="wl-retry-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <button onclick="retryWithLotsOrder(${index})" class="btn btn-sm" style="padding: 4px 8px; font-size: 10px; background: #e5e7eb; color: #374151; border: none; border-radius: 4px; cursor: pointer;" disabled>
+                            <i class="fas fa-redo"></i>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+
         // Show popup with orders list and Pick Release button
         const modalHtml = `
             <div id="sales-pick-release-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
-                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                <div style="background: white; width: 95%; max-width: 900px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
                     <!-- Header -->
-                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); display: flex; justify-content: space-between; align-items: center;">
-                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
-                            <i class="fas fa-truck-loading"></i> Pick Release - Sales Orders
-                        </h3>
+                    <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                                <i class="fas fa-truck-loading"></i> Pick Release - Sales Orders
+                            </h3>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 6px;">
+                                <label style="color: white; font-size: 11px; font-weight: 600;">Release Mode:</label>
+                                <select id="pick-release-mode" onchange="togglePickReleaseMode()" style="padding: 4px 8px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer;">
+                                    <option value="with-lots" selected>With Lots</option>
+                                    <option value="no-lots">No Lots</option>
+                                </select>
+                            </div>
+                        </div>
                         <button onclick="closeSalesPickReleaseModal()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
                     </div>
 
                     <!-- Body -->
-                    <div style="padding: 1.5rem; overflow-y: auto; max-height: 60vh;">
-                        <!-- Selected Orders Section -->
-                        <div style="margin-bottom: 1.5rem;">
-                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
-                                <i class="fas fa-list"></i> Selected Orders (${orders.length})
-                            </label>
-                            <div style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto; background: #f8f9fc;">
-                                ${orderListHtml}
+                    <div style="padding: 1.5rem; overflow-y: auto; max-height: 65vh;">
+                        <!-- No Lots View (hidden by default) -->
+                        <div id="no-lots-view" style="display: none;">
+                            <div style="margin-bottom: 1.5rem;">
+                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                    <i class="fas fa-list"></i> Selected Orders (${orders.length})
+                                </label>
+                                <div style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto; background: #f8f9fc;">
+                                    ${noLotsOrderListHtml}
+                                </div>
+                            </div>
+                            <div id="sales-pr-progress-section" style="display: none;">
+                                <div style="margin-bottom: 1rem;">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                        <span style="font-weight: 600; color: #1f2937;">Progress</span>
+                                        <span id="sales-pr-progress-text" style="color: #64748b;">0 / ${orders.length}</span>
+                                    </div>
+                                    <div style="background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden;">
+                                        <div id="sales-pr-progress-bar" style="background: linear-gradient(90deg, #f59e0b, #d97706); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                                    </div>
+                                </div>
+                                <div id="sales-pr-log" style="max-height: 150px; overflow-y: auto; font-size: 0.85rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;"></div>
                             </div>
                         </div>
 
-                        <!-- Progress Section (hidden initially) -->
-                        <div id="sales-pr-progress-section" style="display: none;">
-                            <div style="margin-bottom: 1rem;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                                    <span style="font-weight: 600; color: #1f2937;">Progress</span>
-                                    <span id="sales-pr-progress-text" style="color: #64748b;">0 / ${orders.length}</span>
+                        <!-- With Lots View (shown by default) -->
+                        <div id="with-lots-view">
+                            <!-- Step Progress Indicators -->
+                            <div style="display: flex; justify-content: space-around; margin-bottom: 1.5rem; padding: 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <div id="step-indicator-1" style="text-align: center; padding: 0.5rem 1rem;">
+                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.5rem; font-weight: 700; color: #64748b;">1</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: #64748b;">Release Pick Wave</div>
+                                    <div id="step-1-status" style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Pending</div>
                                 </div>
-                                <div style="background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden;">
-                                    <div id="sales-pr-progress-bar" style="background: linear-gradient(90deg, #f59e0b, #d97706); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                                <div style="display: flex; align-items: center; color: #cbd5e1;"><i class="fas fa-arrow-right"></i></div>
+                                <div id="step-indicator-2" style="text-align: center; padding: 0.5rem 1rem;">
+                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.5rem; font-weight: 700; color: #64748b;">2</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: #64748b;">Get Picks</div>
+                                    <div id="step-2-status" style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Pending</div>
+                                </div>
+                                <div style="display: flex; align-items: center; color: #cbd5e1;"><i class="fas fa-arrow-right"></i></div>
+                                <div id="step-indicator-3" style="text-align: center; padding: 0.5rem 1rem;">
+                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.5rem; font-weight: 700; color: #64748b;">3</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: #64748b;">Get Pick Lots</div>
+                                    <div id="step-3-status" style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Pending</div>
                                 </div>
                             </div>
-                            <div id="sales-pr-log" style="max-height: 150px; overflow-y: auto; font-size: 0.85rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;"></div>
+
+                            <!-- Orders Table -->
+                            <div style="margin-bottom: 1rem;">
+                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                    <i class="fas fa-table"></i> Orders Progress (${orders.length})
+                                </label>
+                                <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; max-height: 300px; overflow-y: auto;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                        <thead style="background: #f1f5f9; position: sticky; top: 0;">
+                                            <tr>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Order Number</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Total Lines</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Release St</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Get Picks</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Get Pick Lots</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Retry</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="with-lots-orders-table">
+                                            ${withLotsTableHtml}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Overall Progress -->
+                            <div id="with-lots-progress-section" style="display: none; padding: 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                    <span style="font-weight: 600; color: #1f2937;">Overall Progress</span>
+                                    <span id="with-lots-progress-text" style="color: #64748b;">0 / ${orders.length * 3} steps</span>
+                                </div>
+                                <div style="background: #e2e8f0; border-radius: 8px; height: 10px; overflow: hidden;">
+                                    <div id="with-lots-progress-bar" style="background: linear-gradient(90deg, #10b981, #059669); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -4556,6 +4654,23 @@ document.addEventListener('DOMContentLoaded', function() {
         document.body.insertAdjacentHTML('beforeend', modalHtml);
     }
 
+    // Toggle between With Lots and No Lots views
+    window.togglePickReleaseMode = function() {
+        const mode = document.getElementById('pick-release-mode').value;
+        const noLotsView = document.getElementById('no-lots-view');
+        const withLotsView = document.getElementById('with-lots-view');
+
+        if (mode === 'with-lots') {
+            noLotsView.style.display = 'none';
+            withLotsView.style.display = 'block';
+        } else {
+            noLotsView.style.display = 'block';
+            withLotsView.style.display = 'none';
+        }
+
+        console.log('[Pick Release] Mode changed to:', mode);
+    };
+
     // Start Pick Release when button is clicked
     window.startSalesOrderPickRelease = function() {
         const orders = window.pendingSalesOrdersForPickRelease;
@@ -4566,9 +4681,11 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Show progress section
-        const progressSection = document.getElementById('sales-pr-progress-section');
-        if (progressSection) progressSection.style.display = 'block';
+        // Check release mode
+        const modeSelect = document.getElementById('pick-release-mode');
+        const mode = modeSelect ? modeSelect.value : 'no-lots';
+
+        console.log('[Pick Release] Starting in mode:', mode);
 
         // Disable the Pick Release button
         const btn = document.getElementById('btn-start-pick-release');
@@ -4578,8 +4695,398 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.style.opacity = '0.6';
         }
 
-        // Process orders sequentially with tripId
-        processSalesOrdersSequentially(orders, 0, tripId);
+        if (mode === 'with-lots') {
+            // Run With Lots 3-step flow
+            startWithLotsPickRelease(orders, tripId);
+        } else {
+            // Run existing No Lots flow
+            const progressSection = document.getElementById('sales-pr-progress-section');
+            if (progressSection) progressSection.style.display = 'block';
+            processSalesOrdersSequentially(orders, 0, tripId);
+        }
+    };
+
+    // ============================================================================
+    // WITH LOTS PICK RELEASE - 3 Step Process
+    // Step 1: Release Pick Wave (for all orders)
+    // Step 2: Get Picks (per order)
+    // Step 3: Get Pick Lots (per order)
+    // ============================================================================
+
+    window.startWithLotsPickRelease = async function(orders, tripId) {
+        console.log('[With Lots Pick Release] Starting 3-step process for', orders.length, 'orders');
+
+        // Show progress section
+        const progressSection = document.getElementById('with-lots-progress-section');
+        if (progressSection) progressSection.style.display = 'block';
+
+        // Get instance
+        const instance = orders[0]?.INSTANCE_NAME || orders[0]?.instance_name || window.currentTripInstance || 'TEST';
+        const warehouse = 'GIC'; // Default warehouse
+
+        // Store for retry functionality
+        window.withLotsPickReleaseData = {
+            orders: orders,
+            tripId: tripId,
+            instance: instance,
+            warehouse: warehouse,
+            results: orders.map(() => ({ step1: null, step2: null, step3: null }))
+        };
+
+        let totalSteps = orders.length * 3;
+        let completedSteps = 0;
+
+        // Update step indicator to show Step 1 in progress
+        updateStepIndicator(1, 'in-progress');
+
+        // STEP 1: Release Pick Wave for ALL orders first
+        console.log('[With Lots] Step 1: Release Pick Wave for all orders');
+        document.getElementById('step-1-status').textContent = 'In Progress...';
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            updateCellStatus(`wl-release-st-${i}`, 'processing');
+
+            try {
+                const result = await callReleasePickWaveAPI(orderNumber, warehouse, instance);
+                window.withLotsPickReleaseData.results[i].step1 = result;
+
+                if (result.success) {
+                    updateCellStatus(`wl-release-st-${i}`, 'success');
+                } else {
+                    updateCellStatus(`wl-release-st-${i}`, 'error', result.error);
+                    enableRetryButton(i);
+                }
+            } catch (error) {
+                window.withLotsPickReleaseData.results[i].step1 = { success: false, error: error.message };
+                updateCellStatus(`wl-release-st-${i}`, 'error', error.message);
+                enableRetryButton(i);
+            }
+
+            completedSteps++;
+            updateWithLotsProgress(completedSteps, totalSteps);
+        }
+
+        // Mark Step 1 complete
+        updateStepIndicator(1, 'complete');
+        document.getElementById('step-1-status').textContent = 'Complete';
+
+        // STEP 2 & 3: Get Picks and Get Pick Lots per order
+        updateStepIndicator(2, 'in-progress');
+        document.getElementById('step-2-status').textContent = 'In Progress...';
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            // Only proceed if Step 1 was successful
+            if (!window.withLotsPickReleaseData.results[i].step1?.success) {
+                updateCellStatus(`wl-get-picks-${i}`, 'skipped');
+                updateCellStatus(`wl-get-lots-${i}`, 'skipped');
+                completedSteps += 2;
+                updateWithLotsProgress(completedSteps, totalSteps);
+                continue;
+            }
+
+            // Step 2: Get Picks
+            updateCellStatus(`wl-get-picks-${i}`, 'processing');
+
+            try {
+                const picksResult = await callGetPicksAPI(orderNumber, warehouse, instance);
+                window.withLotsPickReleaseData.results[i].step2 = picksResult;
+
+                if (picksResult.success) {
+                    const count = picksResult.data?.items?.length || picksResult.data?.length || 0;
+                    updateCellStatus(`wl-get-picks-${i}`, 'success', null, count);
+                } else {
+                    updateCellStatus(`wl-get-picks-${i}`, 'error', picksResult.error);
+                    enableRetryButton(i);
+                }
+            } catch (error) {
+                window.withLotsPickReleaseData.results[i].step2 = { success: false, error: error.message };
+                updateCellStatus(`wl-get-picks-${i}`, 'error', error.message);
+                enableRetryButton(i);
+            }
+
+            completedSteps++;
+            updateWithLotsProgress(completedSteps, totalSteps);
+
+            // Step 3: Get Pick Lots (only if Step 2 was successful)
+            if (window.withLotsPickReleaseData.results[i].step2?.success) {
+                updateCellStatus(`wl-get-lots-${i}`, 'processing');
+
+                try {
+                    const lotsResult = await callGetPickLotsAPI(orderNumber, instance);
+                    window.withLotsPickReleaseData.results[i].step3 = lotsResult;
+
+                    if (lotsResult.success) {
+                        const count = lotsResult.data?.items?.length || lotsResult.data?.length || 0;
+                        updateCellStatus(`wl-get-lots-${i}`, 'success', null, count);
+                    } else {
+                        updateCellStatus(`wl-get-lots-${i}`, 'error', lotsResult.error);
+                        enableRetryButton(i);
+                    }
+                } catch (error) {
+                    window.withLotsPickReleaseData.results[i].step3 = { success: false, error: error.message };
+                    updateCellStatus(`wl-get-lots-${i}`, 'error', error.message);
+                    enableRetryButton(i);
+                }
+            } else {
+                updateCellStatus(`wl-get-lots-${i}`, 'skipped');
+            }
+
+            completedSteps++;
+            updateWithLotsProgress(completedSteps, totalSteps);
+        }
+
+        // Mark steps complete
+        updateStepIndicator(2, 'complete');
+        updateStepIndicator(3, 'complete');
+        document.getElementById('step-2-status').textContent = 'Complete';
+        document.getElementById('step-3-status').textContent = 'Complete';
+
+        // Update button to show completed
+        const btn = document.getElementById('btn-start-pick-release');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check"></i> Completed';
+            btn.style.opacity = '1';
+            btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+            btn.onclick = function() { closeSalesPickReleaseModal(); };
+        }
+
+        console.log('[With Lots Pick Release] Process complete');
+    };
+
+    // API Call Functions
+    function callReleasePickWaveAPI(orderNumber, warehouse, instance) {
+        return new Promise((resolve) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/callpickwave?warehouse=${warehouse}&order_number=${orderNumber}&p_instance_name=${instance}`;
+
+            console.log('[With Lots] Calling Release Pick Wave:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: apiUrl
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve({ success: true, data: response });
+                    } catch (e) {
+                        resolve({ success: true, data: data });
+                    }
+                }
+            });
+        });
+    }
+
+    function callGetPicksAPI(orderNumber, warehouse, instance) {
+        return new Promise((resolve) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/getopenpicksbyorder?organization_code=${warehouse}&order_number=${orderNumber}&p_instance_name=${instance}`;
+
+            console.log('[With Lots] Calling Get Picks:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: apiUrl
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve({ success: true, data: response });
+                    } catch (e) {
+                        resolve({ success: true, data: data });
+                    }
+                }
+            });
+        });
+    }
+
+    function callGetPickLotsAPI(orderNumber, instance) {
+        return new Promise((resolve) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/getlotsforpicks?source_order_number=${orderNumber}&p_instance_name=${instance}`;
+
+            console.log('[With Lots] Calling Get Pick Lots:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: apiUrl
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve({ success: true, data: response });
+                    } catch (e) {
+                        resolve({ success: true, data: data });
+                    }
+                }
+            });
+        });
+    }
+
+    // Helper Functions for With Lots UI
+    function updateStepIndicator(step, status) {
+        const indicator = document.getElementById(`step-indicator-${step}`);
+        if (!indicator) return;
+
+        const circle = indicator.querySelector('div');
+        if (status === 'in-progress') {
+            circle.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+            circle.style.color = 'white';
+            circle.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 16px;"></i>';
+        } else if (status === 'complete') {
+            circle.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            circle.style.color = 'white';
+            circle.innerHTML = '<i class="fas fa-check" style="font-size: 16px;"></i>';
+        }
+    }
+
+    function updateCellStatus(cellId, status, errorMsg, count) {
+        const cell = document.getElementById(cellId);
+        if (!cell) return;
+
+        if (status === 'processing') {
+            cell.innerHTML = '<span style="color: #f59e0b;"><i class="fas fa-spinner fa-spin" style="font-size: 12px;"></i></span>';
+        } else if (status === 'success') {
+            if (count !== undefined) {
+                cell.innerHTML = `<span style="color: #10b981;"><i class="fas fa-check-circle" style="font-size: 12px;"></i> <span style="font-size: 10px;">(${count})</span></span>`;
+            } else {
+                cell.innerHTML = '<span style="color: #10b981;"><i class="fas fa-check-circle" style="font-size: 12px;"></i></span>';
+            }
+        } else if (status === 'error') {
+            cell.innerHTML = `<span style="color: #ef4444;" title="${errorMsg || 'Error'}"><i class="fas fa-times-circle" style="font-size: 12px;"></i></span>`;
+        } else if (status === 'skipped') {
+            cell.innerHTML = '<span style="color: #94a3b8;"><i class="fas fa-minus-circle" style="font-size: 12px;"></i></span>';
+        }
+    }
+
+    function enableRetryButton(index) {
+        const btn = document.querySelector(`#wl-retry-${index} button`);
+        if (btn) {
+            btn.disabled = false;
+            btn.style.background = '#fef3c7';
+            btn.style.color = '#d97706';
+        }
+    }
+
+    function updateWithLotsProgress(completed, total) {
+        const progressText = document.getElementById('with-lots-progress-text');
+        const progressBar = document.getElementById('with-lots-progress-bar');
+
+        if (progressText) progressText.textContent = `${completed} / ${total} steps`;
+        if (progressBar) progressBar.style.width = `${(completed / total) * 100}%`;
+    }
+
+    // Retry function for a single order
+    window.retryWithLotsOrder = async function(index) {
+        const data = window.withLotsPickReleaseData;
+        if (!data) return;
+
+        const order = data.orders[index];
+        const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+        console.log('[With Lots] Retrying order:', orderNumber);
+
+        // Disable retry button
+        const btn = document.querySelector(`#wl-retry-${index} button`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        }
+
+        // Retry Step 1
+        updateCellStatus(`wl-release-st-${index}`, 'processing');
+        try {
+            const result1 = await callReleasePickWaveAPI(orderNumber, data.warehouse, data.instance);
+            data.results[index].step1 = result1;
+
+            if (result1.success) {
+                updateCellStatus(`wl-release-st-${index}`, 'success');
+            } else {
+                updateCellStatus(`wl-release-st-${index}`, 'error', result1.error);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-redo"></i>';
+                }
+                return;
+            }
+        } catch (error) {
+            updateCellStatus(`wl-release-st-${index}`, 'error', error.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-redo"></i>';
+            }
+            return;
+        }
+
+        // Retry Step 2
+        updateCellStatus(`wl-get-picks-${index}`, 'processing');
+        try {
+            const result2 = await callGetPicksAPI(orderNumber, data.warehouse, data.instance);
+            data.results[index].step2 = result2;
+
+            if (result2.success) {
+                const count = result2.data?.items?.length || result2.data?.length || 0;
+                updateCellStatus(`wl-get-picks-${index}`, 'success', null, count);
+            } else {
+                updateCellStatus(`wl-get-picks-${index}`, 'error', result2.error);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-redo"></i>';
+                }
+                return;
+            }
+        } catch (error) {
+            updateCellStatus(`wl-get-picks-${index}`, 'error', error.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-redo"></i>';
+            }
+            return;
+        }
+
+        // Retry Step 3
+        updateCellStatus(`wl-get-lots-${index}`, 'processing');
+        try {
+            const result3 = await callGetPickLotsAPI(orderNumber, data.instance);
+            data.results[index].step3 = result3;
+
+            if (result3.success) {
+                const count = result3.data?.items?.length || result3.data?.length || 0;
+                updateCellStatus(`wl-get-lots-${index}`, 'success', null, count);
+            } else {
+                updateCellStatus(`wl-get-lots-${index}`, 'error', result3.error);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-redo"></i>';
+                }
+                return;
+            }
+        } catch (error) {
+            updateCellStatus(`wl-get-lots-${index}`, 'error', error.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-redo"></i>';
+            }
+            return;
+        }
+
+        // All steps successful - disable retry button
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-check"></i>';
+            btn.style.background = '#d1fae5';
+            btn.style.color = '#059669';
+        }
     };
 
     window.closeSalesPickReleaseModal = function() {
@@ -4592,17 +5099,107 @@ document.addEventListener('DOMContentLoaded', function() {
         const orders = window.pendingSalesOrdersForPickRelease || [];
         const tripId = window.pendingTripIdForPickRelease || 'N/A';
 
+        // Get current mode
+        const modeSelect = document.getElementById('pick-release-mode');
+        const mode = modeSelect ? modeSelect.value : 'no-lots';
+
         // Get sample order for display
         const sampleOrder = orders[0] || {};
         const sampleOrderNumber = sampleOrder.SOURCE_ORDER_NUMBER || sampleOrder.source_order_number || sampleOrder.ORDER_NUMBER || sampleOrder.order_number || '{orderNumber}';
         const instance = sampleOrder.INSTANCE_NAME || sampleOrder.instance_name || window.currentTripInstance || 'TEST';
+        const warehouse = 'GIC';
 
         const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
-        const fullUrl = `${baseUrl}/trip/pickrelease/oneorder/${sampleOrderNumber}?P_TRIP_ID1=${tripId}&P_INSTANCE_NAME=${instance}`;
+
+        let apiContent = '';
+
+        if (mode === 'with-lots') {
+            // With Lots mode - show 3 APIs
+            apiContent = `
+                <!-- Mode Badge -->
+                <div style="background: #dbeafe; padding: 0.5rem 1rem; border-radius: 6px; margin-bottom: 1rem; display: inline-block;">
+                    <span style="color: #1e40af; font-weight: 600; font-size: 12px;"><i class="fas fa-boxes"></i> Mode: With Lots (3-Step Process)</span>
+                </div>
+
+                <!-- Step 1: Release Pick Wave -->
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; border-left: 3px solid #3b82f6;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">STEP 1</span>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b; font-size: 12px;">Release Pick Wave</strong>
+                    </div>
+                    <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${baseUrl}/trip/callpickwave?warehouse=${warehouse}&order_number=${sampleOrderNumber}&p_instance_name=${instance}</code>
+                </div>
+
+                <!-- Step 2: Get Picks -->
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; border-left: 3px solid #10b981;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">STEP 2</span>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b; font-size: 12px;">Get Picks</strong>
+                    </div>
+                    <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${baseUrl}/trips/getopenpicksbyorder?organization_code=${warehouse}&order_number=${sampleOrderNumber}&p_instance_name=${instance}</code>
+                </div>
+
+                <!-- Step 3: Get Pick Lots -->
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; border-left: 3px solid #8b5cf6;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: #ede9fe; color: #5b21b6; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">STEP 3</span>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b; font-size: 12px;">Get Pick Lots</strong>
+                    </div>
+                    <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${baseUrl}/trip/getlotsforpicks?source_order_number=${sampleOrderNumber}&p_instance_name=${instance}</code>
+                </div>
+
+                <!-- Flow Note -->
+                <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                    <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Process Flow:</strong>
+                    <span style="color: #78350f; font-size: 11px;">
+                        Step 1 runs for ALL orders first, then Step 2 & 3 run per order sequentially. Total: ${orders.length * 3} API calls.
+                    </span>
+                </div>
+            `;
+        } else {
+            // No Lots mode - show single API
+            const fullUrl = `${baseUrl}/trip/pickrelease/oneorder/${sampleOrderNumber}?P_TRIP_ID1=${tripId}&P_INSTANCE_NAME=${instance}`;
+
+            apiContent = `
+                <!-- Mode Badge -->
+                <div style="background: #fef3c7; padding: 0.5rem 1rem; border-radius: 6px; margin-bottom: 1rem; display: inline-block;">
+                    <span style="color: #92400e; font-weight: 600; font-size: 12px;"><i class="fas fa-box"></i> Mode: No Lots (Single API)</span>
+                </div>
+
+                <!-- API Details -->
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #f59e0b;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span>
+                        <strong style="color: #1e293b; font-size: 12px;">Pick Release One Order</strong>
+                    </div>
+                    <div style="margin-bottom: 0.5rem;">
+                        <strong style="color: #4a5568; font-size: 11px;">Endpoint:</strong>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; display: block; margin-top: 4px;">trip/pickrelease/oneorder/{orderNumber}?P_TRIP_ID1={tripId}&P_INSTANCE_NAME={instance}</code>
+                    </div>
+                    <div style="margin-bottom: 0.5rem;">
+                        <strong style="color: #4a5568; font-size: 11px;">Sample Full URL:</strong>
+                        <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${fullUrl}</code>
+                    </div>
+                    <div style="margin-bottom: 0.5rem;">
+                        <strong style="color: #4a5568; font-size: 11px;">Request Body:</strong>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; display: block; margin-top: 4px;">{}</code>
+                    </div>
+                </div>
+
+                <!-- Note -->
+                <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                    <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Note:</strong>
+                    <span style="color: #78350f; font-size: 12px;">This API is called for each order sequentially. Total ${orders.length} API calls will be made.</span>
+                </div>
+            `;
+        }
 
         const popupHtml = `
             <div id="pick-release-api-info-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
-                <div style="background: white; width: 90%; max-width: 650px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                <div style="background: white; width: 90%; max-width: 750px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
                     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
                         <h3 style="margin: 0; font-size: 1.1rem;">
                             <i class="fas fa-code"></i> Pick Release API Information
@@ -4623,64 +5220,17 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td>
                                 </tr>
                                 <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Warehouse:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${warehouse}</td>
+                                </tr>
+                                <tr>
                                     <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Orders Count:</td>
                                     <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${orders.length}</td>
                                 </tr>
                             </table>
                         </div>
 
-                        <!-- API Details -->
-                        <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #f59e0b;">
-                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
-                                <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span>
-                                <strong style="color: #1e293b; font-size: 12px;">Pick Release One Order</strong>
-                            </div>
-                            <div style="margin-bottom: 0.5rem;">
-                                <strong style="color: #4a5568; font-size: 11px;">Endpoint:</strong>
-                                <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; display: block; margin-top: 4px;">trip/pickrelease/oneorder/{orderNumber}?P_TRIP_ID1={tripId}&P_INSTANCE_NAME={instance}</code>
-                            </div>
-                            <div style="margin-bottom: 0.5rem;">
-                                <strong style="color: #4a5568; font-size: 11px;">Sample Full URL:</strong>
-                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${fullUrl}</code>
-                            </div>
-                            <div style="margin-bottom: 0.5rem;">
-                                <strong style="color: #4a5568; font-size: 11px;">Request Body:</strong>
-                                <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; display: block; margin-top: 4px;">{}</code>
-                            </div>
-                        </div>
-
-                        <!-- Parameters -->
-                        <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; border-left: 4px solid #22c55e;">
-                            <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">Parameters</div>
-                            <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
-                                <tr style="background: #dcfce7;">
-                                    <th style="padding: 6px 8px; border: 1px solid #86efac; text-align: left;">Parameter</th>
-                                    <th style="padding: 6px 8px; border: 1px solid #86efac; text-align: left;">Type</th>
-                                    <th style="padding: 6px 8px; border: 1px solid #86efac; text-align: left;">Description</th>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac; font-weight: 600;">{orderNumber}</td>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac;">Path</td>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac;">Order number to pick release</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac; font-weight: 600;">P_TRIP_ID1</td>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac;">Query</td>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac;">Trip ID</td>
-                                </tr>
-                                <tr>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac; font-weight: 600;">P_INSTANCE_NAME</td>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac;">Query</td>
-                                    <td style="padding: 6px 8px; border: 1px solid #86efac;">Instance name (TEST/PROD)</td>
-                                </tr>
-                            </table>
-                        </div>
-
-                        <!-- Note -->
-                        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; margin-top: 1rem; border-left: 4px solid #f59e0b;">
-                            <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Note:</strong>
-                            <span style="color: #78350f; font-size: 12px;">This API is called for each order sequentially. Total ${orders.length} API calls will be made.</span>
-                        </div>
+                        ${apiContent}
                     </div>
                     <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end;">
                         <button onclick="document.getElementById('pick-release-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
