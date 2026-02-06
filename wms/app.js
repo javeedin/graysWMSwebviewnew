@@ -4522,6 +4522,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <i class="fas fa-redo"></i>
                         </button>
                     </td>
+                    <td id="wl-time-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 10px; color: #64748b;">
+                        -
+                    </td>
                 </tr>
             `;
         });
@@ -4611,6 +4614,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Get Picks</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Get Pick Lots</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Retry</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Time</th>
                                             </tr>
                                         </thead>
                                         <tbody id="with-lots-orders-table">
@@ -4716,6 +4720,10 @@ document.addEventListener('DOMContentLoaded', function() {
     window.startWithLotsPickRelease = async function(orders, tripId) {
         console.log('[With Lots Pick Release] Starting 3-step process for', orders.length, 'orders');
 
+        // Track overall timing
+        const overallStartTime = Date.now();
+        const orderStartTimes = [];
+
         // Show progress section
         const progressSection = document.getElementById('with-lots-progress-section');
         if (progressSection) progressSection.style.display = 'block';
@@ -4746,6 +4754,9 @@ document.addEventListener('DOMContentLoaded', function() {
         for (let i = 0; i < orders.length; i++) {
             const order = orders[i];
             const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            // Track start time for this order
+            orderStartTimes[i] = Date.now();
 
             updateCellStatus(`wl-release-st-${i}`, 'processing');
 
@@ -4787,6 +4798,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateCellStatus(`wl-get-lots-${i}`, 'skipped');
                 completedSteps += 2;
                 updateWithLotsProgress(completedSteps, totalSteps);
+                // Update time for this row
+                updateOrderTime(i, orderStartTimes[i]);
                 continue;
             }
 
@@ -4839,6 +4852,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             completedSteps++;
             updateWithLotsProgress(completedSteps, totalSteps);
+
+            // Update time for this row
+            updateOrderTime(i, orderStartTimes[i]);
         }
 
         // Mark steps complete
@@ -4846,6 +4862,23 @@ document.addEventListener('DOMContentLoaded', function() {
         updateStepIndicator(3, 'complete');
         document.getElementById('step-2-status').textContent = 'Complete';
         document.getElementById('step-3-status').textContent = 'Complete';
+
+        // Calculate and display total time
+        const totalTime = Date.now() - overallStartTime;
+        const totalTimeFormatted = formatDuration(totalTime);
+
+        // Show total time summary
+        const progressSection2 = document.getElementById('with-lots-progress-section');
+        if (progressSection2) {
+            const totalTimeDiv = document.createElement('div');
+            totalTimeDiv.style.cssText = 'margin-top: 1rem; padding: 0.75rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 8px; text-align: center;';
+            totalTimeDiv.innerHTML = `
+                <span style="color: white; font-weight: 600; font-size: 14px;">
+                    <i class="fas fa-clock"></i> Total Time: ${totalTimeFormatted}
+                </span>
+            `;
+            progressSection2.appendChild(totalTimeDiv);
+        }
 
         // Update button to show completed
         const btn = document.getElementById('btn-start-pick-release');
@@ -4857,7 +4890,7 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.onclick = function() { closeSalesPickReleaseModal(); };
         }
 
-        console.log('[With Lots Pick Release] Process complete');
+        console.log('[With Lots Pick Release] Process complete. Total time:', totalTimeFormatted);
     };
 
     // API Call Functions
@@ -4969,6 +5002,28 @@ document.addEventListener('DOMContentLoaded', function() {
             cell.innerHTML = `<span style="color: #ef4444;" title="${errorMsg || 'Error'}"><i class="fas fa-times-circle" style="font-size: 12px;"></i></span>`;
         } else if (status === 'skipped') {
             cell.innerHTML = '<span style="color: #94a3b8;"><i class="fas fa-minus-circle" style="font-size: 12px;"></i></span>';
+        }
+    }
+
+    // Format duration in ms to readable format (e.g., "1m 23s" or "45s" or "1.2s")
+    function formatDuration(ms) {
+        if (ms < 1000) {
+            return `${ms}ms`;
+        } else if (ms < 60000) {
+            return `${(ms / 1000).toFixed(1)}s`;
+        } else {
+            const minutes = Math.floor(ms / 60000);
+            const seconds = ((ms % 60000) / 1000).toFixed(0);
+            return `${minutes}m ${seconds}s`;
+        }
+    }
+
+    // Update time cell for a specific order row
+    function updateOrderTime(index, startTime) {
+        const elapsed = Date.now() - startTime;
+        const timeCell = document.getElementById(`wl-time-${index}`);
+        if (timeCell) {
+            timeCell.innerHTML = `<span style="color: #3b82f6; font-weight: 500;">${formatDuration(elapsed)}</span>`;
         }
     }
 
