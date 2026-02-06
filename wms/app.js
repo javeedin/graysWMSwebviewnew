@@ -11667,11 +11667,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Check if any trip details grid is available
     function isTripDetailsGridAvailable() {
+        // Check global instance first
         if (window.tripDetailsGridInstance) return true;
+
+        // Check for single trip detail grids (grid-{tripId} pattern)
+        try {
+            const tripGrids = document.querySelectorAll('[id^="grid-"]');
+            for (const grid of tripGrids) {
+                if ($(grid).dxDataGrid('instance')) return true;
+            }
+        } catch (e) {}
+
+        // Check for other trip-related grids
         try {
             const gridContainer = document.querySelector('#trip-details-grid, [id*="trip"][id*="grid"]');
             if (gridContainer && $(gridContainer).dxDataGrid('instance')) return true;
         } catch (e) {}
+
         return false;
     }
 
@@ -11679,34 +11691,53 @@ document.addEventListener('DOMContentLoaded', function() {
     function getSelectedOrdersFromGrid() {
         let selectedOrders = [];
 
-        // Try trip details grid first
+        // Try global tripDetailsGridInstance first (All Trip Details tab)
         if (window.tripDetailsGridInstance) {
             try {
                 selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData() || [];
                 if (selectedOrders.length > 0) {
                     console.log('[Action Float] tripDetailsGridInstance selected:', selectedOrders.length);
+                    return selectedOrders;
                 }
             } catch (e) {
                 console.log('[Action Float] Error getting selected from tripDetailsGridInstance:', e);
             }
         }
 
-        // If no selection, try to find grid from DOM
-        if (selectedOrders.length === 0) {
-            try {
-                const gridContainer = document.querySelector('#trip-details-grid, [id*="trip"][id*="grid"]');
-                if (gridContainer) {
-                    const gridInstance = $(gridContainer).dxDataGrid('instance');
+        // Try single trip detail grids (grid-{tripId} pattern) - most common case
+        try {
+            const tripGrids = document.querySelectorAll('[id^="grid-"]');
+            for (const grid of tripGrids) {
+                try {
+                    const gridInstance = $(grid).dxDataGrid('instance');
                     if (gridInstance) {
-                        selectedOrders = gridInstance.getSelectedRowsData() || [];
-                        if (selectedOrders.length > 0) {
-                            console.log('[Action Float] DOM grid selected:', selectedOrders.length);
+                        const rows = gridInstance.getSelectedRowsData() || [];
+                        if (rows.length > 0) {
+                            console.log('[Action Float] Single trip grid selected:', rows.length, 'from', grid.id);
+                            return rows;
                         }
                     }
-                }
-            } catch (e) {
-                console.log('[Action Float] Error getting from DOM grid:', e);
+                } catch (e) {}
             }
+        } catch (e) {
+            console.log('[Action Float] Error checking single trip grids:', e);
+        }
+
+        // Try other trip-related grids
+        try {
+            const gridContainer = document.querySelector('#trip-details-grid, [id*="trip"][id*="grid"]');
+            if (gridContainer) {
+                const gridInstance = $(gridContainer).dxDataGrid('instance');
+                if (gridInstance) {
+                    selectedOrders = gridInstance.getSelectedRowsData() || [];
+                    if (selectedOrders.length > 0) {
+                        console.log('[Action Float] DOM grid selected:', selectedOrders.length);
+                        return selectedOrders;
+                    }
+                }
+            }
+        } catch (e) {
+            console.log('[Action Float] Error getting from DOM grid:', e);
         }
 
         return selectedOrders;
