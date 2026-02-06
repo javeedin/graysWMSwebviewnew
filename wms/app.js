@@ -3476,6 +3476,21 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-info" onclick="refreshTripDetails('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-sync-alt"></i> Refresh
                             </button>
+                            <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-user-check"></i> Assign Picker
+                            </button>
+                            <button class="btn btn-success" onclick="allocateLotsForS2V('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-boxes"></i> Allocate Lots for S2V
+                            </button>
+                            <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-truck-loading"></i> Pick Release All
+                            </button>
+                            <button class="btn" onclick="showTripLines('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
+                                <i class="fas fa-list-alt"></i> Show Lines
+                            </button>
+                            <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                                <i class="fas fa-plus"></i> Add Orders
+                            </button>
                         </div>
                     </div>
                     <div id="grid-${tabId}" style="height: 500px;"></div>
