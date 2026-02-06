@@ -1772,6 +1772,131 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // Show Trip Management API Info popup
+    window.showTripManagementApiInfo = function() {
+        const instanceName = document.getElementById('trip-instance-name')?.value || 'TEST';
+        const dateFrom = document.getElementById('trip-date-from')?.value || '2026-02-01';
+        const dateTo = document.getElementById('trip-date-to')?.value || '2026-02-07';
+
+        // Format dates for API 1
+        const formatDate = (dateStr) => {
+            const d = new Date(dateStr);
+            return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+        };
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT';
+
+        // API URLs
+        const fetchTripsUrl = `${baseUrl}/GETTRIPDETAILS?P_DATE_FROM=${formatDate(dateFrom)}&P_DATE_TO=${formatDate(dateTo)}&P_INSTANCE_NAME=${instanceName}`;
+        const allTripDetailsUrl = `${baseUrl}/GETTRIPDETAILS/ALL?P_FROM_DATE=${dateFrom}&P_TO_DATE=${dateTo}`;
+        const viewDetailsUrl = `${baseUrl}/GETTRIPDETAILS/{tripId}?P_INSTANCE_NAME=${instanceName}`;
+
+        // Remove existing popup
+        const existingPopup = document.getElementById('trip-api-info-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Create popup
+        const popup = document.createElement('div');
+        popup.id = 'trip-api-info-popup';
+        popup.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            z-index: 100000;
+            width: 90%;
+            max-width: 700px;
+            max-height: 85vh;
+            overflow: hidden;
+        `;
+
+        popup.innerHTML = `
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="font-weight: 600; font-size: 16px;">
+                    <i class="fas fa-code"></i> Trip Management APIs
+                </div>
+                <button onclick="document.getElementById('trip-api-info-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 10px; border-radius: 6px; cursor: pointer;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div style="padding: 20px; overflow-y: auto; max-height: calc(85vh - 60px);">
+                <!-- API 1: Fetch Trips -->
+                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #6366f1;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <span style="background: #6366f1; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b;">Fetch Trips (All Trips Tab)</strong>
+                    </div>
+                    <p style="color: #64748b; font-size: 12px; margin-bottom: 10px;">Called when clicking "Fetch Trips" button. Returns list of trips for the selected date range.</p>
+                    <div style="background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all; position: relative;">
+                        <button onclick="navigator.clipboard.writeText(this.nextElementSibling.textContent); this.innerHTML='<i class=\\'fas fa-check\\'></i>'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i>', 2000)" style="position: absolute; top: 8px; right: 8px; background: #374151; border: none; color: #9ca3af; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <code>${fetchTripsUrl}</code>
+                    </div>
+                </div>
+
+                <!-- API 2: All Trip Details -->
+                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #10b981;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <span style="background: #10b981; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b;">All Trip Details (All Trip Details Tab)</strong>
+                    </div>
+                    <p style="color: #64748b; font-size: 12px; margin-bottom: 10px;">Called simultaneously with Fetch Trips. Returns all order details across all trips.</p>
+                    <div style="background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all; position: relative;">
+                        <button onclick="navigator.clipboard.writeText(this.nextElementSibling.textContent); this.innerHTML='<i class=\\'fas fa-check\\'></i>'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i>', 2000)" style="position: absolute; top: 8px; right: 8px; background: #374151; border: none; color: #9ca3af; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <code>${allTripDetailsUrl}</code>
+                    </div>
+                </div>
+
+                <!-- API 3: View Details -->
+                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #f59e0b;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <span style="background: #f59e0b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b;">View Details (Single Trip)</strong>
+                    </div>
+                    <p style="color: #64748b; font-size: 12px; margin-bottom: 10px;">Called when clicking "View Details" on a trip card. Returns orders for a specific trip.</p>
+                    <div style="background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all; position: relative;">
+                        <button onclick="navigator.clipboard.writeText(this.nextElementSibling.textContent); this.innerHTML='<i class=\\'fas fa-check\\'></i>'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i>', 2000)" style="position: absolute; top: 8px; right: 8px; background: #374151; border: none; color: #9ca3af; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <code>${viewDetailsUrl}</code>
+                    </div>
+                    <p style="color: #94a3b8; font-size: 11px; margin-top: 8px; font-style: italic;">
+                        <i class="fas fa-info-circle"></i> Replace <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 3px;">{tripId}</code> with actual trip ID (e.g., 2901)
+                    </p>
+                </div>
+
+                <!-- Parameters Info -->
+                <div style="background: #fef3c7; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                    <div style="font-weight: 600; color: #92400e; margin-bottom: 8px;">
+                        <i class="fas fa-lightbulb"></i> Current Parameters
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 12px;">
+                        <div>
+                            <span style="color: #92400e;">Instance:</span>
+                            <span style="font-weight: 600; color: #78350f;">${instanceName}</span>
+                        </div>
+                        <div>
+                            <span style="color: #92400e;">From:</span>
+                            <span style="font-weight: 600; color: #78350f;">${dateFrom}</span>
+                        </div>
+                        <div>
+                            <span style="color: #92400e;">To:</span>
+                            <span style="font-weight: 600; color: #78350f;">${dateTo}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(popup);
+    };
+
     function displayTripData(trips) {
         console.log('[Fetch Trips] displayTripData called with', trips ? trips.length : 0, 'trips');
 
