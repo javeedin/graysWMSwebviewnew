@@ -4751,7 +4751,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 transition: all 0.3s ease;
             `;
             floatingDiv.onclick = function() {
-                showFloatingProgressDetails();
+                reopenPickReleasePopup();
             };
             document.body.appendChild(floatingDiv);
         }
@@ -4877,6 +4877,133 @@ document.addEventListener('DOMContentLoaded', function() {
         if (detailsPopup) detailsPopup.remove();
     }
 
+    // Reopen the Pick Release popup and restore current state
+    function reopenPickReleasePopup() {
+        const data = window.withLotsPickReleaseData;
+        if (!data || !data.orders) {
+            console.log('[Pick Release] No data to restore');
+            return;
+        }
+
+        // Hide floating indicator
+        hideFloatingIndicator();
+
+        // Reopen the popup with the stored orders
+        processSalesOrderPickRelease(data.orders, data.tripId);
+
+        // After popup is created, restore the state of each cell
+        setTimeout(() => {
+            // Switch to With Lots mode
+            const modeSelect = document.getElementById('pick-release-mode');
+            if (modeSelect) {
+                modeSelect.value = 'with-lots';
+                togglePickReleaseMode();
+            }
+
+            // Show progress section
+            const progressSection = document.getElementById('with-lots-progress-section');
+            if (progressSection) progressSection.style.display = 'block';
+
+            // Restore state for each order
+            data.orders.forEach((order, i) => {
+                const result = data.results[i];
+
+                // Restore Total Lines
+                if (window.pickReleaseProcessingState.totalLinesCount && window.pickReleaseProcessingState.totalLinesCount[i] !== undefined) {
+                    const linesCell = document.getElementById(`wl-total-lines-${i}`);
+                    if (linesCell) {
+                        linesCell.innerHTML = `<span style="font-weight: 600;">${window.pickReleaseProcessingState.totalLinesCount[i]}</span>`;
+                    }
+                }
+
+                // Restore Step 1 status
+                if (result.step1 !== null) {
+                    if (result.step1.success) {
+                        updateCellStatus(`wl-release-st-${i}`, 'success');
+                    } else {
+                        updateCellStatus(`wl-release-st-${i}`, 'error', result.step1.error);
+                        enableRetryButton(i);
+                    }
+                } else if (window.pickReleaseProcessingState.isProcessing) {
+                    // Still processing, might be on this step
+                    updateCellStatus(`wl-release-st-${i}`, 'processing');
+                }
+
+                // Restore Step 2 status
+                if (result.step2 !== null) {
+                    if (result.step2.success) {
+                        const count = result.step2.data?.RECORDCOUNT || result.step2.data?.recordcount || 0;
+                        updateCellStatus(`wl-get-picks-${i}`, 'success', null, count);
+                    } else {
+                        updateCellStatus(`wl-get-picks-${i}`, 'error', result.step2.error);
+                        enableRetryButton(i);
+                    }
+                } else if (result.step1?.success && window.pickReleaseProcessingState.isProcessing) {
+                    updateCellStatus(`wl-get-picks-${i}`, 'processing');
+                } else if (!result.step1?.success && result.step1 !== null) {
+                    updateCellStatus(`wl-get-picks-${i}`, 'skipped');
+                }
+
+                // Restore Step 3 status
+                if (result.step3 !== null) {
+                    if (result.step3.success) {
+                        const count = result.step3.data?.RECORDCOUNT || result.step3.data?.recordcount || 0;
+                        updateCellStatus(`wl-get-lots-${i}`, 'success', null, count);
+                    } else {
+                        updateCellStatus(`wl-get-lots-${i}`, 'error', result.step3.error);
+                        enableRetryButton(i);
+                    }
+                } else if (result.step2?.success && window.pickReleaseProcessingState.isProcessing) {
+                    updateCellStatus(`wl-get-lots-${i}`, 'processing');
+                } else if (!result.step2?.success && result.step2 !== null) {
+                    updateCellStatus(`wl-get-lots-${i}`, 'skipped');
+                }
+            });
+
+            // Update step indicators based on current state
+            const state = window.pickReleaseProcessingState;
+            if (state.currentStep.includes('Step 1')) {
+                updateStepIndicator(1, 'in-progress');
+            } else if (state.currentStep.includes('Step 2') || state.currentStep.includes('Processing')) {
+                updateStepIndicator(1, 'complete');
+                updateStepIndicator(2, 'in-progress');
+            }
+
+            if (!state.isProcessing) {
+                updateStepIndicator(1, 'complete');
+                updateStepIndicator(2, 'complete');
+                updateStepIndicator(3, 'complete');
+                document.getElementById('step-1-status').textContent = 'Complete';
+                document.getElementById('step-2-status').textContent = 'Complete';
+                document.getElementById('step-3-status').textContent = 'Complete';
+
+                // Update button to show completed
+                const btn = document.getElementById('btn-start-pick-release');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Completed';
+                    btn.style.opacity = '1';
+                    btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                    btn.onclick = function() { closeSalesPickReleaseModal(); };
+                }
+            } else {
+                // Disable the start button while processing
+                const btn = document.getElementById('btn-start-pick-release');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                    btn.style.opacity = '0.7';
+                }
+            }
+
+            // Update progress bar
+            const completedOrders = state.completedOrders || 0;
+            const totalOrders = state.totalOrders || data.orders.length;
+            updateWithLotsProgress(completedOrders * 3, totalOrders * 3);
+
+        }, 100); // Small delay to ensure popup is rendered
+    }
+
     // ============================================================================
     // WITH LOTS PICK RELEASE - 3 Step Process
     // Step 1: Release Pick Wave (for all orders)
@@ -4938,6 +5065,9 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
         await Promise.all(totalLinesPromises);
+
+        // Store total lines count in processing state for popup restoration
+        window.pickReleaseProcessingState.totalLinesCount = totalLinesCount;
 
         // Update step indicator to show Step 1 in progress
         updateStepIndicator(1, 'in-progress');
