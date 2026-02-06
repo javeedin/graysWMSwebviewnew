@@ -4798,7 +4798,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 window.withLotsPickReleaseData.results[i].step2 = picksResult;
 
                 if (picksResult.success) {
-                    const count = picksResult.data?.items?.length || picksResult.data?.length || 0;
+                    const count = picksResult.data?.RECORDCOUNT || picksResult.data?.recordcount || picksResult.data?.items?.length || 0;
                     updateCellStatus(`wl-get-picks-${i}`, 'success', null, count);
                 } else {
                     updateCellStatus(`wl-get-picks-${i}`, 'error', picksResult.error);
@@ -4822,7 +4822,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     window.withLotsPickReleaseData.results[i].step3 = lotsResult;
 
                     if (lotsResult.success) {
-                        const count = lotsResult.data?.items?.length || lotsResult.data?.length || 0;
+                        const count = lotsResult.data?.RECORDCOUNT || lotsResult.data?.recordcount || lotsResult.data?.items?.length || 0;
                         updateCellStatus(`wl-get-lots-${i}`, 'success', null, count);
                     } else {
                         updateCellStatus(`wl-get-lots-${i}`, 'error', lotsResult.error);
@@ -5035,7 +5035,7 @@ document.addEventListener('DOMContentLoaded', function() {
             data.results[index].step2 = result2;
 
             if (result2.success) {
-                const count = result2.data?.items?.length || result2.data?.length || 0;
+                const count = result2.data?.RECORDCOUNT || result2.data?.recordcount || result2.data?.items?.length || 0;
                 updateCellStatus(`wl-get-picks-${index}`, 'success', null, count);
             } else {
                 updateCellStatus(`wl-get-picks-${index}`, 'error', result2.error);
@@ -5061,7 +5061,7 @@ document.addEventListener('DOMContentLoaded', function() {
             data.results[index].step3 = result3;
 
             if (result3.success) {
-                const count = result3.data?.items?.length || result3.data?.length || 0;
+                const count = result3.data?.RECORDCOUNT || result3.data?.recordcount || result3.data?.items?.length || 0;
                 updateCellStatus(`wl-get-lots-${index}`, 'success', null, count);
             } else {
                 updateCellStatus(`wl-get-lots-${index}`, 'error', result3.error);
