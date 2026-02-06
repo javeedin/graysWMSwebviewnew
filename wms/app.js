@@ -4720,8 +4720,17 @@ document.addEventListener('DOMContentLoaded', function() {
         isProcessing: false,
         totalOrders: 0,
         completedOrders: 0,
+        completedSteps: 0,
+        totalSteps: 0,
         currentStep: '',
-        startTime: null
+        startTime: null,
+        // Individual stage tracking
+        step1Status: 'pending', // pending, in-progress, complete
+        step2Status: 'pending',
+        step3Status: 'pending',
+        step1Count: 0,  // Orders completed in step 1
+        step2Count: 0,  // Orders completed in step 2
+        step3Count: 0   // Orders completed in step 3
     };
 
     // Create or update floating indicator
@@ -4785,18 +4794,31 @@ document.addEventListener('DOMContentLoaded', function() {
                 hideFloatingIndicator();
             }, 10000);
         } else {
-            // Still processing
-            const progress = state.totalOrders > 0 ? Math.round((state.completedOrders / state.totalOrders) * 100) : 0;
+            // Still processing - calculate progress based on steps
+            const progress = state.totalSteps > 0 ? Math.round((state.completedSteps / state.totalSteps) * 100) : 0;
+
+            // Get step status icons
+            const getStepIcon = (status, count, total) => {
+                if (status === 'complete') return `<i class="fas fa-check-circle" style="color: #86efac;"></i> ${count}/${total}`;
+                if (status === 'in-progress') return `<i class="fas fa-spinner fa-spin" style="color: #fef08a;"></i> ${count}/${total}`;
+                return `<i class="fas fa-clock" style="color: rgba(255,255,255,0.5);"></i> 0/${total}`;
+            };
+
+            const totalOrders = state.totalOrders || 0;
+
             floatingDiv.innerHTML = `
-                <i class="fas fa-spinner fa-spin" style="font-size: 18px;"></i>
                 <div style="flex: 1;">
-                    <div style="font-weight: 600;">Pick Release Running...</div>
-                    <div style="font-size: 11px; opacity: 0.9;">${state.currentStep}</div>
-                    <div style="background: rgba(255,255,255,0.3); border-radius: 4px; height: 4px; margin-top: 6px; overflow: hidden;">
+                    <div style="font-weight: 600; margin-bottom: 6px;">Pick Release Running...</div>
+                    <div style="display: flex; gap: 8px; font-size: 10px; margin-bottom: 6px;">
+                        <span title="Step 1: Release Pick Wave">S1: ${getStepIcon(state.step1Status, state.step1Count, totalOrders)}</span>
+                        <span title="Step 2: Get Picks">S2: ${getStepIcon(state.step2Status, state.step2Count, totalOrders)}</span>
+                        <span title="Step 3: Get Lots">S3: ${getStepIcon(state.step3Status, state.step3Count, totalOrders)}</span>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.3); border-radius: 4px; height: 6px; overflow: hidden;">
                         <div style="background: white; height: 100%; width: ${progress}%; transition: width 0.3s;"></div>
                     </div>
                 </div>
-                <div style="font-size: 16px; font-weight: 700;">${progress}%</div>
+                <div style="font-size: 18px; font-weight: 700; margin-left: 10px;">${progress}%</div>
             `;
         }
     }
@@ -5027,8 +5049,16 @@ document.addEventListener('DOMContentLoaded', function() {
             isProcessing: true,
             totalOrders: orders.length,
             completedOrders: 0,
+            completedSteps: 0,
+            totalSteps: orders.length * 3, // 3 steps per order
             currentStep: 'Starting...',
-            startTime: overallStartTime
+            startTime: overallStartTime,
+            step1Status: 'pending',
+            step2Status: 'pending',
+            step3Status: 'pending',
+            step1Count: 0,
+            step2Count: 0,
+            step3Count: 0
         };
 
         // Show progress section
@@ -5078,6 +5108,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Update processing state
         window.pickReleaseProcessingState.currentStep = 'Step 1: Release Pick Wave';
+        window.pickReleaseProcessingState.step1Status = 'in-progress';
         updateFloatingIndicator();
 
         for (let i = 0; i < orders.length; i++) {
@@ -5107,18 +5138,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
             completedSteps++;
             updateWithLotsProgress(completedSteps, totalSteps);
+
+            // Update floating indicator with step 1 progress
+            window.pickReleaseProcessingState.step1Count = i + 1;
+            window.pickReleaseProcessingState.completedSteps = completedSteps;
+            updateFloatingIndicator();
         }
 
         // Mark Step 1 complete
         updateStepIndicator(1, 'complete');
         document.getElementById('step-1-status').textContent = 'Complete';
 
+        // Update floating indicator - Step 1 complete
+        window.pickReleaseProcessingState.step1Status = 'complete';
+        updateFloatingIndicator();
+
         // STEP 2 & 3: Total Picks and Lots in the Pick per order
         updateStepIndicator(2, 'in-progress');
         document.getElementById('step-2-status').textContent = 'In Progress...';
 
         // Update processing state
-        window.pickReleaseProcessingState.currentStep = 'Step 2 & 3: Fetching Picks & Lots';
+        window.pickReleaseProcessingState.currentStep = 'Step 2: Fetching Picks';
+        window.pickReleaseProcessingState.step2Status = 'in-progress';
         updateFloatingIndicator();
 
         for (let i = 0; i < orders.length; i++) {
@@ -5162,7 +5203,15 @@ document.addEventListener('DOMContentLoaded', function() {
             completedSteps++;
             updateWithLotsProgress(completedSteps, totalSteps);
 
+            // Update floating indicator with step 2 progress
+            window.pickReleaseProcessingState.step2Count = i + 1;
+            window.pickReleaseProcessingState.completedSteps = completedSteps;
+            updateFloatingIndicator();
+
             // Step 3: Lots in the Pick (only if Step 2 was successful)
+            window.pickReleaseProcessingState.currentStep = 'Step 3: Fetching Lots';
+            window.pickReleaseProcessingState.step3Status = 'in-progress';
+
             if (window.withLotsPickReleaseData.results[i].step2?.success) {
                 updateCellStatus(`wl-get-lots-${i}`, 'processing');
 
@@ -5189,6 +5238,10 @@ document.addEventListener('DOMContentLoaded', function() {
             completedSteps++;
             updateWithLotsProgress(completedSteps, totalSteps);
 
+            // Update floating indicator with step 3 progress
+            window.pickReleaseProcessingState.step3Count = i + 1;
+            window.pickReleaseProcessingState.completedSteps = completedSteps;
+
             // Update time for this row
             updateOrderTime(i, orderStartTimes[i]);
 
@@ -5203,6 +5256,11 @@ document.addEventListener('DOMContentLoaded', function() {
         updateStepIndicator(3, 'complete');
         document.getElementById('step-2-status').textContent = 'Complete';
         document.getElementById('step-3-status').textContent = 'Complete';
+
+        // Update floating indicator - all steps complete
+        window.pickReleaseProcessingState.step2Status = 'complete';
+        window.pickReleaseProcessingState.step3Status = 'complete';
+        updateFloatingIndicator();
 
         // Mark orders where Total Lines < Total Picks (mismatch warning)
         let mismatchCount = 0;
