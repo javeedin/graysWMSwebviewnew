@@ -3593,7 +3593,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add Actions column at the beginning
             columns.unshift({
                 caption: 'Actions',
-                width: 180,
+                width: 60,
                 alignment: 'center',
                 allowFiltering: false,
                 allowSorting: false,
@@ -4760,7 +4760,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 transition: all 0.3s ease;
             `;
             floatingDiv.onclick = function() {
-                reopenPickReleasePopup();
+                showFloatingProgressDetails();
             };
             document.body.appendChild(floatingDiv);
         }
@@ -4831,53 +4831,94 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!data) return;
 
         const elapsed = state.startTime ? formatDuration(Date.now() - state.startTime) : '-';
+        const progress = state.totalSteps > 0 ? Math.round((state.completedSteps / state.totalSteps) * 100) : 0;
+
+        // Step status helper
+        const getStepStatusIcon = (status) => {
+            if (status === 'complete') return '<i class="fas fa-check-circle" style="color: #10b981;"></i>';
+            if (status === 'in-progress') return '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
+            return '<i class="fas fa-clock" style="color: #94a3b8;"></i>';
+        };
 
         let detailsHtml = `
-            <div id="floating-details-popup" style="position: fixed; bottom: 80px; right: 20px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 99998; width: 350px; max-height: 400px; overflow: hidden;">
-                <div style="padding: 12px 16px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; display: flex; justify-content: space-between; align-items: center;">
+            <div id="floating-details-popup" style="position: fixed; bottom: 80px; right: 20px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 99998; width: 400px; max-height: 450px; overflow: hidden;">
+                <div style="padding: 12px 16px; background: linear-gradient(135deg, ${state.isProcessing ? '#f59e0b, #d97706' : '#10b981, #059669'}); color: white; display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-weight: 600;"><i class="fas fa-tasks"></i> Pick Release Progress</span>
-                    <button onclick="document.getElementById('floating-details-popup').remove();" style="background: none; border: none; color: white; cursor: pointer; font-size: 16px;">&times;</button>
+                    <button onclick="document.getElementById('floating-details-popup').remove();" style="background: none; border: none; color: white; cursor: pointer; font-size: 18px;">&times;</button>
                 </div>
-                <div style="padding: 12px 16px; max-height: 300px; overflow-y: auto;">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 12px;">
-                        <span><strong>Status:</strong> ${state.isProcessing ? 'Processing...' : 'Complete'}</span>
-                        <span><strong>Time:</strong> ${elapsed}</span>
+                <div style="padding: 12px 16px;">
+                    <!-- Overall Progress Bar -->
+                    <div style="margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
+                            <span><strong>${state.isProcessing ? 'Processing...' : 'Complete!'}</strong></span>
+                            <span><strong>${progress}%</strong> | ${elapsed}</span>
+                        </div>
+                        <div style="background: #e2e8f0; border-radius: 4px; height: 8px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #10b981, #059669); height: 100%; width: ${progress}%; transition: width 0.3s;"></div>
+                        </div>
                     </div>
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 12px;">
-                        <span><strong>Orders:</strong> ${state.completedOrders} / ${state.totalOrders}</span>
-                        <span><strong>Step:</strong> ${state.currentStep}</span>
+
+                    <!-- Step Summary -->
+                    <div style="display: flex; gap: 12px; margin-bottom: 12px; padding: 10px; background: #f8fafc; border-radius: 8px;">
+                        <div style="flex: 1; text-align: center;">
+                            ${getStepStatusIcon(state.step1Status)}
+                            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Release</div>
+                            <div style="font-size: 11px; font-weight: 600;">${state.step1Count}/${state.totalOrders}</div>
+                        </div>
+                        <div style="flex: 1; text-align: center;">
+                            ${getStepStatusIcon(state.step2Status)}
+                            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Picks</div>
+                            <div style="font-size: 11px; font-weight: 600;">${state.step2Count}/${state.totalOrders}</div>
+                        </div>
+                        <div style="flex: 1; text-align: center;">
+                            ${getStepStatusIcon(state.step3Status)}
+                            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Lots</div>
+                            <div style="font-size: 11px; font-weight: 600;">${state.step3Count}/${state.totalOrders}</div>
+                        </div>
                     </div>
-                    <div style="border-top: 1px solid #e2e8f0; padding-top: 10px; margin-top: 10px;">
-                        <div style="font-size: 11px; color: #64748b; margin-bottom: 6px;">Order Progress:</div>
+
+                    <!-- Order Details -->
+                    <div style="border-top: 1px solid #e2e8f0; padding-top: 10px; max-height: 200px; overflow-y: auto;">
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 6px; font-weight: 600;">Order Details:</div>
+                        <table style="width: 100%; font-size: 10px; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f1f5f9;">
+                                    <th style="padding: 4px; text-align: left;">Order</th>
+                                    <th style="padding: 4px; text-align: center;">S1</th>
+                                    <th style="padding: 4px; text-align: center;">S2</th>
+                                    <th style="padding: 4px; text-align: center;">S3</th>
+                                </tr>
+                            </thead>
+                            <tbody>
         `;
 
-        // Show order status
+        // Show order status with individual steps
         if (data.orders) {
             data.orders.forEach((order, i) => {
                 const orderNum = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
                 const result = data.results[i];
-                let status = 'pending';
-                let statusIcon = '<i class="fas fa-clock" style="color: #94a3b8;"></i>';
 
-                if (result.step3 !== null) {
-                    status = result.step3.success ? 'complete' : 'error';
-                    statusIcon = result.step3.success ? '<i class="fas fa-check-circle" style="color: #10b981;"></i>' : '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
-                } else if (result.step2 !== null) {
-                    statusIcon = '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
-                } else if (result.step1 !== null) {
-                    statusIcon = '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
-                }
+                // Get status icon for each step
+                const getResultIcon = (stepResult) => {
+                    if (stepResult === null) return '<i class="fas fa-clock" style="color: #94a3b8;"></i>';
+                    if (stepResult.success) return '<i class="fas fa-check" style="color: #10b981;"></i>';
+                    return '<i class="fas fa-times" style="color: #ef4444;"></i>';
+                };
 
                 detailsHtml += `
-                    <div style="display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 11px;">
-                        ${statusIcon}
-                        <span>${orderNum}</span>
-                    </div>
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 4px; font-weight: 500;">${orderNum}</td>
+                        <td style="padding: 4px; text-align: center;">${getResultIcon(result.step1)}</td>
+                        <td style="padding: 4px; text-align: center;">${getResultIcon(result.step2)}</td>
+                        <td style="padding: 4px; text-align: center;">${getResultIcon(result.step3)}</td>
+                    </tr>
                 `;
             });
         }
 
         detailsHtml += `
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
