@@ -6452,24 +6452,93 @@ document.addEventListener('DOMContentLoaded', function() {
         const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
         console.log('[Order Transactions] Using instance:', instance);
 
-        // Show loading indicator
-        showLoading('Fetching order lines from Fusion...');
+        // Show confirmation popup with API details
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+
+        // Create confirmation popup
+        const popupHtml = `
+            <div id="fetch-fusion-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10003; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 1rem 1.5rem;">
+                        <h3 style="margin: 0; font-size: 1.1rem;">
+                            <i class="fas fa-cloud-download-alt"></i> Fetch Order Lines from Fusion
+                        </h3>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                            <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">API Details</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Method:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;"><span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span></td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Order Number:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${orderNumber}</td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <strong style="color: #4a5568; font-size: 12px;">Full URL:</strong>
+                            <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">${apiUrl}</code>
+                        </div>
+                        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Note:</strong>
+                            <span style="color: #78350f; font-size: 12px;">This will fetch the latest order lines from Oracle Fusion and update the local data.</span>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                        <button onclick="document.getElementById('fetch-fusion-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button id="fetch-fusion-execute-btn" onclick="executeFetchFusionOrderLines('${orderNumber}', '${instance}')" class="btn btn-primary" style="padding: 8px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-cloud-download-alt"></i> Fetch Now
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('fetch-fusion-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+    };
+
+    // Execute the Fetch Fusion Order Lines API call
+    window.executeFetchFusionOrderLines = function(orderNumber, instance) {
+        console.log('[Order Transactions] Executing Fetch Fusion Order Lines...');
 
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+
+        // Update button to show loading
+        const fetchBtn = document.getElementById('fetch-fusion-execute-btn');
+        if (fetchBtn) {
+            fetchBtn.disabled = true;
+            fetchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+        }
 
         console.log('[Order Transactions] Fetch Fusion Order Lines API:', apiUrl);
 
         // Use C# REST handler with POST method
         sendMessageToCSharp({
-            type: 'rest_request',
-            method: 'POST',
-            fullUrl: apiUrl
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify({})
         }, function(error, data) {
-            hideLoading();
+            // Close popup
+            const popup = document.getElementById('fetch-fusion-popup');
+            if (popup) popup.remove();
 
             if (error) {
                 console.error('[Order Transactions] Error fetching Fusion order lines:', error);
-                showNotification('Error fetching order lines from Fusion: ' + error, 'error');
+                alert('Error fetching order lines from Fusion:\n' + error);
                 return;
             }
 
@@ -6479,7 +6548,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Show success message
                 const message = responseData.message || responseData.MESSAGE || 'Order lines fetched successfully from Fusion';
-                showNotification(message, 'success');
+                alert('✅ ' + message);
 
                 // Refresh the Sales Order Lines grid to show updated data
                 setTimeout(() => {
@@ -6488,7 +6557,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             } catch (parseError) {
                 console.error('[Order Transactions] Parse error:', parseError);
-                showNotification('Error parsing response: ' + parseError.message, 'error');
+                alert('Error parsing response: ' + parseError.message);
             }
         });
     };
