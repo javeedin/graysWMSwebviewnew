@@ -4477,6 +4477,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Get instance
         const instance = orders[0]?.INSTANCE_NAME || orders[0]?.instance_name || window.currentTripInstance || 'TEST';
+        const warehouse = 'GIC'; // Default warehouse
+
+        // Initialize data for individual button functions
+        window.withLotsPickReleaseData = {
+            orders: orders,
+            tripId: tripId,
+            instance: instance,
+            warehouse: warehouse,
+            results: orders.map(() => ({ step1: null, step2: null, step3: null }))
+        };
 
         // Build order list HTML for No Lots mode (simple list)
         let noLotsOrderListHtml = '';
@@ -4508,7 +4518,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <tr id="wl-order-row-${index}" data-order-number="${orderNumber}" data-index="${index}">
                     <td style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #1f2937; font-size: 11px;">${orderNumber}</td>
                     <td id="wl-total-lines-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 11px;">
-                        <span style="color: #94a3b8;"><i class="fas fa-spinner fa-spin" style="font-size: 10px;"></i></span>
+                        <span style="color: #94a3b8;">-</span>
                     </td>
                     <td id="wl-release-st-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
                         <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
@@ -4596,7 +4606,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div style="display: flex; align-items: center; color: #cbd5e1;"><i class="fas fa-arrow-right"></i></div>
                                 <div id="step-indicator-3" style="text-align: center; padding: 0.5rem 1rem;">
                                     <div style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.5rem; font-weight: 700; color: #64748b;">3</div>
-                                    <div style="font-size: 11px; font-weight: 600; color: #64748b;">Total Picked Lots</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: #64748b;">Lots in the Pick</div>
                                     <div id="step-3-status" style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Pending</div>
                                 </div>
                             </div>
@@ -4614,7 +4624,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Total Lines</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Release St</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Total Picks</th>
-                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Total Picked Lots</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Lots in the Pick</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Retry</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Time</th>
                                             </tr>
@@ -4644,7 +4654,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         <button onclick="showPickReleaseApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
                             <i class="fas fa-code"></i> API Info
                         </button>
-                        <div style="display: flex; gap: 0.75rem;">
+                        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                            <button id="btn-fetch-order-lines" onclick="fetchSalesOrderLines()" class="btn" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 11px; cursor: pointer;">
+                                <i class="fas fa-list-ol"></i> Fetch Sales Order Lines
+                            </button>
+                            <button id="btn-fetch-picks-lots" onclick="fetchPicksAndLots()" class="btn" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 11px; cursor: pointer;">
+                                <i class="fas fa-boxes"></i> Fetch Picks and Total Lots
+                            </button>
                             <button onclick="closeSalesPickReleaseModal()" class="btn btn-secondary">
                                 <i class="fas fa-times"></i> Cancel
                             </button>
@@ -4716,7 +4732,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // WITH LOTS PICK RELEASE - 3 Step Process
     // Step 1: Release Pick Wave (for all orders)
     // Step 2: Total Picks (per order)
-    // Step 3: Total Picked Lots (per order)
+    // Step 3: Lots in the Pick (per order)
     // ============================================================================
 
     window.startWithLotsPickRelease = async function(orders, tripId) {
@@ -4805,7 +4821,7 @@ document.addEventListener('DOMContentLoaded', function() {
         updateStepIndicator(1, 'complete');
         document.getElementById('step-1-status').textContent = 'Complete';
 
-        // STEP 2 & 3: Total Picks and Total Picked Lots per order
+        // STEP 2 & 3: Total Picks and Lots in the Pick per order
         updateStepIndicator(2, 'in-progress');
         document.getElementById('step-2-status').textContent = 'In Progress...';
 
@@ -4850,7 +4866,7 @@ document.addEventListener('DOMContentLoaded', function() {
             completedSteps++;
             updateWithLotsProgress(completedSteps, totalSteps);
 
-            // Step 3: Total Picked Lots (only if Step 2 was successful)
+            // Step 3: Lots in the Pick (only if Step 2 was successful)
             if (window.withLotsPickReleaseData.results[i].step2?.success) {
                 updateCellStatus(`wl-get-lots-${i}`, 'processing');
 
@@ -4940,6 +4956,142 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[With Lots Pick Release] Process complete. Total time:', totalTimeFormatted);
     };
 
+    // ============================================================================
+    // INDIVIDUAL BUTTON FUNCTIONS
+    // ============================================================================
+
+    // Fetch Sales Order Lines - Only calls fetchfusionorderlines API
+    window.fetchSalesOrderLines = async function() {
+        const data = window.withLotsPickReleaseData;
+        if (!data) {
+            console.log('[Fetch Sales Order Lines] No data available');
+            return;
+        }
+
+        const orders = data.orders;
+        const instance = data.instance;
+
+        console.log('[Fetch Sales Order Lines] Starting for', orders.length, 'orders');
+
+        // Disable button during processing
+        const btn = document.getElementById('btn-fetch-order-lines');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+        }
+
+        const startTime = Date.now();
+
+        // Fetch total lines for all orders in parallel
+        const promises = orders.map((order, i) => {
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            // Show loading in cell
+            const cell = document.getElementById(`wl-total-lines-${i}`);
+            if (cell) {
+                cell.innerHTML = '<span style="color: #94a3b8;"><i class="fas fa-spinner fa-spin" style="font-size: 10px;"></i></span>';
+            }
+
+            return fetchFusionOrderLinesAPI(orderNumber, instance).then(result => {
+                const count = result.count || 0;
+                if (cell) {
+                    cell.innerHTML = `<span style="font-weight: 600;">${count}</span>`;
+                }
+                return { index: i, count: count, success: result.success };
+            });
+        });
+
+        const results = await Promise.all(promises);
+
+        const elapsed = Date.now() - startTime;
+        console.log('[Fetch Sales Order Lines] Complete. Time:', formatDuration(elapsed));
+
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check"></i> Lines Fetched';
+            btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        }
+    };
+
+    // Fetch Picks and Total Lots - Calls both getopenpicksbyorder and getlotsforpicks APIs
+    window.fetchPicksAndLots = async function() {
+        const data = window.withLotsPickReleaseData;
+        if (!data) {
+            console.log('[Fetch Picks & Lots] No data available');
+            return;
+        }
+
+        const orders = data.orders;
+        const instance = data.instance;
+        const warehouse = data.warehouse;
+
+        console.log('[Fetch Picks & Lots] Starting for', orders.length, 'orders');
+
+        // Disable button during processing
+        const btn = document.getElementById('btn-fetch-picks-lots');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+        }
+
+        const startTime = Date.now();
+        const orderStartTimes = [];
+
+        // Process each order sequentially
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            orderStartTimes[i] = Date.now();
+
+            // Step 1: Get Picks
+            updateCellStatus(`wl-get-picks-${i}`, 'processing');
+
+            try {
+                const picksResult = await callGetPicksAPI(orderNumber, warehouse, instance);
+
+                if (picksResult.success) {
+                    const count = picksResult.data?.RECORDCOUNT || picksResult.data?.recordcount || picksResult.data?.items?.length || 0;
+                    updateCellStatus(`wl-get-picks-${i}`, 'success', null, count);
+                } else {
+                    updateCellStatus(`wl-get-picks-${i}`, 'error', picksResult.error);
+                }
+            } catch (error) {
+                updateCellStatus(`wl-get-picks-${i}`, 'error', error.message);
+            }
+
+            // Step 2: Get Pick Lots
+            updateCellStatus(`wl-get-lots-${i}`, 'processing');
+
+            try {
+                const lotsResult = await callGetPickLotsAPI(orderNumber, instance);
+
+                if (lotsResult.success) {
+                    const count = lotsResult.data?.RECORDCOUNT || lotsResult.data?.recordcount || lotsResult.data?.items?.length || 0;
+                    updateCellStatus(`wl-get-lots-${i}`, 'success', null, count);
+                } else {
+                    updateCellStatus(`wl-get-lots-${i}`, 'error', lotsResult.error);
+                }
+            } catch (error) {
+                updateCellStatus(`wl-get-lots-${i}`, 'error', error.message);
+            }
+
+            // Update time for this row
+            updateOrderTime(i, orderStartTimes[i]);
+        }
+
+        const elapsed = Date.now() - startTime;
+        console.log('[Fetch Picks & Lots] Complete. Time:', formatDuration(elapsed));
+
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check"></i> Picks & Lots Fetched';
+            btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        }
+    };
+
     // API Call Functions
     function callReleasePickWaveAPI(orderNumber, warehouse, instance) {
         return new Promise((resolve) => {
@@ -4995,7 +5147,7 @@ document.addEventListener('DOMContentLoaded', function() {
         return new Promise((resolve) => {
             const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/getlotsforpicks?source_order_number=${orderNumber}&p_instance_name=${instance}`;
 
-            console.log('[With Lots] Calling Total Picked Lots:', apiUrl);
+            console.log('[With Lots] Calling Lots in the Pick:', apiUrl);
 
             sendMessageToCSharp({
                 action: 'executePost',
@@ -5273,12 +5425,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${baseUrl}/trips/getopenpicksbyorder?organization_code=${warehouse}&order_number=${sampleOrderNumber}&p_instance_name=${instance}</code>
                 </div>
 
-                <!-- Step 3: Total Picked Lots -->
+                <!-- Step 3: Lots in the Pick -->
                 <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; border-left: 3px solid #8b5cf6;">
                     <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
                         <span style="background: #ede9fe; color: #5b21b6; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">STEP 3</span>
                         <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
-                        <strong style="color: #1e293b; font-size: 12px;">Total Picked Lots</strong>
+                        <strong style="color: #1e293b; font-size: 12px;">Lots in the Pick</strong>
                     </div>
                     <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${baseUrl}/trip/getlotsforpicks?source_order_number=${sampleOrderNumber}&p_instance_name=${instance}</code>
                 </div>
