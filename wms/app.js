@@ -3476,21 +3476,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-info" onclick="refreshTripDetails('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-sync-alt"></i> Refresh
                             </button>
-                            <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
-                                <i class="fas fa-user-check"></i> Assign Picker
-                            </button>
-                            <button class="btn btn-success" onclick="allocateLotsForS2V('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
-                                <i class="fas fa-boxes"></i> Allocate Lots for S2V
-                            </button>
-                            <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
-                                <i class="fas fa-truck-loading"></i> Pick Release All
-                            </button>
-                            <button class="btn" onclick="showTripLines('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
-                                <i class="fas fa-list-alt"></i> Show Lines
-                            </button>
-                            <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
-                                <i class="fas fa-plus"></i> Add Orders
-                            </button>
                         </div>
                     </div>
                     <div id="grid-${tabId}" style="height: 500px;"></div>
@@ -3630,26 +3615,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     $(container).html(`
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button class="icon-btn" onclick="openMRAProcessingPopup('${rowData.ORDER_NUMBER || rowData.order_number}')" title="MRA Interface">
-                                <i class="fas fa-file-invoice-dollar" style="color: #667eea;"></i>
-                            </button>
                             <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
                                 <i class="fas fa-print" style="color: #8b5cf6;"></i>
-                            </button>
-                            <button class="icon-btn" onclick='assignPickerForTripOrder(${JSON.stringify(rowData)}, "${tripId}")' title="Assign Picker">
-                                <i class="fas fa-user-plus" style="color: #10b981;"></i>
-                            </button>
-                            <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
-                                <i class="fas fa-user-times" style="color: #ef4444;"></i>
-                            </button>
-                            <button class="icon-btn" onclick="pickRelease('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Pick Release">
-                                <i class="fas fa-check-circle" style="color: #10b981;"></i>
-                            </button>
-                            <button class="icon-btn" onclick='editTripOrder(${JSON.stringify(rowData)})' title="Edit">
-                                <i class="fas fa-edit" style="color: #3b82f6;"></i>
-                            </button>
-                            <button class="icon-btn" onclick="deleteTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Delete">
-                                <i class="fas fa-trash" style="color: #f59e0b;"></i>
                             </button>
                         </div>
                     `);
