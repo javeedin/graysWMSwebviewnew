@@ -5935,6 +5935,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button class="btn btn-danger" onclick="cancelNotPickedLines('${orderNumber}')" style="background: #dc2626; color: white;">
                                     <i class="fas fa-ban"></i> Cancel Not Picked Lines
                                 </button>
+                                <button class="btn btn-primary" onclick="fetchFusionOrderLines('${orderNumber}')" style="background: #2563eb; color: white;">
+                                    <i class="fas fa-cloud-download-alt"></i> Fetch Order Lines from Fusion
+                                </button>
                             </div>
                             <div id="sales-order-lines-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
                                 <div id="sales-order-lines-grid" style="height: 100%;"></div>
@@ -6065,6 +6068,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 method: 'POST',
                 endpoint: `trip/orders/cancelnotpickedlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
                 fullUrl: `${baseUrl}/trip/orders/cancelnotpickedlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
+            },
+            {
+                name: 'Fetch Order Lines from Fusion',
+                method: 'POST',
+                endpoint: `trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`,
+                fullUrl: `${baseUrl}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`,
                 note: '✅ Instance parameter passed from row data'
             }
         ];
@@ -6365,7 +6375,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         columnAutoWidth: true,
                         height: '100%',
                         selection: {
-                            mode: 'single',
+                            mode: 'multiple',
                             showCheckBoxesMode: 'always'
                         },
                         paging: { pageSize: 25 },
@@ -6382,8 +6392,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             console.log('[Order Transactions] Sales Order Lines grid rendered');
                         },
                         onSelectionChanged: function(e) {
+                            window.selectedSalesOrderLines = e.selectedRowsData || [];
                             window.selectedSalesOrderLine = e.selectedRowsData[0] || null;
-                            console.log('[Order Transactions] Selected Sales Order Line:', window.selectedSalesOrderLine);
+                            console.log('[Order Transactions] Selected Sales Order Lines:', window.selectedSalesOrderLines.length, 'items');
                         }
                     });
                 } else {
@@ -6431,6 +6442,55 @@ document.addEventListener('DOMContentLoaded', function() {
         row.querySelector('input[type="radio"]').checked = true;
         window.selectedSalesOrderLine = window.salesOrderLinesData ? window.salesOrderLinesData[index] : null;
         console.log('[Order Transactions] Selected Sales Order Line:', window.selectedSalesOrderLine);
+    };
+
+    // Fetch Order Lines from Fusion function
+    window.fetchFusionOrderLines = function(orderNumber) {
+        console.log('[Order Transactions] Fetch Order Lines from Fusion for order:', orderNumber);
+
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
+        // Show loading indicator
+        showLoading('Fetching order lines from Fusion...');
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+
+        console.log('[Order Transactions] Fetch Fusion Order Lines API:', apiUrl);
+
+        // Use C# REST handler with POST method
+        sendMessageToCSharp({
+            type: 'rest_request',
+            method: 'POST',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            hideLoading();
+
+            if (error) {
+                console.error('[Order Transactions] Error fetching Fusion order lines:', error);
+                showNotification('Error fetching order lines from Fusion: ' + error, 'error');
+                return;
+            }
+
+            try {
+                let responseData = typeof data === 'string' ? JSON.parse(data) : data;
+                console.log('[Order Transactions] Fetch Fusion Order Lines response:', responseData);
+
+                // Show success message
+                const message = responseData.message || responseData.MESSAGE || 'Order lines fetched successfully from Fusion';
+                showNotification(message, 'success');
+
+                // Refresh the Sales Order Lines grid to show updated data
+                setTimeout(() => {
+                    refreshSalesOrderLines(orderNumber);
+                }, 500);
+
+            } catch (parseError) {
+                console.error('[Order Transactions] Parse error:', parseError);
+                showNotification('Error parsing response: ' + parseError.message, 'error');
+            }
+        });
     };
 
     // Cancel Scheduled Lines function
