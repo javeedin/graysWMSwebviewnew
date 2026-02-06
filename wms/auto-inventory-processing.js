@@ -4679,6 +4679,9 @@ let teamsWebhooks = JSON.parse(localStorage.getItem('teamsWebhooks') || '[]');
 
 // Initialize Teams floating button
 function initTeamsIntegration() {
+    // Teams floating button is now hidden - replaced by Action floating icon in app.js
+    return;
+
     // Create floating Teams button if not exists
     if (!document.getElementById('teams-floating-btn')) {
         const floatingBtn = document.createElement('div');

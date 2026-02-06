@@ -11544,5 +11544,536 @@ document.addEventListener('DOMContentLoaded', function() {
         updateAnalytics(trips);
     };
 
+    // ============================================================================
+    // ACTION FLOATING ICON
+    // ============================================================================
+
+    // Global state for action processing
+    window.actionProcessingState = {
+        isProcessing: false,
+        actionType: '',
+        totalOrders: 0,
+        completedOrders: 0,
+        currentStep: '',
+        startTime: null,
+        results: []
+    };
+
+    // Create Action Floating Button
+    function createActionFloatingButton() {
+        if (document.getElementById('action-floating-btn')) return;
+
+        const floatingBtn = document.createElement('div');
+        floatingBtn.id = 'action-floating-btn';
+        floatingBtn.style.cssText = `
+            position: fixed;
+            bottom: 100px;
+            right: 30px;
+            z-index: 9999;
+            display: none;
+        `;
+        floatingBtn.innerHTML = `
+            <button id="action-float-trigger" style="
+                width: 56px;
+                height: 56px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+                border: none;
+                color: white;
+                cursor: pointer;
+                box-shadow: 0 4px 20px rgba(99, 102, 241, 0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s;
+            " onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="Actions">
+                <i class="fas fa-bolt" style="font-size: 22px;"></i>
+            </button>
+            <span id="action-selected-count" style="
+                position: absolute;
+                top: -5px;
+                right: -5px;
+                background: #ef4444;
+                color: white;
+                font-size: 11px;
+                font-weight: 700;
+                min-width: 22px;
+                height: 22px;
+                border-radius: 11px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            ">0</span>
+        `;
+        document.body.appendChild(floatingBtn);
+
+        // Create dropdown menu
+        const menu = document.createElement('div');
+        menu.id = 'action-floating-menu';
+        menu.style.cssText = `
+            position: fixed;
+            bottom: 165px;
+            right: 30px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+            z-index: 10000;
+            display: none;
+            min-width: 240px;
+            overflow: hidden;
+        `;
+        menu.innerHTML = `
+            <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 12px 16px; font-weight: 600; font-size: 14px;">
+                <i class="fas fa-tasks"></i> Actions
+            </div>
+            <div style="padding: 8px 0;">
+                <button onclick="executeFloatingAction('fetchLines')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-list-ol" style="color: #3b82f6; width: 20px;"></i>
+                    <span style="font-size: 13px;">Fetch Sales Order Lines</span>
+                </button>
+                <button onclick="executeFloatingAction('releasePicks')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-play-circle" style="color: #10b981; width: 20px;"></i>
+                    <span style="font-size: 13px;">Release Picks</span>
+                </button>
+                <button onclick="executeFloatingAction('fetchPickslipDetails')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-file-alt" style="color: #f59e0b; width: 20px;"></i>
+                    <span style="font-size: 13px;">Fetch Pickslip Details</span>
+                </button>
+                <div style="border-top: 1px solid #e5e7eb; margin: 4px 0;"></div>
+                <button onclick="executeFloatingAction('assignPicker')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-user-plus" style="color: #8b5cf6; width: 20px;"></i>
+                    <span style="font-size: 13px;">Assign Picker</span>
+                </button>
+            </div>
+        `;
+        document.body.appendChild(menu);
+
+        // Toggle menu on button click
+        document.getElementById('action-float-trigger').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const menuEl = document.getElementById('action-floating-menu');
+            menuEl.style.display = menuEl.style.display === 'none' ? 'block' : 'none';
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', function(e) {
+            const menu = document.getElementById('action-floating-menu');
+            const btn = document.getElementById('action-floating-btn');
+            if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
+                menu.style.display = 'none';
+            }
+        });
+    }
+
+    // Update floating button visibility based on selection
+    function updateActionFloatingButton() {
+        if (!window.tripDetailsGridInstance) return;
+
+        const selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData();
+        const btn = document.getElementById('action-floating-btn');
+        const countEl = document.getElementById('action-selected-count');
+
+        if (!btn) {
+            createActionFloatingButton();
+            return updateActionFloatingButton();
+        }
+
+        if (selectedOrders && selectedOrders.length > 0) {
+            btn.style.display = 'block';
+            if (countEl) countEl.textContent = selectedOrders.length;
+        } else {
+            btn.style.display = 'none';
+            // Hide menu too
+            const menu = document.getElementById('action-floating-menu');
+            if (menu) menu.style.display = 'none';
+        }
+    }
+
+    // Poll for selection changes (since dxDataGrid selection event might not be available)
+    setInterval(updateActionFloatingButton, 500);
+
+    // Execute action from floating menu
+    window.executeFloatingAction = async function(action) {
+        // Hide menu
+        const menu = document.getElementById('action-floating-menu');
+        if (menu) menu.style.display = 'none';
+
+        if (!window.tripDetailsGridInstance) {
+            alert('No grid data available.');
+            return;
+        }
+
+        const selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData();
+        if (!selectedOrders || selectedOrders.length === 0) {
+            alert('Please select at least one order.');
+            return;
+        }
+
+        console.log('[Action Float] Executing:', action, 'for', selectedOrders.length, 'orders');
+
+        switch (action) {
+            case 'fetchLines':
+                await executeActionFetchLines(selectedOrders);
+                break;
+            case 'releasePicks':
+                await executeActionReleasePicks(selectedOrders);
+                break;
+            case 'fetchPickslipDetails':
+                await executeActionFetchPickslipDetails(selectedOrders);
+                break;
+            case 'assignPicker':
+                executeActionAssignPicker(selectedOrders);
+                break;
+        }
+    };
+
+    // Action: Fetch Sales Order Lines
+    async function executeActionFetchLines(orders) {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+
+        window.actionProcessingState = {
+            isProcessing: true,
+            actionType: 'Fetch Sales Order Lines',
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Fetching order lines...',
+            startTime: Date.now(),
+            results: []
+        };
+
+        showActionProcessingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            window.actionProcessingState.currentStep = `Processing ${orderNumber} (${i + 1}/${orders.length})`;
+            window.actionProcessingState.completedOrders = i;
+            updateActionProcessingIndicator();
+
+            try {
+                const result = await fetchFusionOrderLinesAPI(orderNumber, instance);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: result.success,
+                    count: result.count || 0
+                });
+            } catch (err) {
+                console.error('[Action Float] Error fetching lines for', orderNumber, err);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: false,
+                    error: err.message
+                });
+            }
+        }
+
+        window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.completedOrders = orders.length;
+        window.actionProcessingState.currentStep = 'Complete';
+        updateActionProcessingIndicator();
+    }
+
+    // Action: Release Picks (calls callpickwave API)
+    async function executeActionReleasePicks(orders) {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+        const warehouse = document.getElementById('whlocationDropdown')?.value || 'GreensW';
+
+        window.actionProcessingState = {
+            isProcessing: true,
+            actionType: 'Release Picks',
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Releasing picks...',
+            startTime: Date.now(),
+            results: []
+        };
+
+        showActionProcessingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            window.actionProcessingState.currentStep = `Releasing ${orderNumber} (${i + 1}/${orders.length})`;
+            window.actionProcessingState.completedOrders = i;
+            updateActionProcessingIndicator();
+
+            try {
+                const result = await callReleasePickWaveAPI(orderNumber, warehouse, instance);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: result.success,
+                    message: result.message || ''
+                });
+            } catch (err) {
+                console.error('[Action Float] Error releasing picks for', orderNumber, err);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: false,
+                    error: err.message
+                });
+            }
+        }
+
+        window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.completedOrders = orders.length;
+        window.actionProcessingState.currentStep = 'Complete';
+        updateActionProcessingIndicator();
+    }
+
+    // Action: Fetch Pickslip Details (calls getopenpicksbyorder + getlotsforpicks APIs)
+    async function executeActionFetchPickslipDetails(orders) {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+        const warehouse = document.getElementById('whlocationDropdown')?.value || 'GreensW';
+
+        window.actionProcessingState = {
+            isProcessing: true,
+            actionType: 'Fetch Pickslip Details',
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Fetching pickslip details...',
+            startTime: Date.now(),
+            results: [],
+            step1Count: 0,
+            step2Count: 0
+        };
+
+        showActionProcessingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            // Step 1: Get Picks
+            window.actionProcessingState.currentStep = `Getting picks for ${orderNumber} (${i + 1}/${orders.length})`;
+            updateActionProcessingIndicator();
+
+            let picksResult = null;
+            try {
+                picksResult = await callGetPicksAPI(orderNumber, warehouse, instance);
+                window.actionProcessingState.step1Count = i + 1;
+            } catch (err) {
+                console.error('[Action Float] Error getting picks for', orderNumber, err);
+            }
+
+            // Step 2: Get Lots
+            window.actionProcessingState.currentStep = `Getting lots for ${orderNumber} (${i + 1}/${orders.length})`;
+            updateActionProcessingIndicator();
+
+            let lotsResult = null;
+            try {
+                lotsResult = await callGetPickLotsAPI(orderNumber, instance);
+                window.actionProcessingState.step2Count = i + 1;
+            } catch (err) {
+                console.error('[Action Float] Error getting lots for', orderNumber, err);
+            }
+
+            window.actionProcessingState.completedOrders = i + 1;
+            window.actionProcessingState.results.push({
+                orderNumber,
+                picksSuccess: picksResult?.success || false,
+                picksCount: picksResult?.data?.RECORDCOUNT || 0,
+                lotsSuccess: lotsResult?.success || false,
+                lotsCount: lotsResult?.data?.RECORDCOUNT || lotsResult?.data?.items?.length || 0
+            });
+            updateActionProcessingIndicator();
+        }
+
+        window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.currentStep = 'Complete';
+        updateActionProcessingIndicator();
+    }
+
+    // Action: Assign Picker (opens dialog)
+    function executeActionAssignPicker(selectedOrders) {
+        console.log('[Action Float] Opening Assign Picker for', selectedOrders.length, 'orders');
+
+        // Use existing assign picker functionality
+        if (typeof window.assignPickerForSelectedOrders === 'function') {
+            window.assignPickerForSelectedOrders();
+        } else {
+            alert('Assign Picker function not available.');
+        }
+    }
+
+    // Show action processing indicator
+    function showActionProcessingIndicator() {
+        let indicator = document.getElementById('action-processing-indicator');
+
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'action-processing-indicator';
+            indicator.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                color: white;
+                padding: 16px 20px;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                z-index: 99999;
+                cursor: pointer;
+                min-width: 280px;
+                transition: all 0.3s ease;
+            `;
+            indicator.onclick = function() {
+                showActionDetailsPopup();
+            };
+            document.body.appendChild(indicator);
+        }
+
+        indicator.style.display = 'block';
+        updateActionProcessingIndicator();
+    }
+
+    // Update action processing indicator
+    function updateActionProcessingIndicator() {
+        const indicator = document.getElementById('action-processing-indicator');
+        if (!indicator) return;
+
+        const state = window.actionProcessingState;
+
+        if (!state.isProcessing) {
+            // Complete
+            const elapsed = Date.now() - state.startTime;
+            const successCount = state.results.filter(r => r.success !== false).length;
+
+            indicator.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+            indicator.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <i class="fas fa-check-circle" style="font-size: 24px;"></i>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 14px;">${state.actionType} Complete</div>
+                        <div style="font-size: 12px; opacity: 0.9;">${successCount}/${state.totalOrders} orders processed in ${formatDuration(elapsed)}</div>
+                    </div>
+                    <button onclick="event.stopPropagation(); hideActionIndicator();" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 10px; border-radius: 6px; cursor: pointer;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+
+            // Auto-hide after 10 seconds
+            setTimeout(hideActionIndicator, 10000);
+        } else {
+            // Processing
+            const progress = state.totalOrders > 0 ? Math.round((state.completedOrders / state.totalOrders) * 100) : 0;
+
+            indicator.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+            indicator.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 24px;"></i>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 14px;">${state.actionType}</div>
+                        <div style="font-size: 12px; opacity: 0.9;">${state.currentStep}</div>
+                        <div style="background: rgba(255,255,255,0.3); border-radius: 4px; height: 6px; margin-top: 6px; overflow: hidden;">
+                            <div style="background: white; height: 100%; width: ${progress}%; transition: width 0.3s;"></div>
+                        </div>
+                        <div style="font-size: 11px; margin-top: 4px; opacity: 0.8;">${state.completedOrders}/${state.totalOrders} orders (${progress}%)</div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Hide action indicator
+    window.hideActionIndicator = function() {
+        const indicator = document.getElementById('action-processing-indicator');
+        if (indicator) {
+            indicator.style.display = 'none';
+        }
+    };
+
+    // Show action details popup
+    function showActionDetailsPopup() {
+        const state = window.actionProcessingState;
+
+        // Remove existing popup
+        let popup = document.getElementById('action-details-popup');
+        if (popup) popup.remove();
+
+        popup = document.createElement('div');
+        popup.id = 'action-details-popup';
+        popup.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            z-index: 100000;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow: hidden;
+        `;
+
+        const elapsed = state.startTime ? Date.now() - state.startTime : 0;
+
+        popup.innerHTML = `
+            <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="font-weight: 600; font-size: 16px;">
+                    <i class="fas fa-tasks"></i> ${state.actionType || 'Action'} Details
+                </div>
+                <button onclick="document.getElementById('action-details-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 10px; border-radius: 6px; cursor: pointer;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div style="padding: 20px;">
+                <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+                    <div style="flex: 1; background: #f3f4f6; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: #6366f1;">${state.completedOrders}/${state.totalOrders}</div>
+                        <div style="font-size: 12px; color: #6b7280;">Orders Processed</div>
+                    </div>
+                    <div style="flex: 1; background: #f3f4f6; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: #10b981;">${formatDuration(elapsed)}</div>
+                        <div style="font-size: 12px; color: #6b7280;">Time Elapsed</div>
+                    </div>
+                    <div style="flex: 1; background: #f3f4f6; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: ${state.isProcessing ? '#f59e0b' : '#10b981'};">
+                            ${state.isProcessing ? '<i class="fas fa-spinner fa-spin"></i>' : '<i class="fas fa-check"></i>'}
+                        </div>
+                        <div style="font-size: 12px; color: #6b7280;">${state.isProcessing ? 'Processing' : 'Complete'}</div>
+                    </div>
+                </div>
+                <div style="max-height: 300px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <thead>
+                            <tr style="background: #f3f4f6;">
+                                <th style="padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb;">#</th>
+                                <th style="padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb;">Order</th>
+                                <th style="padding: 8px; text-align: center; border-bottom: 1px solid #e5e7eb;">Status</th>
+                                <th style="padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb;">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${state.results.map((r, i) => `
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">${i + 1}</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 500;">${r.orderNumber}</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; text-align: center;">
+                                        ${r.success !== false ? '<i class="fas fa-check-circle" style="color: #10b981;"></i>' : '<i class="fas fa-times-circle" style="color: #ef4444;"></i>'}
+                                    </td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; color: #6b7280;">
+                                        ${r.count !== undefined ? `Lines: ${r.count}` : ''}
+                                        ${r.picksCount !== undefined ? `Picks: ${r.picksCount}` : ''}
+                                        ${r.lotsCount !== undefined ? `, Lots: ${r.lotsCount}` : ''}
+                                        ${r.error || ''}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
+    }
+
+    // Initialize action floating button
+    createActionFloatingButton();
+
     console.log('[JS] ✅ Application initialized');
 });
