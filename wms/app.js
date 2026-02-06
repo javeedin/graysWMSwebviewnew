@@ -6028,44 +6028,44 @@ document.addEventListener('DOMContentLoaded', function() {
             {
                 name: 'Pick Release Details',
                 method: 'GET',
-                endpoint: `trips/orders/getpickreleasedetails/${orderNumber}`,
-                fullUrl: `${baseUrl}/trips/orders/getpickreleasedetails/${orderNumber}`,
-                note: 'No instance parameter currently passed'
+                endpoint: `trips/orders/getpickreleasedetails/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trips/orders/getpickreleasedetails/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
             },
             {
                 name: 'Sales Order Lines',
                 method: 'GET',
-                endpoint: `trip/orders/getsalesorderlines/${orderNumber}`,
-                fullUrl: `${baseUrl}/trip/orders/getsalesorderlines/${orderNumber}`,
-                note: 'No instance parameter currently passed'
+                endpoint: `trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
             },
             {
                 name: 'Lot Details',
                 method: 'GET',
-                endpoint: `trips/orders/getlotdetails/${orderNumber}`,
-                fullUrl: `${baseUrl}/trips/orders/getlotdetails/${orderNumber}`,
-                note: 'No instance parameter currently passed'
+                endpoint: `trips/orders/getlotdetails/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trips/orders/getlotdetails/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
             },
             {
                 name: 'Cancel Scheduled Lines',
                 method: 'POST',
-                endpoint: `trips/orders/cancelscheduledlines/${orderNumber}`,
-                fullUrl: `${baseUrl}/trips/orders/cancelscheduledlines/${orderNumber}`,
-                note: 'No instance parameter currently passed'
+                endpoint: `trip/orders/cancelscheduledlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trip/orders/cancelscheduledlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
             },
             {
                 name: 'Cancel Selected Line',
                 method: 'POST',
-                endpoint: `trips/orders/cancelselectedline`,
-                fullUrl: `${baseUrl}/trips/orders/cancelselectedline`,
-                note: 'POST body: { line_id, delivery_detail_id }'
+                endpoint: `trip/orders/cancelorderline/${orderNumber}/{lineId}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trip/orders/cancelorderline/${orderNumber}/{lineId}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
             },
             {
                 name: 'Cancel Not Picked Lines',
                 method: 'POST',
-                endpoint: `trips/orders/cancelnotpickedlines/${orderNumber}`,
-                fullUrl: `${baseUrl}/trips/orders/cancelnotpickedlines/${orderNumber}`,
-                note: 'No instance parameter currently passed'
+                endpoint: `trip/orders/cancelnotpickedlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trip/orders/cancelnotpickedlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
             }
         ];
 
@@ -6118,11 +6118,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     ${apiHtml}
                 </div>
 
-                <!-- Warning -->
-                <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
-                    <strong style="color: #92400e;"><i class="fas fa-exclamation-triangle"></i> Note:</strong>
-                    <span style="color: #78350f; font-size: 12px;">
-                        Instance parameter (${instance}) is extracted from the order row data but may need to be added to API calls if the backend requires it.
+                <!-- Success Note -->
+                <div style="background: #d1fae5; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #10b981;">
+                    <strong style="color: #065f46;"><i class="fas fa-check-circle"></i> Instance Configured:</strong>
+                    <span style="color: #047857; font-size: 12px;">
+                        Instance parameter <strong>P_INSTANCE_NAME=${instance}</strong> is being passed to all API calls from the order row data.
                     </span>
                 </div>
             </div>
@@ -6195,10 +6195,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Pick Release Details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Fetching Pick Release Details from:', apiUrl);
 
@@ -6301,10 +6305,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Sales Order Lines...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Fetching Sales Order Lines from:', apiUrl);
 
@@ -6434,10 +6442,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading indicator
         showLoading('Cancelling scheduled lines...');
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelscheduledlines/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelscheduledlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Cancel Scheduled Lines API:', apiUrl);
 
@@ -6485,6 +6497,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show confirmation dialog
         if (!confirm(`Are you sure you want to cancel line ${lineId} for order ${orderNumber}?`)) {
             return;
@@ -6493,7 +6509,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         showLoading('Cancelling selected line...');
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelorderline/${orderNumber}/${lineId}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelorderline/${orderNumber}/${lineId}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Cancel Selected Line API:', apiUrl);
 
@@ -6528,10 +6544,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading indicator
         showLoading('Cancelling not picked lines...');
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelnotpickedlines/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelnotpickedlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Cancel Not Picked Lines API:', apiUrl);
 
@@ -6564,10 +6584,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Lot Details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getlotdetails/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getlotdetails/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Fetching Lot Details from:', apiUrl);
 
