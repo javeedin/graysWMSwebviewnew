@@ -5804,6 +5804,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // ORDER TRANSACTIONS DIALOG (Non-S2V/V2S Orders)
     // ============================================================================
 
+    // Store current order transaction context
+    window.currentOrderTransContext = null;
+
     window.openOrderTransactionsDialog = function(rowData) {
         console.log('[Order Transactions] Opening dialog for order:', rowData);
 
@@ -5818,9 +5821,25 @@ document.addEventListener('DOMContentLoaded', function() {
         const lorry = rowData.LORRY_NUMBER || rowData.lorry_number || '';
         const priority = rowData.PRIORITY || rowData.priority || '';
         const lineStatus = rowData.LINE_STATUS || rowData.line_status || '';
-        const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
+        const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || window.currentTripInstance || 'TEST';
 
-        console.log('[Order Transactions] ORDER_NUMBER:', orderNumber, 'ORDER_TYPE:', orderType);
+        // Store context globally for API calls
+        window.currentOrderTransContext = {
+            orderNumber,
+            orderType,
+            orderDate,
+            tripId,
+            tripDate,
+            accountNumber,
+            accountName,
+            picker,
+            lorry,
+            priority,
+            lineStatus,
+            instance
+        };
+
+        console.log('[Order Transactions] ORDER_NUMBER:', orderNumber, 'ORDER_TYPE:', orderType, 'INSTANCE:', instance);
 
         // Create modal HTML
         const modalHtml = `
@@ -5836,6 +5855,12 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button id="order-trans-header-toggle" onclick="toggleOrderTransHeader()" style="background: transparent; border: none; cursor: pointer; color: #667eea; padding: 0.2rem 0.4rem; transition: all 0.2s;" title="Toggle Details">
                                     <i class="fas fa-chevron-down" style="font-size: 0.9rem; transition: transform 0.3s;"></i>
                                 </button>
+                                <button onclick="showOrderTransactionsApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
+                                    <i class="fas fa-code"></i> API
+                                </button>
+                                <span style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">
+                                    Instance: ${instance}
+                                </span>
                             </div>
                             <button onclick="closeOrderTransactionsModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #64748b; transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px;" onmouseover="this.style.background='#fee2e2'; this.style.color='#dc2626';" onmouseout="this.style.background='none'; this.style.color='#64748b';">
                                 <i class="fas fa-times"></i>
@@ -5855,6 +5880,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Status:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lineStatus}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Instance:</span><br><strong style="color: #7c3aed; font-size: 0.75rem;">${instance}</strong></div>
                         </div>
                     </div>
 
@@ -5986,6 +6012,139 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modal) {
             modal.remove();
         }
+        // Clear context
+        window.currentOrderTransContext = null;
+    };
+
+    // Show API Information for Order Transactions
+    window.showOrderTransactionsApiInfo = function() {
+        const ctx = window.currentOrderTransContext || {};
+        const orderNumber = ctx.orderNumber || 'N/A';
+        const instance = ctx.instance || 'N/A';
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+
+        const apis = [
+            {
+                name: 'Pick Release Details',
+                method: 'GET',
+                endpoint: `trips/orders/getpickreleasedetails/${orderNumber}`,
+                fullUrl: `${baseUrl}/trips/orders/getpickreleasedetails/${orderNumber}`,
+                note: 'No instance parameter currently passed'
+            },
+            {
+                name: 'Sales Order Lines',
+                method: 'GET',
+                endpoint: `trip/orders/getsalesorderlines/${orderNumber}`,
+                fullUrl: `${baseUrl}/trip/orders/getsalesorderlines/${orderNumber}`,
+                note: 'No instance parameter currently passed'
+            },
+            {
+                name: 'Lot Details',
+                method: 'GET',
+                endpoint: `trips/orders/getlotdetails/${orderNumber}`,
+                fullUrl: `${baseUrl}/trips/orders/getlotdetails/${orderNumber}`,
+                note: 'No instance parameter currently passed'
+            },
+            {
+                name: 'Cancel Scheduled Lines',
+                method: 'POST',
+                endpoint: `trips/orders/cancelscheduledlines/${orderNumber}`,
+                fullUrl: `${baseUrl}/trips/orders/cancelscheduledlines/${orderNumber}`,
+                note: 'No instance parameter currently passed'
+            },
+            {
+                name: 'Cancel Selected Line',
+                method: 'POST',
+                endpoint: `trips/orders/cancelselectedline`,
+                fullUrl: `${baseUrl}/trips/orders/cancelselectedline`,
+                note: 'POST body: { line_id, delivery_detail_id }'
+            },
+            {
+                name: 'Cancel Not Picked Lines',
+                method: 'POST',
+                endpoint: `trips/orders/cancelnotpickedlines/${orderNumber}`,
+                fullUrl: `${baseUrl}/trips/orders/cancelnotpickedlines/${orderNumber}`,
+                note: 'No instance parameter currently passed'
+            }
+        ];
+
+        let apiHtml = '';
+        apis.forEach((api, idx) => {
+            const bgColor = idx % 2 === 0 ? '#f8fafc' : '#ffffff';
+            const methodColor = api.method === 'POST' ? '#fed7aa' : '#c6f6d5';
+            const methodTextColor = api.method === 'POST' ? '#9c4221' : '#22543d';
+
+            apiHtml += `
+                <div style="background: ${bgColor}; padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid #667eea;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: ${methodColor}; color: ${methodTextColor}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">${api.method}</span>
+                        <strong style="color: #1e293b; font-size: 12px;">${api.name}</strong>
+                    </div>
+                    <div style="margin-bottom: 0.25rem;">
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${api.fullUrl}</code>
+                    </div>
+                    <div style="font-size: 10px; color: #f59e0b; font-style: italic;">
+                        <i class="fas fa-exclamation-triangle"></i> ${api.note}
+                    </div>
+                </div>
+            `;
+        });
+
+        const apiInfo = `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <h4 style="margin: 0 0 1rem 0; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">
+                    <i class="fas fa-code" style="color: #667eea;"></i> API Information - Order Transactions
+                </h4>
+
+                <!-- Current Context -->
+                <div style="background: #e0f2fe; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #0284c7;">
+                    <div style="font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">Current Context</div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <tr>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Order Number:</td>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600;">${orderNumber}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Instance (from row):</td>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600; color: #7c3aed;">${instance}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- APIs Used -->
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.75rem;">APIs Used in Order Transactions</div>
+                    ${apiHtml}
+                </div>
+
+                <!-- Warning -->
+                <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                    <strong style="color: #92400e;"><i class="fas fa-exclamation-triangle"></i> Note:</strong>
+                    <span style="color: #78350f; font-size: 12px;">
+                        Instance parameter (${instance}) is extracted from the order row data but may need to be added to API calls if the backend requires it.
+                    </span>
+                </div>
+            </div>
+        `;
+
+        // Create and show popup
+        const popup = document.createElement('div');
+        popup.id = 'order-trans-api-info-popup';
+        popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 26000; display: flex; justify-content: center; align-items: center;';
+        popup.innerHTML = `
+            <div style="background: white; width: 90%; max-width: 750px; max-height: 85%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                <div style="padding: 1.5rem; max-height: calc(85vh - 60px); overflow-y: auto;">
+                    ${apiInfo}
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; text-align: right;">
+                    <button onclick="document.getElementById('order-trans-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
     };
 
     // Toggle Order Transactions Header Details
