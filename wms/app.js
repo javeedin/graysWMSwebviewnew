@@ -5434,30 +5434,34 @@ document.addEventListener('DOMContentLoaded', function() {
     window.refreshTripDetails = function(tripId) {
         console.log('[Refresh Trip] Refreshing trip:', tripId);
 
-        // Get instance - try from trip data first, then fall back to toolbar
-        let instance = localStorage.getItem('fusionInstance') || 'TEST';
+        // Get instance - try from window.currentTripInstance first, then localStorage
+        let instance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'TEST';
 
         // Check if we have trip data with instance - check both tab and dialog grids
         const tabId = `trip-detail-${tripId}`;
         const tabGridId = `grid-${tabId}`;
         const dialogGridId = 'trip-dialog-grid';
 
-        // Try tab grid first, then dialog grid
+        // Try tab grid first, then dialog grid - use try-catch to handle uninitialized grids
         let gridContainer = $(`#${tabGridId}`);
         if (!gridContainer || gridContainer.length === 0) {
             gridContainer = $(`#${dialogGridId}`);
         }
 
         if (gridContainer && gridContainer.length > 0) {
-            const gridInstance = gridContainer.dxDataGrid('instance');
-            if (gridInstance) {
-                const dataSource = gridInstance.option('dataSource');
-                if (dataSource && dataSource.length > 0 && dataSource[0].INSTANCE) {
-                    instance = dataSource[0].INSTANCE;
-                    console.log('[Refresh Trip] Using instance from trip data:', instance);
-                } else {
-                    console.log('[Refresh Trip] Using instance from toolbar:', instance);
+            try {
+                const gridInstance = gridContainer.dxDataGrid('instance');
+                if (gridInstance) {
+                    const dataSource = gridInstance.option('dataSource');
+                    if (dataSource && dataSource.length > 0 && dataSource[0].INSTANCE) {
+                        instance = dataSource[0].INSTANCE;
+                        console.log('[Refresh Trip] Using instance from trip data:', instance);
+                    } else {
+                        console.log('[Refresh Trip] Using instance from window/localStorage:', instance);
+                    }
                 }
+            } catch (gridError) {
+                console.log('[Refresh Trip] Grid not initialized, using instance from window/localStorage:', instance);
             }
         }
 
@@ -5466,10 +5470,18 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Refresh Trip] API URL:', GET_TRIP_DETAILS_API);
 
         // Show loading indicator
-        const refreshBtn = event.target.closest('button');
-        const originalBtnHtml = refreshBtn.innerHTML;
-        refreshBtn.disabled = true;
-        refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+        let refreshBtn = null;
+        let originalBtnHtml = '';
+        try {
+            refreshBtn = event.target.closest('button');
+            if (refreshBtn) {
+                originalBtnHtml = refreshBtn.innerHTML;
+                refreshBtn.disabled = true;
+                refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+            }
+        } catch (e) {
+            console.log('[Refresh Trip] Could not find refresh button');
+        }
 
         if (window.chrome && window.chrome.webview) {
             // WebView2 environment - use C# backend
@@ -5478,8 +5490,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 fullUrl: GET_TRIP_DETAILS_API
             }, function(error, data) {
                 // Restore button
-                refreshBtn.disabled = false;
-                refreshBtn.innerHTML = originalBtnHtml;
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = originalBtnHtml;
+                }
 
                 if (error) {
                     console.error('[Refresh Trip] Error:', error);
@@ -5497,25 +5511,29 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
 
                             if (updateGridContainer && updateGridContainer.length > 0) {
-                                const gridInstance = updateGridContainer.dxDataGrid('instance');
-                                if (gridInstance) {
-                                    gridInstance.option('dataSource', result.items);
-                                    gridInstance.refresh();
+                                try {
+                                    const gridInstance = updateGridContainer.dxDataGrid('instance');
+                                    if (gridInstance) {
+                                        gridInstance.option('dataSource', result.items);
+                                        gridInstance.refresh();
 
-                                    // Update order count (for tab version)
-                                    const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
-                                    if (orderCountDiv.length > 0) {
-                                        orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                        // Update order count (for tab version)
+                                        const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                        if (orderCountDiv.length > 0) {
+                                            orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                        }
                                     }
-
-                                    // Show success notification
-                                    const notification = document.createElement('div');
-                                    notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
-                                    notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
-                                    document.body.appendChild(notification);
-                                    setTimeout(() => notification.remove(), 3000);
+                                } catch (gridError) {
+                                    console.log('[Refresh Trip] Grid not available for update:', gridError.message);
                                 }
                             }
+
+                            // Show success notification
+                            const notification = document.createElement('div');
+                            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                            notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
+                            document.body.appendChild(notification);
+                            setTimeout(() => notification.remove(), 3000);
                         } else {
                             alert('No data returned from API');
                         }
@@ -5531,42 +5549,54 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(response => response.json())
                 .then(result => {
                     // Restore button
-                    refreshBtn.disabled = false;
-                    refreshBtn.innerHTML = originalBtnHtml;
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = originalBtnHtml;
+                    }
 
                     console.log('[Refresh Trip] Data received:', result);
 
                     if (result && result.items && result.items.length > 0) {
                         // Update grid with new data
-                        const gridContainer = $(`#${gridId}`);
-                        if (gridContainer && gridContainer.length > 0) {
-                            const gridInstance = gridContainer.dxDataGrid('instance');
-                            if (gridInstance) {
-                                gridInstance.option('dataSource', result.items);
-                                gridInstance.refresh();
+                        let updateGridContainer = $(`#${tabGridId}`);
+                        if (!updateGridContainer || updateGridContainer.length === 0) {
+                            updateGridContainer = $(`#${dialogGridId}`);
+                        }
 
-                                // Update order count
-                                const orderCountDiv = gridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
-                                if (orderCountDiv.length > 0) {
-                                    orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                        if (updateGridContainer && updateGridContainer.length > 0) {
+                            try {
+                                const gridInstance = updateGridContainer.dxDataGrid('instance');
+                                if (gridInstance) {
+                                    gridInstance.option('dataSource', result.items);
+                                    gridInstance.refresh();
+
+                                    // Update order count
+                                    const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                    if (orderCountDiv.length > 0) {
+                                        orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                    }
                                 }
-
-                                // Show success notification
-                                const notification = document.createElement('div');
-                                notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
-                                notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
-                                document.body.appendChild(notification);
-                                setTimeout(() => notification.remove(), 3000);
+                            } catch (gridError) {
+                                console.log('[Refresh Trip] Grid not available for update:', gridError.message);
                             }
                         }
+
+                        // Show success notification
+                        const notification = document.createElement('div');
+                        notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                        notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
+                        document.body.appendChild(notification);
+                        setTimeout(() => notification.remove(), 3000);
                     } else {
                         alert('No data returned from API');
                     }
                 })
                 .catch(error => {
                     // Restore button
-                    refreshBtn.disabled = false;
-                    refreshBtn.innerHTML = originalBtnHtml;
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = originalBtnHtml;
+                    }
 
                     console.error('[Refresh Trip] Error:', error);
                     alert('Error refreshing trip data:\n' + error.message);
