@@ -3093,9 +3093,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
 
+                // Format date - handle ISO strings like 2026-02-05T00:00:00Z
+                let formattedDate = 'N/A';
+                if (tripDate) {
+                    const dateStr = String(tripDate);
+                    if (dateStr.includes('T')) {
+                        formattedDate = dateStr.split('T')[0];
+                    } else {
+                        formattedDate = dateStr.split(' ')[0];
+                    }
+                }
+
                 tripMap[tripId] = {
                     TRIP_ID: tripId,
-                    TRIP_DATE: tripDate ? String(tripDate).split(' ')[0] : 'N/A',
+                    TRIP_DATE: formattedDate,
                     LORRY_NUMBER: trip.trip_lorry || trip.TRIP_LORRY || 'N/A',
                     PRIORITY: trip.TRIP_PRIORITY || trip.trip_priority || 'Medium',
                     STATUS: trip.TRIP_STATUS || trip.trip_status || trip.LINE_STATUS || 'ACTIVE',
@@ -3216,7 +3227,7 @@ document.addEventListener('DOMContentLoaded', function() {
             container.innerHTML = '<div class="empty-state"><i class="fas fa-truck"></i><h3>No Trips Found</h3><p>No trips match the selected dates</p></div>';
             return;
         }
-        
+
         let html = '';
         filteredTrips.forEach(trip => {
             const priorityColor = trip.PRIORITY.toLowerCase().includes('high') ? '#ef4444' :
@@ -3224,81 +3235,67 @@ document.addEventListener('DOMContentLoaded', function() {
             const priorityBg = trip.PRIORITY.toLowerCase().includes('high') ? 'linear-gradient(135deg, #ef4444, #dc2626)' :
                               trip.PRIORITY.toLowerCase().includes('low') ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
 
+            // Format date - extract just the date part from ISO string
+            let displayDate = trip.TRIP_DATE || 'N/A';
+            if (displayDate && displayDate.includes('T')) {
+                displayDate = displayDate.split('T')[0];
+            }
+
             html += `
-                <div style="background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 3px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 3px 8px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';">
+                <div style="background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 3px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 3px 8px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';">
                     <!-- Card Header -->
-                    <div style="padding: 0.5rem 0.75rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 5px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-route" style="color: white; font-size: 0.75rem;"></i>
+                    <div style="padding: 0.4rem 0.6rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            <div style="width: 24px; height: 24px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: white; font-size: 0.65rem;"></i>
                             </div>
-                            <div style="display: flex; flex-direction: column; gap: 0.1rem;">
-                                <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}${trip.LOADING_BAY ? ` - Bay ${trip.LOADING_BAY}` : ''}</span>
-                                <span style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase;">${trip.STATUS || 'ACTIVE'}</span>
+                            <div style="display: flex; flex-direction: column; gap: 0.05rem;">
+                                <span style="font-size: 0.8rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}${trip.LOADING_BAY ? ` - Bay ${trip.LOADING_BAY}` : ''}</span>
+                                <span style="font-size: 0.55rem; font-weight: 600; color: #64748b; text-transform: uppercase;">${trip.STATUS || 'ACTIVE'}</span>
                             </div>
                         </div>
-                        <div style="background: ${priorityBg}; color: white; padding: 0.25rem 0.6rem; border-radius: 10px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase;">
+                        <div style="background: ${priorityBg}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.5rem; font-weight: 600; text-transform: uppercase;">
                             ${trip.PRIORITY}
                         </div>
                     </div>
 
                     <!-- Card Body -->
-                    <div style="padding: 0.75rem;">
-                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
+                    <div style="padding: 0.5rem;">
+                        <div style="display: flex; gap: 0.4rem; margin-bottom: 0.5rem;">
                             <!-- Trip Date -->
-                            <div style="flex: 1; padding: 0.5rem; background: #f0f9ff; border-radius: 5px; border-left: 2px solid #3b82f6;">
-                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Date</div>
-                                <div style="font-size: 0.75rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
+                            <div style="flex: 1; padding: 0.35rem; background: #f0f9ff; border-radius: 4px; border-left: 2px solid #3b82f6;">
+                                <div style="font-size: 0.5rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem; text-transform: uppercase;">Date</div>
+                                <div style="font-size: 0.65rem; font-weight: 700; color: #1e293b;">${displayDate}</div>
                             </div>
 
                             <!-- Lorry Number -->
-                            <div style="flex: 1; padding: 0.5rem; background: #f0fdf4; border-radius: 5px; border-left: 2px solid #10b981;">
-                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
-                                <div style="font-size: 0.75rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
+                            <div style="flex: 1; padding: 0.35rem; background: #f0fdf4; border-radius: 4px; border-left: 2px solid #10b981;">
+                                <div style="font-size: 0.5rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem; text-transform: uppercase;">Lorry</div>
+                                <div style="font-size: 0.65rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
                             </div>
 
                             <!-- Total Orders -->
-                            <div style="flex: 1; padding: 0.5rem; background: #fff7ed; border-radius: 5px; border-left: 2px solid #f59e0b;">
-                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            <div style="flex: 1; padding: 0.35rem; background: #fff7ed; border-radius: 4px; border-left: 2px solid #f59e0b;">
+                                <div style="font-size: 0.5rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem; text-transform: uppercase;">Orders</div>
+                                <div style="font-size: 0.75rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
                             </div>
 
                             <!-- Instance -->
-                            <div style="flex: 0 0 55px; padding: 0.5rem; background: #faf5ff; border-radius: 5px; border-left: 2px solid #8b5cf6;">
-                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Instance</div>
-                                <div style="font-size: 0.7rem; font-weight: 700; color: #7c3aed;">${trip.INSTANCE || 'N/A'}</div>
+                            <div style="flex: 0 0 45px; padding: 0.35rem; background: #faf5ff; border-radius: 4px; border-left: 2px solid #8b5cf6;">
+                                <div style="font-size: 0.5rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem; text-transform: uppercase;">Inst</div>
+                                <div style="font-size: 0.6rem; font-weight: 700; color: #7c3aed;">${trip.INSTANCE || 'N/A'}</div>
                             </div>
                         </div>
 
-                        <!-- Auto Print Section -->
-                        <div style="padding: 0.4rem 0.5rem; background: #f8fafc; border-radius: 5px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                            <div style="display: flex; align-items: center; gap: 0.35rem;">
-                                <i class="fas fa-print" style="color: #667eea; font-size: 0.65rem;"></i>
-                                <span style="font-size: 0.65rem; color: #1e293b; font-weight: 600;">Auto Print</span>
-                            </div>
-                            <label class="toggle-switch" style="transform: scale(0.8);">
-                                <input type="checkbox"
-                                       class="auto-print-toggle"
-                                       id="autoPrint_${trip.TRIP_ID}_${trip.TRIP_DATE}"
-                                       data-trip-id="${trip.TRIP_ID}"
-                                       data-trip-date="${trip.TRIP_DATE}"
-                                       onchange="handleAutoPrintToggle('${trip.TRIP_ID}', '${trip.TRIP_DATE}', this.checked, ${trip.TOTAL_ORDERS})">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="auto-print-status" id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}" style="margin-top: 0.35rem; padding: 0.3rem; font-size: 0.6rem; border-radius: 4px; display: none;"></div>
-                    </div>
-
-                    <!-- Card Footer -->
-                    <div style="padding: 0.45rem 0.65rem; background: #f8f9fc; border-top: 1px solid #e2e8f0;">
-                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}')" style="width: 100%; font-size: 0.65rem; padding: 0.4rem 0.6rem; justify-content: center;">
-                            <i class="fas fa-eye"></i> View Details
+                        <!-- View Details Button -->
+                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
+                            <i class="fas fa-eye" style="font-size: 0.55rem;"></i> View Details
                         </button>
                     </div>
                 </div>
             `;
         });
-        
+
         container.innerHTML = html;
         
         setTimeout(() => {
