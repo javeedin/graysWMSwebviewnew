@@ -65,6 +65,11 @@ namespace WMSApp
         private string _loggedInDateTime;
         private bool _isLoggedIn = false;
 
+        // Oracle Fusion Credentials (fetched from webservice on startup)
+        private string _fusionUsername;
+        private string _fusionPassword;
+        private bool _fusionCredentialsLoaded = false;
+
         public Form1()
         {
             InitializeComponent();
@@ -90,6 +95,9 @@ try
                 _storageManager = new LocalStorageManager();
                 _printerService = new PrinterService();
                 _restApiClient = new RestApiClient();
+
+                // Fetch Oracle Fusion credentials on startup (fire and forget)
+                _ = FetchFusionCredentialsOnStartup();
             }
             catch (Exception ex)
             {
@@ -98,6 +106,64 @@ try
                 MessageBox.Show($"Application startup error: {ex.Message}\n\nStack trace:\n{ex.StackTrace}",
                     "Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        /// <summary>
+        /// Fetches Oracle Fusion credentials from webservice on application startup
+        /// URL: /trip/fusionuserdetails returns { items: [{ user_name, passwordd }] }
+        /// </summary>
+        private async Task FetchFusionCredentialsOnStartup()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] Fetching Oracle Fusion credentials on startup...");
+
+                // Use PROD endpoint for credentials
+                string credentialsUrl = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails";
+
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    var response = await client.GetAsync(credentialsUrl);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string jsonResponse = await response.Content.ReadAsStringAsync();
+                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] Response received: {jsonResponse.Length} chars");
+
+                        using (var doc = JsonDocument.Parse(jsonResponse))
+                        {
+                            var items = doc.RootElement.GetProperty("items");
+                            foreach (var item in items.EnumerateArray())
+                            {
+                                _fusionUsername = item.TryGetProperty("user_name", out var userProp) ? userProp.GetString() : null;
+                                _fusionPassword = item.TryGetProperty("passwordd", out var passProp) ? passProp.GetString() : null;
+
+                                if (!string.IsNullOrEmpty(_fusionUsername) && !string.IsNullOrEmpty(_fusionPassword))
+                                {
+                                    _fusionCredentialsLoaded = true;
+                                    System.Diagnostics.Debug.WriteLine($"[FUSION CRED] SUCCESS - Loaded credentials for user: {_fusionUsername}");
+                                    System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
+                                    return;
+                                }
+                            }
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] WARNING - No valid credentials found in response");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ERROR - HTTP {response.StatusCode}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ERROR - {ex.Message}");
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
         }
 
         private void InitializeComponent1()
@@ -1900,36 +1966,44 @@ navPanel.Controls.Add(wmsDevButton);
                 catch { }
 
                 System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Instance: {instance}");
-                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Logged-in User: {_loggedInUsername ?? "NULL"}");
-                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Password Available: {!string.IsNullOrEmpty(_loggedInPassword)}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Fusion User: {_fusionUsername ?? "NULL"}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Fusion Credentials Loaded: {_fusionCredentialsLoaded}");
 
-                // Check for credentials
-                if (string.IsNullOrEmpty(_loggedInUsername) || string.IsNullOrEmpty(_loggedInPassword))
+                // Check for Fusion credentials (fetched on app startup)
+                if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
                 {
-                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ERROR: No credentials available!");
-                    var noCredError = new
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ERROR: Fusion credentials not available!");
+
+                    // Try to fetch credentials now as fallback
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Attempting to fetch credentials now...");
+                    await FetchFusionCredentialsOnStartup();
+
+                    if (!_fusionCredentialsLoaded)
                     {
-                        action = "restResponse",
-                        requestId = requestId,
-                        data = JsonSerializer.Serialize(new {
-                            ReturnStatus = "Error",
-                            ErrorExplanation = "No credentials available. Please log in again.",
-                            ErrorCode = "AUTH_MISSING"
-                        })
-                    };
-                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(noCredError));
-                    return;
+                        var noCredError = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorExplanation = "Oracle Fusion credentials not available. Could not fetch from webservice.",
+                                ErrorCode = "FUSION_CRED_MISSING"
+                            })
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(noCredError));
+                        return;
+                    }
                 }
 
                 using (var httpClient = new HttpClient())
                 {
                     httpClient.Timeout = TimeSpan.FromSeconds(120); // 2 min timeout for Oracle Fusion
 
-                    // Add Basic Auth header using logged-in credentials
-                    var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_loggedInUsername}:{_loggedInPassword}"));
+                    // Add Basic Auth header using Fusion credentials (from webservice)
+                    var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_fusionUsername}:{_fusionPassword}"));
                     httpClient.DefaultRequestHeaders.Authorization =
                         new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
-                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Added Basic Auth for user: {_loggedInUsername}");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Added Basic Auth for Fusion user: {_fusionUsername}");
 
                     // Add required headers for Oracle Fusion REST API
                     httpClient.DefaultRequestHeaders.Accept.Add(
