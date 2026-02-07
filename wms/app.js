@@ -8699,21 +8699,38 @@ document.addEventListener('DOMContentLoaded', function() {
                 let response = null;
                 let isSuccess = false;
 
+                console.log('[Oracle Fusion] Callback received - Error:', error, 'Data type:', typeof data);
+                console.log('[Oracle Fusion] Raw data:', data);
+
                 if (error) {
-                    console.error('[Order Transactions] Oracle Fusion Pick Confirm API Error:', error);
+                    console.error('[Oracle Fusion] API Error:', error);
                     response = { error: error, ReturnStatus: 'Error', ErrorExplanation: error };
                 } else {
-                    console.log('[Order Transactions] Oracle Fusion Pick Confirm API Response:', data);
-
-                    // Parse response
+                    // Parse response - handle nested JSON strings
                     try {
-                        response = typeof data === 'string' ? JSON.parse(data) : data;
+                        if (typeof data === 'string') {
+                            // First parse
+                            response = JSON.parse(data);
+                            console.log('[Oracle Fusion] First parse result:', response);
+
+                            // If the result is still a string (double-encoded), parse again
+                            if (typeof response === 'string') {
+                                response = JSON.parse(response);
+                                console.log('[Oracle Fusion] Second parse result:', response);
+                            }
+                        } else {
+                            response = data;
+                        }
                     } catch (e) {
-                        response = { rawResponse: data, ReturnStatus: 'Unknown' };
+                        console.error('[Oracle Fusion] Parse error:', e.message);
+                        response = { rawResponse: data, ReturnStatus: 'Unknown', parseError: e.message };
                     }
+
+                    console.log('[Oracle Fusion] Final parsed response:', response);
 
                     // Check for success - Oracle Fusion returns ReturnStatus
                     isSuccess = response.ReturnStatus === 'Success';
+                    console.log('[Oracle Fusion] Is Success:', isSuccess, 'ReturnStatus:', response.ReturnStatus);
                 }
 
                 // Store result for viewing later

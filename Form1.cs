@@ -414,8 +414,9 @@ try
                             {
                                 System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] SUCCESS - User validated! Items count: {itemCount}");
 
-                                // Set session
+                                // Set session (including password for Oracle Fusion API calls)
                                 _loggedInUsername = username;
+                                _loggedInPassword = password;
                                 _loggedInInstance = instanceName;
                                 _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
                                 _isLoggedIn = true;
@@ -1880,8 +1881,9 @@ navPanel.Controls.Add(wmsDevButton);
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
                 );
 
-                System.Diagnostics.Debug.WriteLine($"[C#] Oracle Fusion POST request: {message.FullUrl}");
-                System.Diagnostics.Debug.WriteLine($"[C#] Body: {message.Body}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] POST request to: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Body: {message.Body}");
 
                 // Get instance from message to determine credentials
                 string instance = "TEST";
@@ -1897,24 +1899,37 @@ navPanel.Controls.Add(wmsDevButton);
                 }
                 catch { }
 
-                System.Diagnostics.Debug.WriteLine($"[C#] Using Oracle Fusion instance: {instance}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Instance: {instance}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Logged-in User: {_loggedInUsername ?? "NULL"}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Password Available: {!string.IsNullOrEmpty(_loggedInPassword)}");
+
+                // Check for credentials
+                if (string.IsNullOrEmpty(_loggedInUsername) || string.IsNullOrEmpty(_loggedInPassword))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ERROR: No credentials available!");
+                    var noCredError = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = JsonSerializer.Serialize(new {
+                            ReturnStatus = "Error",
+                            ErrorExplanation = "No credentials available. Please log in again.",
+                            ErrorCode = "AUTH_MISSING"
+                        })
+                    };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(noCredError));
+                    return;
+                }
 
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(60); // Longer timeout for Oracle Fusion
+                    httpClient.Timeout = TimeSpan.FromSeconds(120); // 2 min timeout for Oracle Fusion
 
                     // Add Basic Auth header using logged-in credentials
-                    if (!string.IsNullOrEmpty(_loggedInUsername) && !string.IsNullOrEmpty(_loggedInPassword))
-                    {
-                        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_loggedInUsername}:{_loggedInPassword}"));
-                        httpClient.DefaultRequestHeaders.Authorization =
-                            new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
-                        System.Diagnostics.Debug.WriteLine($"[C#] Added Basic Auth for user: {_loggedInUsername}");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[C#] WARNING: No credentials available for Oracle Fusion API");
-                    }
+                    var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_loggedInUsername}:{_loggedInPassword}"));
+                    httpClient.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Added Basic Auth for user: {_loggedInUsername}");
 
                     // Add required headers for Oracle Fusion REST API
                     httpClient.DefaultRequestHeaders.Accept.Add(
@@ -1926,11 +1941,42 @@ navPanel.Controls.Add(wmsDevButton);
                         "application/json"
                     );
 
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Sending POST request...");
                     var response = await httpClient.PostAsync(message.FullUrl, content);
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] Oracle Fusion POST completed. Status: {response.StatusCode}");
-                    System.Diagnostics.Debug.WriteLine($"[C#] Response: {responseContent}");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Response Status: {(int)response.StatusCode} {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Response Body: {responseContent}");
+
+                    // Handle non-success status codes
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] HTTP Error: {response.StatusCode}");
+
+                        // Try to parse error response, or create one
+                        string errorData;
+                        if (!string.IsNullOrEmpty(responseContent))
+                        {
+                            errorData = responseContent;
+                        }
+                        else
+                        {
+                            errorData = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorCode = $"HTTP_{(int)response.StatusCode}",
+                                ErrorExplanation = $"HTTP Error: {response.StatusCode}"
+                            });
+                        }
+
+                        var httpErrorMessage = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = errorData
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(httpErrorMessage));
+                        return;
+                    }
 
                     var resultMessage = new
                     {
@@ -1940,24 +1986,63 @@ navPanel.Controls.Add(wmsDevButton);
                     };
 
                     string resultJson = JsonSerializer.Serialize(resultMessage);
-                    System.Diagnostics.Debug.WriteLine($"[C#] Sending Oracle Fusion response back to JS. RequestId: {requestId}");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Sending response back to JS. RequestId: {requestId}");
                     wv.CoreWebView2.PostWebMessageAsJson(resultJson);
-                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ Oracle Fusion response sent successfully");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ✓ Response sent successfully");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ========================================");
                 }
             }
-            catch (Exception ex)
+            catch (HttpRequestException httpEx)
             {
-                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Oracle Fusion API call failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] HTTP Request failed: {httpEx.Message}");
 
                 var errorMessage = new
                 {
-                    action = "error",
+                    action = "restResponse",
                     requestId = requestId,
-                    data = new { message = ex.Message, ReturnStatus = "Error", ErrorExplanation = ex.Message }
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "HTTP_REQUEST_FAILED",
+                        ErrorExplanation = $"HTTP Request failed: {httpEx.Message}"
+                    })
                 };
 
-                string errorJson = JsonSerializer.Serialize(errorMessage);
-                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+            catch (TaskCanceledException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] Request timed out");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "TIMEOUT",
+                        ErrorExplanation = "Request timed out. Oracle Fusion API did not respond within 120 seconds."
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] Unexpected error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] Stack: {ex.StackTrace}");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "UNKNOWN",
+                        ErrorExplanation = ex.Message
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
             }
         }
 
