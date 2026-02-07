@@ -7442,6 +7442,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const lineStatus = rowData.LINE_STATUS || rowData.line_status || '';
         const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || window.currentTripInstance || 'TEST';
 
+        // Store instance globally for use by updatePickConfirmStatusSelected
+        window.currentOrderTransactionsInstance = instance;
+
         // Store context globally for API calls
         window.currentOrderTransContext = {
             orderNumber,
@@ -7571,6 +7574,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </button>
                                 <button class="btn btn-primary" onclick="openPickSelectedLinesPopup('${orderNumber}')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
                                     <i class="fas fa-check-square"></i> Pick Selected Lines
+                                </button>
+                                <button class="btn btn-warning" onclick="updatePickConfirmStatusSelected('${orderNumber}')" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;">
+                                    <i class="fas fa-database"></i> Update WMS Status
                                 </button>
                                 <button class="btn btn-primary" onclick="shipConfirmOrder('${orderNumber}')" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);">
                                     <i class="fas fa-shipping-fast"></i> Ship Confirm Order
@@ -8506,9 +8512,11 @@ document.addEventListener('DOMContentLoaded', function() {
             const pickSlip = row.PICK_SLIP || row.pick_slip || row.PICKSLIP || row.pickslip || '';
             const pickSlipLine = row.PICK_SLIP_LINE || row.pick_slip_line || row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
             const subinventory = row.SOURCE_SUBINVENTORY || row.source_subinventory || row.SUBINVENTORY || row.subinventory || row.SUBINVENTORY_CODE || 'DUTY PAID';
+            const pickConfirmSt = row.PICK_CONFIRM_ST || row.pick_confirm_st || '';
+            const isAlreadyConfirmed = pickConfirmSt === 'YES';
 
             tableRows += `
-                <tr data-index="${index}" id="pick-line-row-${index}">
+                <tr data-index="${index}" id="pick-line-row-${index}" style="${isAlreadyConfirmed ? 'background: #f0fdf4;' : ''}">
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 600;">${itemCode}</td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-size: 0.8rem;">${description}</td>
@@ -8516,10 +8524,16 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: right;">${quantity}</td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
                         <input type="number" class="pick-qty-input" id="pick-qty-${index}" data-index="${index}" value="${quantity}" min="0" max="${quantity}"
-                            style="width: 70px; padding: 0.3rem; border: 1px solid #d1d5db; border-radius: 4px; text-align: right; font-size: 0.85rem;">
+                            style="width: 70px; padding: 0.3rem; border: 1px solid #d1d5db; border-radius: 4px; text-align: right; font-size: 0.85rem;" ${isAlreadyConfirmed ? 'disabled' : ''}>
                     </td>
-                    <td id="pick-status-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
-                        <span style="color: #9ca3af;"><i class="fas fa-minus-circle"></i></span>
+                    <td id="pick-fusion-status-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        ${isAlreadyConfirmed ? '<span style="color: #22c55e;"><i class="fas fa-check-circle"></i></span>' : '<span style="color: #9ca3af;"><i class="fas fa-minus-circle"></i></span>'}
+                    </td>
+                    <td id="pick-wms-status-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        ${isAlreadyConfirmed ? '<span style="color: #22c55e;"><i class="fas fa-check-circle"></i></span>' : '<span style="color: #9ca3af;"><i class="fas fa-minus-circle"></i></span>'}
+                    </td>
+                    <td id="pick-confirm-st-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600; color: ${isAlreadyConfirmed ? '#22c55e' : '#9ca3af'};">
+                        ${pickConfirmSt || '-'}
                     </td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
                         <button id="pick-result-btn-${index}" onclick="showPickLineResult(${index})" style="padding: 0.3rem 0.5rem; background: #f1f5f9; color: #6366f1; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer; font-size: 0.75rem; display: none;" title="View Result">
@@ -8533,8 +8547,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     </td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
                         <button id="pick-btn-${index}" onclick="confirmPickByLine(${index}, '${orderNumber}', '${instance}')"
-                            style="padding: 0.35rem 0.6rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600; white-space: nowrap;">
-                            <i class="fas fa-check"></i> Confirm
+                            style="padding: 0.35rem 0.6rem; background: ${isAlreadyConfirmed ? '#9ca3af' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)'}; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600; white-space: nowrap;" ${isAlreadyConfirmed ? 'disabled' : ''}>
+                            ${isAlreadyConfirmed ? '<i class="fas fa-check-circle"></i> Done' : '<i class="fas fa-check"></i> Confirm'}
                         </button>
                     </td>
                 </tr>
@@ -8570,7 +8584,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Lot Number</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: right; border-bottom: 2px solid #e2e8f0; width: 70px;">Qty</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Picked Qty</th>
-                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 50px;">Status</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 70px;">Fusion</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 70px;">WMS</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 80px;">Pick ST</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 80px;">Info</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Action</th>
                                 </tr>
@@ -8673,14 +8689,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Disable button and show loading
         const btn = document.getElementById(`pick-btn-${index}`);
-        const statusCell = document.getElementById(`pick-status-${index}`);
+        const fusionStatusCell = document.getElementById(`pick-fusion-status-${index}`);
+        const wmsStatusCell = document.getElementById(`pick-wms-status-${index}`);
+        const pickConfirmStCell = document.getElementById(`pick-confirm-st-${index}`);
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             btn.style.background = '#9ca3af';
         }
-        if (statusCell) {
-            statusCell.innerHTML = '<span style="color: #f59e0b;"><i class="fas fa-spinner fa-spin"></i></span>';
+        if (fusionStatusCell) {
+            fusionStatusCell.innerHTML = '<span style="color: #f59e0b;"><i class="fas fa-spinner fa-spin"></i></span>';
         }
 
         // Get Oracle Fusion API URL based on instance
@@ -8696,7 +8714,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 fullUrl: apiUrl,
                 body: JSON.stringify(requestBody),
                 instance: instance
-            }, function(error, data) {
+            }, async function(error, data) {
                 let response = null;
                 let isSuccess = false;
 
@@ -8745,12 +8763,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     lotNumber: lotNumber
                 };
 
-                // Update status cell with icon
-                if (statusCell) {
+                // Update Fusion status cell with icon
+                if (fusionStatusCell) {
                     if (isSuccess) {
-                        statusCell.innerHTML = '<span style="color: #22c55e; font-size: 1.1rem;"><i class="fas fa-check-circle"></i></span>';
+                        fusionStatusCell.innerHTML = '<span style="color: #22c55e; font-size: 1.1rem;"><i class="fas fa-check-circle"></i></span>';
                     } else {
-                        statusCell.innerHTML = '<span style="color: #ef4444; font-size: 1.1rem;"><i class="fas fa-times-circle"></i></span>';
+                        fusionStatusCell.innerHTML = '<span style="color: #ef4444; font-size: 1.1rem;"><i class="fas fa-times-circle"></i></span>';
                     }
                 }
 
@@ -8767,20 +8785,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
 
-                // Update button state
-                if (btn) {
-                    if (isSuccess) {
-                        btn.innerHTML = '<i class="fas fa-check-circle"></i> Done';
-                        btn.style.background = '#22c55e';
-                        btn.disabled = true;
-                    } else {
-                        btn.innerHTML = '<i class="fas fa-times"></i> Failed';
-                        btn.style.background = '#ef4444';
-                        btn.disabled = false;
-                        btn.onclick = function() { confirmPickByLine(index, orderNumber, instance); };
-                    }
-                }
-
                 // Mark row with appropriate color
                 const rowEl = document.getElementById(`pick-line-row-${index}`);
                 if (rowEl) {
@@ -8789,7 +8793,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Show notification
                 if (isSuccess) {
-                    showNotification(`Pick confirmed for ${itemCode} - Lot: ${lotNumber}`, 'success');
+                    showNotification(`Fusion Pick confirmed for ${itemCode} - Lot: ${lotNumber}`, 'success');
+
+                    // Show loading for WMS status
+                    if (wmsStatusCell) {
+                        wmsStatusCell.innerHTML = '<span style="color: #f59e0b;"><i class="fas fa-spinner fa-spin"></i></span>';
+                    }
 
                     // Call updatepickconfirmstatus webservice on success
                     const updateStatusUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatepickconfirmstatus';
@@ -8806,28 +8815,62 @@ document.addEventListener('DOMContentLoaded', function() {
                     window.pickLineResults[index].updateStatusRequest = updateStatusBody;
                     window.pickLineResults[index].updateStatusUrl = updateStatusUrl;
 
-                    // Make the API call to update pick confirm status
-                    fetch(updateStatusUrl, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify(updateStatusBody)
-                    })
-                    .then(updateResponse => updateResponse.json())
-                    .then(updateData => {
+                    // Make the API call to update pick confirm status and AWAIT it
+                    try {
+                        const updateResponse = await fetch(updateStatusUrl, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(updateStatusBody)
+                        });
+                        const updateData = await updateResponse.json();
                         console.log('[Pick Confirm] updatepickconfirmstatus API Response:', updateData);
                         window.pickLineResults[index].updateStatusResponse = updateData;
                         window.pickLineResults[index].updateStatusSuccess = true;
-                    })
-                    .catch(updateError => {
+
+                        // Update WMS status cell to success
+                        if (wmsStatusCell) {
+                            wmsStatusCell.innerHTML = '<span style="color: #22c55e; font-size: 1.1rem;"><i class="fas fa-check-circle"></i></span>';
+                        }
+
+                        // Update Pick Confirm ST to YES
+                        if (pickConfirmStCell) {
+                            pickConfirmStCell.innerHTML = 'YES';
+                            pickConfirmStCell.style.color = '#22c55e';
+                        }
+
+                        showNotification(`WMS status updated for ${itemCode}`, 'success');
+                    } catch (updateError) {
                         console.error('[Pick Confirm] updatepickconfirmstatus API Error:', updateError);
                         window.pickLineResults[index].updateStatusResponse = { error: updateError.message };
                         window.pickLineResults[index].updateStatusSuccess = false;
-                    });
+
+                        // Update WMS status cell to error
+                        if (wmsStatusCell) {
+                            wmsStatusCell.innerHTML = '<span style="color: #ef4444; font-size: 1.1rem;"><i class="fas fa-times-circle"></i></span>';
+                        }
+
+                        showNotification(`WMS status update failed for ${itemCode}: ${updateError.message}`, 'error');
+                    }
+
+                    // Update button state after everything is done
+                    if (btn) {
+                        btn.innerHTML = '<i class="fas fa-check-circle"></i> Done';
+                        btn.style.background = '#22c55e';
+                        btn.disabled = true;
+                    }
 
                     resolve(response);
                 } else {
+                    // Update button state for failure
+                    if (btn) {
+                        btn.innerHTML = '<i class="fas fa-times"></i> Failed';
+                        btn.style.background = '#ef4444';
+                        btn.disabled = false;
+                        btn.onclick = function() { confirmPickByLine(index, orderNumber, instance); };
+                    }
+
                     const errorMsg = response.ErrorExplanation || response.error || 'Unknown error';
                     showNotification(`Pick failed for ${itemCode}: ${errorMsg}`, 'error');
                     reject(response);
@@ -8980,6 +9023,155 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             showNotification(`Pick confirm completed: ${successCount} success, ${failureCount} failed. Click info icons to see details.`, 'warning');
         }
+    };
+
+    // Update Pick Confirm Status for selected lines from the Lot Details grid (WMS only, no Fusion call)
+    window.updatePickConfirmStatusSelected = async function(orderNumber) {
+        if (!window.lotDetailsGridInstance) {
+            alert('Lot Details grid not initialized.');
+            return;
+        }
+
+        const selectedRows = window.lotDetailsGridInstance.getSelectedRowsData();
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one line to update WMS status.');
+            return;
+        }
+
+        // Get instance from the current context
+        const instance = window.currentOrderTransactionsInstance || 'PROD';
+
+        const confirmMsg = `Update WMS Pick Confirm Status for ${selectedRows.length} selected line(s)?\n\nThis will call the updatepickconfirmstatus webservice for each selected line.`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        const updateStatusUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatepickconfirmstatus';
+
+        let successCount = 0;
+        let failureCount = 0;
+        const results = [];
+
+        // Show processing notification
+        showNotification(`Processing ${selectedRows.length} lines...`, 'info');
+
+        for (let i = 0; i < selectedRows.length; i++) {
+            const row = selectedRows[i];
+            const transactionId = row.TRANSACTION_ID || row.transaction_id || '';
+            const pickedQty = row.QUANTITY || row.quantity || row.QTY || row.qty || row.TRANSACTION_QUANTITY || 0;
+            const itemCode = row.ITEM_CODE || row.item_code || row.ITEM || row.item || '';
+            const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
+
+            if (!transactionId) {
+                console.warn('[Update WMS Status] Skipping row without TRANSACTION_ID:', row);
+                failureCount++;
+                results.push({ itemCode, lotNumber, success: false, error: 'No transaction ID' });
+                continue;
+            }
+
+            const updateStatusBody = {
+                P_TRANSACTION_ID: transactionId,
+                p_instance_name: instance.toUpperCase(),
+                p_pickedQty: pickedQty
+            };
+
+            console.log('[Update WMS Status] Calling API for:', itemCode, lotNumber);
+            console.log('[Update WMS Status] Request Body:', updateStatusBody);
+
+            try {
+                const response = await fetch(updateStatusUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updateStatusBody)
+                });
+                const data = await response.json();
+                console.log('[Update WMS Status] Response:', data);
+                successCount++;
+                results.push({ itemCode, lotNumber, success: true, response: data });
+            } catch (error) {
+                console.error('[Update WMS Status] Error:', error);
+                failureCount++;
+                results.push({ itemCode, lotNumber, success: false, error: error.message });
+            }
+
+            // Small delay between calls
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        // Show results
+        if (failureCount === 0) {
+            showNotification(`WMS status updated for all ${successCount} lines successfully!`, 'success');
+        } else {
+            showNotification(`WMS status update: ${successCount} success, ${failureCount} failed.`, 'warning');
+        }
+
+        // Show detailed results popup
+        showUpdateWmsStatusResults(results);
+
+        // Refresh the lot details grid
+        setTimeout(() => {
+            refreshLotDetails(orderNumber);
+        }, 1000);
+    };
+
+    // Show Update WMS Status Results popup
+    window.showUpdateWmsStatusResults = function(results) {
+        let tableRows = results.map((r, i) => `
+            <tr style="background: ${r.success ? '#f0fdf4' : '#fef2f2'};">
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${i + 1}</td>
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 600;">${r.itemCode}</td>
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${r.lotNumber}</td>
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                    ${r.success
+                        ? '<span style="color: #22c55e;"><i class="fas fa-check-circle"></i> Success</span>'
+                        : '<span style="color: #ef4444;"><i class="fas fa-times-circle"></i> Failed</span>'}
+                </td>
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-size: 0.75rem;">
+                    ${r.success ? JSON.stringify(r.response || {}) : (r.error || 'Unknown error')}
+                </td>
+            </tr>
+        `).join('');
+
+        const popupHtml = `
+            <div id="update-wms-results-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100010; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 90%; max-width: 800px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas fa-database" style="font-size: 1.25rem;"></i>
+                            <div style="font-weight: 600; font-size: 1.1rem;">Update WMS Status Results</div>
+                        </div>
+                        <button onclick="document.getElementById('update-wms-results-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div style="flex: 1; overflow: auto; padding: 1rem;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="background: #f8fafc;">
+                                    <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">#</th>
+                                    <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Item</th>
+                                    <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Lot</th>
+                                    <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #e2e8f0;">Status</th>
+                                    <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>${tableRows}</tbody>
+                        </table>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('update-wms-results-popup').remove()" style="padding: 0.6rem 1.25rem; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const existingPopup = document.getElementById('update-wms-results-popup');
+        if (existingPopup) existingPopup.remove();
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
     };
 
     // Show Pick Line API Info popup - Oracle Fusion API format
