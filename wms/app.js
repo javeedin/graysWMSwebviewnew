@@ -8493,6 +8493,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // Get instance
         const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
 
+        // Initialize pick line results storage
+        window.pickLineResults = {};
+
         // Build table rows for selected items
         let tableRows = '';
         selectedRows.forEach((row, index) => {
@@ -8500,14 +8503,9 @@ document.addEventListener('DOMContentLoaded', function() {
             const description = row.DESCRIPTION || row.description || row.ITEM_DESC || row.item_desc || row.ITEM_DESCRIPTION || '';
             const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
             const quantity = row.QUANTITY || row.quantity || row.QTY || row.qty || row.TRANSACTION_QUANTITY || 0;
-            const transactionId = row.TRANSACTION_ID || row.transaction_id || '';
-            const lineNo = row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
-            const picker = row.PICKER || row.picker || row.PICKED_BY || row.picked_by || '';
-
-            // Get today's date for JSON preview
-            const today = new Date();
-            const pickConfirmDate = today.toISOString().split('T')[0];
-            const pickerForJson = picker || 'System';
+            const pickSlip = row.PICK_SLIP || row.pick_slip || row.PICKSLIP || row.pickslip || '';
+            const pickSlipLine = row.PICK_SLIP_LINE || row.pick_slip_line || row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
+            const subinventory = row.SOURCE_SUBINVENTORY || row.source_subinventory || row.SUBINVENTORY || row.subinventory || row.SUBINVENTORY_CODE || 'DUTY PAID';
 
             tableRows += `
                 <tr data-index="${index}" id="pick-line-row-${index}">
@@ -8520,8 +8518,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         <input type="number" class="pick-qty-input" id="pick-qty-${index}" data-index="${index}" value="${quantity}" min="0" max="${quantity}"
                             style="width: 70px; padding: 0.3rem; border: 1px solid #d1d5db; border-radius: 4px; text-align: right; font-size: 0.85rem;">
                     </td>
+                    <td id="pick-status-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <span style="color: #9ca3af;"><i class="fas fa-minus-circle"></i></span>
+                    </td>
                     <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
-                        <button onclick="showPickLineApiInfo(${index}, '${transactionId}', '${lineNo}', '${lotNumber}', '${pickerForJson}', '${pickConfirmDate}', '${instance}')"
+                        <button id="pick-result-btn-${index}" onclick="showPickLineResult(${index})" style="padding: 0.3rem 0.5rem; background: #f1f5f9; color: #6366f1; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer; font-size: 0.75rem; display: none;" title="View Result">
+                            <i class="fas fa-info-circle"></i>
+                        </button>
+                        <button onclick="showPickLineApiInfo(${index}, '${pickSlip}', '${pickSlipLine}', '${lotNumber}', '${subinventory}', '${instance}')"
                             style="padding: 0.3rem 0.5rem; background: #f1f5f9; color: #6366f1; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer; font-size: 0.75rem;"
                             title="View API Info">
                             <i class="fas fa-code"></i>
@@ -8540,13 +8544,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // Create popup HTML
         const popupHtml = `
             <div id="pick-lines-popup-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100001; display: flex; align-items: center; justify-content: center;">
-                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 95%; max-width: 1000px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 95%; max-width: 1100px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column;">
                     <!-- Header -->
                     <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
                             <i class="fas fa-check-square" style="font-size: 1.25rem;"></i>
                             <div>
-                                <div style="font-weight: 600; font-size: 1.1rem;">Pick Selected Lines</div>
+                                <div style="font-weight: 600; font-size: 1.1rem;">Pick Selected Lines (Oracle Fusion)</div>
                                 <div style="font-size: 0.8rem; opacity: 0.9;">Order: ${orderNumber} | ${selectedRows.length} line(s) selected | Instance: ${instance}</div>
                             </div>
                         </div>
@@ -8566,7 +8570,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Lot Number</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: right; border-bottom: 2px solid #e2e8f0; width: 70px;">Qty</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Picked Qty</th>
-                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 50px;">API</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 50px;">Status</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 80px;">Info</th>
                                     <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Action</th>
                                 </tr>
                             </thead>
@@ -8577,10 +8582,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
 
                     <!-- Footer -->
-                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end; gap: 0.75rem;">
-                        <button onclick="closePickLinesPopup()" style="padding: 0.6rem 1.25rem; background: #e2e8f0; color: #475569; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
-                            <i class="fas fa-times"></i> Close
-                        </button>
+                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div id="pick-confirm-progress" style="font-size: 0.85rem; color: #64748b; display: none;">
+                            <i class="fas fa-spinner fa-spin"></i> <span id="pick-progress-text">Processing...</span>
+                        </div>
+                        <div style="display: flex; gap: 0.75rem; margin-left: auto;">
+                            <button id="pick-confirm-all-btn" onclick="confirmPickAllLines('${orderNumber}', '${instance}')" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                                <i class="fas fa-check-double"></i> Pick Confirm All
+                            </button>
+                            <button onclick="closePickLinesPopup()" style="padding: 0.6rem 1.25rem; background: #e2e8f0; color: #475569; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                                <i class="fas fa-times"></i> Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -8604,13 +8617,13 @@ document.addEventListener('DOMContentLoaded', function() {
         window.pickLinesSelectedRows = null;
     };
 
-    // Confirm Pick By Line - calls API for individual line
-    window.confirmPickByLine = function(index, orderNumber, instance) {
+    // Confirm Pick By Line - calls Oracle Fusion API for individual line
+    window.confirmPickByLine = function(index, orderNumber, instance, skipConfirmDialog = false) {
         console.log('[Order Transactions] Confirming pick for line index:', index);
 
         if (!window.pickLinesSelectedRows || !window.pickLinesSelectedRows[index]) {
             alert('Line data not found.');
-            return;
+            return Promise.reject('Line data not found');
         }
 
         const row = window.pickLinesSelectedRows[index];
@@ -8619,116 +8632,329 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (pickedQty <= 0) {
             alert('Please enter a valid picked quantity.');
-            return;
+            return Promise.reject('Invalid quantity');
         }
 
-        // Extract data from row
-        const transactionId = row.TRANSACTION_ID || row.transaction_id || '';
-        const lineNo = row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
+        // Extract data from row for Oracle Fusion API
+        const pickSlip = row.PICK_SLIP || row.pick_slip || row.PICKSLIP || row.pickslip || '';
+        const pickSlipLine = row.PICK_SLIP_LINE || row.pick_slip_line || row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
         const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
-        const picker = row.PICKER || row.picker || row.PICKED_BY || row.picked_by || 'System';
+        const subinventory = row.SOURCE_SUBINVENTORY || row.source_subinventory || row.SUBINVENTORY || row.subinventory || row.SUBINVENTORY_CODE || 'DUTY PAID';
         const itemCode = row.ITEM_CODE || row.item_code || row.ITEM || row.item || '';
 
-        // Get today's date in YYYY-MM-DD format
-        const today = new Date();
-        const pickConfirmDate = today.toISOString().split('T')[0];
-
-        // Show confirmation dialog
-        const confirmMsg = `Confirm Pick for Line?\n\nItem: ${itemCode}\nLot: ${lotNumber}\nPicked Qty: ${pickedQty}\nPicker: ${picker}`;
-        if (!confirm(confirmMsg)) {
-            return;
+        // Show confirmation dialog (unless skipped for batch processing)
+        if (!skipConfirmDialog) {
+            const confirmMsg = `Confirm Pick for Line?\n\nItem: ${itemCode}\nPick Slip: ${pickSlip}\nLine: ${pickSlipLine}\nLot: ${lotNumber}\nPicked Qty: ${pickedQty}\nSubinventory: ${subinventory}`;
+            if (!confirm(confirmMsg)) {
+                return Promise.reject('User cancelled');
+            }
         }
 
-        // Prepare API request body
+        // Prepare Oracle Fusion API request body
         const requestBody = {
-            task: "updatePickRelease",
-            transaction_id: String(transactionId),
-            line_no: String(lineNo),
-            lot_number: String(lotNumber),
-            pickedQty: String(pickedQty),
-            pickedBy: picker,
-            pickConfirmDate: pickConfirmDate,
-            pickConfirmStatus: "YES",
-            instance_name: instance
+            pickLines: [
+                {
+                    PickSlip: String(pickSlip),
+                    PickSlipLine: String(pickSlipLine),
+                    PickedQuantity: String(pickedQty),
+                    SubinventoryCode: String(subinventory),
+                    lotItemLots: [
+                        {
+                            Lot: String(lotNumber),
+                            Quantity: String(pickedQty)
+                        }
+                    ]
+                }
+            ]
         };
 
-        console.log('[Order Transactions] Confirm Pick API Request:', requestBody);
+        console.log('[Order Transactions] Oracle Fusion Pick Confirm API Request:', requestBody);
 
         // Disable button and show loading
         const btn = document.getElementById(`pick-btn-${index}`);
+        const statusCell = document.getElementById(`pick-status-${index}`);
         if (btn) {
             btn.disabled = true;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             btn.style.background = '#9ca3af';
         }
+        if (statusCell) {
+            statusCell.innerHTML = '<span style="color: #f59e0b;"><i class="fas fa-spinner fa-spin"></i></span>';
+        }
 
-        // Call API
-        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/confirmpickbyline';
+        // Get Oracle Fusion API URL based on instance
+        const apiUrl = instance.toUpperCase() === 'PROD'
+            ? API_CONFIG.ORACLE_FUSION_PICK_API.PROD
+            : API_CONFIG.ORACLE_FUSION_PICK_API.TEST;
 
-        sendMessageToCSharp({
-            action: 'executePost',
-            fullUrl: apiUrl,
-            body: JSON.stringify(requestBody)
-        }, function(error, data) {
-            if (error) {
-                console.error('[Order Transactions] Confirm Pick API Error:', error);
-                alert('Error confirming pick: ' + error);
+        console.log('[Order Transactions] Using Oracle Fusion API:', apiUrl);
 
-                // Re-enable button
-                if (btn) {
-                    btn.disabled = false;
-                    btn.innerHTML = '<i class="fas fa-check"></i> Confirm';
-                    btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        return new Promise((resolve, reject) => {
+            sendMessageToCSharp({
+                action: 'executeOracleFusionPost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(requestBody),
+                instance: instance
+            }, function(error, data) {
+                let response = null;
+                let isSuccess = false;
+
+                if (error) {
+                    console.error('[Order Transactions] Oracle Fusion Pick Confirm API Error:', error);
+                    response = { error: error, ReturnStatus: 'Error', ErrorExplanation: error };
+                } else {
+                    console.log('[Order Transactions] Oracle Fusion Pick Confirm API Response:', data);
+
+                    // Parse response
+                    try {
+                        response = typeof data === 'string' ? JSON.parse(data) : data;
+                    } catch (e) {
+                        response = { rawResponse: data, ReturnStatus: 'Unknown' };
+                    }
+
+                    // Check for success - Oracle Fusion returns ReturnStatus
+                    isSuccess = response.ReturnStatus === 'Success';
                 }
-                return;
-            }
 
-            console.log('[Order Transactions] Confirm Pick API Response:', data);
+                // Store result for viewing later
+                window.pickLineResults = window.pickLineResults || {};
+                window.pickLineResults[index] = {
+                    request: requestBody,
+                    response: response,
+                    isSuccess: isSuccess,
+                    timestamp: new Date().toISOString(),
+                    itemCode: itemCode,
+                    lotNumber: lotNumber
+                };
 
-            // Parse response
-            let response;
-            try {
-                response = typeof data === 'string' ? JSON.parse(data) : data;
-            } catch (e) {
-                response = data;
-            }
+                // Update status cell with icon
+                if (statusCell) {
+                    if (isSuccess) {
+                        statusCell.innerHTML = '<span style="color: #22c55e; font-size: 1.1rem;"><i class="fas fa-check-circle"></i></span>';
+                    } else {
+                        statusCell.innerHTML = '<span style="color: #ef4444; font-size: 1.1rem;"><i class="fas fa-times-circle"></i></span>';
+                    }
+                }
 
-            // Update button to show success
-            if (btn) {
-                btn.innerHTML = '<i class="fas fa-check-circle"></i> Done';
-                btn.style.background = '#22c55e';
-                btn.disabled = true;
-            }
+                // Show result button
+                const resultBtn = document.getElementById(`pick-result-btn-${index}`);
+                if (resultBtn) {
+                    resultBtn.style.display = 'inline-block';
+                    if (isSuccess) {
+                        resultBtn.style.color = '#22c55e';
+                        resultBtn.style.borderColor = '#22c55e';
+                    } else {
+                        resultBtn.style.color = '#ef4444';
+                        resultBtn.style.borderColor = '#ef4444';
+                    }
+                }
 
-            // Mark row as confirmed
-            const rowEl = document.getElementById(`pick-line-row-${index}`);
-            if (rowEl) {
-                rowEl.style.background = '#f0fdf4';
-            }
+                // Update button state
+                if (btn) {
+                    if (isSuccess) {
+                        btn.innerHTML = '<i class="fas fa-check-circle"></i> Done';
+                        btn.style.background = '#22c55e';
+                        btn.disabled = true;
+                    } else {
+                        btn.innerHTML = '<i class="fas fa-times"></i> Failed';
+                        btn.style.background = '#ef4444';
+                        btn.disabled = false;
+                        btn.onclick = function() { confirmPickByLine(index, orderNumber, instance); };
+                    }
+                }
 
-            // Show success notification
-            showNotification(`Pick confirmed for ${itemCode} - Lot: ${lotNumber}`, 'success');
+                // Mark row with appropriate color
+                const rowEl = document.getElementById(`pick-line-row-${index}`);
+                if (rowEl) {
+                    rowEl.style.background = isSuccess ? '#f0fdf4' : '#fef2f2';
+                }
+
+                // Show notification
+                if (isSuccess) {
+                    showNotification(`Pick confirmed for ${itemCode} - Lot: ${lotNumber}`, 'success');
+                    resolve(response);
+                } else {
+                    const errorMsg = response.ErrorExplanation || response.error || 'Unknown error';
+                    showNotification(`Pick failed for ${itemCode}: ${errorMsg}`, 'error');
+                    reject(response);
+                }
+            });
         });
     };
 
-    // Show Pick Line API Info popup
-    window.showPickLineApiInfo = function(index, transactionId, lineNo, lotNumber, picker, pickConfirmDate, instance) {
+    // Show Pick Line Result popup
+    window.showPickLineResult = function(index) {
+        const result = window.pickLineResults && window.pickLineResults[index];
+        if (!result) {
+            alert('No result available for this line.');
+            return;
+        }
+
+        const isSuccess = result.isSuccess;
+        const statusColor = isSuccess ? '#22c55e' : '#ef4444';
+        const statusIcon = isSuccess ? 'fa-check-circle' : 'fa-times-circle';
+        const statusText = isSuccess ? 'Success' : 'Error';
+
+        const popupHtml = `
+            <div id="pick-result-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100010; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 90%; max-width: 700px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <!-- Header -->
+                    <div style="background: ${statusColor}; color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas ${statusIcon}" style="font-size: 1.25rem;"></i>
+                            <div>
+                                <div style="font-weight: 600; font-size: 1.1rem;">Pick Confirm Result - ${statusText}</div>
+                                <div style="font-size: 0.8rem; opacity: 0.9;">Item: ${result.itemCode} | Lot: ${result.lotNumber}</div>
+                            </div>
+                        </div>
+                        <button onclick="document.getElementById('pick-result-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <!-- Content -->
+                    <div style="flex: 1; overflow: auto; padding: 1.5rem;">
+                        <!-- Timestamp -->
+                        <div style="margin-bottom: 1rem; font-size: 0.85rem; color: #64748b;">
+                            <i class="fas fa-clock" style="margin-right: 0.5rem;"></i>
+                            Processed: ${new Date(result.timestamp).toLocaleString()}
+                        </div>
+
+                        <!-- Request -->
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-upload" style="color: #6366f1; margin-right: 0.5rem;"></i>Request Body
+                            </div>
+                            <pre style="background: #1e293b; border-radius: 6px; padding: 1rem; font-family: monospace; font-size: 0.75rem; color: #e2e8f0; overflow-x: auto; margin: 0; white-space: pre-wrap; max-height: 150px;">${JSON.stringify(result.request, null, 2)}</pre>
+                        </div>
+
+                        <!-- Response -->
+                        <div>
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-download" style="color: ${statusColor}; margin-right: 0.5rem;"></i>Response
+                            </div>
+                            <pre style="background: #1e293b; border-radius: 6px; padding: 1rem; font-family: monospace; font-size: 0.75rem; color: #e2e8f0; overflow-x: auto; margin: 0; white-space: pre-wrap; max-height: 200px;">${JSON.stringify(result.response, null, 2)}</pre>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('pick-result-popup').remove()" style="padding: 0.6rem 1.25rem; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('pick-result-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+    };
+
+    // Confirm Pick All Lines - loops through all lines
+    window.confirmPickAllLines = async function(orderNumber, instance) {
+        if (!window.pickLinesSelectedRows || window.pickLinesSelectedRows.length === 0) {
+            alert('No lines to process.');
+            return;
+        }
+
+        const totalLines = window.pickLinesSelectedRows.length;
+        const confirmMsg = `Are you sure you want to pick confirm ALL ${totalLines} line(s)?\n\nThis will process each line one by one using Oracle Fusion API.`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        // Disable the Pick Confirm All button
+        const allBtn = document.getElementById('pick-confirm-all-btn');
+        if (allBtn) {
+            allBtn.disabled = true;
+            allBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            allBtn.style.background = '#9ca3af';
+        }
+
+        // Show progress indicator
+        const progressDiv = document.getElementById('pick-confirm-progress');
+        const progressText = document.getElementById('pick-progress-text');
+        if (progressDiv) progressDiv.style.display = 'block';
+
+        let successCount = 0;
+        let failureCount = 0;
+
+        // Process each line sequentially
+        for (let i = 0; i < totalLines; i++) {
+            // Check if already processed (button is disabled)
+            const btn = document.getElementById(`pick-btn-${i}`);
+            if (btn && btn.disabled && btn.innerHTML.includes('Done')) {
+                successCount++;
+                continue; // Skip already processed lines
+            }
+
+            // Update progress
+            if (progressText) {
+                progressText.textContent = `Processing line ${i + 1} of ${totalLines}...`;
+            }
+
+            try {
+                await confirmPickByLine(i, orderNumber, instance, true);
+                successCount++;
+            } catch (error) {
+                console.error(`[Order Transactions] Error processing line ${i}:`, error);
+                failureCount++;
+            }
+
+            // Small delay between API calls to avoid overwhelming the server
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        // Hide progress
+        if (progressDiv) progressDiv.style.display = 'none';
+
+        // Update button to show completion
+        if (allBtn) {
+            allBtn.innerHTML = `<i class="fas fa-check-double"></i> Completed (${successCount}/${totalLines})`;
+            allBtn.style.background = failureCount === 0 ? '#22c55e' : '#f59e0b';
+            allBtn.disabled = true;
+        }
+
+        // Show summary notification
+        if (failureCount === 0) {
+            showNotification(`All ${successCount} lines pick confirmed successfully!`, 'success');
+        } else {
+            showNotification(`Pick confirm completed: ${successCount} success, ${failureCount} failed. Click info icons to see details.`, 'warning');
+        }
+    };
+
+    // Show Pick Line API Info popup - Oracle Fusion API format
+    window.showPickLineApiInfo = function(index, pickSlip, pickSlipLine, lotNumber, subinventory, instance) {
         // Get picked qty from input
         const pickedQtyInput = document.getElementById(`pick-qty-${index}`);
         const pickedQty = pickedQtyInput ? pickedQtyInput.value : '0';
 
-        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/confirmpickbyline';
+        // Get Oracle Fusion API URL based on instance
+        const apiUrl = instance.toUpperCase() === 'PROD'
+            ? API_CONFIG.ORACLE_FUSION_PICK_API.PROD
+            : API_CONFIG.ORACLE_FUSION_PICK_API.TEST;
 
+        // Build Oracle Fusion request body
         const requestBody = {
-            task: "updatePickRelease",
-            transaction_id: String(transactionId),
-            line_no: String(lineNo),
-            lot_number: String(lotNumber),
-            pickedQty: String(pickedQty),
-            pickedBy: picker,
-            pickConfirmDate: pickConfirmDate,
-            pickConfirmStatus: "YES",
-            instance_name: instance
+            pickLines: [
+                {
+                    PickSlip: String(pickSlip),
+                    PickSlipLine: String(pickSlipLine),
+                    PickedQuantity: String(pickedQty),
+                    SubinventoryCode: String(subinventory),
+                    lotItemLots: [
+                        {
+                            Lot: String(lotNumber),
+                            Quantity: String(pickedQty)
+                        }
+                    ]
+                }
+            ]
         };
 
         const jsonBodyFormatted = JSON.stringify(requestBody, null, 2);
@@ -8739,10 +8965,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     <!-- Header -->
                     <div style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
-                            <i class="fas fa-code" style="font-size: 1.25rem;"></i>
+                            <i class="fas fa-cloud" style="font-size: 1.25rem;"></i>
                             <div>
-                                <div style="font-weight: 600; font-size: 1.1rem;">API Info - Line ${index + 1}</div>
-                                <div style="font-size: 0.8rem; opacity: 0.9;">Confirm Pick By Line API</div>
+                                <div style="font-weight: 600; font-size: 1.1rem;">Oracle Fusion API - Line ${index + 1}</div>
+                                <div style="font-size: 0.8rem; opacity: 0.9;">Pick Transactions API (${instance})</div>
                             </div>
                         </div>
                         <button onclick="document.getElementById('pick-api-info-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
@@ -8752,6 +8978,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     <!-- Content -->
                     <div style="flex: 1; overflow: auto; padding: 1.5rem;">
+                        <!-- Instance Badge -->
+                        <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="background: ${instance.toUpperCase() === 'PROD' ? '#ef4444' : '#22c55e'}; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">
+                                ${instance.toUpperCase() === 'PROD' ? 'PRODUCTION' : 'TEST'}
+                            </span>
+                            <span style="color: #64748b; font-size: 0.85rem;">Oracle Fusion Cloud</span>
+                        </div>
+
                         <!-- Method -->
                         <div style="margin-bottom: 1rem;">
                             <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
@@ -8773,11 +9007,28 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
 
                         <!-- JSON Body -->
-                        <div>
+                        <div style="margin-bottom: 1rem;">
                             <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
                                 <i class="fas fa-file-code" style="color: #f59e0b; margin-right: 0.5rem;"></i>JSON Request Body
                             </div>
                             <pre style="background: #1e293b; border-radius: 6px; padding: 1rem; font-family: monospace; font-size: 0.8rem; color: #e2e8f0; overflow-x: auto; margin: 0; white-space: pre-wrap;">${jsonBodyFormatted}</pre>
+                        </div>
+
+                        <!-- Expected Response -->
+                        <div>
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-reply" style="color: #10b981; margin-right: 0.5rem;"></i>Expected Response Format
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.75rem;">
+                                    <div style="font-weight: 600; color: #166534; font-size: 0.75rem; margin-bottom: 0.5rem;"><i class="fas fa-check-circle"></i> Success</div>
+                                    <pre style="font-size: 0.7rem; color: #166534; margin: 0; white-space: pre-wrap;">ReturnStatus: "Success"</pre>
+                                </div>
+                                <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 0.75rem;">
+                                    <div style="font-weight: 600; color: #dc2626; font-size: 0.75rem; margin-bottom: 0.5rem;"><i class="fas fa-times-circle"></i> Error</div>
+                                    <pre style="font-size: 0.7rem; color: #dc2626; margin: 0; white-space: pre-wrap;">ReturnStatus: "Error"</pre>
+                                </div>
+                            </div>
                         </div>
                     </div>
 

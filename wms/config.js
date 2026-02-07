@@ -12,7 +12,13 @@ const API_CONFIG = {
     DEBUG: true,
 
     // API timeout in milliseconds (5 minutes)
-    TIMEOUT: 300000
+    TIMEOUT: 300000,
+
+    // Oracle Fusion Pick Transactions API (Direct Oracle Cloud)
+    ORACLE_FUSION_PICK_API: {
+        TEST: 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/pickTransactions',
+        PROD: 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/pickTransactions'
+    }
 };
 
 // Export for use in other modules

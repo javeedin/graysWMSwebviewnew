@@ -1509,6 +1509,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleRestApiPostRequest(wv, messageJson, requestId);
                                     break;
 
+                                case "executeOracleFusionPost":
+                                    await HandleOracleFusionPostRequest(wv, messageJson, requestId);
+                                    break;
+
                                 case "executeDelete":
                                     await HandleRestApiDeleteRequest(wv, messageJson, requestId);
                                     break;
@@ -1856,6 +1860,100 @@ navPanel.Controls.Add(wmsDevButton);
                     action = "error",
                     requestId = requestId,
                     data = new { message = ex.Message }
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        /// <summary>
+        /// Handles Oracle Fusion REST API POST requests with Basic Auth
+        /// Used for Pick Transactions API (pick confirm)
+        /// </summary>
+        private async Task HandleOracleFusionPostRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiPostWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Oracle Fusion POST request: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[C#] Body: {message.Body}");
+
+                // Get instance from message to determine credentials
+                string instance = "TEST";
+                try
+                {
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        if (doc.RootElement.TryGetProperty("instance", out var instProp))
+                        {
+                            instance = instProp.GetString()?.ToUpper() ?? "TEST";
+                        }
+                    }
+                }
+                catch { }
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Using Oracle Fusion instance: {instance}");
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(60); // Longer timeout for Oracle Fusion
+
+                    // Add Basic Auth header using logged-in credentials
+                    if (!string.IsNullOrEmpty(_loggedInUsername) && !string.IsNullOrEmpty(_loggedInPassword))
+                    {
+                        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_loggedInUsername}:{_loggedInPassword}"));
+                        httpClient.DefaultRequestHeaders.Authorization =
+                            new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                        System.Diagnostics.Debug.WriteLine($"[C#] Added Basic Auth for user: {_loggedInUsername}");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] WARNING: No credentials available for Oracle Fusion API");
+                    }
+
+                    // Add required headers for Oracle Fusion REST API
+                    httpClient.DefaultRequestHeaders.Accept.Add(
+                        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                    var content = new StringContent(
+                        message.Body ?? "{}",
+                        Encoding.UTF8,
+                        "application/json"
+                    );
+
+                    var response = await httpClient.PostAsync(message.FullUrl, content);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Oracle Fusion POST completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response: {responseContent}");
+
+                    var resultMessage = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+
+                    string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending Oracle Fusion response back to JS. RequestId: {requestId}");
+                    wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ Oracle Fusion response sent successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Oracle Fusion API call failed: {ex.Message}");
+
+                var errorMessage = new
+                {
+                    action = "error",
+                    requestId = requestId,
+                    data = new { message = ex.Message, ReturnStatus = "Error", ErrorExplanation = ex.Message }
                 };
 
                 string errorJson = JsonSerializer.Serialize(errorMessage);
