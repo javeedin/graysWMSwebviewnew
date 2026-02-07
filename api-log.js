@@ -29,6 +29,18 @@ const API_ENDPOINTS_DATA = [
         lineNumber: 1385,
         description: 'Fetches trip details with orders for the specified date range and instance'
     },
+    {
+        page: 'Trip Management',
+        feature: 'Update Pick Confirm Status',
+        endpoint: 'TRIPMANAGEMENT/trip/updatepickconfirmstatus',
+        fullUrl: 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatepickconfirmstatus',
+        method: 'POST',
+        parameters: 'P_TRANSACTION_ID, p_instance_name, p_pickedQty',
+        usesInstanceName: 'YES',
+        sourceFile: 'wms/app.js',
+        lineNumber: 8799,
+        description: 'Updates pick confirm status in the database after successful Oracle Fusion pick confirm'
+    },
 
     // ========================================
     // TRIP DETAILS PAGE (Add Orders Modal)

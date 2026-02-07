@@ -8641,6 +8641,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
         const subinventory = row.SOURCE_SUBINVENTORY || row.source_subinventory || row.SUBINVENTORY || row.subinventory || row.SUBINVENTORY_CODE || 'DUTY PAID';
         const itemCode = row.ITEM_CODE || row.item_code || row.ITEM || row.item || '';
+        const transactionId = row.TRANSACTION_ID || row.transaction_id || '';
 
         // Show confirmation dialog (unless skipped for batch processing)
         if (!skipConfirmDialog) {
@@ -8789,6 +8790,42 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Show notification
                 if (isSuccess) {
                     showNotification(`Pick confirmed for ${itemCode} - Lot: ${lotNumber}`, 'success');
+
+                    // Call updatepickconfirmstatus webservice on success
+                    const updateStatusUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatepickconfirmstatus';
+                    const updateStatusBody = {
+                        P_TRANSACTION_ID: transactionId,
+                        p_instance_name: instance.toUpperCase(),
+                        p_pickedQty: pickedQty
+                    };
+
+                    console.log('[Pick Confirm] Calling updatepickconfirmstatus API:', updateStatusUrl);
+                    console.log('[Pick Confirm] Request Body:', updateStatusBody);
+
+                    // Store the update status request in results
+                    window.pickLineResults[index].updateStatusRequest = updateStatusBody;
+                    window.pickLineResults[index].updateStatusUrl = updateStatusUrl;
+
+                    // Make the API call to update pick confirm status
+                    fetch(updateStatusUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(updateStatusBody)
+                    })
+                    .then(updateResponse => updateResponse.json())
+                    .then(updateData => {
+                        console.log('[Pick Confirm] updatepickconfirmstatus API Response:', updateData);
+                        window.pickLineResults[index].updateStatusResponse = updateData;
+                        window.pickLineResults[index].updateStatusSuccess = true;
+                    })
+                    .catch(updateError => {
+                        console.error('[Pick Confirm] updatepickconfirmstatus API Error:', updateError);
+                        window.pickLineResults[index].updateStatusResponse = { error: updateError.message };
+                        window.pickLineResults[index].updateStatusSuccess = false;
+                    });
+
                     resolve(response);
                 } else {
                     const errorMsg = response.ErrorExplanation || response.error || 'Unknown error';
