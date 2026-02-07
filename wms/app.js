@@ -8887,16 +8887,30 @@ document.addEventListener('DOMContentLoaded', function() {
                     window.pickLineResults[index].updateStatusRequest = updateStatusBody;
                     window.pickLineResults[index].updateStatusUrl = updateStatusUrl;
 
-                    // Make the API call to update pick confirm status and AWAIT it
+                    // Make the API call to update pick confirm status via C# backend (to avoid CORS)
                     try {
-                        const updateResponse = await fetch(updateStatusUrl, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify(updateStatusBody)
+                        const updateData = await new Promise((resolveUpdate, rejectUpdate) => {
+                            sendMessageToCSharp({
+                                action: 'executePost',
+                                fullUrl: updateStatusUrl,
+                                body: JSON.stringify(updateStatusBody)
+                            }, function(error, data) {
+                                if (error) {
+                                    rejectUpdate(new Error(error));
+                                } else {
+                                    // Parse the response if it's a string
+                                    let parsedData = data;
+                                    if (typeof data === 'string') {
+                                        try {
+                                            parsedData = JSON.parse(data);
+                                        } catch (e) {
+                                            // Keep as string if not valid JSON
+                                        }
+                                    }
+                                    resolveUpdate(parsedData);
+                                }
+                            });
                         });
-                        const updateData = await updateResponse.json();
                         console.log('[Pick Confirm] updatepickconfirmstatus API Response:', updateData);
                         window.pickLineResults[index].updateStatusResponse = updateData;
                         window.pickLineResults[index].updateStatusSuccess = true;
@@ -9151,14 +9165,29 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[Update WMS Status] Request Body:', updateStatusBody);
 
             try {
-                const response = await fetch(updateStatusUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(updateStatusBody)
+                // Use C# backend to avoid CORS issues
+                const data = await new Promise((resolveUpdate, rejectUpdate) => {
+                    sendMessageToCSharp({
+                        action: 'executePost',
+                        fullUrl: updateStatusUrl,
+                        body: JSON.stringify(updateStatusBody)
+                    }, function(error, responseData) {
+                        if (error) {
+                            rejectUpdate(new Error(error));
+                        } else {
+                            // Parse the response if it's a string
+                            let parsedData = responseData;
+                            if (typeof responseData === 'string') {
+                                try {
+                                    parsedData = JSON.parse(responseData);
+                                } catch (e) {
+                                    // Keep as string if not valid JSON
+                                }
+                            }
+                            resolveUpdate(parsedData);
+                        }
+                    });
                 });
-                const data = await response.json();
                 console.log('[Update WMS Status] Response:', data);
                 successCount++;
                 results.push({ itemCode, lotNumber, success: true, response: data });
