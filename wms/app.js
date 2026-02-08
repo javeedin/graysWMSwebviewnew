@@ -7502,6 +7502,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Order Transactions] Opening dialog for order:', rowData);
 
         const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || '';
+        const sourceOrderNumber = rowData.SOURCE_ORDERNUM || rowData.source_ordernum || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || orderNumber;
         const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
         const orderDate = rowData.ORDER_DATE || rowData.order_date || '';
         const tripId = rowData.TRIP_ID || rowData.trip_id || '';
@@ -7520,6 +7521,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Store context globally for API calls
         window.currentOrderTransContext = {
             orderNumber,
+            sourceOrderNumber,
             orderType,
             orderDate,
             tripId,
@@ -7533,7 +7535,7 @@ document.addEventListener('DOMContentLoaded', function() {
             instance
         };
 
-        console.log('[Order Transactions] ORDER_NUMBER:', orderNumber, 'ORDER_TYPE:', orderType, 'INSTANCE:', instance);
+        console.log('[Order Transactions] ORDER_NUMBER:', orderNumber, 'SOURCE_ORDERNUM:', sourceOrderNumber, 'ORDER_TYPE:', orderType, 'INSTANCE:', instance);
 
         // Create modal HTML
         const modalHtml = `
@@ -7620,14 +7622,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button class="btn btn-secondary" onclick="refreshSalesOrderLines('${orderNumber}')">
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
-                                <button class="btn btn-warning" onclick="cancelScheduledLines('${orderNumber}')" style="background: #f59e0b; color: white;">
+                                <button class="btn btn-warning" onclick="showCancelLinesPopup('${orderNumber}', 'scheduled')" style="background: #f59e0b; color: white;">
                                     <i class="fas fa-clock"></i> Cancel Scheduled Lines
                                 </button>
-                                <button class="btn btn-danger" onclick="cancelSelectedSalesOrderLine('${orderNumber}')" style="background: #ef4444; color: white;">
-                                    <i class="fas fa-times-circle"></i> Cancel Selected Line
-                                </button>
-                                <button class="btn btn-danger" onclick="cancelNotPickedLines('${orderNumber}')" style="background: #dc2626; color: white;">
-                                    <i class="fas fa-ban"></i> Cancel Not Picked Lines
+                                <button class="btn btn-danger" onclick="showCancelLinesPopup('${orderNumber}', 'selected')" style="background: #ef4444; color: white;">
+                                    <i class="fas fa-times-circle"></i> Cancel Selected Lines
                                 </button>
                                 <button class="btn btn-primary" onclick="fetchFusionOrderLines('${orderNumber}')" style="background: #2563eb; color: white;">
                                     <i class="fas fa-cloud-download-alt"></i> Fetch Order Lines from Fusion
@@ -7753,25 +7752,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 note: '✅ Instance parameter passed from row data'
             },
             {
-                name: 'Cancel Scheduled Lines',
-                method: 'POST',
-                endpoint: `trip/orders/cancelscheduledlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
-                fullUrl: `${baseUrl}/trip/orders/cancelscheduledlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
-                note: '✅ Instance parameter passed from row data'
-            },
-            {
-                name: 'Cancel Selected Line',
-                method: 'POST',
-                endpoint: `trip/orders/cancelorderline/${orderNumber}/{lineId}?P_INSTANCE_NAME=${instance}`,
-                fullUrl: `${baseUrl}/trip/orders/cancelorderline/${orderNumber}/{lineId}?P_INSTANCE_NAME=${instance}`,
-                note: '✅ Instance parameter passed from row data'
-            },
-            {
-                name: 'Cancel Not Picked Lines',
-                method: 'POST',
-                endpoint: `trip/orders/cancelnotpickedlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
-                fullUrl: `${baseUrl}/trip/orders/cancelnotpickedlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
-                note: '✅ Instance parameter passed from row data'
+                name: 'Cancel Lines in Oracle Fusion',
+                method: 'PATCH',
+                endpoint: `salesOrdersForOrderHub/OPS:{sourceOrderNumber}`,
+                fullUrl: instance.toUpperCase() === 'PROD'
+                    ? `https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${ctx.sourceOrderNumber || orderNumber}`
+                    : `https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${ctx.sourceOrderNumber || orderNumber}`,
+                note: '✅ Uses Oracle Fusion credentials, sets OrderedQuantity=0 with CancelReason'
             },
             {
                 name: 'Fetch Order Lines from Fusion',
@@ -7785,8 +7772,10 @@ document.addEventListener('DOMContentLoaded', function() {
         let apiHtml = '';
         apis.forEach((api, idx) => {
             const bgColor = idx % 2 === 0 ? '#f8fafc' : '#ffffff';
-            const methodColor = api.method === 'POST' ? '#fed7aa' : '#c6f6d5';
-            const methodTextColor = api.method === 'POST' ? '#9c4221' : '#22543d';
+            let methodColor = '#c6f6d5'; // GET - green
+            let methodTextColor = '#22543d';
+            if (api.method === 'POST') { methodColor = '#fed7aa'; methodTextColor = '#9c4221'; }
+            else if (api.method === 'PATCH') { methodColor = '#fecaca'; methodTextColor = '#991b1b'; }
 
             apiHtml += `
                 <div style="background: ${bgColor}; padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid #667eea;">
@@ -8405,6 +8394,301 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Refresh the grid
             refreshSalesOrderLines(orderNumber);
+        });
+    };
+
+    // Show Cancel Lines Popup - displays selected lines and allows cancellation via Oracle Fusion
+    window.showCancelLinesPopup = function(orderNumber, mode) {
+        console.log('[Order Transactions] Show Cancel Lines Popup for order:', orderNumber, 'mode:', mode);
+
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        const sourceOrderNumber = window.currentOrderTransContext?.sourceOrderNumber || orderNumber;
+
+        // Determine which lines to show based on mode
+        let linesToCancel = [];
+
+        if (mode === 'selected') {
+            // Get selected lines from the grid
+            if (window.salesOrderLinesGrid && typeof window.salesOrderLinesGrid.getSelectedRowsData === 'function') {
+                linesToCancel = window.salesOrderLinesGrid.getSelectedRowsData() || [];
+            } else if (window.selectedSalesOrderLines && window.selectedSalesOrderLines.length > 0) {
+                linesToCancel = window.selectedSalesOrderLines;
+            } else if (window.selectedSalesOrderLine) {
+                linesToCancel = [window.selectedSalesOrderLine];
+            }
+
+            if (linesToCancel.length === 0) {
+                showNotification('Please select at least one line to cancel', 'warning');
+                return;
+            }
+        } else if (mode === 'scheduled') {
+            // Filter lines with STATUS_CODE = 'RES_MANUAL'
+            let allLines = [];
+            if (window.salesOrderLinesGrid && typeof window.salesOrderLinesGrid.option === 'function') {
+                allLines = window.salesOrderLinesGrid.option('dataSource') || [];
+            } else if (window.salesOrderLinesData) {
+                allLines = window.salesOrderLinesData;
+            }
+
+            // Filter for RES_MANUAL status
+            linesToCancel = allLines.filter(line => {
+                const statusCode = line.STATUS_CODE || line.status_code || line.StatusCode || '';
+                return statusCode.toUpperCase() === 'RES_MANUAL';
+            });
+
+            if (linesToCancel.length === 0) {
+                showNotification('No lines with RES_MANUAL status found', 'warning');
+                return;
+            }
+
+            // Auto-select these lines in the grid if DevExpress grid is available
+            if (window.salesOrderLinesGrid && typeof window.salesOrderLinesGrid.selectRows === 'function') {
+                const keys = linesToCancel.map(line => line.LINE_ID || line.line_id || line.FULFILL_LINE_ID || line.fulfill_line_id);
+                window.salesOrderLinesGrid.selectRows(keys, false);
+            }
+        }
+
+        console.log('[Order Transactions] Lines to cancel:', linesToCancel.length);
+        console.log('[Order Transactions] Lines data:', linesToCancel);
+
+        // Build the popup HTML
+        let linesTableHtml = '';
+        linesToCancel.forEach((line, idx) => {
+            const lineId = line.LINE_ID || line.line_id || line.FULFILL_LINE_ID || line.fulfill_line_id || 'N/A';
+            const itemNumber = line.ITEM_NUMBER || line.item_number || line.INVENTORY_ITEM || line.inventory_item || 'N/A';
+            const description = line.DESCRIPTION || line.description || line.ITEM_DESCRIPTION || line.item_description || '';
+            const qty = line.ORDERED_QTY || line.ordered_qty || line.QUANTITY || line.quantity || line.ORDERED_QUANTITY || line.ordered_quantity || 0;
+            const statusCode = line.STATUS_CODE || line.status_code || line.StatusCode || 'N/A';
+            const fulfillLineId = line.FULFILL_LINE_ID || line.fulfill_line_id || line.FulfillLineId || lineId;
+
+            const bgColor = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+            linesTableHtml += `
+                <tr style="background: ${bgColor};" data-fulfill-line-id="${fulfillLineId}">
+                    <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">
+                        <input type="checkbox" class="cancel-line-checkbox" checked data-fulfill-line-id="${fulfillLineId}">
+                    </td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace;">${lineId}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">${itemNumber}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${description}">${description}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: right;">${qty}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">
+                        <span style="background: ${statusCode === 'RES_MANUAL' ? '#fef3c7' : '#e2e8f0'}; color: ${statusCode === 'RES_MANUAL' ? '#92400e' : '#475569'}; padding: 2px 8px; border-radius: 4px; font-size: 11px;">${statusCode}</span>
+                    </td>
+                </tr>
+            `;
+        });
+
+        const popupHtml = `
+            <div id="cancel-lines-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 900px; max-height: 80vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden; display: flex; flex-direction: column;">
+                    <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;">
+                            <i class="fas fa-times-circle"></i> Cancel Lines in Oracle Fusion
+                        </h3>
+                        <button onclick="document.getElementById('cancel-lines-popup').remove()" style="background: transparent; border: none; color: white; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; flex: 1; overflow: auto;">
+                        <div style="background: #fef3c7; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-exclamation-triangle"></i> Warning:</strong>
+                            <span style="color: #78350f; font-size: 13px;">This will cancel the selected lines in Oracle Fusion by setting OrderedQuantity to 0.</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Order Number</div>
+                                <div style="font-weight: 600; color: #1e293b;">${orderNumber}</div>
+                            </div>
+                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Source Order Number</div>
+                                <div style="font-weight: 600; color: #7c3aed;">${sourceOrderNumber}</div>
+                            </div>
+                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Instance</div>
+                                <div style="font-weight: 600; color: #059669;">${instance}</div>
+                            </div>
+                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Lines Selected</div>
+                                <div style="font-weight: 600; color: #dc2626;">${linesToCancel.length}</div>
+                            </div>
+                        </div>
+                        <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;">Lines to Cancel:</div>
+                        <div style="max-height: 300px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <thead style="background: #f1f5f9; position: sticky; top: 0;">
+                                    <tr>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: center; width: 40px;">
+                                            <input type="checkbox" id="select-all-cancel-lines" checked onclick="toggleAllCancelLines(this)">
+                                        </th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: left;">Line ID</th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: left;">Item</th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: left;">Description</th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: right;">Qty</th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: left;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${linesTableHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+                        <div id="cancel-lines-status" style="font-size: 12px; color: #64748b;"></div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="document.getElementById('cancel-lines-popup').remove()" class="btn btn-secondary" style="padding: 10px 24px;">
+                                <i class="fas fa-arrow-left"></i> Close
+                            </button>
+                            <button onclick="cancelLinesInFusion('${orderNumber}', '${sourceOrderNumber}', '${instance}')" class="btn btn-danger" style="padding: 10px 24px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-times-circle"></i> Cancel Lines
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('cancel-lines-popup');
+        if (existingPopup) {
+            existingPopup.remove();
+        }
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+
+        // Store lines data for later use
+        window.linesToCancelData = linesToCancel;
+    };
+
+    // Toggle all cancel lines checkboxes
+    window.toggleAllCancelLines = function(selectAllCheckbox) {
+        const checkboxes = document.querySelectorAll('.cancel-line-checkbox');
+        checkboxes.forEach(cb => {
+            cb.checked = selectAllCheckbox.checked;
+        });
+    };
+
+    // Cancel Lines in Oracle Fusion via PATCH API
+    window.cancelLinesInFusion = function(orderNumber, sourceOrderNumber, instance) {
+        console.log('[Order Transactions] Cancel Lines in Fusion for order:', orderNumber);
+
+        // Get checked lines from the popup
+        const checkboxes = document.querySelectorAll('.cancel-line-checkbox:checked');
+        if (checkboxes.length === 0) {
+            showNotification('Please select at least one line to cancel', 'warning');
+            return;
+        }
+
+        // Build the lines array for the API
+        const linesPayload = [];
+        checkboxes.forEach(cb => {
+            const fulfillLineId = cb.getAttribute('data-fulfill-line-id');
+            if (fulfillLineId && fulfillLineId !== 'N/A') {
+                linesPayload.push({
+                    FulfillLineId: parseInt(fulfillLineId),
+                    OrderedQuantity: 0,
+                    CancelReason: "OUT OF STOCK"
+                });
+            }
+        });
+
+        if (linesPayload.length === 0) {
+            showNotification('No valid lines found to cancel', 'error');
+            return;
+        }
+
+        console.log('[Order Transactions] Lines payload:', linesPayload);
+
+        // Determine the Fusion URL based on instance
+        const fusionBaseUrl = instance.toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+
+        const fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${sourceOrderNumber}`;
+
+        console.log('[Order Transactions] Fusion URL:', fusionUrl);
+
+        // Update status
+        const statusDiv = document.getElementById('cancel-lines-status');
+        if (statusDiv) {
+            statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling lines in Oracle Fusion...';
+            statusDiv.style.color = '#3b82f6';
+        }
+
+        // Prepare the request body
+        const requestBody = {
+            lines: linesPayload
+        };
+
+        console.log('[Order Transactions] Request body:', JSON.stringify(requestBody, null, 2));
+
+        // Call the C# backend to make the PATCH request with Fusion credentials
+        sendMessageToCSharp({
+            action: 'executeOracleFusionPatch',
+            fullUrl: fusionUrl,
+            body: JSON.stringify(requestBody),
+            instance: instance
+        }, function(error, data) {
+            console.log('[Order Transactions] Fusion response:', data);
+
+            if (error) {
+                console.error('[Order Transactions] Error cancelling lines in Fusion:', error);
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + error;
+                    statusDiv.style.color = '#ef4444';
+                }
+                showNotification('Error cancelling lines in Fusion: ' + error, 'error');
+                return;
+            }
+
+            try {
+                let responseData = typeof data === 'string' ? JSON.parse(data) : data;
+                console.log('[Order Transactions] Parsed response:', responseData);
+
+                // Check for error response
+                if (responseData.ReturnStatus === 'Error' || responseData.ErrorExplanation) {
+                    const errorMsg = responseData.ErrorExplanation || responseData.message || 'Unknown error';
+                    if (statusDiv) {
+                        statusDiv.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + errorMsg;
+                        statusDiv.style.color = '#ef4444';
+                    }
+                    showNotification('Error: ' + errorMsg, 'error');
+                    return;
+                }
+
+                // Success
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Lines cancelled successfully!';
+                    statusDiv.style.color = '#10b981';
+                }
+                showNotification('Lines cancelled successfully in Oracle Fusion', 'success');
+
+                // Close popup after 2 seconds and refresh grid
+                setTimeout(() => {
+                    const popup = document.getElementById('cancel-lines-popup');
+                    if (popup) {
+                        popup.remove();
+                    }
+                    refreshSalesOrderLines(orderNumber);
+                }, 2000);
+
+            } catch (parseError) {
+                console.error('[Order Transactions] Parse error:', parseError);
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Request completed';
+                    statusDiv.style.color = '#10b981';
+                }
+                showNotification('Lines cancelled in Oracle Fusion', 'success');
+
+                // Close popup and refresh
+                setTimeout(() => {
+                    const popup = document.getElementById('cancel-lines-popup');
+                    if (popup) {
+                        popup.remove();
+                    }
+                    refreshSalesOrderLines(orderNumber);
+                }, 2000);
+            }
         });
     };
 

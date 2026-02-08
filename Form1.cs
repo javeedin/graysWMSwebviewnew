@@ -1580,6 +1580,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleOracleFusionPostRequest(wv, messageJson, requestId);
                                     break;
 
+                                case "executeOracleFusionPatch":
+                                    await HandleOracleFusionPatchRequest(wv, messageJson, requestId);
+                                    break;
+
                                 case "executeDelete":
                                     await HandleRestApiDeleteRequest(wv, messageJson, requestId);
                                     break;
@@ -2104,6 +2108,201 @@ navPanel.Controls.Add(wmsDevButton);
             {
                 System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] Unexpected error: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] Stack: {ex.StackTrace}");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "UNKNOWN",
+                        ErrorExplanation = ex.Message
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+        }
+
+        /// <summary>
+        /// Handles Oracle Fusion REST API PATCH requests with Basic Auth
+        /// Used for updating sales orders (e.g., cancelling lines)
+        /// </summary>
+        private async Task HandleOracleFusionPatchRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiPostWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] PATCH request to: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Body: {message.Body}");
+
+                // Get instance from message to determine credentials
+                string instance = "TEST";
+                try
+                {
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        if (doc.RootElement.TryGetProperty("instance", out var instProp))
+                        {
+                            instance = instProp.GetString()?.ToUpper() ?? "TEST";
+                        }
+                    }
+                }
+                catch { }
+
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Instance: {instance}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Fusion User: {_fusionUsername ?? "NULL"}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Fusion Credentials Loaded: {_fusionCredentialsLoaded}");
+
+                // Check for Fusion credentials (fetched on app startup)
+                if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] ERROR: Fusion credentials not available!");
+
+                    // Try to fetch credentials now as fallback
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Attempting to fetch credentials now...");
+                    await FetchFusionCredentialsOnStartup();
+
+                    if (!_fusionCredentialsLoaded)
+                    {
+                        var noCredError = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorExplanation = "Oracle Fusion credentials not available. Could not fetch from webservice.",
+                                ErrorCode = "FUSION_CRED_MISSING"
+                            })
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(noCredError));
+                        return;
+                    }
+                }
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(120); // 2 min timeout for Oracle Fusion
+
+                    // Add Basic Auth header using Fusion credentials (from webservice)
+                    var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_fusionUsername}:{_fusionPassword}"));
+                    httpClient.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Added Basic Auth for Fusion user: {_fusionUsername}");
+
+                    // Add required headers for Oracle Fusion REST API
+                    httpClient.DefaultRequestHeaders.Accept.Add(
+                        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                    var content = new StringContent(
+                        message.Body ?? "{}",
+                        Encoding.UTF8,
+                        "application/json"
+                    );
+
+                    // Create PATCH request
+                    var request = new HttpRequestMessage(new HttpMethod("PATCH"), message.FullUrl)
+                    {
+                        Content = content
+                    };
+
+                    // Copy headers from httpClient to request
+                    request.Headers.Authorization = httpClient.DefaultRequestHeaders.Authorization;
+
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Sending PATCH request...");
+                    var response = await httpClient.SendAsync(request);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Response Status: {(int)response.StatusCode} {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Response Body: {responseContent}");
+
+                    // Handle non-success status codes
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] HTTP Error: {response.StatusCode}");
+
+                        // Try to parse error response, or create one
+                        string errorData;
+                        if (!string.IsNullOrEmpty(responseContent))
+                        {
+                            errorData = responseContent;
+                        }
+                        else
+                        {
+                            errorData = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorCode = $"HTTP_{(int)response.StatusCode}",
+                                ErrorExplanation = $"HTTP Error: {response.StatusCode}"
+                            });
+                        }
+
+                        var httpErrorMessage = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = errorData
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(httpErrorMessage));
+                        return;
+                    }
+
+                    var resultMessage = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+
+                    string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Sending response back to JS. RequestId: {requestId}");
+                    wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Response sent successfully");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] ========================================");
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH ERROR] HTTP Request failed: {httpEx.Message}");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "HTTP_REQUEST_FAILED",
+                        ErrorExplanation = $"HTTP Request failed: {httpEx.Message}"
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+            catch (TaskCanceledException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH ERROR] Request timed out");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "TIMEOUT",
+                        ErrorExplanation = "Request timed out. Oracle Fusion API did not respond within 120 seconds."
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH ERROR] Unexpected error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH ERROR] Stack: {ex.StackTrace}");
 
                 var errorMessage = new
                 {
