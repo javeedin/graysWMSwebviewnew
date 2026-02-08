@@ -139,7 +139,7 @@ const SERVICE_NAMES = {
     'standardReceipts': 'Processing Receipt'
 };
 
-// Initialize the processing indicator container
+// Initialize the processing indicator (circular icon in header)
 function initializeProcessingIndicator() {
     if (processingIndicatorContainer) return;
 
@@ -148,71 +148,45 @@ function initializeProcessingIndicator() {
         const style = document.createElement('style');
         style.id = 'wms-processing-styles';
         style.textContent = `
-            #wms-processing-container {
-                position: fixed;
-                bottom: 20px;
-                right: 20px;
-                z-index: 999998;
-                display: flex;
-                flex-direction: column;
-                gap: 8px;
-                max-width: 350px;
-                max-height: 300px;
-                overflow-y: auto;
+            /* Circular loading indicator in header */
+            #wms-loading-indicator {
+                position: relative;
+                width: 32px;
+                height: 32px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                margin-left: 12px;
             }
-            .wms-processing-item {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            #wms-loading-indicator.active {
+                display: flex;
+            }
+            #wms-loading-indicator .loader-ring {
+                width: 24px;
+                height: 24px;
+                border: 3px solid #e2e8f0;
+                border-top-color: #6366f1;
+                border-radius: 50%;
+                animation: wms-spin 0.8s linear infinite;
+            }
+            #wms-loading-indicator .loader-count {
+                position: absolute;
+                top: -4px;
+                right: -4px;
+                min-width: 16px;
+                height: 16px;
+                background: #6366f1;
                 color: white;
-                padding: 12px 16px;
-                border-radius: 10px;
-                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: 700;
                 display: flex;
                 align-items: center;
-                gap: 12px;
-                font-size: 13px;
-                font-weight: 500;
-                animation: processingSlideIn 0.3s ease-out;
-                min-width: 280px;
+                justify-content: center;
+                padding: 0 4px;
+                box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
             }
-            .wms-processing-item.completing {
-                animation: processingSlideOut 0.3s ease-in forwards;
-            }
-            .wms-processing-item .spinner {
-                width: 18px;
-                height: 18px;
-                border: 2px solid rgba(255,255,255,0.3);
-                border-top-color: white;
-                border-radius: 50%;
-                animation: spin 0.8s linear infinite;
-            }
-            .wms-processing-item .service-info {
-                flex: 1;
-                display: flex;
-                flex-direction: column;
-                gap: 2px;
-            }
-            .wms-processing-item .service-name {
-                font-weight: 600;
-                font-size: 13px;
-            }
-            .wms-processing-item .service-detail {
-                font-size: 11px;
-                opacity: 0.85;
-            }
-            .wms-processing-item .elapsed-time {
-                font-size: 11px;
-                opacity: 0.7;
-                font-family: monospace;
-            }
-            @keyframes processingSlideIn {
-                from { transform: translateX(100%); opacity: 0; }
-                to { transform: translateX(0); opacity: 1; }
-            }
-            @keyframes processingSlideOut {
-                from { transform: translateX(0); opacity: 1; }
-                to { transform: translateX(100%); opacity: 0; }
-            }
-            @keyframes spin {
+            @keyframes wms-spin {
                 to { transform: rotate(360deg); }
             }
 
@@ -246,7 +220,7 @@ function initializeProcessingIndicator() {
                 border: 4px solid #e2e8f0;
                 border-top-color: #667eea;
                 border-radius: 50%;
-                animation: spin 1s linear infinite;
+                animation: wms-spin 1s linear infinite;
                 margin: 0 auto 20px;
             }
             .wms-overlay-content .overlay-title {
@@ -263,10 +237,27 @@ function initializeProcessingIndicator() {
         document.head.appendChild(style);
     }
 
-    // Create container
-    processingIndicatorContainer = document.createElement('div');
-    processingIndicatorContainer.id = 'wms-processing-container';
-    document.body.appendChild(processingIndicatorContainer);
+    // Create loading indicator in header (after logo)
+    const header = document.querySelector('.header');
+    if (header) {
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.id = 'wms-loading-indicator';
+        loadingIndicator.innerHTML = `
+            <div class="loader-ring"></div>
+            <span class="loader-count" id="wms-loading-count" style="display: none;">1</span>
+        `;
+        loadingIndicator.title = 'Processing...';
+
+        // Insert after logo
+        const logo = header.querySelector('.logo');
+        if (logo && logo.nextSibling) {
+            header.insertBefore(loadingIndicator, logo.nextSibling);
+        } else {
+            header.appendChild(loadingIndicator);
+        }
+
+        processingIndicatorContainer = loadingIndicator;
+    }
 
     // Create overlay (for blocking operations)
     const overlay = document.createElement('div');
@@ -279,6 +270,32 @@ function initializeProcessingIndicator() {
         </div>
     `;
     document.body.appendChild(overlay);
+}
+
+// Update loading indicator visibility based on active calls
+function updateLoadingIndicator() {
+    const indicator = document.getElementById('wms-loading-indicator');
+    const countEl = document.getElementById('wms-loading-count');
+    if (!indicator) return;
+
+    const activeCount = Object.keys(window.activeServiceCalls).length;
+
+    if (activeCount > 0) {
+        indicator.classList.add('active');
+        if (activeCount > 1 && countEl) {
+            countEl.textContent = activeCount;
+            countEl.style.display = 'flex';
+        } else if (countEl) {
+            countEl.style.display = 'none';
+        }
+
+        // Update tooltip with current services
+        const services = Object.values(window.activeServiceCalls).map(s => s.serviceName).join(', ');
+        indicator.title = `Processing: ${services}`;
+    } else {
+        indicator.classList.remove('active');
+        indicator.title = 'Processing...';
+    }
 }
 
 // Get friendly service name from action/endpoint (globally available)
@@ -318,37 +335,11 @@ window.showProcessingIndicator = function(requestId, serviceName, detail = '') {
     window.activeServiceCalls[requestId] = {
         serviceName,
         detail,
-        startTime,
-        element: null,
-        intervalId: null
+        startTime
     };
 
-    // Create the indicator element
-    const item = document.createElement('div');
-    item.className = 'wms-processing-item';
-    item.id = `processing-${requestId}`;
-    item.innerHTML = `
-        <div class="spinner"></div>
-        <div class="service-info">
-            <div class="service-name">${serviceName}</div>
-            ${detail ? `<div class="service-detail">${detail}</div>` : ''}
-        </div>
-        <div class="elapsed-time">0.0s</div>
-    `;
-
-    processingIndicatorContainer.appendChild(item);
-    window.activeServiceCalls[requestId].element = item;
-
-    // Update elapsed time every 100ms
-    const intervalId = setInterval(() => {
-        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        const timeEl = item.querySelector('.elapsed-time');
-        if (timeEl) {
-            timeEl.textContent = `${elapsed}s`;
-        }
-    }, 100);
-
-    window.activeServiceCalls[requestId].intervalId = intervalId;
+    // Update the header loading indicator
+    updateLoadingIndicator();
 
     console.log(`[Processing] Started: ${serviceName} (${requestId})${detail ? ' - ' + detail : ''}`);
 
@@ -360,25 +351,13 @@ window.hideProcessingIndicator = function(requestId) {
     const serviceCall = window.activeServiceCalls[requestId];
     if (!serviceCall) return;
 
-    // Clear the interval
-    if (serviceCall.intervalId) {
-        clearInterval(serviceCall.intervalId);
-    }
-
-    // Animate out
-    if (serviceCall.element) {
-        serviceCall.element.classList.add('completing');
-        setTimeout(() => {
-            if (serviceCall.element && serviceCall.element.parentNode) {
-                serviceCall.element.remove();
-            }
-        }, 300);
-    }
-
     const elapsed = ((Date.now() - serviceCall.startTime) / 1000).toFixed(2);
     console.log(`[Processing] Completed: ${serviceCall.serviceName} (${requestId}) in ${elapsed}s`);
 
     delete window.activeServiceCalls[requestId];
+
+    // Update the header loading indicator
+    updateLoadingIndicator();
 };
 
 // Show blocking overlay (for critical operations)
