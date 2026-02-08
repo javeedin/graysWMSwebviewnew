@@ -8454,6 +8454,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Build the popup HTML
         let linesTableHtml = '';
+        // Extract HeaderId from the first line (all lines belong to the same order header)
+        const headerId = linesToCancel[0]?.HEADER_ID || linesToCancel[0]?.header_id || linesToCancel[0]?.HeaderId || '';
+        console.log('[Order Transactions] HeaderId from lines:', headerId);
+
         linesToCancel.forEach((line, idx) => {
             const lineId = line.LINE_ID || line.line_id || line.FULFILL_LINE_ID || line.fulfill_line_id || 'N/A';
             const itemNumber = line.ITEM_NUMBER || line.item_number || line.INVENTORY_ITEM || line.inventory_item || 'N/A';
@@ -8464,9 +8468,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const bgColor = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
             linesTableHtml += `
-                <tr style="background: ${bgColor};" data-fulfill-line-id="${fulfillLineId}">
+                <tr style="background: ${bgColor};" data-fulfill-line-id="${fulfillLineId}" data-header-id="${headerId}">
                     <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">
-                        <input type="checkbox" class="cancel-line-checkbox" checked data-fulfill-line-id="${fulfillLineId}">
+                        <input type="checkbox" class="cancel-line-checkbox" checked data-fulfill-line-id="${fulfillLineId}" data-header-id="${headerId}">
                     </td>
                     <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace;">${lineId}</td>
                     <td style="padding: 8px; border: 1px solid #e2e8f0;">${itemNumber}</td>
@@ -8493,7 +8497,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <strong style="color: #92400e;"><i class="fas fa-exclamation-triangle"></i> Warning:</strong>
                             <span style="color: #78350f; font-size: 13px;">This will cancel the selected lines in Oracle Fusion by setting OrderedQuantity to 0.</span>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                             <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
                                 <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Order Number</div>
                                 <div style="font-weight: 600; color: #1e293b;">${orderNumber}</div>
@@ -8502,6 +8506,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Source Order Number</div>
                                 <div style="font-weight: 600; color: #7c3aed;">${sourceOrderNumber}</div>
                             </div>
+                            <div style="background: ${headerId ? '#e0f2fe' : '#fef2f2'}; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Fusion HeaderId</div>
+                                <div style="font-weight: 600; color: ${headerId ? '#0369a1' : '#dc2626'};">${headerId || 'Not Available'}</div>
+                            </div>
                             <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
                                 <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Instance</div>
                                 <div style="font-weight: 600; color: #059669;">${instance}</div>
@@ -8509,6 +8517,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
                                 <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Lines Selected</div>
                                 <div style="font-weight: 600; color: #dc2626;">${linesToCancel.length}</div>
+                            </div>
+                            <div style="background: #f0fdf4; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">API Key Type</div>
+                                <div style="font-weight: 600; color: #16a34a;">${headerId ? 'HeaderId (Primary)' : 'Alternate Key'}</div>
                             </div>
                         </div>
                         <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;">Lines to Cancel:</div>
@@ -8538,7 +8550,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button onclick="document.getElementById('cancel-lines-popup').remove()" class="btn btn-secondary" style="padding: 10px 24px;">
                                 <i class="fas fa-arrow-left"></i> Close
                             </button>
-                            <button onclick="cancelLinesInFusion('${orderNumber}', '${sourceOrderNumber}', '${instance}')" class="btn btn-danger" style="padding: 10px 24px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                            <button onclick="cancelLinesInFusion('${orderNumber}', '${sourceOrderNumber}', '${instance}', '${headerId}')" class="btn btn-danger" style="padding: 10px 24px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">
                                 <i class="fas fa-times-circle"></i> Cancel Lines
                             </button>
                         </div>
@@ -8569,8 +8581,9 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Cancel Lines in Oracle Fusion via PATCH API
-    window.cancelLinesInFusion = function(orderNumber, sourceOrderNumber, instance) {
+    window.cancelLinesInFusion = function(orderNumber, sourceOrderNumber, instance, headerId) {
         console.log('[Order Transactions] Cancel Lines in Fusion for order:', orderNumber);
+        console.log('[Order Transactions] HeaderId received:', headerId);
 
         // Get checked lines from the popup
         const checkboxes = document.querySelectorAll('.cancel-line-checkbox:checked');
@@ -8579,10 +8592,15 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Build the lines array for the API
+        // Build the lines array for the API and try to get headerId from checkboxes if not provided
         const linesPayload = [];
+        let extractedHeaderId = headerId;
         checkboxes.forEach(cb => {
             const fulfillLineId = cb.getAttribute('data-fulfill-line-id');
+            // Try to extract headerId from checkbox if not already set
+            if (!extractedHeaderId || extractedHeaderId === 'undefined' || extractedHeaderId === '') {
+                extractedHeaderId = cb.getAttribute('data-header-id');
+            }
             if (fulfillLineId && fulfillLineId !== 'N/A') {
                 linesPayload.push({
                     FulfillLineId: parseInt(fulfillLineId),
@@ -8598,13 +8616,24 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         console.log('[Order Transactions] Lines payload:', linesPayload);
+        console.log('[Order Transactions] Extracted HeaderId:', extractedHeaderId);
 
         // Determine the Fusion URL based on instance
         const fusionBaseUrl = instance.toUpperCase() === 'PROD'
             ? 'https://efmh.fa.em3.oraclecloud.com'
             : 'https://efmh-test.fa.em3.oraclecloud.com';
 
-        const fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${sourceOrderNumber}`;
+        // Use HeaderId if available (primary key), otherwise fall back to alternate key format
+        let fusionUrl;
+        if (extractedHeaderId && extractedHeaderId !== 'undefined' && extractedHeaderId !== '' && extractedHeaderId !== 'null') {
+            // Use HeaderId (primary key) - more reliable
+            fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/${extractedHeaderId}`;
+            console.log('[Order Transactions] Using HeaderId for Fusion URL');
+        } else {
+            // Fall back to alternate key format
+            fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${sourceOrderNumber}`;
+            console.log('[Order Transactions] Using alternate key (OPS:sourceOrderNumber) for Fusion URL');
+        }
 
         console.log('[Order Transactions] Fusion URL:', fusionUrl);
 
