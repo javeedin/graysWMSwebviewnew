@@ -89,6 +89,323 @@ window.showNotification = function(message, type = 'info') {
 };
 
 // ========================================
+// PROCESSING INDICATOR SYSTEM
+// ========================================
+
+// Track active service calls
+window.activeServiceCalls = {};
+let processingIndicatorContainer = null;
+
+// Service name mapping for friendly display
+const SERVICE_NAMES = {
+    // C# Bridge Actions
+    'executeGet': 'Fetching Data',
+    'executePost': 'Sending Data',
+    'getAllPrintJobs': 'Loading Print Jobs',
+    'getPdfAsBase64': 'Loading PDF',
+    'openFileInExplorer': 'Opening File',
+    'downloadOrderPdf': 'Downloading PDF',
+    'printOrder': 'Sending to Printer',
+    'testPrinter': 'Testing Printer',
+    'configurePrinter': 'Configuring Printer',
+    'setInstanceSetting': 'Syncing Instance',
+    // APEX Endpoints
+    '/printers/all': 'Loading Printers',
+    '/config/printer': 'Saving Printer Config',
+    '/printers/set-active': 'Setting Active Printer',
+    '/printers/delete': 'Deleting Printer',
+    '/monitor-printing/list': 'Loading Monitor List',
+    '/monitor-printing/enable': 'Enabling Auto-Print',
+    '/monitor-printing/disable': 'Disabling Auto-Print',
+    '/monitor-printing/update-order-status': 'Updating Order Status',
+    // Trip Management
+    'GETTRIPDETAILS': 'Loading Trip Details',
+    'getpendingorders': 'Loading Pending Orders',
+    'addtotrip': 'Adding Orders to Trip',
+    'trips/create': 'Creating Trip',
+    'trips/addorders': 'Adding Orders',
+    'getpendingshipmentlines': 'Loading Shipment Lines',
+    'getpickers': 'Loading Pickers',
+    'vehicles/get': 'Loading Vehicles',
+    'pickerassignment': 'Assigning Picker',
+    'updatepickconfirmstatus': 'Updating Pick Status',
+    'PendingS2Vtransactions': 'Loading Store Transactions',
+    'pickrelease': 'Processing Pick Release',
+    'autosalesorderprocessing': 'Loading Sales Orders',
+    'gettrillines': 'Loading Trip Lines',
+    // Oracle Fusion
+    'pickTransactions': 'Processing Pick Transaction',
+    'salesOrders': 'Loading Sales Orders',
+    'standardReceipts': 'Processing Receipt'
+};
+
+// Initialize the processing indicator container
+function initializeProcessingIndicator() {
+    if (processingIndicatorContainer) return;
+
+    // Add styles for processing indicator
+    if (!document.getElementById('wms-processing-styles')) {
+        const style = document.createElement('style');
+        style.id = 'wms-processing-styles';
+        style.textContent = `
+            #wms-processing-container {
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                z-index: 999998;
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                max-width: 350px;
+                max-height: 300px;
+                overflow-y: auto;
+            }
+            .wms-processing-item {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 12px 16px;
+                border-radius: 10px;
+                box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                font-size: 13px;
+                font-weight: 500;
+                animation: processingSlideIn 0.3s ease-out;
+                min-width: 280px;
+            }
+            .wms-processing-item.completing {
+                animation: processingSlideOut 0.3s ease-in forwards;
+            }
+            .wms-processing-item .spinner {
+                width: 18px;
+                height: 18px;
+                border: 2px solid rgba(255,255,255,0.3);
+                border-top-color: white;
+                border-radius: 50%;
+                animation: spin 0.8s linear infinite;
+            }
+            .wms-processing-item .service-info {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            .wms-processing-item .service-name {
+                font-weight: 600;
+                font-size: 13px;
+            }
+            .wms-processing-item .service-detail {
+                font-size: 11px;
+                opacity: 0.85;
+            }
+            .wms-processing-item .elapsed-time {
+                font-size: 11px;
+                opacity: 0.7;
+                font-family: monospace;
+            }
+            @keyframes processingSlideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes processingSlideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+            @keyframes spin {
+                to { transform: rotate(360deg); }
+            }
+
+            /* Full overlay for blocking operations */
+            #wms-processing-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 999997;
+                display: none;
+                align-items: center;
+                justify-content: center;
+            }
+            #wms-processing-overlay.active {
+                display: flex;
+            }
+            .wms-overlay-content {
+                background: white;
+                padding: 30px 40px;
+                border-radius: 16px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                text-align: center;
+                max-width: 400px;
+            }
+            .wms-overlay-content .spinner-large {
+                width: 50px;
+                height: 50px;
+                border: 4px solid #e2e8f0;
+                border-top-color: #667eea;
+                border-radius: 50%;
+                animation: spin 1s linear infinite;
+                margin: 0 auto 20px;
+            }
+            .wms-overlay-content .overlay-title {
+                font-size: 18px;
+                font-weight: 700;
+                color: #1e293b;
+                margin-bottom: 8px;
+            }
+            .wms-overlay-content .overlay-message {
+                font-size: 14px;
+                color: #64748b;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // Create container
+    processingIndicatorContainer = document.createElement('div');
+    processingIndicatorContainer.id = 'wms-processing-container';
+    document.body.appendChild(processingIndicatorContainer);
+
+    // Create overlay (for blocking operations)
+    const overlay = document.createElement('div');
+    overlay.id = 'wms-processing-overlay';
+    overlay.innerHTML = `
+        <div class="wms-overlay-content">
+            <div class="spinner-large"></div>
+            <div class="overlay-title">Processing...</div>
+            <div class="overlay-message" id="wms-overlay-message">Please wait</div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+// Get friendly service name from action/endpoint (globally available)
+window.getServiceDisplayName = function(action, endpoint) {
+    // Check direct action mapping
+    if (SERVICE_NAMES[action]) {
+        return SERVICE_NAMES[action];
+    }
+
+    // Check endpoint mapping
+    if (endpoint) {
+        for (const key in SERVICE_NAMES) {
+            if (endpoint.includes(key)) {
+                return SERVICE_NAMES[key];
+            }
+        }
+    }
+
+    // Default: format the action name
+    if (action) {
+        return action.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
+    }
+
+    return 'Processing...';
+};
+
+// Local alias for internal use
+const getServiceDisplayName = window.getServiceDisplayName;
+
+// Show processing indicator for a service call
+window.showProcessingIndicator = function(requestId, serviceName, detail = '') {
+    initializeProcessingIndicator();
+
+    const startTime = Date.now();
+
+    // Store the service call info
+    window.activeServiceCalls[requestId] = {
+        serviceName,
+        detail,
+        startTime,
+        element: null,
+        intervalId: null
+    };
+
+    // Create the indicator element
+    const item = document.createElement('div');
+    item.className = 'wms-processing-item';
+    item.id = `processing-${requestId}`;
+    item.innerHTML = `
+        <div class="spinner"></div>
+        <div class="service-info">
+            <div class="service-name">${serviceName}</div>
+            ${detail ? `<div class="service-detail">${detail}</div>` : ''}
+        </div>
+        <div class="elapsed-time">0.0s</div>
+    `;
+
+    processingIndicatorContainer.appendChild(item);
+    window.activeServiceCalls[requestId].element = item;
+
+    // Update elapsed time every 100ms
+    const intervalId = setInterval(() => {
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        const timeEl = item.querySelector('.elapsed-time');
+        if (timeEl) {
+            timeEl.textContent = `${elapsed}s`;
+        }
+    }, 100);
+
+    window.activeServiceCalls[requestId].intervalId = intervalId;
+
+    console.log(`[Processing] Started: ${serviceName} (${requestId})${detail ? ' - ' + detail : ''}`);
+
+    return requestId;
+};
+
+// Hide processing indicator for a service call
+window.hideProcessingIndicator = function(requestId) {
+    const serviceCall = window.activeServiceCalls[requestId];
+    if (!serviceCall) return;
+
+    // Clear the interval
+    if (serviceCall.intervalId) {
+        clearInterval(serviceCall.intervalId);
+    }
+
+    // Animate out
+    if (serviceCall.element) {
+        serviceCall.element.classList.add('completing');
+        setTimeout(() => {
+            if (serviceCall.element && serviceCall.element.parentNode) {
+                serviceCall.element.remove();
+            }
+        }, 300);
+    }
+
+    const elapsed = ((Date.now() - serviceCall.startTime) / 1000).toFixed(2);
+    console.log(`[Processing] Completed: ${serviceCall.serviceName} (${requestId}) in ${elapsed}s`);
+
+    delete window.activeServiceCalls[requestId];
+};
+
+// Show blocking overlay (for critical operations)
+window.showProcessingOverlay = function(message = 'Processing...') {
+    initializeProcessingIndicator();
+    const overlay = document.getElementById('wms-processing-overlay');
+    const messageEl = document.getElementById('wms-overlay-message');
+    if (overlay) {
+        overlay.classList.add('active');
+        if (messageEl) messageEl.textContent = message;
+    }
+};
+
+// Hide blocking overlay
+window.hideProcessingOverlay = function() {
+    const overlay = document.getElementById('wms-processing-overlay');
+    if (overlay) {
+        overlay.classList.remove('active');
+    }
+};
+
+// Get count of active service calls
+window.getActiveServiceCount = function() {
+    return Object.keys(window.activeServiceCalls).length;
+};
+
+// ========================================
 // INSTANCE MANAGEMENT
 // ========================================
 
@@ -184,7 +501,7 @@ function generateRequestId() {
 
 
 
-function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
+function sendMessageToCSharp(message, callback, timeoutMs = 120000, showIndicator = true) {
     const requestId = message.requestId || generateRequestId();
     message.requestId = requestId;
     const startTime = Date.now();
@@ -197,6 +514,13 @@ function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
     console.log('[JS] Timeout set to:', timeoutMs, 'ms');
     console.log('[JS] ════════════════════════════════════════════════════════');
 
+    // Show processing indicator for this service call
+    if (showIndicator && typeof window.showProcessingIndicator === 'function') {
+        const serviceName = getServiceDisplayName(message.action, message.fullUrl);
+        const detail = message.fullUrl ? extractEndpointFromUrl(message.fullUrl) : '';
+        window.showProcessingIndicator(requestId, serviceName, detail);
+    }
+
     // Setup timeout to catch stuck requests
     const timeoutId = setTimeout(() => {
         if (window.pendingRequests[requestId]) {
@@ -205,6 +529,11 @@ function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
             console.error('[JS] ⏰ Timed out Request ID:', requestId);
             console.error('[JS] ⏰ Timed out Action:', message.action);
             console.error('[JS] ⏰ Check if C# received and processed this request');
+
+            // Hide processing indicator on timeout
+            if (typeof window.hideProcessingIndicator === 'function') {
+                window.hideProcessingIndicator(requestId);
+            }
 
             delete window.pendingRequests[requestId];
             callback(`Request timed out after ${timeoutMs}ms. C# did not respond for action: ${message.action}`, null);
@@ -216,6 +545,12 @@ function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
         clearTimeout(timeoutId);
         const elapsed = Date.now() - startTime;
         console.log('[JS] ⏱️ Response received in', elapsed, 'ms for:', requestId);
+
+        // Hide processing indicator when response arrives
+        if (typeof window.hideProcessingIndicator === 'function') {
+            window.hideProcessingIndicator(requestId);
+        }
+
         callback(error, response);
     };
 
@@ -227,15 +562,46 @@ function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
         } catch (postError) {
             console.error('[JS] ❌ Error posting message:', postError);
             clearTimeout(timeoutId);
+
+            // Hide processing indicator on error
+            if (typeof window.hideProcessingIndicator === 'function') {
+                window.hideProcessingIndicator(requestId);
+            }
+
             delete window.pendingRequests[requestId];
             callback('Error posting message to C#: ' + postError.message, null);
         }
     } else {
         console.error('[JS] ❌ WebView2 not available - window.chrome.webview is:', window.chrome?.webview);
         clearTimeout(timeoutId);
+
+        // Hide processing indicator when WebView2 not available
+        if (typeof window.hideProcessingIndicator === 'function') {
+            window.hideProcessingIndicator(requestId);
+        }
+
         delete window.pendingRequests[requestId];
         callback('WebView2 not available', null);
     }
+}
+
+// Helper function to extract readable endpoint from URL
+function extractEndpointFromUrl(url) {
+    if (!url) return '';
+    try {
+        const urlObj = new URL(url);
+        const path = urlObj.pathname;
+        // Get the last meaningful part of the path
+        const parts = path.split('/').filter(p => p && !p.match(/^v\d+$/));
+        if (parts.length > 0) {
+            return parts[parts.length - 1];
+        }
+    } catch (e) {
+        // If URL parsing fails, try to extract the endpoint manually
+        const match = url.match(/\/([^\/\?]+)(?:\?|$)/);
+        if (match) return match[1];
+    }
+    return '';
 }
 
 // ============================================================

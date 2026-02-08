@@ -28,8 +28,23 @@ async function callApexAPINew(endpoint, method = 'GET', body = null) {
                 window.pendingRequests = {};
             }
 
+            // Show processing indicator for this API call
+            if (typeof window.showProcessingIndicator === 'function' && typeof window.getServiceDisplayName === 'function') {
+                const serviceName = window.getServiceDisplayName(method === 'GET' ? 'executeGet' : 'executePost', endpoint);
+                window.showProcessingIndicator(requestId, serviceName, endpoint);
+            } else if (typeof window.showProcessingIndicator === 'function') {
+                // Fallback: use endpoint as service name
+                const endpointName = endpoint.split('/').filter(p => p).pop() || 'API Call';
+                window.showProcessingIndicator(requestId, `${method} ${endpointName}`, endpoint);
+            }
+
             // Register callback in the global system
             window.pendingRequests[requestId] = (error, data) => {
+                // Hide processing indicator
+                if (typeof window.hideProcessingIndicator === 'function') {
+                    window.hideProcessingIndicator(requestId);
+                }
+
                 if (error) {
                     console.error('[API NEW] Error:', error);
                     reject(new Error(error));
@@ -72,6 +87,10 @@ async function callApexAPINew(endpoint, method = 'GET', body = null) {
             // Timeout after 60 seconds (increased for slow APEX responses)
             setTimeout(() => {
                 if (window.pendingRequests[requestId]) {
+                    // Hide processing indicator on timeout
+                    if (typeof window.hideProcessingIndicator === 'function') {
+                        window.hideProcessingIndicator(requestId);
+                    }
                     delete window.pendingRequests[requestId];
                     reject(new Error(`Request timeout after 60s: ${method} ${url}`));
                 }
