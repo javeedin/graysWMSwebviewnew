@@ -4445,6 +4445,16 @@ document.addEventListener('DOMContentLoaded', function() {
         window.pendingAssignPickerTripId = tripId;
         window.pendingAssignPickerOrders = selectedOrders;
 
+        // Determine instance from order data first, then toolbar, then localStorage
+        const firstOrder = selectedOrders[0] || {};
+        const instanceFromOrder = firstOrder.instance_name || firstOrder.INSTANCE_NAME || firstOrder.instance || firstOrder.INSTANCE;
+        const toolbarInstance = document.getElementById('trip-instance-name')?.value;
+        const instance = instanceFromOrder || window.currentTripInstance || toolbarInstance || localStorage.getItem('fusionInstance') || 'PROD';
+
+        // Store instance for API info and submit
+        window.pendingAssignPickerInstance = instance;
+        console.log('[Assign Picker] Using instance:', instance, '(from order:', instanceFromOrder, ', toolbar:', toolbarInstance, ')');
+
         // Build the list of selected order numbers
         let orderListHtml = '';
         selectedOrders.forEach((order, index) => {
@@ -4485,8 +4495,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
                     <!-- Header -->
                     <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fas fa-user-check"></i> Assign Picker
+                            <span style="background: ${instance === 'PROD' ? '#ef4444' : '#22c55e'}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700;">${instance}</span>
                         </h3>
                         <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
                             Trip ID: ${tripId} • ${selectedOrders.length} order(s) selected
@@ -4563,7 +4574,8 @@ document.addEventListener('DOMContentLoaded', function() {
     window.showAssignPickerApiInfo = function() {
         const tripId = window.pendingAssignPickerTripId || 'N/A';
         const selectedOrders = window.pendingAssignPickerOrders || [];
-        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+        // Use the instance stored when dialog was opened (from order data or toolbar)
+        const instance = window.pendingAssignPickerInstance || localStorage.getItem('fusionInstance') || 'TEST';
 
         // Get sample order for display
         const sampleOrder = selectedOrders[0] || {};
@@ -4639,7 +4651,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Instance Parameter:</strong>
                             <span style="color: #78350f; font-size: 12px;">
                                 The <code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">instance</code> field is included in each order object in the request body (not as a query parameter).
-                                Current value: <strong>${instance}</strong> (from localStorage)
+                                Current value: <strong style="color: ${instance === 'PROD' ? '#dc2626' : '#16a34a'};">${instance}</strong> (from order data or toolbar)
                             </span>
                         </div>
                     </div>
@@ -4686,8 +4698,8 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Assign Picker] To orders:', selectedOrders);
         console.log('[Assign Picker] Trip ID:', tripId);
 
-        // Get instance from toolbar
-        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+        // Get instance from stored value (set when dialog opened from order data or toolbar)
+        const instance = window.pendingAssignPickerInstance || localStorage.getItem('fusionInstance') || 'TEST';
         console.log('[Assign Picker] Instance:', instance);
 
         // Build orders array for API
