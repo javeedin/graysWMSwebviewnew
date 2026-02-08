@@ -2589,8 +2589,8 @@ async function soExecutePickRelease(tripIndex, selectedOrders) {
 // Call Pick Release API for a single order
 function soCallPickReleaseAPI(orderNumber) {
     return new Promise((resolve, reject) => {
-        // Get instance from current trip context or fallback
-        const instance = window.currentTripInstance || 'PROD';
+        // Get instance from current trip context, localStorage, or fallback
+        const instance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'PROD';
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Pick Release] Calling API for order:', orderNumber, 'Instance:', instance, 'URL:', apiUrl);

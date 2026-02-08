@@ -13822,7 +13822,7 @@ document.addEventListener('DOMContentLoaded', function() {
             indicator.id = 'action-processing-indicator';
             indicator.style.cssText = `
                 position: fixed;
-                bottom: 20px;
+                bottom: 100px;
                 right: 20px;
                 background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
                 color: white;
