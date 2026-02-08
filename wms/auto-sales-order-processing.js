@@ -2590,7 +2590,7 @@ async function soExecutePickRelease(tripIndex, selectedOrders) {
 function soCallPickReleaseAPI(orderNumber) {
     return new Promise((resolve, reject) => {
         // Get instance from current trip context, localStorage, or fallback
-        const instance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'PROD';
+        const instance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'TEST';
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Pick Release] Calling API for order:', orderNumber, 'Instance:', instance, 'URL:', apiUrl);
@@ -2823,7 +2823,7 @@ async function soExecuteAssignPicker(tripIndex, selectedOrders) {
     const progressContainer = document.getElementById('so-assign-picker-progress-container');
     if (progressContainer) progressContainer.style.display = 'block';
 
-    const fusionInstance = localStorage.getItem('fusionInstance') || 'PROD';
+    const fusionInstance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'TEST';
     let successCount = 0;
     let failedCount = 0;
 

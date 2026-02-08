@@ -481,8 +481,8 @@ function openStoreTransactionsFromPst(rowData) {
         order_type: rowData.trx_type || 'Store to Van',
         TRIP_DATE: rowData.trx_date || '',
         trip_date: rowData.trx_date || '',
-        INSTANCE_NAME: rowData.source_org_code || localStorage.getItem('fusionInstance') || 'PROD',
-        instance_name: rowData.source_org_code || localStorage.getItem('fusionInstance') || 'PROD',
+        INSTANCE_NAME: rowData.source_org_code || window.currentTripInstance || localStorage.getItem('fusionInstance') || 'TEST',
+        instance_name: rowData.source_org_code || window.currentTripInstance || localStorage.getItem('fusionInstance') || 'TEST',
         SOURCE_ORG_CODE: rowData.source_org_code || '',
         source_org_code: rowData.source_org_code || '',
         SOURCE_SUB_INV: rowData.source_sub_inv || '',
@@ -653,7 +653,7 @@ function submitPstAssignPicker() {
 
     pstLog(`Assigning picker ${pickerName} (${pickerId}) to ${selectedOrders.length} orders`, 'info');
 
-    const fusionInstance = localStorage.getItem('fusionInstance') || 'PROD';
+    const fusionInstance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'TEST';
 
     // Process each order
     let completed = 0;
@@ -812,7 +812,7 @@ function processPstS2VOrders(orders, index) {
 
     const order = orders[index];
     const orderNumber = order.trx_number || 'Unknown';
-    const fusionInstance = localStorage.getItem('fusionInstance') || 'PROD';
+    const fusionInstance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'TEST';
 
     // Update status to processing
     const statusDiv = document.getElementById(`pst-s2v-status-${index}`);
