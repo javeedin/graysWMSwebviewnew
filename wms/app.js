@@ -7554,6 +7554,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button onclick="showOrderTransactionsApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
                                     <i class="fas fa-code"></i> API
                                 </button>
+                                <button onclick="refreshPickSlipDetail('${orderNumber}')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Refresh Pick Slip Detail (Web Services 2 & 3)">
+                                    <i class="fas fa-sync-alt"></i> Refresh Pick Slip
+                                </button>
                                 <span style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">
                                     Instance: ${instance}
                                 </span>
@@ -8859,6 +8862,23 @@ document.addEventListener('DOMContentLoaded', function() {
         const gridContainer = document.getElementById('ship-confirm-responses-grid');
         if (gridContainer) {
             gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Shipment Confirmation Responses will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
+        }
+    };
+
+    // Refresh Pick Slip Detail - calls Web Services 2 (Sales Order Lines) and 3 (Lot Details)
+    window.refreshPickSlipDetail = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Pick Slip Detail for:', orderNumber);
+        console.log('[Order Transactions] Calling Web Service 2 (Sales Order Lines) and Web Service 3 (Lot Details)');
+
+        // Call Web Service 2 - Sales Order Lines
+        refreshSalesOrderLines(orderNumber);
+
+        // Call Web Service 3 - Lot Details
+        refreshLotDetails(orderNumber);
+
+        // Show notification to user
+        if (typeof showNotification === 'function') {
+            showNotification('Refreshing Pick Slip Detail...', 'info');
         }
     };
 
