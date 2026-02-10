@@ -6166,6 +6166,32 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Fetch order volume from API
+    function callGetOrderVolumeAPI(orderNumber, instance) {
+        return new Promise((resolve) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume?p_instance_name=${instance}&source_order_number=${orderNumber}`;
+
+            console.log('[Order Volume] Fetching order volume:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve({ success: true, data: response });
+                    } catch (e) {
+                        resolve({ success: true, data: data });
+                    }
+                }
+            });
+        });
+    }
+
     // Helper Functions for With Lots UI
     function updateStepIndicator(step, status) {
         const indicator = document.getElementById(`step-indicator-${step}`);
@@ -13496,6 +13522,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     <i class="fas fa-file-alt" style="color: #f59e0b; width: 20px;"></i>
                     <span style="font-size: 13px;">Fetch Pickslip Details</span>
                 </button>
+                <button onclick="executeFloatingAction('getOrderVolume')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-cube" style="color: #06b6d4; width: 20px;"></i>
+                    <span style="font-size: 13px;">Get Order Volume</span>
+                </button>
                 <div style="border-top: 1px solid #e5e7eb; margin: 4px 0;"></div>
                 <button onclick="executeFloatingAction('assignPicker')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
                     <i class="fas fa-user-plus" style="color: #8b5cf6; width: 20px;"></i>
@@ -13658,6 +13688,9 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'assignPicker':
                 executeActionAssignPicker(selectedOrders);
                 break;
+            case 'getOrderVolume':
+                await executeActionGetOrderVolume(selectedOrders);
+                break;
         }
     };
 
@@ -13816,6 +13849,53 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.currentStep = 'Complete';
+        updateActionProcessingIndicator();
+    }
+
+    // Action: Get Order Volume
+    async function executeActionGetOrderVolume(orders) {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+
+        window.actionProcessingState = {
+            isProcessing: true,
+            actionType: 'Get Order Volume',
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Fetching order volume...',
+            startTime: Date.now(),
+            results: []
+        };
+
+        showActionProcessingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            window.actionProcessingState.currentStep = `Getting volume for ${orderNumber} (${i + 1}/${orders.length})`;
+            window.actionProcessingState.completedOrders = i;
+            updateActionProcessingIndicator();
+
+            try {
+                const result = await callGetOrderVolumeAPI(orderNumber, instance);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: result.success,
+                    data: result.data || null
+                });
+            } catch (err) {
+                console.error('[Action Float] Error getting volume for', orderNumber, err);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: false,
+                    error: err.message
+                });
+            }
+        }
+
+        window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.completedOrders = orders.length;
         window.actionProcessingState.currentStep = 'Complete';
         updateActionProcessingIndicator();
     }
