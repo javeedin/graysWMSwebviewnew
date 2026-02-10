@@ -2903,6 +2903,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('kpi-trip-customers').textContent = '0';
             document.getElementById('kpi-trip-lorries').textContent = '0';
             document.getElementById('kpi-trip-pickers').textContent = '0';
+            document.getElementById('kpi-trip-weight').textContent = '0';
             return;
         }
 
@@ -2913,11 +2914,18 @@ document.addEventListener('DOMContentLoaded', function() {
         const uniqueLorries = new Set(tripDetails.map(r => r.LORRY_NUMBER || r.lorry_number)).size;
         const uniquePickers = new Set(tripDetails.map(r => r.PICKER || r.picker).filter(Boolean)).size;
 
+        // Calculate total order volume (treat null as 0)
+        const totalWeight = tripDetails.reduce((sum, r) => {
+            const volume = r.ORDER_VOLUME || r.order_volume || 0;
+            return sum + (volume || 0);
+        }, 0);
+
         document.getElementById('kpi-trip-orders').textContent = uniqueOrders;
         document.getElementById('kpi-trip-trips').textContent = uniqueTrips;
         document.getElementById('kpi-trip-customers').textContent = uniqueCustomers;
         document.getElementById('kpi-trip-lorries').textContent = uniqueLorries;
         document.getElementById('kpi-trip-pickers').textContent = uniquePickers;
+        document.getElementById('kpi-trip-weight').textContent = totalWeight.toLocaleString();
     }
 
     // Global function: Assign Picker for Selected Orders in All Trip Details grid
