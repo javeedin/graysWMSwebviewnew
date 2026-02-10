@@ -4026,7 +4026,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-truck-loading"></i> Pick Release All
                             </button>
-                            <button class="btn" onclick="showTripLines('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
+                            <button class="btn" onclick="showTripLines('${tripId}', '${instanceName}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
                                 <i class="fas fa-list-alt"></i> Show Lines
                             </button>
                             <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
@@ -5682,7 +5682,7 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[With Lots] Fetching Total Lines for all orders...');
         const totalLinesPromises = orders.map((order, i) => {
             const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
-            return fetchFusionOrderLinesAPI(orderNumber, instance).then(result => {
+            return fetchFusionOrderLinesAPI(orderNumber, instance, tripId).then(result => {
                 totalLinesCount[i] = result.count || 0;
                 const cell = document.getElementById(`wl-total-lines-${i}`);
                 if (cell) {
@@ -5959,7 +5959,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 cell.innerHTML = '<span style="color: #94a3b8;"><i class="fas fa-spinner fa-spin" style="font-size: 10px;"></i></span>';
             }
 
-            return fetchFusionOrderLinesAPI(orderNumber, instance).then(result => {
+            return fetchFusionOrderLinesAPI(orderNumber, instance, data.tripId).then(result => {
                 const count = result.count || 0;
                 if (cell) {
                     cell.innerHTML = `<span style="font-weight: 600;">${count}</span>`;
@@ -6136,9 +6136,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Fetch total lines count from Fusion for an order
-    function fetchFusionOrderLinesAPI(orderNumber, instance) {
+    function fetchFusionOrderLinesAPI(orderNumber, instance, tripId) {
         return new Promise((resolve) => {
-            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+            let apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+            // Add trip_id if provided
+            if (tripId) {
+                apiUrl += `&p_trip_id=${tripId}`;
+            }
 
             console.log('[With Lots] Fetching Total Lines:', apiUrl);
 
@@ -6652,8 +6656,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // ============================================================================
     // SHOW TRIP LINES - Displays trip line details in popup
     // ============================================================================
-    window.showTripLines = function(tripId) {
-        console.log('[Show Trip Lines] Loading lines for trip:', tripId);
+    window.showTripLines = function(tripId, instanceName) {
+        console.log('[Show Trip Lines] Loading lines for trip:', tripId, 'instance:', instanceName);
+        const instance = instanceName || window.currentTripInstance || 'PROD';
 
         // Show loading popup
         const modalHtml = `
@@ -6700,7 +6705,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; justify-content: space-between; align-items: center;">
                         <span id="trip-lines-count" style="color: #64748b; font-size: 0.9rem;">Loading...</span>
                         <div style="display: flex; gap: 0.5rem;">
-                            <button onclick="showTripLinesApiInfo('${tripId}')" class="btn" style="background: #3b82f6; color: white;">
+                            <button onclick="showTripLinesApiInfo('${tripId}', '${instance}')" class="btn" style="background: #3b82f6; color: white;">
                                 <i class="fas fa-code"></i> API
                             </button>
                             <button onclick="closeTripLinesModal()" class="btn btn-secondary">
@@ -6715,7 +6720,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
         // Fetch trip lines from API
-        fetchTripLines(tripId);
+        fetchTripLines(tripId, instance);
     };
 
     window.closeTripLinesModal = function() {
@@ -6725,9 +6730,10 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Show API Information for Trip Lines
-    window.showTripLinesApiInfo = function(tripId) {
+    window.showTripLinesApiInfo = function(tripId, instanceName) {
+        const instance = instanceName || window.currentTripInstance || 'PROD';
         const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
-        const fullUrl = `${baseUrl}/gettrillines?P_TRIP_ID=${tripId}`;
+        const fullUrl = `${baseUrl}/gettrillines?P_TRIP_ID=${tripId}&P_INSTANCE_NAME=${instance}`;
 
         const modalHtml = `
             <div id="trip-lines-api-info-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: flex; justify-content: center; align-items: center;">
@@ -6756,8 +6762,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             <strong style="color: #166534; font-size: 12px;"><i class="fas fa-cog"></i> Parameters:</strong>
                             <table style="width: 100%; margin-top: 0.5rem; font-size: 11px;">
                                 <tr>
-                                    <td style="padding: 4px 8px; color: #64748b; width: 120px;">P_TRIP_ID</td>
+                                    <td style="padding: 4px 8px; color: #64748b; width: 140px;">P_TRIP_ID</td>
                                     <td style="padding: 4px 8px; color: #1e293b; font-weight: 600;">${tripId}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; color: #64748b; width: 140px;">P_INSTANCE_NAME</td>
+                                    <td style="padding: 4px 8px; color: #7c3aed; font-weight: 600;">${instance}</td>
                                 </tr>
                             </table>
                         </div>
@@ -6787,8 +6797,9 @@ document.addEventListener('DOMContentLoaded', function() {
         document.body.insertAdjacentHTML('beforeend', modalHtml);
     };
 
-    function fetchTripLines(tripId) {
-        const TRIP_LINES_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettrillines?P_TRIP_ID=${tripId}`;
+    function fetchTripLines(tripId, instanceName) {
+        const instance = instanceName || window.currentTripInstance || 'PROD';
+        const TRIP_LINES_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettrillines?P_TRIP_ID=${tripId}&P_INSTANCE_NAME=${instance}`;
 
         console.log('[Show Trip Lines] Fetching from:', TRIP_LINES_API);
 
@@ -8154,6 +8165,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const ctx = window.currentOrderTransContext || {};
         const orderNumber = ctx.orderNumber || 'N/A';
         const instance = ctx.instance || 'N/A';
+        const tripId = ctx.tripId || 'N/A';
 
         const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
 
@@ -8191,9 +8203,9 @@ document.addEventListener('DOMContentLoaded', function() {
             {
                 name: 'Fetch Order Lines from Fusion',
                 method: 'POST',
-                endpoint: `trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`,
-                fullUrl: `${baseUrl}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`,
-                note: '✅ Instance parameter passed from row data'
+                endpoint: `trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}&p_trip_id=${tripId}`,
+                fullUrl: `${baseUrl}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}&p_trip_id=${tripId}`,
+                note: '✅ Instance and Trip ID parameters passed from row data'
             }
         ];
 
@@ -8239,6 +8251,10 @@ document.addEventListener('DOMContentLoaded', function() {
                             <td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Instance (from row):</td>
                             <td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600; color: #7c3aed;">${instance}</td>
                         </tr>
+                        <tr>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Trip ID:</td>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600; color: #0ea5e9;">${tripId}</td>
+                        </tr>
                     </table>
                 </div>
 
@@ -8250,9 +8266,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 <!-- Success Note -->
                 <div style="background: #d1fae5; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #10b981;">
-                    <strong style="color: #065f46;"><i class="fas fa-check-circle"></i> Instance Configured:</strong>
+                    <strong style="color: #065f46;"><i class="fas fa-check-circle"></i> Parameters Configured:</strong>
                     <span style="color: #047857; font-size: 12px;">
-                        Instance parameter <strong>P_INSTANCE_NAME=${instance}</strong> is being passed to all API calls from the order row data.
+                        Instance <strong>P_INSTANCE_NAME=${instance}</strong> and Trip ID <strong>p_trip_id=${tripId}</strong> are being passed to API calls from the order row data.
                     </span>
                 </div>
             </div>
@@ -13670,7 +13686,8 @@ document.addEventListener('DOMContentLoaded', function() {
             updateActionProcessingIndicator();
 
             try {
-                const result = await fetchFusionOrderLinesAPI(orderNumber, instance);
+                const tripId = order.TRIP_ID || order.trip_id || null;
+                const result = await fetchFusionOrderLinesAPI(orderNumber, instance, tripId);
                 window.actionProcessingState.results.push({
                     orderNumber,
                     success: result.success,
