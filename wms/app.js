@@ -3878,7 +3878,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const uniqueCustomers = isEmpty ? 0 : new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
         const uniqueProducts = isEmpty ? 0 : new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
         const totalQuantity = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
-        const totalWeight = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.WEIGHT || t.weight || 0)), 0);
+        const totalWeight = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.ORDER_VOLUME || t.order_volume || t.WEIGHT || t.weight || 0)), 0);
         const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
         const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
         
