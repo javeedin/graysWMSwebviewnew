@@ -6699,9 +6699,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     <!-- Footer -->
                     <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; justify-content: space-between; align-items: center;">
                         <span id="trip-lines-count" style="color: #64748b; font-size: 0.9rem;">Loading...</span>
-                        <button onclick="closeTripLinesModal()" class="btn btn-secondary">
-                            <i class="fas fa-times"></i> Close
-                        </button>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="showTripLinesApiInfo('${tripId}')" class="btn" style="background: #3b82f6; color: white;">
+                                <i class="fas fa-code"></i> API
+                            </button>
+                            <button onclick="closeTripLinesModal()" class="btn btn-secondary">
+                                <i class="fas fa-times"></i> Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -6717,6 +6722,69 @@ document.addEventListener('DOMContentLoaded', function() {
         const modal = document.getElementById('trip-lines-modal');
         if (modal) modal.remove();
         window.tripLinesData = null;
+    };
+
+    // Show API Information for Trip Lines
+    window.showTripLinesApiInfo = function(tripId) {
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+        const fullUrl = `${baseUrl}/gettrillines?P_TRIP_ID=${tripId}`;
+
+        const modalHtml = `
+            <div id="trip-lines-api-info-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; border-radius: 12px; width: 90%; max-width: 700px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #3b82f6, #1e40af); padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: white; font-size: 1rem;">
+                            <i class="fas fa-code"></i> API Information - Trip Lines
+                        </h3>
+                        <button onclick="document.getElementById('trip-lines-api-info-modal').remove()" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <!-- Content -->
+                    <div style="padding: 1.5rem;">
+                        <!-- Endpoint Info -->
+                        <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #3b82f6;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                                <strong style="color: #1e293b; font-size: 12px;">Get Trip Lines</strong>
+                            </div>
+                            <code style="background: #edf2f7; padding: 8px 12px; border-radius: 4px; font-size: 11px; word-break: break-all; display: block; color: #334155;">${fullUrl}</code>
+                        </div>
+
+                        <!-- Parameters -->
+                        <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                            <strong style="color: #166534; font-size: 12px;"><i class="fas fa-cog"></i> Parameters:</strong>
+                            <table style="width: 100%; margin-top: 0.5rem; font-size: 11px;">
+                                <tr>
+                                    <td style="padding: 4px 8px; color: #64748b; width: 120px;">P_TRIP_ID</td>
+                                    <td style="padding: 4px 8px; color: #1e293b; font-weight: 600;">${tripId}</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- Response Info -->
+                        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Response:</strong>
+                            <span style="color: #78350f; font-size: 11px;">
+                                Returns array of trip line items with order details, quantities, and item information.
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; text-align: right;">
+                        <button onclick="navigator.clipboard.writeText('${fullUrl}').then(() => alert('URL copied to clipboard!'))" class="btn" style="background: #10b981; color: white; margin-right: 0.5rem;">
+                            <i class="fas fa-copy"></i> Copy URL
+                        </button>
+                        <button onclick="document.getElementById('trip-lines-api-info-modal').remove()" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
     };
 
     function fetchTripLines(tripId) {
