@@ -96,6 +96,44 @@ window.showTripDetailsApiInfo = function() {
                 </div>
             </div>
 
+            <!-- Get Order Volume API -->
+            <div style="background: #fce7f3; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #ec4899;">
+                <div style="font-weight: 600; color: #9d174d; margin-bottom: 0.5rem;">4. Get Order Volume API (Floating Menu Action)</div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Endpoint:</strong>
+                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">
+                        TRIPMANAGEMENT/fetchordervolume
+                    </code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Method:</strong>
+                    <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">URL:</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume?p_instance_name=${currentInstance}&source_order_number=ORDER_NUM&p_trip_id=${tripId}
+                    </code>
+                </div>
+                <div style="margin-top: 0.5rem;">
+                    <strong style="color: #4a5568;">Parameters:</strong>
+                    <table style="width: 100%; margin-top: 0.25rem; font-size: 11px; border-collapse: collapse;">
+                        <tr style="background: #fbcfe8;">
+                            <td style="padding: 4px 8px; border: 1px solid #f9a8d4;">p_instance_name</td>
+                            <td style="padding: 4px 8px; border: 1px solid #f9a8d4; font-weight: 600;">${currentInstance}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 4px 8px; border: 1px solid #f9a8d4;">source_order_number</td>
+                            <td style="padding: 4px 8px; border: 1px solid #f9a8d4; font-style: italic;">From selected order</td>
+                        </tr>
+                        <tr style="background: #fbcfe8;">
+                            <td style="padding: 4px 8px; border: 1px solid #f9a8d4;">p_trip_id</td>
+                            <td style="padding: 4px 8px; border: 1px solid #f9a8d4; font-weight: 600;">${tripId}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
             <!-- Current Trip Info -->
             <div style="background: #e6fffa; padding: 1rem; border-radius: 8px; border-left: 4px solid #38b2ac;">
                 <div style="font-weight: 600; color: #234e52; margin-bottom: 0.5rem;">Current Trip Info:</div>

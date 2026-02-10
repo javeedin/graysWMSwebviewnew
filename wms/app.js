@@ -6167,9 +6167,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Fetch order volume from API
-    function callGetOrderVolumeAPI(orderNumber, instance) {
+    function callGetOrderVolumeAPI(orderNumber, instance, tripId) {
         return new Promise((resolve) => {
-            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume?p_instance_name=${instance}&source_order_number=${orderNumber}`;
+            let apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume?p_instance_name=${instance}&source_order_number=${orderNumber}`;
+            // Add trip_id if provided
+            if (tripId) {
+                apiUrl += `&p_trip_id=${tripId}`;
+            }
 
             console.log('[Order Volume] Fetching order volume:', apiUrl);
 
@@ -13872,13 +13876,14 @@ document.addEventListener('DOMContentLoaded', function() {
         for (let i = 0; i < orders.length; i++) {
             const order = orders[i];
             const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+            const tripId = order.TRIP_ID || order.trip_id || '';
 
             window.actionProcessingState.currentStep = `Getting volume for ${orderNumber} (${i + 1}/${orders.length})`;
             window.actionProcessingState.completedOrders = i;
             updateActionProcessingIndicator();
 
             try {
-                const result = await callGetOrderVolumeAPI(orderNumber, instance);
+                const result = await callGetOrderVolumeAPI(orderNumber, instance, tripId);
                 window.actionProcessingState.results.push({
                     orderNumber,
                     success: result.success,
