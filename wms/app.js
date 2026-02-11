@@ -2035,6 +2035,30 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Add click handler for Volume Details tab
+    const volumeDetailsTab = document.querySelector('.tab-item[data-tab="volume-details"]');
+    if (volumeDetailsTab) {
+        volumeDetailsTab.addEventListener('click', function() {
+            activateTripTab('volume-details');
+            // Initialize and populate volume details grid when tab is clicked
+            initializeVolumeDetailsGrid();
+
+            // Ensure vehicles data is loaded for capacity lookup
+            if (!window.vehiclesData || window.vehiclesData.length === 0) {
+                console.log('[Volume Details] Vehicles data not loaded, loading now...');
+                if (typeof window.loadVehicles === 'function') {
+                    window.loadVehicles();
+                    // Wait a bit for vehicles to load, then populate
+                    setTimeout(populateVolumeDetails, 1000);
+                } else {
+                    populateVolumeDetails();
+                }
+            } else {
+                populateVolumeDetails();
+            }
+        });
+    }
+
     // Add click handlers for Help Documentation tabs
     document.querySelectorAll('.help-tab').forEach(tab => {
         tab.addEventListener('click', function() {
@@ -2971,6 +2995,320 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('kpi-trip-pickers').textContent = uniquePickers;
         document.getElementById('kpi-trip-weight').textContent = totalWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m³';
     }
+
+    // ============================================================================
+    // VOLUME DETAILS TAB FUNCTIONS
+    // ============================================================================
+
+    let volumeDetailsGrid = null;
+
+    // Initialize Volume Details Grid
+    window.initializeVolumeDetailsGrid = function() {
+        if (volumeDetailsGrid) {
+            console.log('[Volume Details] Grid already initialized');
+            return;
+        }
+
+        console.log('[Volume Details] Initializing grid...');
+
+        const gridContainer = document.getElementById('volume-details-grid');
+        if (!gridContainer) {
+            console.error('[Volume Details] Grid container not found');
+            return;
+        }
+
+        volumeDetailsGrid = $(gridContainer).dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            showColumnLines: true,
+            rowAlternationEnabled: true,
+            columnAutoWidth: true,
+            allowColumnReordering: true,
+            allowColumnResizing: true,
+            wordWrapEnabled: true,
+            hoverStateEnabled: true,
+            filterRow: {
+                visible: true,
+                applyFilter: 'auto'
+            },
+            headerFilter: {
+                visible: true
+            },
+            searchPanel: {
+                visible: true,
+                width: 240,
+                placeholder: 'Search trips...'
+            },
+            paging: {
+                pageSize: 20
+            },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [10, 20, 50, 100],
+                showInfo: true
+            },
+            columns: [
+                {
+                    dataField: 'tripId',
+                    caption: 'Trip ID',
+                    width: 100,
+                    fixed: true
+                },
+                {
+                    dataField: 'tripDate',
+                    caption: 'Trip Date',
+                    dataType: 'date',
+                    format: 'yyyy-MM-dd',
+                    width: 110
+                },
+                {
+                    dataField: 'lorryNumber',
+                    caption: 'Lorry',
+                    width: 120
+                },
+                {
+                    dataField: 'model',
+                    caption: 'Vehicle Model',
+                    width: 150
+                },
+                {
+                    dataField: 'totalOrders',
+                    caption: 'Orders',
+                    dataType: 'number',
+                    width: 80
+                },
+                {
+                    dataField: 'filledVolume',
+                    caption: 'Filled (m³)',
+                    dataType: 'number',
+                    format: { type: 'fixedPoint', precision: 2 },
+                    width: 100
+                },
+                {
+                    dataField: 'capacity',
+                    caption: 'Capacity (m³)',
+                    dataType: 'number',
+                    format: { type: 'fixedPoint', precision: 2 },
+                    width: 110
+                },
+                {
+                    dataField: 'availableVolume',
+                    caption: 'Available (m³)',
+                    dataType: 'number',
+                    format: { type: 'fixedPoint', precision: 2 },
+                    width: 110
+                },
+                {
+                    dataField: 'fillPercent',
+                    caption: 'Fill %',
+                    dataType: 'number',
+                    width: 80,
+                    cellTemplate: function(container, options) {
+                        const percent = options.value || 0;
+                        container.append(
+                            $('<span>')
+                                .text(percent.toFixed(1) + '%')
+                                .css('color', percent > 100 ? '#ef4444' : percent >= 90 ? '#f59e0b' : '#22c55e')
+                                .css('font-weight', '600')
+                        );
+                    }
+                },
+                {
+                    dataField: 'capacityBar',
+                    caption: 'Capacity Usage',
+                    width: 200,
+                    allowFiltering: false,
+                    allowSorting: false,
+                    cellTemplate: function(container, options) {
+                        const data = options.data;
+                        const percent = Math.min(data.fillPercent || 0, 150); // Cap at 150% for display
+                        const isOverfilled = data.fillPercent > 100;
+                        const barColor = isOverfilled ? '#ef4444' : data.fillPercent >= 90 ? '#f59e0b' : data.fillPercent >= 70 ? '#3b82f6' : '#22c55e';
+
+                        const barHtml = `
+                            <div style="position: relative; background: #e2e8f0; border-radius: 4px; height: 18px; overflow: visible;">
+                                <div style="background: ${barColor}; height: 100%; width: ${Math.min(percent, 100)}%; border-radius: 4px; transition: width 0.3s ease;"></div>
+                                ${isOverfilled ? `<div style="position: absolute; top: 0; left: 100%; width: ${Math.min(percent - 100, 50)}%; height: 100%; background: repeating-linear-gradient(45deg, #ef4444, #ef4444 5px, #dc2626 5px, #dc2626 10px); border-radius: 0 4px 4px 0;"></div>` : ''}
+                                <span style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 0.7rem; font-weight: 600; color: ${percent > 50 ? 'white' : '#475569'}; text-shadow: ${percent > 50 ? '0 0 2px rgba(0,0,0,0.5)' : 'none'};">${data.fillPercent.toFixed(0)}%</span>
+                            </div>
+                        `;
+                        container.append($(barHtml));
+                    }
+                },
+                {
+                    dataField: 'status',
+                    caption: 'Status',
+                    width: 110,
+                    cellTemplate: function(container, options) {
+                        const data = options.data;
+                        const isOverfilled = data.fillPercent > 100;
+                        const isWarning = data.fillPercent >= 90 && data.fillPercent <= 100;
+                        const isGood = data.fillPercent < 90;
+
+                        let statusHtml = '';
+                        if (isOverfilled) {
+                            statusHtml = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #fef2f2; color: #ef4444; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">
+                                <i class="fas fa-exclamation-triangle"></i> OVERFILLED
+                            </span>`;
+                        } else if (isWarning) {
+                            statusHtml = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #fffbeb; color: #f59e0b; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">
+                                <i class="fas fa-exclamation-circle"></i> NEAR FULL
+                            </span>`;
+                        } else {
+                            statusHtml = `<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: #f0fdf4; color: #22c55e; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">
+                                <i class="fas fa-check-circle"></i> OK
+                            </span>`;
+                        }
+                        container.append($(statusHtml));
+                    }
+                }
+            ],
+            onContentReady: function(e) {
+                console.log('[Volume Details] Grid content ready, row count:', e.component.totalCount());
+            }
+        }).dxDataGrid('instance');
+
+        console.log('[Volume Details] Grid initialized successfully');
+    };
+
+    // Populate Volume Details from trip data
+    window.populateVolumeDetails = function() {
+        console.log('[Volume Details] Populating data...');
+
+        // Get trip details data from the All Trip Details grid
+        if (!window.tripDetailsGridInstance) {
+            console.log('[Volume Details] Trip details grid not available');
+            updateVolumeDetailsKPIs([]);
+            return;
+        }
+
+        const tripDetails = window.tripDetailsGridInstance.option('dataSource') || [];
+        console.log('[Volume Details] Processing', tripDetails.length, 'trip detail records');
+
+        if (tripDetails.length === 0) {
+            console.log('[Volume Details] No trip data available');
+            updateVolumeDetailsKPIs([]);
+            if (volumeDetailsGrid) {
+                volumeDetailsGrid.option('dataSource', []);
+            }
+            return;
+        }
+
+        // Group trip details by trip ID
+        const tripGroups = {};
+        tripDetails.forEach(record => {
+            const tripId = record.TRIP_ID || record.trip_id || 'Unknown';
+            if (!tripGroups[tripId]) {
+                tripGroups[tripId] = {
+                    tripId: tripId,
+                    tripDate: record.TRIP_DATE || record.trip_date || '',
+                    lorryNumber: record.LORRY_NUMBER || record.lorry_number || record.TRIP_LORRY || record.trip_lorry || '',
+                    records: []
+                };
+            }
+            tripGroups[tripId].records.push(record);
+        });
+
+        // Process each trip group
+        const volumeData = [];
+        Object.values(tripGroups).forEach(trip => {
+            // Calculate total filled volume for the trip
+            const filledVolume = trip.records.reduce((sum, r) => {
+                let volumeVal = r.order_volume1;
+                if (volumeVal === undefined || volumeVal === null) {
+                    volumeVal = r.ORDER_VOLUME1;
+                }
+                if (volumeVal === undefined || volumeVal === null) {
+                    volumeVal = r.order_volume;
+                }
+                if (volumeVal === undefined || volumeVal === null) {
+                    volumeVal = r.ORDER_VOLUME;
+                }
+                return sum + (parseFloat(volumeVal) || 0);
+            }, 0);
+
+            // Get lorry capacity from vehiclesData
+            let capacity = 0;
+            let vehicleModel = '';
+            if (window.vehiclesData && window.vehiclesData.length > 0 && trip.lorryNumber) {
+                const matchedVehicle = window.vehiclesData.find(v =>
+                    (v.lorry_number || '').trim().toUpperCase() === trip.lorryNumber.trim().toUpperCase()
+                );
+                if (matchedVehicle) {
+                    capacity = parseFloat(matchedVehicle.volume_m3 || 0);
+                    vehicleModel = matchedVehicle.model || '';
+                }
+            }
+
+            const availableVolume = capacity > 0 ? Math.max(capacity - filledVolume, 0) : 0;
+            const fillPercent = capacity > 0 ? (filledVolume / capacity) * 100 : 0;
+
+            volumeData.push({
+                tripId: trip.tripId,
+                tripDate: trip.tripDate,
+                lorryNumber: trip.lorryNumber,
+                model: vehicleModel,
+                totalOrders: trip.records.length,
+                filledVolume: filledVolume,
+                capacity: capacity,
+                availableVolume: availableVolume,
+                fillPercent: fillPercent,
+                status: fillPercent > 100 ? 'Overfilled' : fillPercent >= 90 ? 'Near Full' : 'OK'
+            });
+        });
+
+        // Sort by fill percentage descending (show problematic trips first)
+        volumeData.sort((a, b) => b.fillPercent - a.fillPercent);
+
+        console.log('[Volume Details] Processed', volumeData.length, 'trips');
+
+        // Update grid
+        if (volumeDetailsGrid) {
+            volumeDetailsGrid.option('dataSource', volumeData);
+        }
+
+        // Update count display
+        const countDisplay = document.getElementById('volume-details-count');
+        if (countDisplay) {
+            countDisplay.textContent = `${volumeData.length} trip${volumeData.length !== 1 ? 's' : ''}`;
+        }
+
+        // Update KPIs
+        updateVolumeDetailsKPIs(volumeData);
+    };
+
+    // Update Volume Details KPIs
+    function updateVolumeDetailsKPIs(volumeData) {
+        const totalTrips = volumeData.length;
+        const totalVolume = volumeData.reduce((sum, v) => sum + v.filledVolume, 0);
+        const totalCapacity = volumeData.reduce((sum, v) => sum + v.capacity, 0);
+        const overfilled = volumeData.filter(v => v.fillPercent > 100).length;
+
+        document.getElementById('kpi-volume-trips').textContent = totalTrips;
+        document.getElementById('kpi-volume-total').textContent = totalVolume.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m³';
+        document.getElementById('kpi-volume-capacity').textContent = totalCapacity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m³';
+        document.getElementById('kpi-volume-overfilled').textContent = overfilled;
+    }
+
+    // Refresh Volume Details
+    window.refreshVolumeDetails = function() {
+        console.log('[Volume Details] Refreshing...');
+        // Ensure vehicles data is loaded for capacity lookup
+        if (!window.vehiclesData || window.vehiclesData.length === 0) {
+            console.log('[Volume Details] Vehicles data not loaded, loading now...');
+            if (typeof window.loadVehicles === 'function') {
+                window.loadVehicles();
+                // Wait a bit for vehicles to load, then populate
+                setTimeout(populateVolumeDetails, 1000);
+            } else {
+                populateVolumeDetails();
+            }
+        } else {
+            populateVolumeDetails();
+        }
+    };
 
     // Global function: Assign Picker for Selected Orders in All Trip Details grid
     window.assignPickerForSelectedOrders = function() {
@@ -3937,8 +4275,25 @@ document.addEventListener('DOMContentLoaded', function() {
             return sum + (parseFloat(volumeVal) || 0);
         }, 0);
 
-        // Get lorry capacity (volume_m3) - this is the truck capacity in cubic meters
-        const lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
+        // Get lorry capacity (volume_m3) - lookup from vehiclesData using lorry number
+        const currentLorry = lorryNumber || firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
+        let lorryCapacity = 0;
+
+        // First try to get from vehiclesData (preferred source)
+        if (window.vehiclesData && window.vehiclesData.length > 0 && currentLorry) {
+            const matchedVehicle = window.vehiclesData.find(v =>
+                (v.lorry_number || '').trim().toUpperCase() === currentLorry.trim().toUpperCase()
+            );
+            if (matchedVehicle) {
+                lorryCapacity = parseFloat(matchedVehicle.volume_m3 || 0);
+                console.log('[JS] Found vehicle capacity from vehiclesData:', currentLorry, '=', lorryCapacity, 'm³');
+            }
+        }
+
+        // Fallback to trip data if not found in vehiclesData
+        if (lorryCapacity === 0) {
+            lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
+        }
         // Calculate volume fill percentage
         const volumeFillPercent = lorryCapacity > 0 ? Math.min((totalWeight / lorryCapacity) * 100, 100) : 0;
         const availableVolume = lorryCapacity > 0 ? Math.max(lorryCapacity - totalWeight, 0) : 0;

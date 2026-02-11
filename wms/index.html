@@ -264,6 +264,9 @@
                             <div class="tab-item" data-tab="all-trip-details">
                                 <span>All Trip Details</span>
                             </div>
+                            <div class="tab-item" data-tab="volume-details">
+                                <span>Volume Details</span>
+                            </div>
                         </div>
                     </div>
                     <div id="trip-tab-content" class="tab-content">
@@ -359,6 +362,43 @@
                                 <div id="trip-details-count">0 records</div>
                             </div>
                             <div id="trip-details-grid" style="height: 500px;"></div>
+                        </div>
+                        <!-- Volume Details Tab Pane -->
+                        <div id="trip-volume-details-tab" class="tab-pane">
+                            <!-- Volume Summary KPI Bar -->
+                            <div id="volume-details-kpi-bar" style="display: flex; gap: 0.75rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; align-items: center;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-route"></i>
+                                    <span>Total Trips:</span>
+                                    <strong id="kpi-volume-trips">0</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-cube"></i>
+                                    <span>Total Volume:</span>
+                                    <strong id="kpi-volume-total">0 m³</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-truck"></i>
+                                    <span>Total Capacity:</span>
+                                    <strong id="kpi-volume-capacity">0 m³</strong>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.8rem;">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    <span>Overfilled:</span>
+                                    <strong id="kpi-volume-overfilled">0</strong>
+                                </div>
+                                <!-- Spacer -->
+                                <div style="flex: 1;"></div>
+                                <!-- Refresh Button -->
+                                <button onclick="refreshVolumeDetails()" class="btn btn-sm" style="background: #6366f1; color: white; padding: 0.4rem 0.75rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem;">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </div>
+                            <div style="padding: 0.75rem 1.5rem; background: white; border-bottom: 2px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">Volume Details by Trip</div>
+                                <div id="volume-details-count">0 trips</div>
+                            </div>
+                            <div id="volume-details-grid" style="height: 500px;"></div>
                         </div>
                     </div>
                 </div>
