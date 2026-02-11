@@ -3258,7 +3258,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     record.VEHICLE || record.vehicle || '';
                 tripGroups[tripId] = {
                     tripId: tripId,
-                    tripDate: record.TRIP_DATE || record.trip_date || '',
+                    tripDate: record.TRIP_DATE || record.trip_date || record.ORDER_DATE || record.order_date || record.SCHEDULED_SHIP_DATE || record.scheduled_ship_date || '',
                     lorryNumber: lorryNumber,
                     records: []
                 };
