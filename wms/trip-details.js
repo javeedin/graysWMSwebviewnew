@@ -369,6 +369,12 @@ function initializeTripOrdersGrid() {
             allowColumnReordering: true,
             allowColumnResizing: true,
             hoverStateEnabled: true,
+            selection: {
+                mode: 'multiple',
+                showCheckBoxesMode: 'always',
+                allowSelectAll: true,
+                selectAllMode: 'page'
+            },
             scrolling: {
                 mode: 'virtual',
                 rowRenderingMode: 'virtual'
@@ -515,6 +521,14 @@ function initializeTripOrdersGrid() {
             onContentReady: function(e) {
                 console.log('[Trip Details] Orders grid ready, row count:', e.component.totalCount());
                 updateOrdersCount();
+            },
+            onSelectionChanged: function(e) {
+                const selectedCount = e.selectedRowsData.length;
+                const countElement = document.getElementById('selected-trip-orders-num');
+                if (countElement) {
+                    countElement.textContent = selectedCount;
+                }
+                console.log('[Trip Details] Selection changed, selected:', selectedCount);
             }
         }).dxDataGrid('instance');
 
@@ -1886,5 +1900,1222 @@ function handleFetchedShipmentData(data, instance) {
     // Show success message
     alert(`✅ Successfully loaded ${availableOrders.length} pending orders from ${instance}!`);
 }
+
+// ============================================================================
+// TRIP DETAILS - ASSIGN PICKERS FUNCTIONALITY
+// ============================================================================
+
+// Store selected orders for picker assignment
+let tripSelectedOrdersForPicker = [];
+
+window.tripDetailsAssignPickers = function() {
+    console.log('[Trip Details] Assign Pickers clicked');
+
+    if (!tripOrdersGrid) {
+        alert('Orders grid not initialized. Please try again.');
+        return;
+    }
+
+    // Get selected rows
+    const selectedRows = tripOrdersGrid.getSelectedRowsData();
+    console.log('[Trip Details] Selected orders for picker assignment:', selectedRows);
+
+    if (selectedRows.length === 0) {
+        alert('Please select at least one order to assign a picker.');
+        return;
+    }
+
+    tripSelectedOrdersForPicker = selectedRows;
+
+    // Update modal header
+    document.getElementById('assign-picker-trip-id').textContent = tripDetailsData?.trip_id || '-';
+    document.getElementById('assign-picker-orders-count').textContent = selectedRows.length;
+
+    // Build orders list
+    let ordersHtml = '';
+    selectedRows.forEach((order, index) => {
+        const orderNumber = order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
+        const customerName = order.account_name || order.ACCOUNT_NAME || '';
+
+        ordersHtml += `
+            <div style="padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span style="font-weight: 600; color: #1f2937;">${orderNumber}</span>
+                    ${customerName ? `<span style="color: #64748b; font-size: 0.8rem; margin-left: 0.5rem;">- ${customerName}</span>` : ''}
+                </div>
+                <span style="color: #64748b; font-size: 0.75rem;">${index + 1} of ${selectedRows.length}</span>
+            </div>
+        `;
+    });
+    document.getElementById('assign-picker-orders-list').innerHTML = ordersHtml;
+
+    // Populate picker dropdown
+    populateTripPickerDropdown();
+
+    // Set default date
+    document.getElementById('trip-assign-date').value = new Date().toISOString().split('T')[0];
+
+    // Show modal
+    document.getElementById('trip-assign-pickers-modal').style.display = 'flex';
+};
+
+function populateTripPickerDropdown() {
+    const pickerSelect = document.getElementById('trip-picker-select');
+    pickerSelect.innerHTML = '<option value="">-- Select Picker --</option>';
+
+    // Check if pickers data is available
+    if (window.pickersData && window.pickersData.length > 0) {
+        const activePickers = window.pickersData.filter(p => p.deleted !== 1);
+        activePickers.forEach(picker => {
+            const pickerId = picker.picker_id || picker.PICKER_ID || picker.id || '';
+            const pickerName = picker.name || picker.NAME || picker.picker_name || picker.PICKER_NAME || '';
+
+            const option = document.createElement('option');
+            option.value = pickerId;
+            option.textContent = pickerName;
+            pickerSelect.appendChild(option);
+        });
+    } else {
+        // Try to load pickers if not available
+        console.log('[Trip Details] Pickers not loaded, attempting to load...');
+        if (typeof window.loadPickers === 'function') {
+            window.loadPickers();
+            // Check again after a delay
+            setTimeout(() => {
+                if (window.pickersData && window.pickersData.length > 0) {
+                    populateTripPickerDropdown();
+                } else {
+                    pickerSelect.innerHTML = '<option value="" disabled>No pickers available - Please visit Pickers page first</option>';
+                }
+            }, 2000);
+        } else {
+            pickerSelect.innerHTML = '<option value="" disabled>Pickers module not loaded</option>';
+        }
+    }
+}
+
+window.closeTripAssignPickersModal = function() {
+    document.getElementById('trip-assign-pickers-modal').style.display = 'none';
+    tripSelectedOrdersForPicker = [];
+};
+
+window.submitTripPickerAssignment = async function() {
+    console.log('[Trip Details] Submitting picker assignment...');
+
+    const pickerId = document.getElementById('trip-picker-select').value;
+    const assignDate = document.getElementById('trip-assign-date').value;
+
+    if (!pickerId) {
+        alert('Please select a picker.');
+        return;
+    }
+
+    if (!assignDate) {
+        alert('Please select an assignment date.');
+        return;
+    }
+
+    if (tripSelectedOrdersForPicker.length === 0) {
+        alert('No orders selected.');
+        return;
+    }
+
+    // Get picker name from dropdown
+    const pickerSelect = document.getElementById('trip-picker-select');
+    const pickerName = pickerSelect.options[pickerSelect.selectedIndex].text;
+
+    // Get instance
+    const instance = window.currentTripInstance || 'PROD';
+
+    // Prepare API call
+    const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/assignpicker';
+
+    const requestBody = {
+        trip_id: tripDetailsData?.trip_id,
+        picker_id: parseInt(pickerId),
+        picker_name: pickerName,
+        assignment_date: assignDate,
+        instance_name: instance,
+        orders: tripSelectedOrdersForPicker.map(order => ({
+            order_number: order.source_order_number || order.ORDER_NUMBER || order.order_number,
+            account_number: order.account_number || order.ACCOUNT_NUMBER
+        }))
+    };
+
+    console.log('[Trip Details] Picker assignment payload:', requestBody);
+
+    // Disable button
+    const btn = document.getElementById('submit-picker-btn');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Assigning...';
+
+    try {
+        if (window.chrome && window.chrome.webview) {
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(requestBody)
+            }, function(error, data) {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+
+                if (error) {
+                    console.error('[Trip Details] Picker assignment error:', error);
+                    alert('Error assigning picker: ' + error);
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Trip Details] Picker assignment response:', response);
+
+                        if (response.success) {
+                            alert(`✅ Successfully assigned ${pickerName} to ${tripSelectedOrdersForPicker.length} order(s)!`);
+                            closeTripAssignPickersModal();
+                            // Refresh grid data
+                            if (tripOrdersGrid) {
+                                tripOrdersGrid.refresh();
+                            }
+                        } else {
+                            alert('Error: ' + (response.error || response.message || 'Unknown error'));
+                        }
+                    } catch (parseError) {
+                        console.error('[Trip Details] Parse error:', parseError);
+                        alert('Error parsing response');
+                    }
+                }
+            });
+        } else {
+            // Fallback for browser testing
+            const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+
+            const result = await response.json();
+            if (result.success) {
+                alert(`✅ Successfully assigned ${pickerName} to ${tripSelectedOrdersForPicker.length} order(s)!`);
+                closeTripAssignPickersModal();
+            } else {
+                alert('Error: ' + (result.error || 'Unknown error'));
+            }
+        }
+    } catch (error) {
+        console.error('[Trip Details] Exception:', error);
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+        alert('Error: ' + error.message);
+    }
+};
+
+// ============================================================================
+// TRIP DETAILS - PICK RELEASE FUNCTIONALITY
+// ============================================================================
+
+let tripSelectedOrdersForPickRelease = [];
+
+window.tripDetailsPickRelease = function() {
+    console.log('[Trip Details] Pick Release clicked');
+
+    if (!tripOrdersGrid) {
+        alert('Orders grid not initialized. Please try again.');
+        return;
+    }
+
+    // Get selected rows
+    const selectedRows = tripOrdersGrid.getSelectedRowsData();
+    console.log('[Trip Details] Selected orders for pick release:', selectedRows);
+
+    if (selectedRows.length === 0) {
+        alert('Please select at least one order for pick release.');
+        return;
+    }
+
+    tripSelectedOrdersForPickRelease = selectedRows;
+
+    // Update modal header
+    document.getElementById('pick-release-trip-id').textContent = tripDetailsData?.trip_id || '-';
+    document.getElementById('pick-release-orders-count').textContent = selectedRows.length;
+
+    // Build orders list
+    let ordersHtml = '';
+    selectedRows.forEach((order, index) => {
+        const orderNumber = order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
+        const pickStatus = order.pick_confirm_st || order.PICK_CONFIRM_ST || 'Pending';
+        const statusColor = pickStatus === 'YES' ? '#10b981' : pickStatus === 'NO' ? '#ef4444' : '#f59e0b';
+
+        ordersHtml += `
+            <div style="padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span style="font-weight: 600; color: #1f2937;">${orderNumber}</span>
+                </div>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <span style="background: ${statusColor}20; color: ${statusColor}; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 600;">Pick: ${pickStatus}</span>
+                    <span style="color: #64748b; font-size: 0.75rem;">${index + 1} of ${selectedRows.length}</span>
+                </div>
+            </div>
+        `;
+    });
+    document.getElementById('pick-release-orders-list').innerHTML = ordersHtml;
+
+    // Hide progress section
+    document.getElementById('pick-release-progress').style.display = 'none';
+
+    // Show modal
+    document.getElementById('trip-pick-release-modal').style.display = 'flex';
+};
+
+window.closeTripPickReleaseModal = function() {
+    document.getElementById('trip-pick-release-modal').style.display = 'none';
+    tripSelectedOrdersForPickRelease = [];
+};
+
+window.previewPickRelease = function() {
+    console.log('[Trip Details] Preview pick release...');
+
+    if (tripSelectedOrdersForPickRelease.length === 0) {
+        alert('No orders selected.');
+        return;
+    }
+
+    // Show preview info
+    let previewInfo = 'Pick Release Preview\n\n';
+    previewInfo += `Trip ID: ${tripDetailsData?.trip_id || '-'}\n`;
+    previewInfo += `Instance: ${window.currentTripInstance || 'PROD'}\n`;
+    previewInfo += `Orders to process: ${tripSelectedOrdersForPickRelease.length}\n\n`;
+    previewInfo += 'Orders:\n';
+
+    tripSelectedOrdersForPickRelease.forEach((order, idx) => {
+        const orderNumber = order.source_order_number || order.ORDER_NUMBER || order.order_number;
+        previewInfo += `  ${idx + 1}. ${orderNumber}\n`;
+    });
+
+    previewInfo += '\n\nThis is a preview only. Click "Execute Pick Release" to process.';
+
+    alert(previewInfo);
+};
+
+window.executePickRelease = async function() {
+    console.log('[Trip Details] Executing pick release...');
+
+    if (tripSelectedOrdersForPickRelease.length === 0) {
+        alert('No orders selected.');
+        return;
+    }
+
+    // Show progress section
+    const progressSection = document.getElementById('pick-release-progress');
+    progressSection.style.display = 'block';
+
+    const logContainer = document.getElementById('pick-release-log');
+    logContainer.innerHTML = '';
+
+    const progressBar = document.getElementById('pick-release-progress-bar');
+    const progressText = document.getElementById('pick-release-progress-text');
+
+    // Disable execute button
+    const btn = document.getElementById('execute-pick-release-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+    const instance = window.currentTripInstance || 'PROD';
+    const totalOrders = tripSelectedOrdersForPickRelease.length;
+    let completedOrders = 0;
+    let successCount = 0;
+    let failCount = 0;
+
+    // API URL for pick release
+    const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/releasepick';
+
+    // Process orders sequentially
+    for (let i = 0; i < tripSelectedOrdersForPickRelease.length; i++) {
+        const order = tripSelectedOrdersForPickRelease[i];
+        const orderNumber = order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+        // Add log entry
+        addPickReleaseLog(`Processing order ${i + 1}/${totalOrders}: ${orderNumber}...`, 'info');
+
+        // Update progress
+        progressText.textContent = `${i + 1} / ${totalOrders}`;
+        progressBar.style.width = `${((i + 1) / totalOrders) * 100}%`;
+
+        // Call API
+        const requestBody = {
+            p_instance_name: instance,
+            p_order_number: orderNumber,
+            p_trip_id: tripDetailsData?.trip_id
+        };
+
+        try {
+            const result = await callPickReleaseApi(apiUrl, requestBody);
+
+            if (result.success) {
+                successCount++;
+                addPickReleaseLog(`✓ ${orderNumber}: ${result.message || 'Success'}`, 'success');
+            } else {
+                failCount++;
+                addPickReleaseLog(`✗ ${orderNumber}: ${result.error || 'Failed'}`, 'error');
+            }
+        } catch (error) {
+            failCount++;
+            addPickReleaseLog(`✗ ${orderNumber}: ${error.message}`, 'error');
+        }
+
+        completedOrders++;
+
+        // Small delay between API calls
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    // Complete
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-play"></i> Execute Pick Release';
+
+    addPickReleaseLog(`\n=== Complete ===`, 'info');
+    addPickReleaseLog(`Success: ${successCount}, Failed: ${failCount}`, successCount === totalOrders ? 'success' : 'warning');
+
+    // Refresh grid
+    if (tripOrdersGrid) {
+        tripOrdersGrid.refresh();
+    }
+};
+
+function callPickReleaseApi(apiUrl, requestBody) {
+    return new Promise((resolve, reject) => {
+        if (window.chrome && window.chrome.webview) {
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(requestBody)
+            }, function(error, data) {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve(response);
+                    } catch (e) {
+                        reject(e);
+                    }
+                }
+            });
+        } else {
+            // Browser fallback
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            })
+                .then(res => res.json())
+                .then(resolve)
+                .catch(reject);
+        }
+    });
+}
+
+function addPickReleaseLog(message, type) {
+    const logContainer = document.getElementById('pick-release-log');
+    const color = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#94a3b8';
+    logContainer.innerHTML += `<div style="color: ${color}; margin-bottom: 2px;">[${new Date().toLocaleTimeString()}] ${message}</div>`;
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+// ============================================================================
+// TRIP DETAILS - ALLOCATE LOTS (S2V) FUNCTIONALITY
+// ============================================================================
+
+let tripSelectedOrdersForAllocateLots = [];
+
+window.tripDetailsAllocateLots = function() {
+    console.log('[Trip Details] Allocate Lots clicked');
+
+    if (!tripOrdersGrid) {
+        alert('Orders grid not initialized. Please try again.');
+        return;
+    }
+
+    // Get selected rows
+    const selectedRows = tripOrdersGrid.getSelectedRowsData();
+    console.log('[Trip Details] Selected orders for allocate lots:', selectedRows);
+
+    if (selectedRows.length === 0) {
+        alert('Please select at least one order to allocate lots.');
+        return;
+    }
+
+    // Filter S2V orders only
+    const s2vOrders = selectedRows.filter(row => {
+        const orderType = (row.order_type_code || row.ORDER_TYPE_CODE || row.order_type || row.ORDER_TYPE || '').toUpperCase();
+        return orderType === 'S2V' || orderType === 'STORE TO VAN' || orderType.includes('STORE TO VAN');
+    });
+
+    if (s2vOrders.length === 0) {
+        alert('No Store to Van (S2V) orders selected.\n\nThis function only works for orders with type "Store to Van" or "S2V".');
+        return;
+    }
+
+    tripSelectedOrdersForAllocateLots = s2vOrders;
+
+    // Update modal header
+    document.getElementById('allocate-lots-trip-id').textContent = tripDetailsData?.trip_id || '-';
+    document.getElementById('allocate-lots-orders-count').textContent = s2vOrders.length;
+
+    // Build orders list
+    let ordersHtml = '';
+    s2vOrders.forEach((order, index) => {
+        const orderNumber = order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
+        const orderType = order.order_type_code || order.ORDER_TYPE_CODE || 'S2V';
+
+        ordersHtml += `
+            <div style="padding: 0.5rem 0.75rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span style="font-weight: 600; color: #1f2937;">${orderNumber}</span>
+                    <span style="background: #8b5cf620; color: #7c3aed; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-left: 0.5rem;">${orderType}</span>
+                </div>
+                <span style="color: #64748b; font-size: 0.75rem;">${index + 1} of ${s2vOrders.length}</span>
+            </div>
+        `;
+    });
+    document.getElementById('allocate-lots-orders-list').innerHTML = ordersHtml;
+
+    // Hide progress section
+    document.getElementById('allocate-lots-progress').style.display = 'none';
+
+    // Show modal
+    document.getElementById('trip-allocate-lots-modal').style.display = 'flex';
+};
+
+window.closeTripAllocateLotsModal = function() {
+    document.getElementById('trip-allocate-lots-modal').style.display = 'none';
+    tripSelectedOrdersForAllocateLots = [];
+};
+
+window.executeAllocateLots = async function() {
+    console.log('[Trip Details] Executing allocate lots...');
+
+    if (tripSelectedOrdersForAllocateLots.length === 0) {
+        alert('No S2V orders selected.');
+        return;
+    }
+
+    // Show progress section
+    const progressSection = document.getElementById('allocate-lots-progress');
+    progressSection.style.display = 'block';
+
+    const logContainer = document.getElementById('allocate-lots-log');
+    logContainer.innerHTML = '';
+
+    const progressBar = document.getElementById('allocate-lots-progress-bar');
+    const progressText = document.getElementById('allocate-lots-progress-text');
+
+    // Disable execute button
+    const btn = document.getElementById('execute-allocate-lots-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+
+    const instance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'PROD';
+    const totalOrders = tripSelectedOrdersForAllocateLots.length;
+    let successCount = 0;
+    let failCount = 0;
+
+    // API URL
+    const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
+
+    // Process orders sequentially
+    for (let i = 0; i < tripSelectedOrdersForAllocateLots.length; i++) {
+        const order = tripSelectedOrdersForAllocateLots[i];
+        const orderNumber = order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+        // Add log entry
+        addAllocateLotsLog(`Processing ${i + 1}/${totalOrders}: ${orderNumber}...`, 'info');
+
+        // Update progress
+        progressText.textContent = `${i + 1} / ${totalOrders}`;
+        progressBar.style.width = `${((i + 1) / totalOrders) * 100}%`;
+
+        // Call API
+        const requestBody = {
+            p_trx_number: orderNumber,
+            p_instance_name: instance
+        };
+
+        try {
+            const result = await callAllocateLotsApi(apiUrl, requestBody);
+
+            if (result.success) {
+                successCount++;
+                const recordCount = result.recordCount || 0;
+                addAllocateLotsLog(`✓ ${orderNumber}: ${recordCount} lots allocated`, 'success');
+            } else {
+                failCount++;
+                addAllocateLotsLog(`✗ ${orderNumber}: ${result.message || 'Failed'}`, 'error');
+            }
+        } catch (error) {
+            failCount++;
+            addAllocateLotsLog(`✗ ${orderNumber}: ${error.message}`, 'error');
+        }
+
+        // Small delay between API calls
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    // Complete
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-play"></i> Allocate Lots';
+
+    addAllocateLotsLog(`\n=== Complete ===`, 'info');
+    addAllocateLotsLog(`Success: ${successCount}, Failed: ${failCount}`, successCount === totalOrders ? 'success' : 'warning');
+
+    // Refresh grid
+    if (tripOrdersGrid) {
+        tripOrdersGrid.refresh();
+    }
+};
+
+function callAllocateLotsApi(apiUrl, requestBody) {
+    return new Promise((resolve, reject) => {
+        if (window.chrome && window.chrome.webview) {
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(requestBody)
+            }, function(error, data) {
+                if (error) {
+                    reject(new Error(error));
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve(response);
+                    } catch (e) {
+                        reject(e);
+                    }
+                }
+            });
+        } else {
+            fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            })
+                .then(res => res.json())
+                .then(resolve)
+                .catch(reject);
+        }
+    });
+}
+
+function addAllocateLotsLog(message, type) {
+    const logContainer = document.getElementById('allocate-lots-log');
+    const color = type === 'success' ? '#a78bfa' : type === 'error' ? '#f87171' : type === 'warning' ? '#fbbf24' : '#94a3b8';
+    logContainer.innerHTML += `<div style="color: ${color}; margin-bottom: 2px;">[${new Date().toLocaleTimeString()}] ${message}</div>`;
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+// ============================================================================
+// TRIP DETAILS - ORDER TRANSACTIONS POPUP
+// ============================================================================
+
+let currentTripOrderTransContext = null;
+let orderTransPickReleaseGrid = null;
+let orderTransSalesLinesGrid = null;
+let orderTransLotDetailsGrid = null;
+let orderTransShipmentGrid = null;
+
+window.tripDetailsViewOrderTransactions = function() {
+    console.log('[Trip Details] View Order Transactions clicked');
+
+    if (!tripOrdersGrid) {
+        alert('Orders grid not initialized. Please try again.');
+        return;
+    }
+
+    // Get selected rows
+    const selectedRows = tripOrdersGrid.getSelectedRowsData();
+
+    if (selectedRows.length === 0) {
+        alert('Please select an order to view transactions.');
+        return;
+    }
+
+    if (selectedRows.length > 1) {
+        alert('Please select only one order to view transactions.');
+        return;
+    }
+
+    const order = selectedRows[0];
+    const orderNumber = order.source_order_number || order.ORDER_NUMBER || order.order_number || '';
+    const orderType = order.order_type_code || order.ORDER_TYPE_CODE || order.order_type || '';
+    const instance = window.currentTripInstance || order.instance || 'PROD';
+
+    // Check if this is a Store to Van order - redirect to Store Transactions
+    if (orderType.toUpperCase() === 'S2V' || orderType.toUpperCase() === 'STORE TO VAN' || orderType.toUpperCase() === 'V2S' || orderType.toUpperCase() === 'VAN TO STORE') {
+        console.log('[Trip Details] Order is S2V/V2S, opening Store Transactions instead');
+        tripDetailsViewStoreTransactions();
+        return;
+    }
+
+    // Store context
+    currentTripOrderTransContext = {
+        orderNumber: orderNumber,
+        orderType: orderType,
+        instance: instance,
+        tripId: tripDetailsData?.trip_id,
+        rowData: order
+    };
+
+    // Update modal header
+    document.getElementById('order-trans-order-number').textContent = orderNumber;
+    document.getElementById('order-trans-instance').textContent = instance;
+
+    // Show modal
+    document.getElementById('trip-order-transactions-modal').style.display = 'flex';
+
+    // Initialize grids and load data
+    setTimeout(() => {
+        initOrderTransPopupGrids();
+        loadOrderTransPopupData();
+    }, 100);
+};
+
+window.closeTripOrderTransactionsModal = function() {
+    document.getElementById('trip-order-transactions-modal').style.display = 'none';
+    currentTripOrderTransContext = null;
+};
+
+window.switchOrderTransPopupTab = function(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.order-trans-popup-tab').forEach(tab => {
+        if (tab.dataset.tab === tabName) {
+            tab.style.background = 'white';
+            tab.style.color = '#3b82f6';
+            tab.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            tab.classList.add('active');
+        } else {
+            tab.style.background = 'transparent';
+            tab.style.color = '#64748b';
+            tab.style.boxShadow = 'none';
+            tab.classList.remove('active');
+        }
+    });
+
+    // Show/hide content
+    document.querySelectorAll('.order-trans-popup-content').forEach(content => {
+        content.style.display = 'none';
+    });
+    document.getElementById(`order-trans-popup-${tabName}`).style.display = 'block';
+};
+
+function initOrderTransPopupGrids() {
+    // Pick Release Grid
+    if (!orderTransPickReleaseGrid) {
+        orderTransPickReleaseGrid = $('#order-trans-pick-release-grid').dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            columnAutoWidth: true,
+            allowColumnResizing: true,
+            hoverStateEnabled: true,
+            paging: { pageSize: 20 },
+            filterRow: { visible: true },
+            columns: [
+                { dataField: 'LINE_NUMBER', caption: 'Line #', width: 70 },
+                { dataField: 'ITEM_NUMBER', caption: 'Item', width: 120 },
+                { dataField: 'ITEM_DESCRIPTION', caption: 'Description', width: 200 },
+                { dataField: 'QUANTITY', caption: 'Qty', width: 70 },
+                { dataField: 'UOM', caption: 'UOM', width: 60 },
+                { dataField: 'PICK_STATUS', caption: 'Pick Status', width: 100 },
+                { dataField: 'LOT_NUMBER', caption: 'Lot #', width: 100 },
+                { dataField: 'SUBINVENTORY', caption: 'Subinv', width: 80 }
+            ]
+        }).dxDataGrid('instance');
+    }
+
+    // Sales Lines Grid
+    if (!orderTransSalesLinesGrid) {
+        orderTransSalesLinesGrid = $('#order-trans-sales-lines-grid').dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            columnAutoWidth: true,
+            allowColumnResizing: true,
+            hoverStateEnabled: true,
+            paging: { pageSize: 20 },
+            filterRow: { visible: true },
+            columns: [
+                { dataField: 'LINE_NUMBER', caption: 'Line #', width: 70 },
+                { dataField: 'ITEM_NUMBER', caption: 'Item', width: 120 },
+                { dataField: 'DESCRIPTION', caption: 'Description', width: 200 },
+                { dataField: 'ORDERED_QTY', caption: 'Ordered', width: 80 },
+                { dataField: 'SHIPPED_QTY', caption: 'Shipped', width: 80 },
+                { dataField: 'UOM', caption: 'UOM', width: 60 },
+                { dataField: 'LINE_STATUS', caption: 'Status', width: 100 }
+            ]
+        }).dxDataGrid('instance');
+    }
+
+    // Lot Details Grid
+    if (!orderTransLotDetailsGrid) {
+        orderTransLotDetailsGrid = $('#order-trans-lot-details-grid').dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            columnAutoWidth: true,
+            allowColumnResizing: true,
+            hoverStateEnabled: true,
+            paging: { pageSize: 20 },
+            filterRow: { visible: true },
+            columns: [
+                { dataField: 'LOT_NUMBER', caption: 'Lot #', width: 120 },
+                { dataField: 'ITEM_NUMBER', caption: 'Item', width: 120 },
+                { dataField: 'QUANTITY', caption: 'Qty', width: 80 },
+                { dataField: 'EXPIRATION_DATE', caption: 'Expiry Date', width: 100, dataType: 'date' },
+                { dataField: 'SUBINVENTORY', caption: 'Subinv', width: 80 },
+                { dataField: 'LOCATOR', caption: 'Locator', width: 100 }
+            ]
+        }).dxDataGrid('instance');
+    }
+
+    // Shipment Grid
+    if (!orderTransShipmentGrid) {
+        orderTransShipmentGrid = $('#order-trans-shipment-grid').dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            columnAutoWidth: true,
+            allowColumnResizing: true,
+            hoverStateEnabled: true,
+            paging: { pageSize: 20 },
+            filterRow: { visible: true },
+            columns: [
+                { dataField: 'SHIPMENT_NUMBER', caption: 'Shipment #', width: 120 },
+                { dataField: 'DELIVERY_ID', caption: 'Delivery ID', width: 100 },
+                { dataField: 'SHIP_DATE', caption: 'Ship Date', width: 100, dataType: 'date' },
+                { dataField: 'CARRIER', caption: 'Carrier', width: 100 },
+                { dataField: 'STATUS', caption: 'Status', width: 100 }
+            ]
+        }).dxDataGrid('instance');
+    }
+}
+
+function loadOrderTransPopupData() {
+    if (!currentTripOrderTransContext) return;
+
+    const orderNumber = currentTripOrderTransContext.orderNumber;
+    const instance = currentTripOrderTransContext.instance;
+
+    console.log('[Trip Details] Loading order transaction data for:', orderNumber);
+
+    // Load Pick Release Details
+    const pickReleaseUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}?instance=${instance}`;
+
+    callApiAndPopulateGrid(pickReleaseUrl, orderTransPickReleaseGrid);
+
+    // Load Sales Lines
+    const salesLinesUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getsalesorderlines/${orderNumber}?instance=${instance}`;
+
+    callApiAndPopulateGrid(salesLinesUrl, orderTransSalesLinesGrid);
+
+    // Load Lot Details
+    const lotDetailsUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getlotdetails/${orderNumber}?instance=${instance}`;
+
+    callApiAndPopulateGrid(lotDetailsUrl, orderTransLotDetailsGrid);
+
+    // Load Shipment Details
+    const shipmentUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getshipmentdetails/${orderNumber}?instance=${instance}`;
+
+    callApiAndPopulateGrid(shipmentUrl, orderTransShipmentGrid);
+}
+
+window.refreshOrderTransactionsData = function() {
+    loadOrderTransPopupData();
+};
+
+function callApiAndPopulateGrid(apiUrl, gridInstance) {
+    if (!gridInstance) return;
+
+    gridInstance.option('dataSource', []);
+
+    if (window.chrome && window.chrome.webview) {
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: apiUrl
+        }, function(error, data) {
+            if (error) {
+                console.error('[Trip Details] API error:', error);
+            } else {
+                try {
+                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    const items = response.items || response.data || [];
+                    gridInstance.option('dataSource', items);
+                } catch (e) {
+                    console.error('[Trip Details] Parse error:', e);
+                }
+            }
+        });
+    } else {
+        fetch(apiUrl)
+            .then(res => res.json())
+            .then(response => {
+                const items = response.items || response.data || [];
+                gridInstance.option('dataSource', items);
+            })
+            .catch(err => console.error('[Trip Details] Fetch error:', err));
+    }
+}
+
+// ============================================================================
+// TRIP DETAILS - STORE TRANSACTIONS POPUP
+// ============================================================================
+
+let currentTripStoreTransContext = null;
+let storeTransTransactionsGrid = null;
+let storeTransQohGrid = null;
+let storeTransAllocatedGrid = null;
+
+window.tripDetailsViewStoreTransactions = function() {
+    console.log('[Trip Details] View Store Transactions clicked');
+
+    if (!tripOrdersGrid) {
+        alert('Orders grid not initialized. Please try again.');
+        return;
+    }
+
+    // Get selected rows
+    const selectedRows = tripOrdersGrid.getSelectedRowsData();
+
+    if (selectedRows.length === 0) {
+        alert('Please select an order to view store transactions.');
+        return;
+    }
+
+    if (selectedRows.length > 1) {
+        alert('Please select only one order to view store transactions.');
+        return;
+    }
+
+    const order = selectedRows[0];
+    const orderNumber = order.source_order_number || order.ORDER_NUMBER || order.order_number || '';
+    const orderType = order.order_type_code || order.ORDER_TYPE_CODE || order.order_type || '';
+    const instance = window.currentTripInstance || order.instance || 'PROD';
+
+    // Store context
+    currentTripStoreTransContext = {
+        orderNumber: orderNumber,
+        orderType: orderType,
+        instance: instance,
+        tripId: tripDetailsData?.trip_id,
+        tripDate: tripDetailsData?.trip_date,
+        rowData: order
+    };
+
+    // Update modal header
+    document.getElementById('store-trans-order-number').textContent = orderNumber;
+    document.getElementById('store-trans-order-type').textContent = orderType || 'Unknown';
+
+    // Show modal
+    document.getElementById('trip-store-transactions-modal').style.display = 'flex';
+
+    // Initialize grids and load data
+    setTimeout(() => {
+        initStoreTransPopupGrids();
+        loadStoreTransPopupData();
+    }, 100);
+};
+
+window.closeTripStoreTransactionsModal = function() {
+    document.getElementById('trip-store-transactions-modal').style.display = 'none';
+    currentTripStoreTransContext = null;
+};
+
+window.switchStoreTransPopupTab = function(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.store-trans-popup-tab').forEach(tab => {
+        if (tab.dataset.tab === tabName) {
+            tab.style.background = 'white';
+            tab.style.color = '#ec4899';
+            tab.style.boxShadow = '0 2px 4px rgba(0,0,0,0.1)';
+            tab.classList.add('active');
+        } else {
+            tab.style.background = 'transparent';
+            tab.style.color = '#64748b';
+            tab.style.boxShadow = 'none';
+            tab.classList.remove('active');
+        }
+    });
+
+    // Show/hide content
+    document.querySelectorAll('.store-trans-popup-content').forEach(content => {
+        content.style.display = 'none';
+    });
+    document.getElementById(`store-trans-popup-${tabName}`).style.display = 'block';
+};
+
+function initStoreTransPopupGrids() {
+    // Transactions Grid
+    if (!storeTransTransactionsGrid) {
+        storeTransTransactionsGrid = $('#store-trans-transactions-grid').dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            columnAutoWidth: true,
+            allowColumnResizing: true,
+            hoverStateEnabled: true,
+            paging: { pageSize: 20 },
+            filterRow: { visible: true },
+            selection: { mode: 'multiple', showCheckBoxesMode: 'always' },
+            columns: [
+                { dataField: 'TRANSACTION_ID', caption: 'Trans ID', width: 100 },
+                { dataField: 'ITEM_NUMBER', caption: 'Item', width: 120 },
+                { dataField: 'DESCRIPTION', caption: 'Description', width: 200 },
+                { dataField: 'TRANSACTION_QTY', caption: 'Qty', width: 80 },
+                { dataField: 'UOM', caption: 'UOM', width: 60 },
+                { dataField: 'LOT_NUMBER', caption: 'Lot #', width: 100 },
+                { dataField: 'SUBINVENTORY', caption: 'Subinv', width: 80 },
+                { dataField: 'TRANSACTION_DATE', caption: 'Date', width: 100, dataType: 'date' },
+                { dataField: 'STATUS', caption: 'Status', width: 80 }
+            ]
+        }).dxDataGrid('instance');
+    }
+
+    // QOH Grid
+    if (!storeTransQohGrid) {
+        storeTransQohGrid = $('#store-trans-qoh-grid').dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            columnAutoWidth: true,
+            allowColumnResizing: true,
+            hoverStateEnabled: true,
+            paging: { pageSize: 20 },
+            filterRow: { visible: true },
+            columns: [
+                { dataField: 'ITEM_NUMBER', caption: 'Item', width: 120 },
+                { dataField: 'DESCRIPTION', caption: 'Description', width: 200 },
+                { dataField: 'ON_HAND_QTY', caption: 'On Hand', width: 80 },
+                { dataField: 'AVAILABLE_QTY', caption: 'Available', width: 80 },
+                { dataField: 'UOM', caption: 'UOM', width: 60 },
+                { dataField: 'SUBINVENTORY', caption: 'Subinv', width: 80 },
+                { dataField: 'LOCATOR', caption: 'Locator', width: 100 }
+            ]
+        }).dxDataGrid('instance');
+    }
+
+    // Allocated Lots Grid
+    if (!storeTransAllocatedGrid) {
+        storeTransAllocatedGrid = $('#store-trans-allocated-grid').dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            columnAutoWidth: true,
+            allowColumnResizing: true,
+            hoverStateEnabled: true,
+            paging: { pageSize: 20 },
+            filterRow: { visible: true },
+            columns: [
+                { dataField: 'LOT_NUMBER', caption: 'Lot #', width: 120 },
+                { dataField: 'ITEM_NUMBER', caption: 'Item', width: 120 },
+                { dataField: 'ALLOCATED_QTY', caption: 'Allocated Qty', width: 100 },
+                { dataField: 'EXPIRATION_DATE', caption: 'Expiry Date', width: 100, dataType: 'date' },
+                { dataField: 'SUBINVENTORY', caption: 'Subinv', width: 80 },
+                { dataField: 'LOCATOR', caption: 'Locator', width: 100 }
+            ]
+        }).dxDataGrid('instance');
+    }
+}
+
+function loadStoreTransPopupData() {
+    if (!currentTripStoreTransContext) return;
+
+    const orderNumber = currentTripStoreTransContext.orderNumber;
+    const instance = currentTripStoreTransContext.instance;
+
+    console.log('[Trip Details] Loading store transaction data for:', orderNumber);
+
+    // Load Transaction Details
+    const transUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/storetrans/gettransactiondetails/${orderNumber}?instance=${instance}`;
+
+    callApiAndPopulateGrid(transUrl, storeTransTransactionsGrid);
+
+    // Load QOH Details
+    const qohUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/storetrans/getqohdetails/${orderNumber}?instance=${instance}`;
+
+    callApiAndPopulateGrid(qohUrl, storeTransQohGrid);
+
+    // Load Allocated Lots
+    const allocatedUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/storetrans/getallocatedlots/${orderNumber}?instance=${instance}`;
+
+    callApiAndPopulateGrid(allocatedUrl, storeTransAllocatedGrid);
+}
+
+window.refreshStoreTransactionsData = function() {
+    loadStoreTransPopupData();
+};
+
+window.printStoreTransactionFromPopup = function() {
+    if (!currentTripStoreTransContext) {
+        alert('No order selected.');
+        return;
+    }
+
+    // Call the global printStoreTransaction function if available
+    if (typeof window.printStoreTransaction === 'function') {
+        window.printStoreTransaction(
+            currentTripStoreTransContext.orderNumber,
+            currentTripStoreTransContext.instance,
+            currentTripStoreTransContext.orderType,
+            currentTripStoreTransContext.tripId,
+            currentTripStoreTransContext.tripDate
+        );
+    } else {
+        alert('Print function not available.');
+    }
+};
+
+window.processStoreTransaction = function() {
+    if (!currentTripStoreTransContext) {
+        alert('No order selected.');
+        return;
+    }
+
+    const orderNumber = currentTripStoreTransContext.orderNumber;
+    const instance = currentTripStoreTransContext.instance;
+
+    console.log('[Trip Details] Processing store transaction:', orderNumber);
+
+    // Call process transaction API
+    const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/storetrans/process';
+
+    const requestBody = {
+        p_trx_number: orderNumber,
+        p_instance_name: instance
+    };
+
+    if (window.chrome && window.chrome.webview) {
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(requestBody)
+        }, function(error, data) {
+            if (error) {
+                alert('Error processing transaction: ' + error);
+            } else {
+                try {
+                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    if (response.success) {
+                        alert('✅ Transaction processed successfully!');
+                        refreshStoreTransactionsData();
+                    } else {
+                        alert('Error: ' + (response.message || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Error parsing response');
+                }
+            }
+        });
+    } else {
+        fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        })
+            .then(res => res.json())
+            .then(response => {
+                if (response.success) {
+                    alert('✅ Transaction processed successfully!');
+                    refreshStoreTransactionsData();
+                } else {
+                    alert('Error: ' + (response.message || 'Unknown error'));
+                }
+            })
+            .catch(err => alert('Error: ' + err.message));
+    }
+};
+
+window.fetchStoreLotDetails = function() {
+    if (!currentTripStoreTransContext) {
+        alert('No order selected.');
+        return;
+    }
+
+    const orderNumber = currentTripStoreTransContext.orderNumber;
+    const instance = currentTripStoreTransContext.instance;
+
+    console.log('[Trip Details] Fetching store lot details:', orderNumber);
+
+    // Call fetch lot details API
+    const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
+
+    const requestBody = {
+        p_trx_number: orderNumber,
+        p_instance_name: instance
+    };
+
+    if (window.chrome && window.chrome.webview) {
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify(requestBody)
+        }, function(error, data) {
+            if (error) {
+                alert('Error fetching lot details: ' + error);
+            } else {
+                try {
+                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    if (response.success) {
+                        const recordCount = response.recordCount || 0;
+                        alert(`✅ Fetched ${recordCount} lot record(s)!`);
+                        refreshStoreTransactionsData();
+                    } else {
+                        alert('Error: ' + (response.message || 'Unknown error'));
+                    }
+                } catch (e) {
+                    alert('Error parsing response');
+                }
+            }
+        });
+    } else {
+        fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        })
+            .then(res => res.json())
+            .then(response => {
+                if (response.success) {
+                    const recordCount = response.recordCount || 0;
+                    alert(`✅ Fetched ${recordCount} lot record(s)!`);
+                    refreshStoreTransactionsData();
+                } else {
+                    alert('Error: ' + (response.message || 'Unknown error'));
+                }
+            })
+            .catch(err => alert('Error: ' + err.message));
+    }
+};
+
+// ============================================================================
+// TRIP DETAILS - UPDATE SELECTED COUNT
+// ============================================================================
+
+// Update the trip orders grid initialization to track selection
+function updateTripOrdersGridSelection() {
+    const gridContainer = document.getElementById('trip-orders-grid');
+    if (gridContainer && tripOrdersGrid) {
+        tripOrdersGrid.option('onSelectionChanged', function(e) {
+            const selectedCount = e.selectedRowsData.length;
+            const countElement = document.getElementById('selected-trip-orders-num');
+            if (countElement) {
+                countElement.textContent = selectedCount;
+            }
+            console.log('[Trip Details] Selection changed, selected:', selectedCount);
+        });
+    }
+}
+
+// Call this after grid initialization
+setTimeout(updateTripOrdersGridSelection, 500);
 
 console.log('[Trip Details] ✅ Module loaded');

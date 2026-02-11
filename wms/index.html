@@ -818,7 +818,39 @@
                             </button>
                         </div>
                     </div>
+
+                    <!-- Trip Details Action Bar -->
+                    <div id="trip-details-action-bar" style="display: flex; gap: 0.75rem; padding: 0.75rem 1rem; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; align-items: center;">
+                        <button onclick="tripDetailsAssignPickers()" class="btn btn-sm" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.5rem 0.9rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);">
+                            <i class="fas fa-user-plus"></i> Assign Pickers
+                        </button>
+                        <button onclick="tripDetailsPickRelease()" class="btn btn-sm" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 0.5rem 0.9rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);">
+                            <i class="fas fa-box-open"></i> Pick Release
+                        </button>
+                        <button onclick="tripDetailsAllocateLots()" class="btn btn-sm" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; padding: 0.5rem 0.9rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);">
+                            <i class="fas fa-boxes"></i> Allocate Lots (S2V)
+                        </button>
+                        <div style="width: 1px; height: 24px; background: #cbd5e1; margin: 0 0.25rem;"></div>
+                        <button onclick="tripDetailsViewOrderTransactions()" class="btn btn-sm" style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; padding: 0.5rem 0.9rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);">
+                            <i class="fas fa-file-invoice"></i> Order Transactions
+                        </button>
+                        <button onclick="tripDetailsViewStoreTransactions()" class="btn btn-sm" style="background: linear-gradient(135deg, #ec4899 0%, #db2777 100%); color: white; padding: 0.5rem 0.9rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(236, 72, 153, 0.3);">
+                            <i class="fas fa-exchange-alt"></i> Store Transactions
+                        </button>
+                        <div style="flex: 1;"></div>
+                        <span id="trip-orders-selected-count" style="color: #64748b; font-size: 0.8rem; font-weight: 600;">
+                            <i class="fas fa-check-square"></i> <span id="selected-trip-orders-num">0</span> selected
+                        </span>
+                    </div>
+
                     <div id="trip-orders-grid" style="height: 500px;"></div>
+                </div>
+
+                <!-- Back to Trip Management Button -->
+                <div style="padding: 1rem; display: flex; justify-content: flex-start;">
+                    <button onclick="goBackToTripManagement()" class="btn btn-secondary" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <i class="fas fa-arrow-left"></i> Back to Trip Management
+                    </button>
                 </div>
             </div>
 
@@ -1073,6 +1105,338 @@
                         </button>
                         <button class="btn btn-primary" onclick="updateTripDetails()" id="update-trip-btn">
                             <i class="fas fa-save"></i> Save Changes
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- TRIP DETAILS - ASSIGN PICKERS MODAL -->
+            <!-- ============================================================ -->
+            <div id="trip-assign-pickers-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 700px; max-height: 85%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-user-check"></i> Assign Pickers to Orders
+                        </h3>
+                        <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
+                            Trip: <strong id="assign-picker-trip-id">-</strong> • <span id="assign-picker-orders-count">0</span> order(s) selected
+                        </p>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                        <!-- Selected Orders List -->
+                        <div style="margin-bottom: 1.5rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-list"></i> Selected Orders
+                            </label>
+                            <div id="assign-picker-orders-list" style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 150px; overflow-y: auto; background: #f8f9fc;">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Picker Selection -->
+                        <div style="margin-bottom: 1.5rem;">
+                            <label for="trip-picker-select" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-user"></i> Select Picker <span style="color: #ef4444;">*</span>
+                            </label>
+                            <select id="trip-picker-select" style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; color: #1f2937;">
+                                <option value="">-- Select Picker --</option>
+                            </select>
+                        </div>
+
+                        <!-- Assignment Date -->
+                        <div>
+                            <label for="trip-assign-date" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-calendar-alt"></i> Assignment Date <span style="color: #ef4444;">*</span>
+                            </label>
+                            <input type="date" id="trip-assign-date" style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; color: #1f2937; box-sizing: border-box;">
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeTripAssignPickersModal()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-primary" onclick="submitTripPickerAssignment()" id="submit-picker-btn" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                            <i class="fas fa-check"></i> Assign Picker
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- TRIP DETAILS - PICK RELEASE MODAL -->
+            <!-- ============================================================ -->
+            <div id="trip-pick-release-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 900px; max-height: 85%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-box-open"></i> Pick Release
+                        </h3>
+                        <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
+                            Trip: <strong id="pick-release-trip-id">-</strong> • <span id="pick-release-orders-count">0</span> order(s) to process
+                        </p>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                        <!-- Pick Release Options -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.5rem;">
+                            <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; border: 2px solid #bbf7d0;">
+                                <h4 style="margin: 0 0 0.5rem 0; color: #166534; font-size: 0.9rem;">
+                                    <i class="fas fa-play-circle"></i> Execute Pick Release
+                                </h4>
+                                <p style="margin: 0; color: #15803d; font-size: 0.8rem;">
+                                    Immediately release picks for selected orders through Fusion API.
+                                </p>
+                            </div>
+                            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; border: 2px solid #bfdbfe;">
+                                <h4 style="margin: 0 0 0.5rem 0; color: #1d4ed8; font-size: 0.9rem;">
+                                    <i class="fas fa-eye"></i> Preview Mode
+                                </h4>
+                                <p style="margin: 0; color: #2563eb; font-size: 0.8rem;">
+                                    View pick release details without executing (dry run).
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Orders List -->
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-shopping-cart"></i> Orders to Release
+                            </label>
+                            <div id="pick-release-orders-list" style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto; background: #f8f9fc;">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Progress Section (shown during execution) -->
+                        <div id="pick-release-progress" style="display: none; margin-top: 1rem;">
+                            <div style="background: #f0f9ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #0284c7;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <span style="font-weight: 600; color: #0369a1;">Processing...</span>
+                                    <span id="pick-release-progress-text" style="font-size: 0.85rem; color: #0284c7;">0 / 0</span>
+                                </div>
+                                <div style="background: #e0f2fe; border-radius: 4px; height: 8px; overflow: hidden;">
+                                    <div id="pick-release-progress-bar" style="background: linear-gradient(135deg, #0284c7 0%, #0ea5e9 100%); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                                </div>
+                            </div>
+                            <div id="pick-release-log" style="margin-top: 1rem; background: #1e293b; border-radius: 8px; padding: 1rem; max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; color: #10b981;">
+                                <!-- Log entries -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeTripPickReleaseModal()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn" onclick="previewPickRelease()" style="background: #3b82f6; color: white;">
+                            <i class="fas fa-eye"></i> Preview
+                        </button>
+                        <button class="btn btn-primary" onclick="executePickRelease()" id="execute-pick-release-btn" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+                            <i class="fas fa-play"></i> Execute Pick Release
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- TRIP DETAILS - ALLOCATE LOTS MODAL -->
+            <!-- ============================================================ -->
+            <div id="trip-allocate-lots-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 900px; max-height: 85%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-boxes"></i> Allocate Lots for S2V Orders
+                        </h3>
+                        <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
+                            Trip: <strong id="allocate-lots-trip-id">-</strong> • <span id="allocate-lots-orders-count">0</span> S2V order(s) to process
+                        </p>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                        <!-- Info Box -->
+                        <div style="background: #faf5ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #8b5cf6; margin-bottom: 1.5rem;">
+                            <div style="font-weight: 600; color: #6b21a8; margin-bottom: 0.25rem;">
+                                <i class="fas fa-info-circle"></i> Store to Van (S2V) Lot Allocation
+                            </div>
+                            <p style="margin: 0; color: #7e22ce; font-size: 0.85rem;">
+                                This process fetches lot details from inventory and allocates them to the selected S2V orders.
+                                Only orders with order type "Store to Van" or "S2V" will be processed.
+                            </p>
+                        </div>
+
+                        <!-- Orders List -->
+                        <div style="margin-bottom: 1rem;">
+                            <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                <i class="fas fa-truck"></i> S2V Orders to Process
+                            </label>
+                            <div id="allocate-lots-orders-list" style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto; background: #f8f9fc;">
+                                <!-- Populated dynamically -->
+                            </div>
+                        </div>
+
+                        <!-- Progress Section -->
+                        <div id="allocate-lots-progress" style="display: none; margin-top: 1rem;">
+                            <div style="background: #faf5ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #8b5cf6;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                    <span style="font-weight: 600; color: #6b21a8;">Allocating Lots...</span>
+                                    <span id="allocate-lots-progress-text" style="font-size: 0.85rem; color: #7c3aed;">0 / 0</span>
+                                </div>
+                                <div style="background: #e9d5ff; border-radius: 4px; height: 8px; overflow: hidden;">
+                                    <div id="allocate-lots-progress-bar" style="background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                                </div>
+                            </div>
+                            <div id="allocate-lots-log" style="margin-top: 1rem; background: #1e293b; border-radius: 8px; padding: 1rem; max-height: 150px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; color: #a78bfa;">
+                                <!-- Log entries -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeTripAllocateLotsModal()">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn btn-primary" onclick="executeAllocateLots()" id="execute-allocate-lots-btn" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);">
+                            <i class="fas fa-play"></i> Allocate Lots
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- TRIP DETAILS - ORDER TRANSACTIONS POPUP -->
+            <!-- ============================================================ -->
+            <div id="trip-order-transactions-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10002; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h3 style="margin: 0; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="fas fa-file-invoice"></i> Order Transactions
+                                </h3>
+                                <p style="margin: 0.25rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
+                                    Order: <strong id="order-trans-order-number">-</strong> • Instance: <strong id="order-trans-instance">-</strong>
+                                </p>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button onclick="refreshOrderTransactionsData()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button onclick="closeTripOrderTransactionsModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: white;">×</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div style="display: flex; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #f8f9fc; border-bottom: 1px solid #e2e8f0; overflow-x: auto;">
+                        <button class="order-trans-popup-tab active" data-tab="pick-release" onclick="switchOrderTransPopupTab('pick-release')" style="padding: 0.5rem 1rem; border: none; background: white; border-radius: 6px; cursor: pointer; font-weight: 600; color: #3b82f6; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; font-size: 0.8rem;">
+                            <i class="fas fa-box-open"></i> Pick Release
+                        </button>
+                        <button class="order-trans-popup-tab" data-tab="sales-lines" onclick="switchOrderTransPopupTab('sales-lines')" style="padding: 0.5rem 1rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.8rem;">
+                            <i class="fas fa-shopping-cart"></i> Sales Order Lines
+                        </button>
+                        <button class="order-trans-popup-tab" data-tab="lot-details" onclick="switchOrderTransPopupTab('lot-details')" style="padding: 0.5rem 1rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.8rem;">
+                            <i class="fas fa-barcode"></i> Lot Details
+                        </button>
+                        <button class="order-trans-popup-tab" data-tab="shipment" onclick="switchOrderTransPopupTab('shipment')" style="padding: 0.5rem 1rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.8rem;">
+                            <i class="fas fa-shipping-fast"></i> Shipment Details
+                        </button>
+                    </div>
+
+                    <!-- Tab Content -->
+                    <div style="flex: 1; overflow: hidden; position: relative;">
+                        <div id="order-trans-popup-pick-release" class="order-trans-popup-content active" style="height: 100%; overflow: auto; padding: 1rem;">
+                            <div id="order-trans-pick-release-grid" style="height: 100%;"></div>
+                        </div>
+                        <div id="order-trans-popup-sales-lines" class="order-trans-popup-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div id="order-trans-sales-lines-grid" style="height: 100%;"></div>
+                        </div>
+                        <div id="order-trans-popup-lot-details" class="order-trans-popup-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div id="order-trans-lot-details-grid" style="height: 100%;"></div>
+                        </div>
+                        <div id="order-trans-popup-shipment" class="order-trans-popup-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div id="order-trans-shipment-grid" style="height: 100%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================ -->
+            <!-- TRIP DETAILS - STORE TRANSACTIONS POPUP -->
+            <!-- ============================================================ -->
+            <div id="trip-store-transactions-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10002; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #ec4899 0%, #db2777 100%);">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div>
+                                <h3 style="margin: 0; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
+                                    <i class="fas fa-exchange-alt"></i> Store Transactions
+                                </h3>
+                                <p style="margin: 0.25rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
+                                    Order: <strong id="store-trans-order-number">-</strong> • Type: <strong id="store-trans-order-type">-</strong>
+                                </p>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button onclick="printStoreTransactionFromPopup()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">
+                                    <i class="fas fa-print"></i> Print
+                                </button>
+                                <button onclick="refreshStoreTransactionsData()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.8rem; cursor: pointer;">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button onclick="closeTripStoreTransactionsModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: white;">×</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div style="display: flex; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #f8f9fc; border-bottom: 1px solid #e2e8f0; overflow-x: auto;">
+                        <button class="store-trans-popup-tab active" data-tab="transactions" onclick="switchStoreTransPopupTab('transactions')" style="padding: 0.5rem 1rem; border: none; background: white; border-radius: 6px; cursor: pointer; font-weight: 600; color: #ec4899; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; font-size: 0.8rem;">
+                            <i class="fas fa-exchange-alt"></i> Transaction Details
+                        </button>
+                        <button class="store-trans-popup-tab" data-tab="qoh" onclick="switchStoreTransPopupTab('qoh')" style="padding: 0.5rem 1rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.8rem;">
+                            <i class="fas fa-warehouse"></i> QOH Details
+                        </button>
+                        <button class="store-trans-popup-tab" data-tab="allocated" onclick="switchStoreTransPopupTab('allocated')" style="padding: 0.5rem 1rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.8rem;">
+                            <i class="fas fa-boxes"></i> Allocated Lots
+                        </button>
+                    </div>
+
+                    <!-- Tab Content -->
+                    <div style="flex: 1; overflow: hidden; position: relative;">
+                        <div id="store-trans-popup-transactions" class="store-trans-popup-content active" style="height: 100%; overflow: auto; padding: 1rem;">
+                            <div id="store-trans-transactions-grid" style="height: 100%;"></div>
+                        </div>
+                        <div id="store-trans-popup-qoh" class="store-trans-popup-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div id="store-trans-qoh-grid" style="height: 100%;"></div>
+                        </div>
+                        <div id="store-trans-popup-allocated" class="store-trans-popup-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div id="store-trans-allocated-grid" style="height: 100%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Footer with Actions -->
+                    <div style="padding: 0.75rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
+                        <button class="btn btn-secondary" onclick="closeTripStoreTransactionsModal()">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                        <button class="btn" onclick="processStoreTransaction()" style="background: #10b981; color: white;">
+                            <i class="fas fa-cogs"></i> Process Transaction
+                        </button>
+                        <button class="btn" onclick="fetchStoreLotDetails()" style="background: #8b5cf6; color: white;">
+                            <i class="fas fa-list"></i> Fetch Lot Details
                         </button>
                     </div>
                 </div>

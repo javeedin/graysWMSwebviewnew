@@ -4241,3 +4241,148 @@ input:checked + .toggle-slider:before {
         align-items: center;
     }
 }
+
+/* ============================================================================
+   TRIP DETAILS - ACTION BAR AND MODAL STYLES
+   ============================================================================ */
+
+/* Trip Details Action Bar */
+#trip-details-action-bar {
+    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    border-bottom: 1px solid #e2e8f0;
+}
+
+#trip-details-action-bar button {
+    transition: all 0.2s ease;
+}
+
+#trip-details-action-bar button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+#trip-details-action-bar button:active {
+    transform: translateY(0);
+}
+
+/* Trip Details Modal Overlays */
+#trip-assign-pickers-modal,
+#trip-pick-release-modal,
+#trip-allocate-lots-modal,
+#trip-order-transactions-modal,
+#trip-store-transactions-modal {
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+/* Modal Content Animation */
+#trip-assign-pickers-modal > div,
+#trip-pick-release-modal > div,
+#trip-allocate-lots-modal > div,
+#trip-order-transactions-modal > div,
+#trip-store-transactions-modal > div {
+    animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-20px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Tab Buttons for Order/Store Transactions Popups */
+.order-trans-popup-tab,
+.store-trans-popup-tab {
+    transition: all 0.2s ease;
+}
+
+.order-trans-popup-tab:hover,
+.store-trans-popup-tab:hover {
+    background: #f1f5f9 !important;
+}
+
+.order-trans-popup-tab.active,
+.store-trans-popup-tab.active {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Progress Bar Animations */
+#pick-release-progress-bar,
+#allocate-lots-progress-bar {
+    transition: width 0.3s ease;
+}
+
+/* Log Container Scrollbar */
+#pick-release-log::-webkit-scrollbar,
+#allocate-lots-log::-webkit-scrollbar {
+    width: 6px;
+}
+
+#pick-release-log::-webkit-scrollbar-track,
+#allocate-lots-log::-webkit-scrollbar-track {
+    background: #374151;
+    border-radius: 3px;
+}
+
+#pick-release-log::-webkit-scrollbar-thumb,
+#allocate-lots-log::-webkit-scrollbar-thumb {
+    background: #6b7280;
+    border-radius: 3px;
+}
+
+#pick-release-log::-webkit-scrollbar-thumb:hover,
+#allocate-lots-log::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}
+
+/* Selected Orders Count Badge */
+#trip-orders-selected-count {
+    background: #f1f5f9;
+    padding: 0.35rem 0.75rem;
+    border-radius: 20px;
+    border: 1px solid #e2e8f0;
+}
+
+/* Trip Orders Grid Selection Highlight */
+.dx-datagrid-rowsview .dx-selection.dx-row:not(.dx-row-focused) > td,
+.dx-datagrid-rowsview .dx-selection.dx-row:not(.dx-row-focused):hover > td {
+    background-color: rgba(102, 126, 234, 0.1) !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    #trip-details-action-bar {
+        padding: 0.5rem;
+    }
+
+    #trip-details-action-bar button {
+        padding: 0.4rem 0.6rem;
+        font-size: 0.75rem;
+    }
+
+    #trip-assign-pickers-modal > div,
+    #trip-pick-release-modal > div,
+    #trip-allocate-lots-modal > div {
+        width: 95%;
+        max-height: 95%;
+    }
+
+    #trip-order-transactions-modal > div,
+    #trip-store-transactions-modal > div {
+        width: 98%;
+        height: 95%;
+    }
+}
