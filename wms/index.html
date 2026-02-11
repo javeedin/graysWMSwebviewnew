@@ -688,6 +688,9 @@
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
                     <h2 class="page-title">Vehicles Management</h2>
                     <div style="display: flex; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="showVehiclesApi()" title="View API Endpoint">
+                            <i class="fas fa-code"></i> API
+                        </button>
                         <button class="btn btn-secondary" onclick="loadVehicles()">
                             <i class="fas fa-sync-alt"></i> Refresh
                         </button>
@@ -703,6 +706,45 @@
                         <div id="vehicles-count-display" style="color: #666; font-size: 14px;">0 vehicles</div>
                     </div>
                     <div id="vehicles-grid" style="height: 600px;"></div>
+                </div>
+            </div>
+
+            <!-- Vehicles API Modal -->
+            <div id="vehicles-api-modal" class="modal-overlay" style="display: none;">
+                <div class="modal-container" style="max-width: 700px;">
+                    <div class="modal-header">
+                        <h3><i class="fas fa-code" style="color: #667eea;"></i> Vehicles API Endpoint</h3>
+                        <button class="modal-close" onclick="closeVehiclesApiModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 1.5rem;">
+                        <div style="margin-bottom: 1rem;">
+                            <label style="font-weight: 600; color: #374151; display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-link" style="color: #667eea; margin-right: 0.5rem;"></i>GET Endpoint URL
+                            </label>
+                            <div style="background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; font-family: 'Courier New', monospace; font-size: 12px; word-break: break-all; color: #1f2937;">
+                                <span id="vehicles-api-url"></span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                            <button class="btn btn-primary" onclick="copyVehiclesApiUrl()" style="flex: 1;">
+                                <i class="fas fa-copy"></i> Copy URL
+                            </button>
+                            <button class="btn btn-secondary" onclick="testVehiclesApi()" style="flex: 1;">
+                                <i class="fas fa-play"></i> Test API
+                            </button>
+                        </div>
+                        <div id="vehicles-api-result" style="margin-top: 1rem; display: none;">
+                            <label style="font-weight: 600; color: #374151; display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-check-circle" style="color: #10b981; margin-right: 0.5rem;"></i>API Response
+                            </label>
+                            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 1rem; max-height: 200px; overflow-y: auto;">
+                                <pre id="vehicles-api-response" style="margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-word;"></pre>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeVehiclesApiModal()">Close</button>
+                    </div>
                 </div>
             </div>
 
