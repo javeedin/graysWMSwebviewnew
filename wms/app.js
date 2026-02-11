@@ -2195,10 +2195,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log('=== All Trip Details - First Record ===');
                         console.log('All columns:', Object.keys(tripDetails[0]));
                         console.log('First record data:', tripDetails[0]);
-                        // Check specifically for item-related columns
-                        const itemCols = Object.keys(tripDetails[0]).filter(k => k.toLowerCase().includes('item'));
-                        console.log('Item-related columns:', itemCols);
-                        itemCols.forEach(col => console.log(`${col}:`, tripDetails[0][col]));
+                        // Check specifically for volume-related columns
+                        const volumeCols = Object.keys(tripDetails[0]).filter(k => k.toLowerCase().includes('volume'));
+                        console.log('Volume-related columns:', volumeCols);
+                        volumeCols.forEach(col => console.log(`${col}:`, tripDetails[0][col], typeof tripDetails[0][col]));
                     }
                     displayTripDetailsData(tripDetails);
                 } catch (e) {
@@ -2693,7 +2693,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (keyLower.includes('status')) {
                 col.width = 100;
                 col.minWidth = 80;
-            } else if (keyLower.includes('weight') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
+            } else if (keyLower.includes('weight') || keyLower.includes('volume') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
                 col.width = 100;
                 col.minWidth = 70;
             } else {
@@ -2728,8 +2728,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 col.dataType = 'date';
                 col.format = 'dd-MMM-yyyy';
             }
-            // Weight columns
-            else if (key.toLowerCase().includes('weight')) {
+            // Weight/Volume columns
+            else if (key.toLowerCase().includes('weight') || key.toLowerCase().includes('volume')) {
                 col.format = { type: 'fixedPoint', precision: 2 };
                 col.alignment = 'right';
             }
@@ -2936,8 +2936,15 @@ document.addEventListener('DOMContentLoaded', function() {
         const uniquePickers = new Set(tripDetails.map(r => r.PICKER || r.picker).filter(Boolean)).size;
 
         // Calculate total order volume (treat null as 0)
+        // Use nullish coalescing to handle "0" string properly
         const totalWeight = tripDetails.reduce((sum, r) => {
-            const volume = parseFloat(r.ORDER_VOLUME || r.order_volume || 0) || 0;
+            // Check for actual numeric values, not just truthy values
+            // order_volume (lowercase) is the field from the API
+            let volumeVal = r.order_volume;
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = r.ORDER_VOLUME;
+            }
+            const volume = parseFloat(volumeVal) || 0;
             return sum + volume;
         }, 0);
 
@@ -3899,7 +3906,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const uniqueCustomers = isEmpty ? 0 : new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
         const uniqueProducts = isEmpty ? 0 : new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
         const totalQuantity = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
-        const totalWeight = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.ORDER_VOLUME || t.order_volume || t.WEIGHT || t.weight || 0)), 0);
+        const totalWeight = isEmpty ? 0 : tripData.reduce((sum, t) => {
+            // Prefer lowercase order_volume (API field), then check uppercase or weight
+            let volumeVal = t.order_volume;
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = t.ORDER_VOLUME ?? t.weight ?? t.WEIGHT;
+            }
+            return sum + (parseFloat(volumeVal) || 0);
+        }, 0);
         const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
         const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
         
