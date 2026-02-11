@@ -4309,25 +4309,9 @@ document.addEventListener('DOMContentLoaded', function() {
             return sum + (parseFloat(volumeVal) || 0);
         }, 0);
 
-        // Get lorry capacity (volume_m3) - lookup from vehiclesData using lorry number
-        const currentLorry = lorryNumber || firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
-        let lorryCapacity = 0;
-
-        // First try to get from vehiclesData (preferred source)
-        if (window.vehiclesData && window.vehiclesData.length > 0 && currentLorry) {
-            const matchedVehicle = window.vehiclesData.find(v =>
-                (v.lorry_number || '').trim().toUpperCase() === currentLorry.trim().toUpperCase()
-            );
-            if (matchedVehicle) {
-                lorryCapacity = parseFloat(matchedVehicle.volume_m3 || 0);
-                console.log('[JS] Found vehicle capacity from vehiclesData:', currentLorry, '=', lorryCapacity, 'm³');
-            }
-        }
-
-        // Fallback to trip data if not found in vehiclesData
-        if (lorryCapacity === 0) {
-            lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
-        }
+        // Get lorry capacity (volume_m3) directly from GETTRIPDETAILS response
+        const lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
+        console.log('[JS] Lorry capacity from GETTRIPDETAILS:', lorryCapacity, 'm³');
         // Calculate volume fill percentage
         const volumeFillPercent = lorryCapacity > 0 ? Math.min((totalWeight / lorryCapacity) * 100, 100) : 0;
         const availableVolume = lorryCapacity > 0 ? Math.max(lorryCapacity - totalWeight, 0) : 0;
