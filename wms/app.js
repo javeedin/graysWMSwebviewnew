@@ -3187,6 +3187,19 @@ document.addEventListener('DOMContentLoaded', function() {
         const tripDetails = window.tripDetailsGridInstance.option('dataSource') || [];
         console.log('[Volume Details] Processing', tripDetails.length, 'trip detail records');
 
+        // Debug: show first record structure
+        if (tripDetails.length > 0) {
+            const firstRecord = tripDetails[0];
+            console.log('[Volume Details] First record keys:', Object.keys(firstRecord));
+            // Check all possible lorry field names
+            const lorryFields = ['LORRY_NUMBER', 'lorry_number', 'TRIP_LORRY', 'trip_lorry', 'LORRY', 'lorry', 'VEHICLE', 'vehicle'];
+            lorryFields.forEach(field => {
+                if (firstRecord[field] !== undefined) {
+                    console.log('[Volume Details] Found lorry field "' + field + '":', firstRecord[field]);
+                }
+            });
+        }
+
         if (tripDetails.length === 0) {
             console.log('[Volume Details] No trip data available');
             updateVolumeDetailsKPIs([]);
@@ -3201,12 +3214,18 @@ document.addEventListener('DOMContentLoaded', function() {
         tripDetails.forEach(record => {
             const tripId = record.TRIP_ID || record.trip_id || 'Unknown';
             if (!tripGroups[tripId]) {
+                // Try multiple possible field names for lorry number
+                const lorryNumber = record.LORRY_NUMBER || record.lorry_number ||
+                                    record.TRIP_LORRY || record.trip_lorry ||
+                                    record.LORRY || record.lorry ||
+                                    record.VEHICLE || record.vehicle || '';
                 tripGroups[tripId] = {
                     tripId: tripId,
                     tripDate: record.TRIP_DATE || record.trip_date || '',
-                    lorryNumber: record.LORRY_NUMBER || record.lorry_number || record.TRIP_LORRY || record.trip_lorry || '',
+                    lorryNumber: lorryNumber,
                     records: []
                 };
+                console.log('[Volume Details] Trip group created:', tripId, 'lorry:', lorryNumber);
             }
             tripGroups[tripId].records.push(record);
         });
@@ -3232,14 +3251,29 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get lorry capacity from vehiclesData
             let capacity = 0;
             let vehicleModel = '';
+            let matchedLorry = '';
             if (window.vehiclesData && window.vehiclesData.length > 0 && trip.lorryNumber) {
-                const matchedVehicle = window.vehiclesData.find(v =>
-                    (v.lorry_number || '').trim().toUpperCase() === trip.lorryNumber.trim().toUpperCase()
-                );
+                // Normalize lorry numbers by removing all spaces for comparison
+                // Trip data has "10476NV19" but vehicles have "10476 NV 19"
+                const tripLorryNormalized = trip.lorryNumber.replace(/\s+/g, '').toUpperCase();
+                console.log('[Volume Details] Looking for lorry:', trip.lorryNumber, '-> normalized:', tripLorryNormalized);
+
+                const matchedVehicle = window.vehiclesData.find(v => {
+                    const vehicleLorryNormalized = (v.lorry_number || '').replace(/\s+/g, '').toUpperCase();
+                    return vehicleLorryNormalized === tripLorryNormalized;
+                });
+
                 if (matchedVehicle) {
                     capacity = parseFloat(matchedVehicle.volume_m3 || 0);
                     vehicleModel = matchedVehicle.model || '';
+                    matchedLorry = matchedVehicle.lorry_number || trip.lorryNumber;
+                    console.log('[Volume Details] Matched vehicle:', matchedVehicle.lorry_number, 'capacity:', capacity, 'model:', vehicleModel);
+                } else {
+                    console.log('[Volume Details] No matching vehicle found for:', trip.lorryNumber);
+                    console.log('[Volume Details] Available vehicles:', window.vehiclesData.map(v => v.lorry_number).join(', '));
                 }
+            } else {
+                console.log('[Volume Details] Cannot match - vehiclesData:', window.vehiclesData?.length || 0, 'lorryNumber:', trip.lorryNumber);
             }
 
             const availableVolume = capacity > 0 ? Math.max(capacity - filledVolume, 0) : 0;
@@ -3248,7 +3282,7 @@ document.addEventListener('DOMContentLoaded', function() {
             volumeData.push({
                 tripId: trip.tripId,
                 tripDate: trip.tripDate,
-                lorryNumber: trip.lorryNumber,
+                lorryNumber: matchedLorry || trip.lorryNumber,
                 model: vehicleModel,
                 totalOrders: trip.records.length,
                 filledVolume: filledVolume,
