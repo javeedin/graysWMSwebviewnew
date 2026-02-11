@@ -2795,6 +2795,414 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Technical Architecture Diagram -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-project-diagram"></i> Technical Architecture Diagram</h2>
+                                <div class="tech-arch-diagram">
+                                    <pre class="architecture-ascii">
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                                    USER INTERFACE                                        │
+│  ┌─────────────────────────────────────────────────────────────────────────────────────┐│
+│  │                          Windows Forms Application                                   ││
+│  │  ┌──────────────────────────────────────────────────────────────────────────────┐  ││
+│  │  │                         WebView2 Browser Engine                               │  ││
+│  │  │  ┌────────────────────────────────────────────────────────────────────────┐  │  ││
+│  │  │  │                    Web Application (index.html)                         │  │  ││
+│  │  │  │  ┌─────────────┐ ┌─────────────────────────────────────────────────┐   │  │  ││
+│  │  │  │  │   Sidebar   │ │              Main Content Area                   │   │  │  ││
+│  │  │  │  │   ┌───────┐ │ │  ┌─────────────────────────────────────────┐    │   │  │  ││
+│  │  │  │  │   │Trips  │ │ │  │         DevExtreme DataGrids             │    │   │  │  ││
+│  │  │  │  │   │Vehicle│ │ │  │    ┌───────────────────────────────┐    │    │   │  │  ││
+│  │  │  │  │   │Pickers│ │ │  │    │  Trip Grid  │  Order Grid    │    │    │   │  │  ││
+│  │  │  │  │   │Print  │ │ │  │    └───────────────────────────────┘    │    │   │  │  ││
+│  │  │  │  │   │Auto   │ │ │  └─────────────────────────────────────────┘    │   │  │  ││
+│  │  │  │  │   │MRA    │ │ │  ┌─────────────────────────────────────────┐    │   │  │  ││
+│  │  │  │  │   │Settings│ │  │         Modals & Floating Menus          │    │   │  │  ││
+│  │  │  │  │   └───────┘ │ │  └─────────────────────────────────────────┘    │   │  │  ││
+│  │  │  │  └─────────────┘ └─────────────────────────────────────────────────┘   │  │  ││
+│  │  │  └────────────────────────────────────────────────────────────────────────┘  │  ││
+│  │  └──────────────────────────────────────────────────────────────────────────────┘  ││
+│  └─────────────────────────────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+                                    </pre>
+                                </div>
+
+                                <!-- Layered Architecture -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-layer-group"></i> Layered Architecture</h2>
+                                <div class="tech-arch-diagram">
+                                    <pre class="architecture-ascii">
+╔═══════════════════════════════════════════════════════════════════════════════════════════╗
+║                                    PRESENTATION LAYER                                      ║
+║  ┌──────────────────────────────────────────────────────────────────────────────────────┐ ║
+║  │  Windows Forms (Form1.cs)                                                             │ ║
+║  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐ │ ║
+║  │  │ Navigation  │ │  Instance   │ │   User      │ │  Copilot    │ │    Printer      │ │ ║
+║  │  │   Toolbar   │ │  Selector   │ │   Panel     │ │   Button    │ │    Setup        │ │ ║
+║  │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────────┘ │ ║
+║  └──────────────────────────────────────────────────────────────────────────────────────┘ ║
+╠═══════════════════════════════════════════════════════════════════════════════════════════╣
+║                                    APPLICATION LAYER                                       ║
+║  ┌─────────────────────────────────────────────────────────────────────────────────────┐  ║
+║  │                          JavaScript Modules (ES6+)                                   │  ║
+║  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │  ║
+║  │  │   app.js    │  │trip-details │  │auto-inventory│  │auto-sales   │                │  ║
+║  │  │   (Core)    │  │    .js      │  │-processing.js│  │-order.js    │                │  ║
+║  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘                │  ║
+║  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │  ║
+║  │  │ monitor-    │  │  printer-   │  │    mra-     │  │  copilot.js │                │  ║
+║  │  │ printing.js │  │management.js│  │ processor.js│  │    (AI)     │                │  ║
+║  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘                │  ║
+║  └─────────────────────────────────────────────────────────────────────────────────────┘  ║
+╠═══════════════════════════════════════════════════════════════════════════════════════════╣
+║                                    SERVICE LAYER (C#)                                      ║
+║  ┌─────────────────────────────────────────────────────────────────────────────────────┐  ║
+║  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │  ║
+║  │  │  PrintJobManager │  │  PrinterService  │  │FusionPdfDownloader│                  │  ║
+║  │  │  (Orchestration) │  │ (Windows Print)  │  │   (SOAP Client)   │                  │  ║
+║  │  └──────────────────┘  └──────────────────┘  └──────────────────┘                   │  ║
+║  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │  ║
+║  │  │LocalStorageManager│ │  RestApiClient   │  │WebViewMessageRouter│                 │  ║
+║  │  │ (File System)    │  │  (HTTP Client)   │  │   (JS ↔ C#)       │                  │  ║
+║  │  └──────────────────┘  └──────────────────┘  └──────────────────┘                   │  ║
+║  └─────────────────────────────────────────────────────────────────────────────────────┘  ║
+╠═══════════════════════════════════════════════════════════════════════════════════════════╣
+║                                    DATA/INTEGRATION LAYER                                  ║
+║  ┌─────────────────────────────────────────────────────────────────────────────────────┐  ║
+║  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  ┌───────────────┐  │  ║
+║  │  │  Oracle APEX    │  │ Oracle Fusion   │  │   MRA Service   │  │  Claude AI    │  │  ║
+║  │  │   REST API      │  │  Cloud APIs     │  │   (External)    │  │     API       │  │  ║
+║  │  │   (Database)    │  │  (ERP System)   │  │                 │  │               │  │  ║
+║  │  └─────────────────┘  └─────────────────┘  └─────────────────┘  └───────────────┘  │  ║
+║  └─────────────────────────────────────────────────────────────────────────────────────┘  ║
+╚═══════════════════════════════════════════════════════════════════════════════════════════╝
+                                    </pre>
+                                </div>
+
+                                <!-- Data Flow Diagram -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-exchange-alt"></i> Data Flow Diagram</h2>
+                                <div class="tech-arch-diagram">
+                                    <pre class="architecture-ascii">
+                                    ┌─────────────────┐
+                                    │      USER       │
+                                    │   (Warehouse    │
+                                    │    Operator)    │
+                                    └────────┬────────┘
+                                             │
+                                             ▼
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                              WINDOWS FORMS + WEBVIEW2                                    │
+│  ┌───────────────────────────────────────────────────────────────────────────────────┐  │
+│  │                              USER INTERACTIONS                                     │  │
+│  │   Click Menu    │    Select Trip    │    Print Order    │    Process MRA          │  │
+│  └────────┬────────┴─────────┬─────────┴─────────┬─────────┴──────────┬──────────────┘  │
+│           ▼                  ▼                   ▼                    ▼                  │
+│  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐ ┌────────────────┐           │
+│  │  navigateTo    │ │  loadTrip      │ │  sendMessage   │ │  processMRA    │           │
+│  │  Page()        │ │  Details()     │ │  ToCSharp()    │ │  Interface()   │           │
+│  │  [app.js]      │ │  [trip-details]│ │  [app.js]      │ │  [mra-proc.js] │           │
+│  └───────┬────────┘ └───────┬────────┘ └───────┬────────┘ └───────┬────────┘           │
+└──────────┼──────────────────┼──────────────────┼──────────────────┼─────────────────────┘
+           │                  │                  │                  │
+           ▼                  ▼                  ▼                  ▼
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │                          MESSAGE ROUTER (C#)                              │
+    │                     WebViewMessageRouter.cs                               │
+    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
+    │  │ Navigate    │  │ Fetch Data  │  │ Print Job   │  │ MRA Call    │     │
+    │  │ Handler     │  │ Handler     │  │ Handler     │  │ Handler     │     │
+    │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘     │
+    └─────────┼────────────────┼────────────────┼────────────────┼─────────────┘
+              │                │                │                │
+              ▼                ▼                ▼                ▼
+    ┌─────────────────────────────────────────────────────────────────────────────────────┐
+    │                              API / INTEGRATION CALLS                                 │
+    │  ┌────────────────┐     ┌────────────────┐     ┌────────────────┐                   │
+    │  │  Oracle APEX   │     │ Oracle Fusion  │     │   MRA Service  │                   │
+    │  │  GET /trips    │     │ GET /pick      │     │ POST /MRA      │                   │
+    │  │  POST /orders  │     │   Transactions │     │   Invoice.php  │                   │
+    │  │  GET /printers │     │ SOAP /report   │     │                │                   │
+    │  └───────┬────────┘     └───────┬────────┘     └───────┬────────┘                   │
+    └──────────┼──────────────────────┼──────────────────────┼────────────────────────────┘
+               │                      │                      │
+               ▼                      ▼                      ▼
+    ┌─────────────────────────┐ ┌─────────────────────────┐ ┌─────────────────────────┐
+    │    ORACLE APEX DB       │ │   ORACLE FUSION CLOUD   │ │    EXTERNAL SYSTEMS     │
+    │  • wms_trips           │ │  • Sales Orders         │ │  • MRA Invoice System   │
+    │  • wms_orders          │ │  • Pick Transactions    │ │  • GitHub (version)     │
+    │  • wms_printers        │ │  • Receipts             │ │  • Claude AI            │
+    │  • wms_print_jobs      │ │  • Reports (XMLP)       │ │                         │
+    └─────────────────────────┘ └─────────────────────────┘ └─────────────────────────┘
+                                    </pre>
+                                </div>
+
+                                <!-- Component Interaction Map -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-network-wired"></i> Component Interaction Map</h2>
+                                <div class="tech-arch-diagram">
+                                    <pre class="architecture-ascii">
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                         ┌──────────────────────────────┐                                │
+│                         │     TRIP MANAGEMENT PAGE     │                                │
+│                         │       (Main Dashboard)       │                                │
+│                         └──────────────┬───────────────┘                                │
+│                                        │                                                 │
+│              ┌─────────────────────────┼─────────────────────────┐                      │
+│              │                         │                         │                      │
+│              ▼                         ▼                         ▼                      │
+│   ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐               │
+│   │   TRIP DETAILS   │     │   AUTO PROCESS   │     │  MONITOR PRINT   │               │
+│   │     MODAL        │     │     MODULE       │     │     MODULE       │               │
+│   │                  │     │                  │     │                  │               │
+│   │ • View orders    │     │ • Batch process  │     │ • View print     │               │
+│   │ • Edit trip      │     │ • Retry failed   │     │   jobs           │               │
+│   │ • Add orders     │     │ • Track progress │     │ • Filter status  │               │
+│   │ • Get volume     │     │ • Export Excel   │     │ • Preview PDF    │               │
+│   └────────┬─────────┘     └────────┬─────────┘     └────────┬─────────┘               │
+│            │                        │                        │                          │
+│            │         ┌──────────────┴──────────────┐        │                          │
+│            │         │                             │        │                          │
+│            ▼         ▼                             ▼        ▼                          │
+│   ┌──────────────────────┐               ┌──────────────────────┐                      │
+│   │    PICKER MODULE     │               │   PRINTER MODULE     │                      │
+│   │                      │               │                      │                      │
+│   │ • Assign pickers     │               │ • Configure printers │                      │
+│   │ • View availability  │               │ • Test connection    │                      │
+│   │ • Track progress     │               │ • Set default        │                      │
+│   └──────────────────────┘               └──────────┬───────────┘                      │
+│                                                     │                                   │
+│                                                     ▼                                   │
+│                                          ┌──────────────────────┐                      │
+│                                          │    MRA PROCESSOR     │                      │
+│                                          │ • Check interface    │                      │
+│                                          │ • Fetch summary      │                      │
+│                                          │ • Submit to MRA      │                      │
+│                                          │ • Confirm in Fusion  │                      │
+│                                          └──────────────────────┘                      │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+                                    </pre>
+                                </div>
+
+                                <!-- Print Job Workflow -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-print"></i> Print Job Workflow</h2>
+                                <div class="tech-arch-diagram">
+                                    <pre class="architecture-ascii">
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│                              PRINT JOB WORKFLOW                                          │
+├─────────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                          │
+│   1. USER ACTION           2. CREATE PRINT JOB                                          │
+│   ┌─────────────────┐      ┌─────────────────┐     ┌─────────────────┐                  │
+│   │ User clicks     │─────▶│ JavaScript      │────▶│ C# Message      │                  │
+│   │ "Print Order"   │      │ sendMessage()   │     │ Router          │                  │
+│   └─────────────────┘      └─────────────────┘     └────────┬────────┘                  │
+│                                                             │                            │
+│   3. DOWNLOAD PDF                                           ▼                            │
+│   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐                   │
+│   │ FusionPdf       │────▶│ Oracle Fusion   │────▶│ Save to         │                   │
+│   │ Downloader      │     │ SOAP Service    │     │ Local Storage   │                   │
+│   │ (SOAP Request)  │     │ (XMLP Report)   │     │ (PDF File)      │                   │
+│   └─────────────────┘     └─────────────────┘     └────────┬────────┘                   │
+│                                                            │                             │
+│   4. SEND TO PRINTER                                       ▼                             │
+│   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐                   │
+│   │ PrinterService  │────▶│ Windows Print   │────▶│ Physical        │                   │
+│   │ PrintPdfAsync() │     │ Spooler         │     │ Printer         │                   │
+│   └─────────────────┘     └─────────────────┘     └────────┬────────┘                   │
+│                                                            │                             │
+│   5. UPDATE STATUS                                         ▼                             │
+│   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐                   │
+│   │ Update APEX     │────▶│ Update UI       │────▶│ Monitor         │                   │
+│   │ Database        │     │ Grid            │     │ Printing Page   │                   │
+│   └─────────────────┘     └─────────────────┘     └─────────────────┘                   │
+│                                                                                          │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+                                    </pre>
+                                </div>
+
+                                <!-- Technology Stack -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-cubes"></i> Technology Stack</h2>
+                                <div class="tech-stack-grid">
+                                    <div class="tech-stack-category">
+                                        <div class="tech-stack-header">
+                                            <i class="fab fa-html5"></i>
+                                            <h4>Frontend</h4>
+                                        </div>
+                                        <div class="tech-stack-items">
+                                            <span class="tech-item">HTML5</span>
+                                            <span class="tech-item">CSS3</span>
+                                            <span class="tech-item">JavaScript ES6+</span>
+                                            <span class="tech-item">jQuery</span>
+                                            <span class="tech-item">DevExtreme</span>
+                                            <span class="tech-item">Chart.js</span>
+                                            <span class="tech-item">ExcelJS</span>
+                                            <span class="tech-item">FileSaver.js</span>
+                                        </div>
+                                    </div>
+                                    <div class="tech-stack-category">
+                                        <div class="tech-stack-header">
+                                            <i class="fab fa-microsoft"></i>
+                                            <h4>Desktop</h4>
+                                        </div>
+                                        <div class="tech-stack-items">
+                                            <span class="tech-item">.NET 8.0</span>
+                                            <span class="tech-item">C#</span>
+                                            <span class="tech-item">Windows Forms</span>
+                                            <span class="tech-item">WebView2</span>
+                                            <span class="tech-item">System.Text.Json</span>
+                                            <span class="tech-item">System.Net.Http</span>
+                                        </div>
+                                    </div>
+                                    <div class="tech-stack-category">
+                                        <div class="tech-stack-header">
+                                            <i class="fas fa-database"></i>
+                                            <h4>Backend/Integration</h4>
+                                        </div>
+                                        <div class="tech-stack-items">
+                                            <span class="tech-item">Oracle APEX</span>
+                                            <span class="tech-item">Oracle Fusion REST</span>
+                                            <span class="tech-item">Oracle SOAP/XMLP</span>
+                                            <span class="tech-item">MRA Service</span>
+                                            <span class="tech-item">Claude AI API</span>
+                                            <span class="tech-item">GitHub API</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- File System Structure -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-folder-tree"></i> Project File Structure</h2>
+                                <div class="tech-arch-diagram">
+                                    <pre class="architecture-ascii file-structure">
+graysWMSwebviewnew/                    (Project Root)
+├── wms/                               (Web Application)
+│   ├── index.html                     (Main SPA shell - 324KB)
+│   ├── app.js                         (Core application logic - 721KB)
+│   ├── config.js                      (API configuration)
+│   ├── styles.css                     (Application styling)
+│   ├── trip-details.js                (Trip management - 82KB)
+│   ├── auto-inventory-processing.js   (Inventory automation - 299KB)
+│   ├── auto-sales-order-processing.js (Sales order automation - 179KB)
+│   ├── monitor-printing.js            (Print monitoring - 96KB)
+│   ├── printer-management-new.js      (Printer config - 26KB)
+│   ├── mra-processor.js               (MRA interface - 23KB)
+│   ├── pickers.js                     (Picker management - 14KB)
+│   ├── vehicles.js                    (Vehicle management - 12KB)
+│   ├── copilot.js                     (AI assistant - 174KB)
+│   └── ...
+├── classes/                           (C# Backend Services)
+│   ├── PrintJobManager.cs             (Print orchestration)
+│   ├── PrinterService.cs              (Windows printer integration)
+│   ├── FusionPdfDownloader.cs         (PDF download via SOAP)
+│   ├── LocalStorageManager.cs         (File system persistence)
+│   ├── RestApiClient.cs               (HTTP client)
+│   ├── WebViewMessageRouter.cs        (JS ↔ C# bridge)
+│   ├── MRAProcessor.cs                (MRA processing)
+│   ├── ClaudeApiHandler.cs            (AI integration)
+│   └── ...
+├── apex_sql/                          (Database Scripts)
+│   ├── 01_create_tables.sql           (Table definitions)
+│   ├── 02_post_procedures.sql         (POST procedures)
+│   ├── 03_get_procedures.sql          (GET procedures)
+│   └── ...
+├── Form1.cs                           (Main Windows Form)
+├── Form1.Designer.cs                  (Form Designer)
+├── Program.cs                         (Application Entry Point)
+└── WMSApp.csproj                      (.NET 8.0 Project File)
+                                    </pre>
+                                </div>
+
+                                <!-- API Endpoints Summary -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-plug"></i> API Endpoints Summary</h2>
+                                <div class="api-endpoints-summary">
+                                    <div class="api-category">
+                                        <div class="api-category-header">
+                                            <i class="fas fa-database"></i>
+                                            <h4>Oracle APEX (Primary Database)</h4>
+                                        </div>
+                                        <div class="api-endpoints-list">
+                                            <div class="api-endpoint">
+                                                <span class="method get">GET</span>
+                                                <code>/GETTRIPDETAILS</code>
+                                                <span class="desc">List all trips</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method get">GET</span>
+                                                <code>/GETTRIPDETAILS/{id}</code>
+                                                <span class="desc">Get trip details</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method post">POST</span>
+                                                <code>/trips/create</code>
+                                                <span class="desc">Create new trip</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method post">POST</span>
+                                                <code>/trips/addorders</code>
+                                                <span class="desc">Add orders to trip</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method get">GET</span>
+                                                <code>/getpendingorders</code>
+                                                <span class="desc">List pending orders</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method get">GET</span>
+                                                <code>/printers/all</code>
+                                                <span class="desc">List printers</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method get">GET</span>
+                                                <code>/monitor-printing/list</code>
+                                                <span class="desc">List print jobs</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="api-category">
+                                        <div class="api-category-header">
+                                            <i class="fas fa-cloud"></i>
+                                            <h4>Oracle Fusion Cloud (ERP)</h4>
+                                        </div>
+                                        <div class="api-endpoints-list">
+                                            <div class="api-endpoint">
+                                                <span class="method get">GET</span>
+                                                <code>/fscmRestApi/pickTransactions</code>
+                                                <span class="desc">Pick transactions</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method get">GET</span>
+                                                <code>/fscmRestApi/salesOrders</code>
+                                                <span class="desc">Sales orders</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method soap">SOAP</span>
+                                                <code>/xmlpserver/ReportService</code>
+                                                <span class="desc">PDF generation</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="api-category">
+                                        <div class="api-category-header">
+                                            <i class="fas fa-external-link-alt"></i>
+                                            <h4>External Services</h4>
+                                        </div>
+                                        <div class="api-endpoints-list">
+                                            <div class="api-endpoint">
+                                                <span class="method post">POST</span>
+                                                <code>/MRAInvoice.php</code>
+                                                <span class="desc">MRA invoice interface</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method post">POST</span>
+                                                <code>api.anthropic.com</code>
+                                                <span class="desc">Claude AI</span>
+                                            </div>
+                                            <div class="api-endpoint">
+                                                <span class="method get">GET</span>
+                                                <code>api.github.com</code>
+                                                <span class="desc">Version info</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
                             </div>
                         </div>
 

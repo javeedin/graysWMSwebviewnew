@@ -2563,6 +2563,178 @@ input:checked + .toggle-slider:before {
     font-size: 1.25rem;
 }
 
+/* Technical Architecture Diagrams */
+.tech-arch-diagram {
+    margin: 1.5rem 0;
+    padding: 1.5rem;
+    background: linear-gradient(135deg, #1e293b, #0f172a);
+    border-radius: 12px;
+    overflow-x: auto;
+}
+
+.architecture-ascii {
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    color: #4ade80;
+    white-space: pre;
+    margin: 0;
+    padding: 0;
+}
+
+.architecture-ascii.file-structure {
+    color: #60a5fa;
+}
+
+/* Technology Stack Grid */
+.tech-stack-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.tech-stack-category {
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.tech-stack-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+}
+
+.tech-stack-header i {
+    font-size: 1.5rem;
+}
+
+.tech-stack-header h4 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.tech-stack-items {
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.tech-item {
+    display: inline-block;
+    padding: 0.4rem 0.8rem;
+    background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    color: #475569;
+    font-weight: 500;
+    border: 1px solid #e2e8f0;
+}
+
+/* API Endpoints Summary */
+.api-endpoints-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+}
+
+.api-category {
+    background: white;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.api-category-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    background: linear-gradient(135deg, #f8fafc, #e2e8f0);
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.api-category-header i {
+    font-size: 1.25rem;
+    color: #667eea;
+}
+
+.api-category-header h4 {
+    margin: 0;
+    font-size: 0.95rem;
+    color: #1e293b;
+}
+
+.api-endpoints-list {
+    padding: 0.75rem;
+}
+
+.api-endpoint {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.5rem;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+.api-endpoint:last-child {
+    border-bottom: none;
+}
+
+.api-endpoint .method {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    min-width: 40px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.api-endpoint .method.get {
+    background: #10b981;
+    color: white;
+}
+
+.api-endpoint .method.post {
+    background: #3b82f6;
+    color: white;
+}
+
+.api-endpoint .method.soap {
+    background: #f59e0b;
+    color: white;
+}
+
+.api-endpoint code {
+    font-size: 0.75rem;
+    color: #1e293b;
+    background: #f1f5f9;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.api-endpoint .desc {
+    font-size: 0.75rem;
+    color: #64748b;
+    flex-shrink: 0;
+}
+
 /* Feature Page Sections */
 .feature-page-section {
     background: white;
