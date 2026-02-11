@@ -4346,9 +4346,36 @@ document.addEventListener('DOMContentLoaded', function() {
             return sum + (parseFloat(volumeVal) || 0);
         }, 0);
 
-        // Get lorry capacity (volume_m3) directly from GETTRIPDETAILS response
-        const lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
+        // Get lorry capacity - first try from GETTRIPDETAILS response, then fallback to vehiclesData
+        let lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
         console.log('[JS] Lorry capacity from GETTRIPDETAILS:', lorryCapacity, 'm³');
+
+        // Fallback: If capacity is 0, try to get from vehiclesData
+        if (lorryCapacity === 0 && lorryNumber) {
+            if (window.vehiclesData && window.vehiclesData.length > 0) {
+                const tripLorryNormalized = lorryNumber.replace(/\s+/g, '').toUpperCase();
+                console.log('[JS] Looking for lorry capacity in vehiclesData:', lorryNumber, '-> normalized:', tripLorryNormalized);
+
+                const matchedVehicle = window.vehiclesData.find(v => {
+                    const vehicleLorryNormalized = (v.lorry_number || '').replace(/\s+/g, '').toUpperCase();
+                    return vehicleLorryNormalized === tripLorryNormalized;
+                });
+
+                if (matchedVehicle) {
+                    lorryCapacity = parseFloat(matchedVehicle.volume_m3 || 0);
+                    console.log('[JS] Found capacity from vehiclesData:', lorryCapacity, 'm³ for', matchedVehicle.lorry_number);
+                } else {
+                    console.log('[JS] No matching vehicle found for:', lorryNumber);
+                    console.log('[JS] Available vehicles:', window.vehiclesData.map(v => v.lorry_number).join(', '));
+                }
+            } else {
+                console.log('[JS] vehiclesData not loaded yet - capacity may show as 0. Loading vehicles...');
+                // Trigger vehicle loading for future requests
+                if (typeof window.loadVehicles === 'function') {
+                    window.loadVehicles();
+                }
+            }
+        }
         // Calculate volume fill percentage
         const volumeFillPercent = lorryCapacity > 0 ? Math.min((totalWeight / lorryCapacity) * 100, 100) : 0;
         const availableVolume = lorryCapacity > 0 ? Math.max(lorryCapacity - totalWeight, 0) : 0;
