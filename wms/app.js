@@ -3028,6 +3028,7 @@ document.addEventListener('DOMContentLoaded', function() {
             allowColumnResizing: true,
             wordWrapEnabled: true,
             hoverStateEnabled: true,
+            height: 700,
             filterRow: {
                 visible: true,
                 applyFilter: 'auto'
@@ -3039,6 +3040,42 @@ document.addEventListener('DOMContentLoaded', function() {
                 visible: true,
                 width: 240,
                 placeholder: 'Search trips...'
+            },
+            export: {
+                enabled: true,
+                allowExportSelectedData: true
+            },
+            onExporting: function(e) {
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('Volume Details');
+
+                DevExpress.excelExporter.exportDataGrid({
+                    component: e.component,
+                    worksheet: worksheet,
+                    autoFilterEnabled: true,
+                    customizeCell: function(options) {
+                        const { gridCell, excelCell } = options;
+                        if (gridCell.rowType === 'header') {
+                            excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                            excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6366F1' } };
+                        }
+                        if (gridCell.column && gridCell.column.dataField === 'fillPercent' && gridCell.rowType === 'data') {
+                            const value = gridCell.value || 0;
+                            if (value > 100) {
+                                excelCell.font = { color: { argb: 'FFEF4444' }, bold: true };
+                            } else if (value >= 90) {
+                                excelCell.font = { color: { argb: 'FFF59E0B' }, bold: true };
+                            } else {
+                                excelCell.font = { color: { argb: 'FF22C55E' }, bold: true };
+                            }
+                        }
+                    }
+                }).then(function() {
+                    workbook.xlsx.writeBuffer().then(function(buffer) {
+                        saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'VolumeDetails.xlsx');
+                    });
+                });
+                e.cancel = true;
             },
             paging: {
                 pageSize: 20
