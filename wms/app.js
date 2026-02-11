@@ -2937,8 +2937,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Calculate total order volume (treat null as 0)
         const totalWeight = tripDetails.reduce((sum, r) => {
-            const volume = r.ORDER_VOLUME || r.order_volume || 0;
-            return sum + (volume || 0);
+            const volume = parseFloat(r.ORDER_VOLUME || r.order_volume || 0) || 0;
+            return sum + volume;
         }, 0);
 
         document.getElementById('kpi-trip-orders').textContent = uniqueOrders;
@@ -2946,7 +2946,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('kpi-trip-customers').textContent = uniqueCustomers;
         document.getElementById('kpi-trip-lorries').textContent = uniqueLorries;
         document.getElementById('kpi-trip-pickers').textContent = uniquePickers;
-        document.getElementById('kpi-trip-weight').textContent = totalWeight.toLocaleString();
+        document.getElementById('kpi-trip-weight').textContent = totalWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     // Global function: Assign Picker for Selected Orders in All Trip Details grid
