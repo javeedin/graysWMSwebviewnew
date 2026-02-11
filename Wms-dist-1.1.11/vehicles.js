@@ -319,4 +319,103 @@ function deleteVehicle(lorryNumber) {
     loadVehicles();
 }
 
-console.log('[Vehicles] ✅ Module loaded');
+// ============================================================================
+// API INFO FUNCTIONS
+// ============================================================================
+
+// Show Vehicles API Modal
+window.showVehiclesApi = function() {
+    console.log('[Vehicles] Showing API info');
+
+    // Set the API URL in the modal
+    document.getElementById('vehicles-api-url').textContent = VEHICLES_API;
+
+    // Hide previous results
+    document.getElementById('vehicles-api-result').style.display = 'none';
+
+    // Show the modal
+    document.getElementById('vehicles-api-modal').style.display = 'flex';
+};
+
+// Close Vehicles API Modal
+window.closeVehiclesApiModal = function() {
+    document.getElementById('vehicles-api-modal').style.display = 'none';
+};
+
+// Copy Vehicles API URL to clipboard
+window.copyVehiclesApiUrl = function() {
+    navigator.clipboard.writeText(VEHICLES_API).then(function() {
+        // Show success feedback
+        DevExpress.ui.notify({
+            message: 'API URL copied to clipboard!',
+            type: 'success',
+            displayTime: 2000,
+            position: { my: 'top center', at: 'top center', offset: '0 10' }
+        });
+    }).catch(function(err) {
+        console.error('[Vehicles] Failed to copy URL:', err);
+        alert('Failed to copy URL. Please copy manually.');
+    });
+};
+
+// Test Vehicles API
+window.testVehiclesApi = function() {
+    console.log('[Vehicles] Testing API...');
+
+    const resultDiv = document.getElementById('vehicles-api-result');
+    const responseDiv = document.getElementById('vehicles-api-response');
+
+    // Show loading state
+    resultDiv.style.display = 'block';
+    responseDiv.textContent = 'Loading...';
+    resultDiv.querySelector('div').style.background = '#f3f4f6';
+    resultDiv.querySelector('div').style.borderColor = '#e5e7eb';
+
+    // Use WebView2 or fetch to test the API
+    if (window.chrome && window.chrome.webview) {
+        sendMessageToCSharp({
+            action: 'executeGet',
+            fullUrl: VEHICLES_API
+        }, function(error, data) {
+            if (error) {
+                resultDiv.querySelector('div').style.background = '#fef2f2';
+                resultDiv.querySelector('div').style.borderColor = '#fecaca';
+                resultDiv.querySelector('label i').className = 'fas fa-times-circle';
+                resultDiv.querySelector('label i').style.color = '#ef4444';
+                resultDiv.querySelector('label').innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444; margin-right: 0.5rem;"></i>API Error';
+                responseDiv.textContent = 'Error: ' + error;
+            } else {
+                try {
+                    const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
+                    resultDiv.querySelector('div').style.background = '#f0fdf4';
+                    resultDiv.querySelector('div').style.borderColor = '#bbf7d0';
+                    resultDiv.querySelector('label').innerHTML = '<i class="fas fa-check-circle" style="color: #10b981; margin-right: 0.5rem;"></i>API Response (' + (jsonData.items ? jsonData.items.length : 0) + ' records)';
+                    responseDiv.textContent = JSON.stringify(jsonData, null, 2);
+                } catch (parseError) {
+                    responseDiv.textContent = 'Raw response:\n' + data;
+                }
+            }
+        });
+    } else {
+        // Fallback to fetch
+        fetch(VEHICLES_API, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(response => response.json())
+        .then(data => {
+            resultDiv.querySelector('div').style.background = '#f0fdf4';
+            resultDiv.querySelector('div').style.borderColor = '#bbf7d0';
+            resultDiv.querySelector('label').innerHTML = '<i class="fas fa-check-circle" style="color: #10b981; margin-right: 0.5rem;"></i>API Response (' + (data.items ? data.items.length : 0) + ' records)';
+            responseDiv.textContent = JSON.stringify(data, null, 2);
+        })
+        .catch(error => {
+            resultDiv.querySelector('div').style.background = '#fef2f2';
+            resultDiv.querySelector('div').style.borderColor = '#fecaca';
+            resultDiv.querySelector('label').innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444; margin-right: 0.5rem;"></i>API Error';
+            responseDiv.textContent = 'Error: ' + error.message + '\n\n(Note: CORS may block direct browser access. Use the app for full functionality.)';
+        });
+    }
+};
+
+console.log('[Vehicles] Module loaded');
