@@ -2798,224 +2798,531 @@
 
                                 <!-- Technical Architecture Diagram -->
                                 <h2 style="margin-top: 2rem;"><i class="fas fa-project-diagram"></i> Technical Architecture Diagram</h2>
-                                <div class="tech-arch-diagram">
-                                    <pre class="architecture-ascii">
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                    USER INTERFACE                                        │
-│  ┌─────────────────────────────────────────────────────────────────────────────────────┐│
-│  │                          Windows Forms Application                                   ││
-│  │  ┌──────────────────────────────────────────────────────────────────────────────┐  ││
-│  │  │                         WebView2 Browser Engine                               │  ││
-│  │  │  ┌────────────────────────────────────────────────────────────────────────┐  │  ││
-│  │  │  │                    Web Application (index.html)                         │  │  ││
-│  │  │  │  ┌─────────────┐ ┌─────────────────────────────────────────────────┐   │  │  ││
-│  │  │  │  │   Sidebar   │ │              Main Content Area                   │   │  │  ││
-│  │  │  │  │   ┌───────┐ │ │  ┌─────────────────────────────────────────┐    │   │  │  ││
-│  │  │  │  │   │Trips  │ │ │  │         DevExtreme DataGrids             │    │   │  │  ││
-│  │  │  │  │   │Vehicle│ │ │  │    ┌───────────────────────────────┐    │    │   │  │  ││
-│  │  │  │  │   │Pickers│ │ │  │    │  Trip Grid  │  Order Grid    │    │    │   │  │  ││
-│  │  │  │  │   │Print  │ │ │  │    └───────────────────────────────┘    │    │   │  │  ││
-│  │  │  │  │   │Auto   │ │ │  └─────────────────────────────────────────┘    │   │  │  ││
-│  │  │  │  │   │MRA    │ │ │  ┌─────────────────────────────────────────┐    │   │  │  ││
-│  │  │  │  │   │Settings│ │  │         Modals & Floating Menus          │    │   │  │  ││
-│  │  │  │  │   └───────┘ │ │  └─────────────────────────────────────────┘    │   │  │  ││
-│  │  │  │  └─────────────┘ └─────────────────────────────────────────────────┘   │  │  ││
-│  │  │  └────────────────────────────────────────────────────────────────────────┘  │  ││
-│  │  └──────────────────────────────────────────────────────────────────────────────┘  ││
-│  └─────────────────────────────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                                    </pre>
+                                <div class="visual-diagram">
+                                    <div class="arch-visual-grid">
+                                        <!-- Oracle Fusion Cloud Column -->
+                                        <div class="arch-column cloud">
+                                            <div class="arch-column-header">
+                                                <div class="arch-column-icon">
+                                                    <i class="fas fa-cloud"></i>
+                                                </div>
+                                                <div>
+                                                    <h4>Oracle Fusion Cloud</h4>
+                                                    <small>Enterprise ERP System</small>
+                                                </div>
+                                            </div>
+                                            <div class="arch-feature-list">
+                                                <div class="arch-feature"><i class="fas fa-file-invoice"></i> Sales Orders</div>
+                                                <div class="arch-feature"><i class="fas fa-users"></i> Customer Data</div>
+                                                <div class="arch-feature"><i class="fas fa-boxes"></i> Inventory Items</div>
+                                                <div class="arch-feature"><i class="fas fa-warehouse"></i> On-Hand Quantities</div>
+                                                <div class="arch-feature"><i class="fas fa-shipping-fast"></i> Pending Shipments</div>
+                                                <div class="arch-feature"><i class="fas fa-file-pdf"></i> PDF Reports (XMLP)</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Oracle APEX Column -->
+                                        <div class="arch-column apex">
+                                            <div class="arch-column-header">
+                                                <div class="arch-column-icon">
+                                                    <i class="fas fa-database"></i>
+                                                </div>
+                                                <div>
+                                                    <h4>Oracle APEX</h4>
+                                                    <small>Processing Layer</small>
+                                                </div>
+                                            </div>
+                                            <div class="arch-feature-list">
+                                                <div class="arch-feature"><i class="fas fa-route"></i> Trip Management</div>
+                                                <div class="arch-feature"><i class="fas fa-truck"></i> Lorry Assignments</div>
+                                                <div class="arch-feature"><i class="fas fa-user-hard-hat"></i> Picker Queue</div>
+                                                <div class="arch-feature"><i class="fas fa-print"></i> Print Job Queue</div>
+                                                <div class="arch-feature"><i class="fas fa-clipboard-list"></i> Store Requests</div>
+                                                <div class="arch-feature"><i class="fas fa-cogs"></i> Configuration</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- WMS Application Column -->
+                                        <div class="arch-column wms">
+                                            <div class="arch-column-header">
+                                                <div class="arch-column-icon">
+                                                    <i class="fas fa-desktop"></i>
+                                                </div>
+                                                <div>
+                                                    <h4>WMS Application</h4>
+                                                    <small>User Interface</small>
+                                                </div>
+                                            </div>
+                                            <div class="arch-feature-list">
+                                                <div class="arch-feature"><i class="fab fa-html5"></i> HTML5 / CSS3 / JS</div>
+                                                <div class="arch-feature"><i class="fab fa-microsoft"></i> C# WebView2</div>
+                                                <div class="arch-feature"><i class="fas fa-table"></i> DevExtreme Grids</div>
+                                                <div class="arch-feature"><i class="fas fa-print"></i> Printer Services</div>
+                                                <div class="arch-feature"><i class="fas fa-robot"></i> AI Copilot</div>
+                                                <div class="arch-feature"><i class="fas fa-sync"></i> Real-time Updates</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Connection Arrows -->
+                                    <div class="flow-row" style="margin-top: 1.5rem;">
+                                        <div class="arrow-with-label">
+                                            <i class="fas fa-exchange-alt arrow-icon" style="color: #3b82f6;"></i>
+                                            <span>REST API</span>
+                                        </div>
+                                        <div class="arrow-with-label">
+                                            <i class="fas fa-exchange-alt arrow-icon" style="color: #10b981;"></i>
+                                            <span>REST API</span>
+                                        </div>
+                                        <div class="arrow-with-label">
+                                            <i class="fas fa-exchange-alt arrow-icon" style="color: #8b5cf6;"></i>
+                                            <span>WebView2</span>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- Layered Architecture -->
                                 <h2 style="margin-top: 2rem;"><i class="fas fa-layer-group"></i> Layered Architecture</h2>
-                                <div class="tech-arch-diagram">
-                                    <pre class="architecture-ascii">
-╔═══════════════════════════════════════════════════════════════════════════════════════════╗
-║                                    PRESENTATION LAYER                                      ║
-║  ┌──────────────────────────────────────────────────────────────────────────────────────┐ ║
-║  │  Windows Forms (Form1.cs)                                                             │ ║
-║  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────────┐ │ ║
-║  │  │ Navigation  │ │  Instance   │ │   User      │ │  Copilot    │ │    Printer      │ │ ║
-║  │  │   Toolbar   │ │  Selector   │ │   Panel     │ │   Button    │ │    Setup        │ │ ║
-║  │  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘ └─────────────────┘ │ ║
-║  └──────────────────────────────────────────────────────────────────────────────────────┘ ║
-╠═══════════════════════════════════════════════════════════════════════════════════════════╣
-║                                    APPLICATION LAYER                                       ║
-║  ┌─────────────────────────────────────────────────────────────────────────────────────┐  ║
-║  │                          JavaScript Modules (ES6+)                                   │  ║
-║  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │  ║
-║  │  │   app.js    │  │trip-details │  │auto-inventory│  │auto-sales   │                │  ║
-║  │  │   (Core)    │  │    .js      │  │-processing.js│  │-order.js    │                │  ║
-║  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘                │  ║
-║  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                │  ║
-║  │  │ monitor-    │  │  printer-   │  │    mra-     │  │  copilot.js │                │  ║
-║  │  │ printing.js │  │management.js│  │ processor.js│  │    (AI)     │                │  ║
-║  │  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘                │  ║
-║  └─────────────────────────────────────────────────────────────────────────────────────┘  ║
-╠═══════════════════════════════════════════════════════════════════════════════════════════╣
-║                                    SERVICE LAYER (C#)                                      ║
-║  ┌─────────────────────────────────────────────────────────────────────────────────────┐  ║
-║  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │  ║
-║  │  │  PrintJobManager │  │  PrinterService  │  │FusionPdfDownloader│                  │  ║
-║  │  │  (Orchestration) │  │ (Windows Print)  │  │   (SOAP Client)   │                  │  ║
-║  │  └──────────────────┘  └──────────────────┘  └──────────────────┘                   │  ║
-║  │  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐                   │  ║
-║  │  │LocalStorageManager│ │  RestApiClient   │  │WebViewMessageRouter│                 │  ║
-║  │  │ (File System)    │  │  (HTTP Client)   │  │   (JS ↔ C#)       │                  │  ║
-║  │  └──────────────────┘  └──────────────────┘  └──────────────────┘                   │  ║
-║  └─────────────────────────────────────────────────────────────────────────────────────┘  ║
-╠═══════════════════════════════════════════════════════════════════════════════════════════╣
-║                                    DATA/INTEGRATION LAYER                                  ║
-║  ┌─────────────────────────────────────────────────────────────────────────────────────┐  ║
-║  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  ┌───────────────┐  │  ║
-║  │  │  Oracle APEX    │  │ Oracle Fusion   │  │   MRA Service   │  │  Claude AI    │  │  ║
-║  │  │   REST API      │  │  Cloud APIs     │  │   (External)    │  │     API       │  │  ║
-║  │  │   (Database)    │  │  (ERP System)   │  │                 │  │               │  │  ║
-║  │  └─────────────────┘  └─────────────────┘  └─────────────────┘  └───────────────┘  │  ║
-║  └─────────────────────────────────────────────────────────────────────────────────────┘  ║
-╚═══════════════════════════════════════════════════════════════════════════════════════════╝
-                                    </pre>
+                                <div class="visual-diagram">
+                                    <div class="layer-container">
+                                        <!-- Presentation Layer -->
+                                        <div class="layer-box app">
+                                            <div class="layer-header">
+                                                <div class="layer-icon">
+                                                    <i class="fas fa-desktop"></i>
+                                                </div>
+                                                <div class="layer-title">
+                                                    <h3>Presentation Layer</h3>
+                                                    <span>Windows Forms + WebView2</span>
+                                                </div>
+                                                <div class="layer-badge">UI</div>
+                                            </div>
+                                            <div class="layer-items">
+                                                <div class="layer-item"><i class="fas fa-bars"></i> Navigation Toolbar</div>
+                                                <div class="layer-item"><i class="fas fa-server"></i> Instance Selector</div>
+                                                <div class="layer-item"><i class="fas fa-user"></i> User Panel</div>
+                                                <div class="layer-item"><i class="fas fa-robot"></i> Copilot Button</div>
+                                                <div class="layer-item"><i class="fas fa-print"></i> Printer Setup</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Connector -->
+                                        <div class="layer-connector">
+                                            <div class="layer-connector-inner">
+                                                <div class="layer-connector-line"></div>
+                                                <div class="layer-connector-icon"><i class="fas fa-arrow-down"></i></div>
+                                                <div class="layer-connector-line"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Application Layer -->
+                                        <div class="layer-box" style="background: linear-gradient(135deg, #fef3c7, #fde68a); border-color: #f59e0b40;">
+                                            <div class="layer-header">
+                                                <div class="layer-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                                    <i class="fab fa-js-square"></i>
+                                                </div>
+                                                <div class="layer-title">
+                                                    <h3>Application Layer</h3>
+                                                    <span>JavaScript Modules (ES6+)</span>
+                                                </div>
+                                                <div class="layer-badge" style="background: linear-gradient(135deg, #f59e0b, #d97706);">Logic</div>
+                                            </div>
+                                            <div class="layer-items">
+                                                <div class="layer-item"><i class="fas fa-code"></i> app.js (Core)</div>
+                                                <div class="layer-item"><i class="fas fa-route"></i> trip-details.js</div>
+                                                <div class="layer-item"><i class="fas fa-cog"></i> auto-inventory.js</div>
+                                                <div class="layer-item"><i class="fas fa-shopping-cart"></i> auto-sales.js</div>
+                                                <div class="layer-item"><i class="fas fa-print"></i> monitor-printing.js</div>
+                                                <div class="layer-item"><i class="fas fa-robot"></i> copilot.js</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Connector -->
+                                        <div class="layer-connector">
+                                            <div class="layer-connector-inner">
+                                                <div class="layer-connector-line"></div>
+                                                <div class="layer-connector-icon"><i class="fas fa-arrow-down"></i></div>
+                                                <div class="layer-connector-line"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Service Layer -->
+                                        <div class="layer-box" style="background: linear-gradient(135deg, #fee2e2, #fecaca); border-color: #ef444440;">
+                                            <div class="layer-header">
+                                                <div class="layer-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+                                                    <i class="fas fa-cogs"></i>
+                                                </div>
+                                                <div class="layer-title">
+                                                    <h3>Service Layer (C#)</h3>
+                                                    <span>Backend Services & Orchestration</span>
+                                                </div>
+                                                <div class="layer-badge" style="background: linear-gradient(135deg, #ef4444, #dc2626);">Services</div>
+                                            </div>
+                                            <div class="layer-items">
+                                                <div class="layer-item"><i class="fas fa-tasks"></i> PrintJobManager</div>
+                                                <div class="layer-item"><i class="fas fa-print"></i> PrinterService</div>
+                                                <div class="layer-item"><i class="fas fa-file-pdf"></i> FusionPdfDownloader</div>
+                                                <div class="layer-item"><i class="fas fa-hdd"></i> LocalStorageManager</div>
+                                                <div class="layer-item"><i class="fas fa-plug"></i> RestApiClient</div>
+                                                <div class="layer-item"><i class="fas fa-exchange-alt"></i> MessageRouter</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Connector -->
+                                        <div class="layer-connector">
+                                            <div class="layer-connector-inner">
+                                                <div class="layer-connector-line"></div>
+                                                <div class="layer-connector-icon"><i class="fas fa-arrow-down"></i></div>
+                                                <div class="layer-connector-line"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Data/Integration Layer -->
+                                        <div class="layer-box database">
+                                            <div class="layer-header">
+                                                <div class="layer-icon">
+                                                    <i class="fas fa-database"></i>
+                                                </div>
+                                                <div class="layer-title">
+                                                    <h3>Data / Integration Layer</h3>
+                                                    <span>External Systems & APIs</span>
+                                                </div>
+                                                <div class="layer-badge">Data</div>
+                                            </div>
+                                            <div class="layer-items">
+                                                <div class="layer-item"><i class="fas fa-database"></i> Oracle APEX REST</div>
+                                                <div class="layer-item"><i class="fas fa-cloud"></i> Oracle Fusion APIs</div>
+                                                <div class="layer-item"><i class="fas fa-file-invoice"></i> MRA Service</div>
+                                                <div class="layer-item"><i class="fas fa-robot"></i> Claude AI API</div>
+                                                <div class="layer-item"><i class="fab fa-github"></i> GitHub API</div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- Data Flow Diagram -->
                                 <h2 style="margin-top: 2rem;"><i class="fas fa-exchange-alt"></i> Data Flow Diagram</h2>
-                                <div class="tech-arch-diagram">
-                                    <pre class="architecture-ascii">
-                                    ┌─────────────────┐
-                                    │      USER       │
-                                    │   (Warehouse    │
-                                    │    Operator)    │
-                                    └────────┬────────┘
-                                             │
-                                             ▼
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              WINDOWS FORMS + WEBVIEW2                                    │
-│  ┌───────────────────────────────────────────────────────────────────────────────────┐  │
-│  │                              USER INTERACTIONS                                     │  │
-│  │   Click Menu    │    Select Trip    │    Print Order    │    Process MRA          │  │
-│  └────────┬────────┴─────────┬─────────┴─────────┬─────────┴──────────┬──────────────┘  │
-│           ▼                  ▼                   ▼                    ▼                  │
-│  ┌────────────────┐ ┌────────────────┐ ┌────────────────┐ ┌────────────────┐           │
-│  │  navigateTo    │ │  loadTrip      │ │  sendMessage   │ │  processMRA    │           │
-│  │  Page()        │ │  Details()     │ │  ToCSharp()    │ │  Interface()   │           │
-│  │  [app.js]      │ │  [trip-details]│ │  [app.js]      │ │  [mra-proc.js] │           │
-│  └───────┬────────┘ └───────┬────────┘ └───────┬────────┘ └───────┬────────┘           │
-└──────────┼──────────────────┼──────────────────┼──────────────────┼─────────────────────┘
-           │                  │                  │                  │
-           ▼                  ▼                  ▼                  ▼
-    ┌──────────────────────────────────────────────────────────────────────────┐
-    │                          MESSAGE ROUTER (C#)                              │
-    │                     WebViewMessageRouter.cs                               │
-    │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-    │  │ Navigate    │  │ Fetch Data  │  │ Print Job   │  │ MRA Call    │     │
-    │  │ Handler     │  │ Handler     │  │ Handler     │  │ Handler     │     │
-    │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘     │
-    └─────────┼────────────────┼────────────────┼────────────────┼─────────────┘
-              │                │                │                │
-              ▼                ▼                ▼                ▼
-    ┌─────────────────────────────────────────────────────────────────────────────────────┐
-    │                              API / INTEGRATION CALLS                                 │
-    │  ┌────────────────┐     ┌────────────────┐     ┌────────────────┐                   │
-    │  │  Oracle APEX   │     │ Oracle Fusion  │     │   MRA Service  │                   │
-    │  │  GET /trips    │     │ GET /pick      │     │ POST /MRA      │                   │
-    │  │  POST /orders  │     │   Transactions │     │   Invoice.php  │                   │
-    │  │  GET /printers │     │ SOAP /report   │     │                │                   │
-    │  └───────┬────────┘     └───────┬────────┘     └───────┬────────┘                   │
-    └──────────┼──────────────────────┼──────────────────────┼────────────────────────────┘
-               │                      │                      │
-               ▼                      ▼                      ▼
-    ┌─────────────────────────┐ ┌─────────────────────────┐ ┌─────────────────────────┐
-    │    ORACLE APEX DB       │ │   ORACLE FUSION CLOUD   │ │    EXTERNAL SYSTEMS     │
-    │  • wms_trips           │ │  • Sales Orders         │ │  • MRA Invoice System   │
-    │  • wms_orders          │ │  • Pick Transactions    │ │  • GitHub (version)     │
-    │  • wms_printers        │ │  • Receipts             │ │  • Claude AI            │
-    │  • wms_print_jobs      │ │  • Reports (XMLP)       │ │                         │
-    └─────────────────────────┘ └─────────────────────────┘ └─────────────────────────┘
-                                    </pre>
+                                <div class="visual-diagram">
+                                    <!-- User at Top -->
+                                    <div class="flow-row">
+                                        <div class="visual-box primary large">
+                                            <div class="visual-box-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                                                <i class="fas fa-user"></i>
+                                            </div>
+                                            <h4>Warehouse Operator</h4>
+                                            <p>Performs actions through WMS interface</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Arrow Down -->
+                                    <div class="flow-row">
+                                        <div class="arrow-with-label">
+                                            <i class="fas fa-arrow-down arrow-icon down"></i>
+                                            <span>User Actions</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- User Interactions Row -->
+                                    <div class="flow-row">
+                                        <div class="visual-box info small">
+                                            <div class="visual-box-icon small" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                                                <i class="fas fa-bars"></i>
+                                            </div>
+                                            <h4>Navigate</h4>
+                                            <p>Menu clicks</p>
+                                        </div>
+                                        <div class="visual-box info small">
+                                            <div class="visual-box-icon small" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                                                <i class="fas fa-route"></i>
+                                            </div>
+                                            <h4>Select Trip</h4>
+                                            <p>Load details</p>
+                                        </div>
+                                        <div class="visual-box info small">
+                                            <div class="visual-box-icon small" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                                                <i class="fas fa-print"></i>
+                                            </div>
+                                            <h4>Print Order</h4>
+                                            <p>Generate PDF</p>
+                                        </div>
+                                        <div class="visual-box info small">
+                                            <div class="visual-box-icon small" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                                                <i class="fas fa-file-invoice"></i>
+                                            </div>
+                                            <h4>Process MRA</h4>
+                                            <p>Send invoices</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Arrow Down -->
+                                    <div class="flow-row">
+                                        <div class="arrow-with-label">
+                                            <i class="fas fa-arrow-down arrow-icon down"></i>
+                                            <span>JavaScript Functions</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Message Router -->
+                                    <div class="flow-row">
+                                        <div class="visual-box warning large" style="min-width: 400px;">
+                                            <div class="visual-box-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                                <i class="fas fa-exchange-alt"></i>
+                                            </div>
+                                            <h4>Message Router (C#)</h4>
+                                            <p>WebViewMessageRouter.cs - Routes JS calls to appropriate handlers</p>
+                                            <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.75rem; flex-wrap: wrap;">
+                                                <span class="badge">Navigate Handler</span>
+                                                <span class="badge">Data Handler</span>
+                                                <span class="badge">Print Handler</span>
+                                                <span class="badge">MRA Handler</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Arrow Down -->
+                                    <div class="flow-row">
+                                        <div class="arrow-with-label">
+                                            <i class="fas fa-arrow-down arrow-icon down"></i>
+                                            <span>API Calls</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Backend Systems -->
+                                    <div class="flow-row">
+                                        <div class="visual-box success">
+                                            <div class="visual-box-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                                                <i class="fas fa-database"></i>
+                                            </div>
+                                            <h4>Oracle APEX</h4>
+                                            <p>Trips, Orders, Printers, Print Jobs</p>
+                                            <span class="badge" style="background: linear-gradient(135deg, #10b98120, #05966920); color: #059669;">REST API</span>
+                                        </div>
+                                        <div class="flow-arrow animated"><i class="fas fa-arrows-alt-h"></i></div>
+                                        <div class="visual-box primary">
+                                            <div class="visual-box-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                                                <i class="fas fa-cloud"></i>
+                                            </div>
+                                            <h4>Oracle Fusion</h4>
+                                            <p>Sales Orders, Inventory, Reports</p>
+                                            <span class="badge" style="background: linear-gradient(135deg, #3b82f620, #1d4ed820); color: #1d4ed8;">REST + SOAP</span>
+                                        </div>
+                                        <div class="flow-arrow animated"><i class="fas fa-arrows-alt-h"></i></div>
+                                        <div class="visual-box purple">
+                                            <div class="visual-box-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                                                <i class="fas fa-globe"></i>
+                                            </div>
+                                            <h4>External Services</h4>
+                                            <p>MRA, Claude AI, GitHub</p>
+                                            <span class="badge" style="background: linear-gradient(135deg, #8b5cf620, #7c3aed20); color: #7c3aed;">External API</span>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- Component Interaction Map -->
                                 <h2 style="margin-top: 2rem;"><i class="fas fa-network-wired"></i> Component Interaction Map</h2>
-                                <div class="tech-arch-diagram">
-                                    <pre class="architecture-ascii">
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                         ┌──────────────────────────────┐                                │
-│                         │     TRIP MANAGEMENT PAGE     │                                │
-│                         │       (Main Dashboard)       │                                │
-│                         └──────────────┬───────────────┘                                │
-│                                        │                                                 │
-│              ┌─────────────────────────┼─────────────────────────┐                      │
-│              │                         │                         │                      │
-│              ▼                         ▼                         ▼                      │
-│   ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐               │
-│   │   TRIP DETAILS   │     │   AUTO PROCESS   │     │  MONITOR PRINT   │               │
-│   │     MODAL        │     │     MODULE       │     │     MODULE       │               │
-│   │                  │     │                  │     │                  │               │
-│   │ • View orders    │     │ • Batch process  │     │ • View print     │               │
-│   │ • Edit trip      │     │ • Retry failed   │     │   jobs           │               │
-│   │ • Add orders     │     │ • Track progress │     │ • Filter status  │               │
-│   │ • Get volume     │     │ • Export Excel   │     │ • Preview PDF    │               │
-│   └────────┬─────────┘     └────────┬─────────┘     └────────┬─────────┘               │
-│            │                        │                        │                          │
-│            │         ┌──────────────┴──────────────┐        │                          │
-│            │         │                             │        │                          │
-│            ▼         ▼                             ▼        ▼                          │
-│   ┌──────────────────────┐               ┌──────────────────────┐                      │
-│   │    PICKER MODULE     │               │   PRINTER MODULE     │                      │
-│   │                      │               │                      │                      │
-│   │ • Assign pickers     │               │ • Configure printers │                      │
-│   │ • View availability  │               │ • Test connection    │                      │
-│   │ • Track progress     │               │ • Set default        │                      │
-│   └──────────────────────┘               └──────────┬───────────┘                      │
-│                                                     │                                   │
-│                                                     ▼                                   │
-│                                          ┌──────────────────────┐                      │
-│                                          │    MRA PROCESSOR     │                      │
-│                                          │ • Check interface    │                      │
-│                                          │ • Fetch summary      │                      │
-│                                          │ • Submit to MRA      │                      │
-│                                          │ • Confirm in Fusion  │                      │
-│                                          └──────────────────────┘                      │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                                    </pre>
+                                <div class="visual-diagram">
+                                    <div class="component-map">
+                                        <!-- Central Component -->
+                                        <div class="component-center">
+                                            <i class="fas fa-route" style="font-size: 2rem; margin-bottom: 0.5rem;"></i>
+                                            <h3>Trip Management Page</h3>
+                                            <p>Main Dashboard - Central Hub</p>
+                                        </div>
+
+                                        <!-- Branch Components -->
+                                        <div class="component-branches">
+                                            <div class="component-branch">
+                                                <div class="component-line"></div>
+                                                <div class="component-node">
+                                                    <i class="fas fa-info-circle"></i>
+                                                    <h4>Trip Details Modal</h4>
+                                                    <p>View & Edit Orders</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="component-branch">
+                                                <div class="component-line"></div>
+                                                <div class="component-node">
+                                                    <i class="fas fa-robot"></i>
+                                                    <h4>Auto Process</h4>
+                                                    <p>Batch Processing</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="component-branch">
+                                                <div class="component-line"></div>
+                                                <div class="component-node">
+                                                    <i class="fas fa-print"></i>
+                                                    <h4>Monitor Print</h4>
+                                                    <p>Print Job Queue</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="component-branch">
+                                                <div class="component-line"></div>
+                                                <div class="component-node">
+                                                    <i class="fas fa-users"></i>
+                                                    <h4>Picker Module</h4>
+                                                    <p>Assign & Track</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="component-branch">
+                                                <div class="component-line"></div>
+                                                <div class="component-node">
+                                                    <i class="fas fa-cog"></i>
+                                                    <h4>Printer Module</h4>
+                                                    <p>Configure Devices</p>
+                                                </div>
+                                            </div>
+
+                                            <div class="component-branch">
+                                                <div class="component-line"></div>
+                                                <div class="component-node">
+                                                    <i class="fas fa-file-invoice"></i>
+                                                    <h4>MRA Processor</h4>
+                                                    <p>Invoice Interface</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- Print Job Workflow -->
                                 <h2 style="margin-top: 2rem;"><i class="fas fa-print"></i> Print Job Workflow</h2>
-                                <div class="tech-arch-diagram">
-                                    <pre class="architecture-ascii">
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                              PRINT JOB WORKFLOW                                          │
-├─────────────────────────────────────────────────────────────────────────────────────────┤
-│                                                                                          │
-│   1. USER ACTION           2. CREATE PRINT JOB                                          │
-│   ┌─────────────────┐      ┌─────────────────┐     ┌─────────────────┐                  │
-│   │ User clicks     │─────▶│ JavaScript      │────▶│ C# Message      │                  │
-│   │ "Print Order"   │      │ sendMessage()   │     │ Router          │                  │
-│   └─────────────────┘      └─────────────────┘     └────────┬────────┘                  │
-│                                                             │                            │
-│   3. DOWNLOAD PDF                                           ▼                            │
-│   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐                   │
-│   │ FusionPdf       │────▶│ Oracle Fusion   │────▶│ Save to         │                   │
-│   │ Downloader      │     │ SOAP Service    │     │ Local Storage   │                   │
-│   │ (SOAP Request)  │     │ (XMLP Report)   │     │ (PDF File)      │                   │
-│   └─────────────────┘     └─────────────────┘     └────────┬────────┘                   │
-│                                                            │                             │
-│   4. SEND TO PRINTER                                       ▼                             │
-│   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐                   │
-│   │ PrinterService  │────▶│ Windows Print   │────▶│ Physical        │                   │
-│   │ PrintPdfAsync() │     │ Spooler         │     │ Printer         │                   │
-│   └─────────────────┘     └─────────────────┘     └────────┬────────┘                   │
-│                                                            │                             │
-│   5. UPDATE STATUS                                         ▼                             │
-│   ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐                   │
-│   │ Update APEX     │────▶│ Update UI       │────▶│ Monitor         │                   │
-│   │ Database        │     │ Grid            │     │ Printing Page   │                   │
-│   └─────────────────┘     └─────────────────┘     └─────────────────┘                   │
-│                                                                                          │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-                                    </pre>
+                                <div class="visual-diagram">
+                                    <div class="horizontal-workflow">
+                                        <!-- Step 1 -->
+                                        <div class="h-workflow-step">
+                                            <div class="h-step-icon step-1">
+                                                <i class="fas fa-mouse-pointer"></i>
+                                            </div>
+                                            <div class="h-step-content">
+                                                <h4>1. User Action</h4>
+                                                <p>Click "Print Order" button</p>
+                                            </div>
+                                        </div>
+
+                                        <div class="h-workflow-arrow"><i class="fas fa-chevron-right"></i></div>
+
+                                        <!-- Step 2 -->
+                                        <div class="h-workflow-step">
+                                            <div class="h-step-icon step-2">
+                                                <i class="fab fa-js-square"></i>
+                                            </div>
+                                            <div class="h-step-content">
+                                                <h4>2. Create Job</h4>
+                                                <p>JS sends to C# Router</p>
+                                            </div>
+                                        </div>
+
+                                        <div class="h-workflow-arrow"><i class="fas fa-chevron-right"></i></div>
+
+                                        <!-- Step 3 -->
+                                        <div class="h-workflow-step">
+                                            <div class="h-step-icon step-3">
+                                                <i class="fas fa-file-pdf"></i>
+                                            </div>
+                                            <div class="h-step-content">
+                                                <h4>3. Download PDF</h4>
+                                                <p>Fusion SOAP Report</p>
+                                            </div>
+                                        </div>
+
+                                        <div class="h-workflow-arrow"><i class="fas fa-chevron-right"></i></div>
+
+                                        <!-- Step 4 -->
+                                        <div class="h-workflow-step">
+                                            <div class="h-step-icon step-4">
+                                                <i class="fas fa-print"></i>
+                                            </div>
+                                            <div class="h-step-content">
+                                                <h4>4. Send to Printer</h4>
+                                                <p>Windows Print Spooler</p>
+                                            </div>
+                                        </div>
+
+                                        <div class="h-workflow-arrow"><i class="fas fa-chevron-right"></i></div>
+
+                                        <!-- Step 5 -->
+                                        <div class="h-workflow-step">
+                                            <div class="h-step-icon step-5">
+                                                <i class="fas fa-check-circle"></i>
+                                            </div>
+                                            <div class="h-step-content">
+                                                <h4>5. Update Status</h4>
+                                                <p>APEX DB & UI Grid</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Detailed Steps Below -->
+                                    <div class="workflow-visual" style="margin-top: 2rem;">
+                                        <div class="workflow-step">
+                                            <div class="step-number">1</div>
+                                            <div class="step-card">
+                                                <h4><i class="fas fa-mouse-pointer"></i> User Initiates Print</h4>
+                                                <p>User clicks "Print Order" button from Trip Details or Monitor Printing page</p>
+                                                <div class="step-details">
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Select orders</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Choose printer</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Set copies</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="workflow-step">
+                                            <div class="step-number">2</div>
+                                            <div class="step-card">
+                                                <h4><i class="fab fa-js-square"></i> JavaScript Processes Request</h4>
+                                                <p>sendMessageToCSharp() creates print job and routes to C# backend</p>
+                                                <div class="step-details">
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Validate input</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Build payload</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Route message</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="workflow-step">
+                                            <div class="step-number">3</div>
+                                            <div class="step-card">
+                                                <h4><i class="fas fa-file-pdf"></i> Download PDF from Fusion</h4>
+                                                <p>FusionPdfDownloader calls Oracle SOAP/XMLP service to generate report</p>
+                                                <div class="step-details">
+                                                    <span class="step-detail"><i class="fas fa-check"></i> SOAP request</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Generate report</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Save locally</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="workflow-step">
+                                            <div class="step-number">4</div>
+                                            <div class="step-card">
+                                                <h4><i class="fas fa-print"></i> Send to Physical Printer</h4>
+                                                <p>PrinterService sends PDF to Windows Print Spooler for physical output</p>
+                                                <div class="step-details">
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Load printer</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Queue job</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Print document</span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="workflow-step">
+                                            <div class="step-number">5</div>
+                                            <div class="step-card">
+                                                <h4><i class="fas fa-check-circle"></i> Update Status & Notify</h4>
+                                                <p>Update APEX database and refresh UI grid with completion status</p>
+                                                <div class="step-details">
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Update DB</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Refresh grid</span>
+                                                    <span class="step-detail"><i class="fas fa-check"></i> Show toast</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- Technology Stack -->
@@ -3069,44 +3376,72 @@
 
                                 <!-- File System Structure -->
                                 <h2 style="margin-top: 2rem;"><i class="fas fa-folder-tree"></i> Project File Structure</h2>
-                                <div class="tech-arch-diagram">
-                                    <pre class="architecture-ascii file-structure">
-graysWMSwebviewnew/                    (Project Root)
-├── wms/                               (Web Application)
-│   ├── index.html                     (Main SPA shell - 324KB)
-│   ├── app.js                         (Core application logic - 721KB)
-│   ├── config.js                      (API configuration)
-│   ├── styles.css                     (Application styling)
-│   ├── trip-details.js                (Trip management - 82KB)
-│   ├── auto-inventory-processing.js   (Inventory automation - 299KB)
-│   ├── auto-sales-order-processing.js (Sales order automation - 179KB)
-│   ├── monitor-printing.js            (Print monitoring - 96KB)
-│   ├── printer-management-new.js      (Printer config - 26KB)
-│   ├── mra-processor.js               (MRA interface - 23KB)
-│   ├── pickers.js                     (Picker management - 14KB)
-│   ├── vehicles.js                    (Vehicle management - 12KB)
-│   ├── copilot.js                     (AI assistant - 174KB)
-│   └── ...
-├── classes/                           (C# Backend Services)
-│   ├── PrintJobManager.cs             (Print orchestration)
-│   ├── PrinterService.cs              (Windows printer integration)
-│   ├── FusionPdfDownloader.cs         (PDF download via SOAP)
-│   ├── LocalStorageManager.cs         (File system persistence)
-│   ├── RestApiClient.cs               (HTTP client)
-│   ├── WebViewMessageRouter.cs        (JS ↔ C# bridge)
-│   ├── MRAProcessor.cs                (MRA processing)
-│   ├── ClaudeApiHandler.cs            (AI integration)
-│   └── ...
-├── apex_sql/                          (Database Scripts)
-│   ├── 01_create_tables.sql           (Table definitions)
-│   ├── 02_post_procedures.sql         (POST procedures)
-│   ├── 03_get_procedures.sql          (GET procedures)
-│   └── ...
-├── Form1.cs                           (Main Windows Form)
-├── Form1.Designer.cs                  (Form Designer)
-├── Program.cs                         (Application Entry Point)
-└── WMSApp.csproj                      (.NET 8.0 Project File)
-                                    </pre>
+                                <div class="visual-diagram" style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);">
+                                    <div class="arch-visual-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+                                        <!-- WMS Web Application Folder -->
+                                        <div class="arch-column" style="background: linear-gradient(135deg, #1e3a5f, #0f2744);">
+                                            <div class="arch-column-header" style="border-bottom-color: #3b82f640;">
+                                                <div class="arch-column-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                                                    <i class="fas fa-folder-open"></i>
+                                                </div>
+                                                <div>
+                                                    <h4 style="color: white;">wms/</h4>
+                                                    <small style="color: #94a3b8;">Web Application</small>
+                                                </div>
+                                            </div>
+                                            <div class="arch-feature-list">
+                                                <div class="arch-feature" style="background: #1e293b; color: #60a5fa;"><i class="fab fa-html5" style="color: #f97316;"></i> index.html</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #fbbf24;"><i class="fab fa-js-square" style="color: #fbbf24;"></i> app.js (Core)</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #60a5fa;"><i class="fas fa-palette" style="color: #a78bfa;"></i> styles.css</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #fbbf24;"><i class="fas fa-route" style="color: #fbbf24;"></i> trip-details.js</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #fbbf24;"><i class="fas fa-cog" style="color: #fbbf24;"></i> auto-inventory.js</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #fbbf24;"><i class="fas fa-print" style="color: #fbbf24;"></i> monitor-printing.js</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #fbbf24;"><i class="fas fa-robot" style="color: #fbbf24;"></i> copilot.js</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- C# Classes Folder -->
+                                        <div class="arch-column" style="background: linear-gradient(135deg, #1e3a5f, #0f2744);">
+                                            <div class="arch-column-header" style="border-bottom-color: #10b98140;">
+                                                <div class="arch-column-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                                                    <i class="fas fa-folder-open"></i>
+                                                </div>
+                                                <div>
+                                                    <h4 style="color: white;">classes/</h4>
+                                                    <small style="color: #94a3b8;">C# Backend Services</small>
+                                                </div>
+                                            </div>
+                                            <div class="arch-feature-list">
+                                                <div class="arch-feature" style="background: #1e293b; color: #4ade80;"><i class="fas fa-tasks" style="color: #4ade80;"></i> PrintJobManager.cs</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #4ade80;"><i class="fas fa-print" style="color: #4ade80;"></i> PrinterService.cs</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #4ade80;"><i class="fas fa-file-pdf" style="color: #4ade80;"></i> FusionPdfDownloader.cs</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #4ade80;"><i class="fas fa-exchange-alt" style="color: #4ade80;"></i> MessageRouter.cs</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #4ade80;"><i class="fas fa-plug" style="color: #4ade80;"></i> RestApiClient.cs</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #4ade80;"><i class="fas fa-robot" style="color: #4ade80;"></i> ClaudeApiHandler.cs</div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Root Files -->
+                                        <div class="arch-column" style="background: linear-gradient(135deg, #1e3a5f, #0f2744);">
+                                            <div class="arch-column-header" style="border-bottom-color: #8b5cf640;">
+                                                <div class="arch-column-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                                                    <i class="fas fa-home"></i>
+                                                </div>
+                                                <div>
+                                                    <h4 style="color: white;">Root Files</h4>
+                                                    <small style="color: #94a3b8;">Project Configuration</small>
+                                                </div>
+                                            </div>
+                                            <div class="arch-feature-list">
+                                                <div class="arch-feature" style="background: #1e293b; color: #c4b5fd;"><i class="fas fa-window-maximize" style="color: #c4b5fd;"></i> Form1.cs</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #c4b5fd;"><i class="fas fa-drafting-compass" style="color: #c4b5fd;"></i> Form1.Designer.cs</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #c4b5fd;"><i class="fas fa-play" style="color: #c4b5fd;"></i> Program.cs</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #c4b5fd;"><i class="fas fa-cogs" style="color: #c4b5fd;"></i> WMSApp.csproj</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #94a3b8;"><i class="fas fa-folder" style="color: #f59e0b;"></i> apex_sql/</div>
+                                                <div class="arch-feature" style="background: #1e293b; color: #94a3b8;"><i class="fas fa-file-code" style="color: #60a5fa;"></i> login.html</div>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
 
                                 <!-- API Endpoints Summary -->
