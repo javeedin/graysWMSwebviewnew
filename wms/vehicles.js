@@ -35,7 +35,99 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-// Initialize DevExpress DataGrid
+// Helper function to convert snake_case or lowercase to Title Case
+function formatColumnCaption(fieldName) {
+    return fieldName
+        .replace(/_/g, ' ')           // Replace underscores with spaces
+        .replace(/([a-z])([A-Z])/g, '$1 $2')  // Handle camelCase
+        .replace(/\b\w/g, char => char.toUpperCase());  // Capitalize first letter of each word
+}
+
+// Helper function to detect column data type based on sample values
+function detectColumnType(values) {
+    // Filter out null/undefined values
+    const validValues = values.filter(v => v !== null && v !== undefined);
+    if (validValues.length === 0) return 'string';
+
+    // Check if all values are numbers
+    const allNumbers = validValues.every(v => typeof v === 'number' || (!isNaN(parseFloat(v)) && isFinite(v)));
+    if (allNumbers) return 'number';
+
+    // Check if values look like dates
+    const datePattern = /^\d{4}-\d{2}-\d{2}|^\d{2}\/\d{2}\/\d{4}/;
+    const allDates = validValues.every(v => typeof v === 'string' && datePattern.test(v));
+    if (allDates) return 'date';
+
+    return 'string';
+}
+
+// Generate dynamic columns based on data
+function generateDynamicColumns(data) {
+    if (!data || data.length === 0) {
+        console.log('[Vehicles] No data to generate columns from');
+        return [];
+    }
+
+    // Get all unique field names from all records
+    const fieldSet = new Set();
+    data.forEach(item => {
+        Object.keys(item).forEach(key => fieldSet.add(key));
+    });
+
+    const fields = Array.from(fieldSet);
+    console.log('[Vehicles] Generating columns for fields:', fields);
+
+    // Sample values for type detection (take up to 10 samples per field)
+    const columns = fields.map((field, index) => {
+        const sampleValues = data.slice(0, 10).map(item => item[field]);
+        const dataType = detectColumnType(sampleValues);
+
+        const column = {
+            dataField: field,
+            caption: formatColumnCaption(field),
+            allowFiltering: true,
+            allowSorting: true
+        };
+
+        // Make first column fixed for better UX
+        if (index === 0) {
+            column.fixed = true;
+            column.width = 150;
+        }
+
+        // Set data type and format based on detected type
+        if (dataType === 'number') {
+            column.dataType = 'number';
+            // Check if values have decimals
+            const hasDecimals = sampleValues.some(v => v !== null && v !== undefined && v.toString().includes('.'));
+            if (hasDecimals) {
+                column.format = { type: 'fixedPoint', precision: 2 };
+            }
+        } else if (dataType === 'date') {
+            column.dataType = 'date';
+            column.format = 'yyyy-MM-dd';
+        }
+
+        // Special handling for status fields
+        if (field.toLowerCase() === 'status') {
+            column.cellTemplate = function(container, options) {
+                const status = options.value || 'Unknown';
+                const statusClass = status.toString().toLowerCase().replace(/\s+/g, '-');
+                container.append(
+                    $('<span>')
+                        .addClass(`status-badge status-${statusClass}`)
+                        .text(status)
+                );
+            };
+        }
+
+        return column;
+    });
+
+    return columns;
+}
+
+// Initialize DevExpress DataGrid (dynamic - columns will be set when data loads)
 function initializeVehiclesGrid() {
     console.log('[Vehicles] Initializing grid...');
 
@@ -72,77 +164,8 @@ function initializeVehiclesGrid() {
                 allowedPageSizes: [10, 20, 50, 100],
                 showInfo: true
             },
-            columns: [
-                {
-                    dataField: 'lorry_number',
-                    caption: 'Lorry Number',
-                    width: 150,
-                    fixed: true
-                },
-                {
-                    dataField: 'assigned_route',
-                    caption: 'Assigned Route',
-                    width: 150
-                },
-                {
-                    dataField: 'delivery_officer',
-                    caption: 'Delivery Officer',
-                    width: 150
-                },
-                {
-                    dataField: 'capacity',
-                    caption: 'Capacity',
-                    width: 120,
-                    dataType: 'number'
-                },
-                {
-                    dataField: 'status',
-                    caption: 'Status',
-                    width: 120,
-                    cellTemplate: function(container, options) {
-                        const status = options.value || 'Unknown';
-                        const statusClass = status.toLowerCase();
-                        container.append(
-                            $('<span>')
-                                .addClass(`status-badge status-${statusClass}`)
-                                .text(status)
-                        );
-                    }
-                },
-                {
-                    dataField: 'date_created',
-                    caption: 'Date Created',
-                    width: 150,
-                    dataType: 'datetime',
-                    format: 'yyyy-MM-dd HH:mm'
-                },
-                {
-                    caption: 'Actions',
-                    width: 120,
-                    cellTemplate: function(container, options) {
-                        const editBtn = $('<button>')
-                            .addClass('grid-action-btn btn-preview')
-                            .html('<i class="fas fa-edit"></i>')
-                            .attr('title', 'Edit Vehicle')
-                            .on('click', function() {
-                                editVehicle(options.data);
-                            });
-
-                        const deleteBtn = $('<button>')
-                            .addClass('grid-action-btn btn-retry')
-                            .html('<i class="fas fa-trash"></i>')
-                            .attr('title', 'Delete Vehicle')
-                            .css('background', '#dc3545')
-                            .on('click', function() {
-                                deleteVehicle(options.data.lorry_number);
-                            });
-
-                        container.append(editBtn).append(' ').append(deleteBtn);
-                    },
-                    allowFiltering: false,
-                    allowSorting: false
-                }
-            ],
+            // No hardcoded columns - they will be generated dynamically from data
+            columns: [],
             onContentReady: function(e) {
                 console.log('[Vehicles] Grid content ready, row count:', e.component.totalCount());
             }
@@ -209,8 +232,14 @@ window.handleVehiclesData = function(data) {
 
         console.log('[Vehicles] Loaded', window.vehiclesData.length, 'vehicles');
 
-        // Update grid
+        // Update grid with dynamic columns
         if (vehiclesGrid) {
+            // Generate columns dynamically based on the data
+            const dynamicColumns = generateDynamicColumns(window.vehiclesData);
+            console.log('[Vehicles] Generated', dynamicColumns.length, 'dynamic columns');
+
+            // Update grid columns and data source
+            vehiclesGrid.option('columns', dynamicColumns);
             vehiclesGrid.option('dataSource', window.vehiclesData);
         }
 
@@ -327,14 +356,35 @@ function deleteVehicle(lorryNumber) {
 window.showVehiclesApi = function() {
     console.log('[Vehicles] Showing API info');
 
-    // Set the API URL in the modal
-    document.getElementById('vehicles-api-url').textContent = VEHICLES_API;
+    try {
+        // Get modal elements
+        const modal = document.getElementById('vehicles-api-modal');
+        const urlElement = document.getElementById('vehicles-api-url');
+        const resultElement = document.getElementById('vehicles-api-result');
 
-    // Hide previous results
-    document.getElementById('vehicles-api-result').style.display = 'none';
+        if (!modal) {
+            console.error('[Vehicles] API modal element not found!');
+            alert('Error: API modal not found. Please check if vehicles-api-modal element exists.');
+            return;
+        }
 
-    // Show the modal
-    document.getElementById('vehicles-api-modal').style.display = 'flex';
+        // Set the API URL in the modal
+        if (urlElement) {
+            urlElement.textContent = VEHICLES_API;
+        }
+
+        // Hide previous results
+        if (resultElement) {
+            resultElement.style.display = 'none';
+        }
+
+        // Show the modal
+        modal.style.display = 'flex';
+        console.log('[Vehicles] API modal displayed');
+    } catch (error) {
+        console.error('[Vehicles] Error showing API modal:', error);
+        alert('Error showing API modal: ' + error.message);
+    }
 };
 
 // Close Vehicles API Modal
