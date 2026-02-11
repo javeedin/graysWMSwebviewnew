@@ -211,6 +211,10 @@
                 <i class="fas fa-cog"></i>
                 <span>Settings & Updates</span>
             </div>
+            <div class="menu-item" data-page="help-documentation">
+                <i class="fas fa-question-circle"></i>
+                <span>Help</span>
+            </div>
             <div class="menu-item" onclick="window.location.href='release-manager.html'" style="border-top: 1px solid #e0e0e0; margin-top: 10px; padding-top: 15px;">
                 <i class="fas fa-rocket"></i>
                 <span>Release Manager</span>
@@ -2532,6 +2536,1539 @@
                     <!-- DevExpress Grid Container -->
                     <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden;">
                         <div id="psl-grid-container" style="height: 500px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Help Documentation Page -->
+            <div id="help-documentation" class="page-content" style="display: none;">
+                <div class="help-page-container">
+                    <!-- Help Page Header -->
+                    <div class="help-header">
+                        <div class="help-header-content">
+                            <div class="help-header-icon">
+                                <i class="fas fa-book-open"></i>
+                            </div>
+                            <div class="help-header-text">
+                                <h1>WMS Documentation & Help</h1>
+                                <p>Comprehensive guide to the Warehouse Management System</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Help Tab Navigation -->
+                    <div class="help-tabs">
+                        <div class="help-tab active" data-help-tab="architecture">
+                            <i class="fas fa-sitemap"></i>
+                            <span>Architecture</span>
+                        </div>
+                        <div class="help-tab" data-help-tab="features">
+                            <i class="fas fa-star"></i>
+                            <span>Application Features</span>
+                        </div>
+                        <div class="help-tab" data-help-tab="process">
+                            <i class="fas fa-project-diagram"></i>
+                            <span>Process</span>
+                        </div>
+                        <div class="help-tab" data-help-tab="api">
+                            <i class="fas fa-code"></i>
+                            <span>API Documentation</span>
+                        </div>
+                        <div class="help-tab" data-help-tab="roadmap">
+                            <i class="fas fa-road"></i>
+                            <span>Future Roadmap</span>
+                        </div>
+                    </div>
+
+                    <!-- Help Tab Contents -->
+                    <div class="help-tab-contents">
+
+                        <!-- Architecture Tab -->
+                        <div id="help-architecture" class="help-tab-pane active">
+                            <div class="help-section">
+                                <h2><i class="fas fa-layer-group"></i> System Architecture Overview</h2>
+                                <p class="help-intro">The WMS (Warehouse Management System) is built on a robust three-tier architecture that seamlessly integrates Oracle Fusion Cloud, Oracle APEX, and a high-performance C# WebView2 application to deliver a unified warehouse management experience.</p>
+
+                                <!-- Architecture Diagram -->
+                                <div class="architecture-diagram">
+                                    <div class="arch-layer arch-layer-1">
+                                        <div class="arch-layer-header">
+                                            <i class="fas fa-cloud"></i>
+                                            <h3>Layer 1: Oracle Fusion Cloud</h3>
+                                            <span class="arch-badge">Data Source</span>
+                                        </div>
+                                        <div class="arch-layer-content">
+                                            <div class="arch-items">
+                                                <div class="arch-item">
+                                                    <i class="fas fa-file-invoice"></i>
+                                                    <span>Sales Orders</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-users"></i>
+                                                    <span>Customers</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-boxes"></i>
+                                                    <span>Items & Inventory</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-warehouse"></i>
+                                                    <span>On-Hand Quantities</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-shipping-fast"></i>
+                                                    <span>Pending Shipments</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-barcode"></i>
+                                                    <span>Lot Details</span>
+                                                </div>
+                                            </div>
+                                            <p class="arch-description">Oracle Fusion is the enterprise ERP system containing all master data including sales orders, customer information, item catalogs, inventory levels, and shipment details.</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="arch-connector">
+                                        <div class="connector-line"></div>
+                                        <div class="connector-arrow">
+                                            <i class="fas fa-exchange-alt"></i>
+                                            <span>REST APIs</span>
+                                        </div>
+                                        <div class="connector-line"></div>
+                                    </div>
+
+                                    <div class="arch-layer arch-layer-2">
+                                        <div class="arch-layer-header">
+                                            <i class="fas fa-database"></i>
+                                            <h3>Layer 2: Oracle APEX (Database)</h3>
+                                            <span class="arch-badge">Processing Layer</span>
+                                        </div>
+                                        <div class="arch-layer-content">
+                                            <div class="arch-items">
+                                                <div class="arch-item">
+                                                    <i class="fas fa-route"></i>
+                                                    <span>Trips</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-truck"></i>
+                                                    <span>Lorries/Vehicles</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-user-hard-hat"></i>
+                                                    <span>Pickers</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-tasks"></i>
+                                                    <span>Assignments</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-clipboard-list"></i>
+                                                    <span>Store Requests</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-print"></i>
+                                                    <span>Print Jobs</span>
+                                                </div>
+                                            </div>
+                                            <p class="arch-description">APEX serves as the operational database layer, storing trip assignments, vehicle allocations, picker assignments, and processing queues for optimized performance.</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="arch-connector">
+                                        <div class="connector-line"></div>
+                                        <div class="connector-arrow">
+                                            <i class="fas fa-exchange-alt"></i>
+                                            <span>REST APIs</span>
+                                        </div>
+                                        <div class="connector-line"></div>
+                                    </div>
+
+                                    <div class="arch-layer arch-layer-3">
+                                        <div class="arch-layer-header">
+                                            <i class="fas fa-desktop"></i>
+                                            <h3>Layer 3: WMS Application</h3>
+                                            <span class="arch-badge">User Interface</span>
+                                        </div>
+                                        <div class="arch-layer-content">
+                                            <div class="arch-items">
+                                                <div class="arch-item">
+                                                    <i class="fab fa-html5"></i>
+                                                    <span>HTML5/CSS3</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fab fa-js-square"></i>
+                                                    <span>JavaScript</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fab fa-microsoft"></i>
+                                                    <span>C# WebView2</span>
+                                                </div>
+                                                <div class="arch-item">
+                                                    <i class="fas fa-chart-bar"></i>
+                                                    <span>DevExpress</span>
+                                                </div>
+                                            </div>
+                                            <p class="arch-description">The WMS desktop application built with C# and WebView2, providing a responsive HTML/CSS/JavaScript interface with DevExpress components for rich data grids.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Key Benefits Section -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-trophy"></i> Key Architectural Benefits</h2>
+                                <div class="benefits-grid">
+                                    <div class="benefit-card">
+                                        <div class="benefit-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                                            <i class="fas fa-bolt"></i>
+                                        </div>
+                                        <h4>High Performance</h4>
+                                        <p>Multi-threaded architecture runs concurrent API calls for data fetching, ensuring lightning-fast response times even with large datasets.</p>
+                                    </div>
+                                    <div class="benefit-card">
+                                        <div class="benefit-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                                            <i class="fas fa-sync-alt"></i>
+                                        </div>
+                                        <h4>Real-Time Data</h4>
+                                        <p>Direct integration with Oracle Fusion APIs ensures real-time data synchronization without any integration delays or data staleness.</p>
+                                    </div>
+                                    <div class="benefit-card">
+                                        <div class="benefit-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                                            <i class="fas fa-shield-alt"></i>
+                                        </div>
+                                        <h4>Data Integrity</h4>
+                                        <p>By using native Fusion APIs, all transactions maintain complete data integrity with built-in validation and audit trails.</p>
+                                    </div>
+                                    <div class="benefit-card">
+                                        <div class="benefit-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                            <i class="fas fa-puzzle-piece"></i>
+                                        </div>
+                                        <h4>No Integration Overhead</h4>
+                                        <p>Eliminates third-party integration tools and middleware, reducing complexity and potential points of failure.</p>
+                                    </div>
+                                    <div class="benefit-card">
+                                        <div class="benefit-icon" style="background: linear-gradient(135deg, #ec4899, #db2777);">
+                                            <i class="fas fa-laptop-code"></i>
+                                        </div>
+                                        <h4>Modern Technology Stack</h4>
+                                        <p>Built on solid C#, HTML5, CSS3, and JavaScript foundations, ensuring maintainability and extensibility.</p>
+                                    </div>
+                                    <div class="benefit-card">
+                                        <div class="benefit-icon" style="background: linear-gradient(135deg, #06b6d4, #0891b2);">
+                                            <i class="fas fa-eye"></i>
+                                        </div>
+                                        <h4>Unified View</h4>
+                                        <p>Aggregates data from both Fusion and APEX into a single screen, giving users complete visibility without switching systems.</p>
+                                    </div>
+                                </div>
+
+                                <!-- Data Flow Section -->
+                                <h2 style="margin-top: 2rem;"><i class="fas fa-stream"></i> Data Flow Process</h2>
+                                <div class="data-flow-container">
+                                    <div class="data-flow-step">
+                                        <div class="flow-number">1</div>
+                                        <div class="flow-content">
+                                            <h4>Order Fetching</h4>
+                                            <p>WMS fetches pending shipments (orders) from Oracle Fusion Cloud in real-time.</p>
+                                        </div>
+                                    </div>
+                                    <div class="data-flow-arrow"><i class="fas fa-arrow-right"></i></div>
+                                    <div class="data-flow-step">
+                                        <div class="flow-number">2</div>
+                                        <div class="flow-content">
+                                            <h4>Local Caching</h4>
+                                            <p>Orders are stored in APEX database for faster processing and trip management.</p>
+                                        </div>
+                                    </div>
+                                    <div class="data-flow-arrow"><i class="fas fa-arrow-right"></i></div>
+                                    <div class="data-flow-step">
+                                        <div class="flow-number">3</div>
+                                        <div class="flow-content">
+                                            <h4>Trip Creation</h4>
+                                            <p>Users create trips and assign orders, pickers, and lorries through WMS interface.</p>
+                                        </div>
+                                    </div>
+                                    <div class="data-flow-arrow"><i class="fas fa-arrow-right"></i></div>
+                                    <div class="data-flow-step">
+                                        <div class="flow-number">4</div>
+                                        <div class="flow-content">
+                                            <h4>Execution</h4>
+                                            <p>WMS executes Fusion APIs for pick release, lot allocation, and transaction processing.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Application Features Tab -->
+                        <div id="help-features" class="help-tab-pane">
+                            <div class="help-section">
+                                <h2><i class="fas fa-star"></i> Application Features</h2>
+                                <p class="help-intro">Comprehensive list of all features organized by page/module.</p>
+
+                                <!-- Trip Management -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-truck"></i>
+                                        <h3>Trip Management</h3>
+                                        <span class="feature-badge primary">Main Module</span>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Query Parameters</strong>
+                                                <p>Filter trips by instance (PROD/TEST), date range with flexible date pickers</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>All Trips Grid</strong>
+                                                <p>View all trips with order numbers, trip IDs, dates, lorries, and status in a DevExpress data grid</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Multi-Select Filtering</strong>
+                                                <p>Filter by multiple lorries and dates using advanced multi-select dropdowns</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>All Trip Details Tab</strong>
+                                                <p>Detailed view with KPI bar showing Orders, Trips, Customers, Lorries, Pickers, and Weight</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Assign Picker</strong>
+                                                <p>Bulk assign pickers to selected trips or orders with picker selection modal</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Allocate Lot Quantities</strong>
+                                                <p>Allocate inventory lots to orders for proper inventory tracking</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Trip Details Modal</strong>
+                                                <p>Floating action menu with options for viewing order lines, pick release details, and more</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Cancel Order Lines</strong>
+                                                <p>Cancel scheduled or unpicked lines directly from the interface</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Get Order Volume/Weight</strong>
+                                                <p>Fetch and display total order volume and weight metrics</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Vehicles Dashboard -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-car"></i>
+                                        <h3>Vehicles Dashboard</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Vehicle Summary Cards</strong>
+                                                <p>Visual card-based layout showing vehicle metrics and status at a glance</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Date Merge Option</strong>
+                                                <p>Consolidate vehicle data across multiple dates for aggregate view</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Debug Data View</strong>
+                                                <p>Technical view for troubleshooting and data verification</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Analytics -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-chart-line"></i>
+                                        <h3>Analytics</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>KPI Cards</strong>
+                                                <p>Real-time KPI cards showing Total Orders, Trips, Customers, Lorries, and Pickers</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Advanced Filters</strong>
+                                                <p>Multi-select filters for Customers, Lorries, and Pickers with search capability</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Export to Excel</strong>
+                                                <p>Export filtered analytics data to Excel spreadsheet for reporting</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Active Filters Display</strong>
+                                                <p>Visual chips showing currently applied filters with easy removal</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Vehicles Management -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-truck"></i>
+                                        <h3>Vehicles Management</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Vehicle CRUD Operations</strong>
+                                                <p>Create, read, update, and delete vehicles with complete details</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Vehicle Details</strong>
+                                                <p>Manage lorry number, assigned route, delivery officer, capacity, and status</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Pickers Management -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-users"></i>
+                                        <h3>Pickers Management</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Picker CRUD Operations</strong>
+                                                <p>Manage picker profiles with add, edit, and delete capabilities</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Type Classification</strong>
+                                                <p>Categorize pickers by type (Bulk, Individual) for assignment optimization</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Picker Details</strong>
+                                                <p>Track ID, Name, Contact, Assigned Area, Profit Center, Category, and Status</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Monitor Printing -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-print"></i>
+                                        <h3>Monitor Printing</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Print Statistics Dashboard</strong>
+                                                <p>Real-time stats for Total, Pending, Downloaded, Printing, Completed, and Failed jobs</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Trip Filter Switches</strong>
+                                                <p>Quick toggle switches to filter print jobs by trip</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Auto-Print Toggle</strong>
+                                                <p>Enable/disable automatic printing for trips with printer selection</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>PDF Preview</strong>
+                                                <p>Preview pick lists and documents before printing</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Batch Print Operations</strong>
+                                                <p>Print multiple orders at once with Print All functionality</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Auto Inventory Processing -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-robot"></i>
+                                        <h3>Auto Inventory Processing</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Automated S2V Processing</strong>
+                                                <p>Automatically process Store-to-Vehicle transactions with retry logic</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Auto Processing Toggle</strong>
+                                                <p>Enable/disable automatic processing with visual status indicators</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Transaction Status Tracking</strong>
+                                                <p>Track status as Cancelled, Processing, Success, or Failed with color coding</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Lot Allocation</strong>
+                                                <p>Automatic lot allocation to transactions from Oracle Fusion</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>MRA Logging</strong>
+                                                <p>Material Receipt Advice logging for audit trails</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Auto Sales Order Processing -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-shopping-cart"></i>
+                                        <h3>Auto Sales Order Processing</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Auto Pick Release</strong>
+                                                <p>Automated pick release processing for sales orders</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Trip Grouping</strong>
+                                                <p>View orders grouped by trip with order counts</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Picker Assignment</strong>
+                                                <p>Auto-assign pickers based on configuration</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Scheduled Lines Cancellation</strong>
+                                                <p>Bulk cancel scheduled lines that are no longer needed</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Pending Store Transactions -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-warehouse"></i>
+                                        <h3>Pending Store Transactions</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>S2V Transaction Tracking</strong>
+                                                <p>View and manage pending Store-to-Vehicle transactions</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>KPI Cards</strong>
+                                                <p>Quick view of Total Lines, Total Orders, and Selected Count</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Source Organization Filter</strong>
+                                                <p>Filter transactions by source organization</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Bulk Selection</strong>
+                                                <p>Select multiple transactions for bulk operations</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Pending Shipment Lines -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-shipping-fast"></i>
+                                        <h3>Pending Shipment Lines</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Shipment Line Tracking</strong>
+                                                <p>View all pending shipment lines from Oracle Fusion</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Instance-Based Filtering</strong>
+                                                <p>Filter by PROD or TEST instance</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Export to Excel</strong>
+                                                <p>Export shipment line data for external analysis</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Printer Setups -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-print"></i>
+                                        <h3>Printer Setups</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Printer Management</strong>
+                                                <p>Add, edit, and delete printer configurations</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Active Printer Selection</strong>
+                                                <p>Set default active printer for the application</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Test Printer</strong>
+                                                <p>Test printer connectivity and functionality</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- WMS Co-Pilot -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-robot"></i>
+                                        <h3>WMS Co-Pilot</h3>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Quick Actions Panel</strong>
+                                                <p>Floating button with quick access to common operations</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Context-Aware Prompts</strong>
+                                                <p>Suggested prompts based on current page context</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Chat Interface</strong>
+                                                <p>Conversational interface for help and guidance</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Process Tab -->
+                        <div id="help-process" class="help-tab-pane">
+                            <div class="help-section">
+                                <h2><i class="fas fa-project-diagram"></i> Business Processes</h2>
+                                <p class="help-intro">Detailed documentation of the business processes implemented in WMS.</p>
+
+                                <!-- Order to Delivery Process -->
+                                <div class="process-section">
+                                    <h3><i class="fas fa-route"></i> Order to Delivery Process</h3>
+                                    <div class="process-flow">
+                                        <div class="process-step">
+                                            <div class="step-icon" style="background: linear-gradient(135deg, #667eea, #764ba2);">
+                                                <i class="fas fa-file-invoice"></i>
+                                            </div>
+                                            <div class="step-content">
+                                                <h4>1. Fetch Pending Orders</h4>
+                                                <p>WMS fetches all pending shipments (sales orders) from Oracle Fusion Cloud.</p>
+                                                <ul>
+                                                    <li>Filter by date range and instance</li>
+                                                    <li>Orders are stored in APEX for faster access</li>
+                                                    <li>Real-time sync ensures data accuracy</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                        <div class="process-step">
+                                            <div class="step-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                                                <i class="fas fa-route"></i>
+                                            </div>
+                                            <div class="step-content">
+                                                <h4>2. Create Trip</h4>
+                                                <p>Create a new trip and assign orders, lorry, and date.</p>
+                                                <ul>
+                                                    <li>Select orders from pending list</li>
+                                                    <li>Choose delivery vehicle (lorry)</li>
+                                                    <li>Set trip date and priority</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                        <div class="process-step">
+                                            <div class="step-icon" style="background: linear-gradient(135deg, #3b82f6, #1d4ed8);">
+                                                <i class="fas fa-user-plus"></i>
+                                            </div>
+                                            <div class="step-content">
+                                                <h4>3. Assign Picker</h4>
+                                                <p>Assign a picker to the trip or individual orders.</p>
+                                                <ul>
+                                                    <li>Select from available pickers</li>
+                                                    <li>Bulk assignment supported</li>
+                                                    <li>Picker capacity considered</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                        <div class="process-step">
+                                            <div class="step-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                                <i class="fas fa-play-circle"></i>
+                                            </div>
+                                            <div class="step-content">
+                                                <h4>4. Pick Release</h4>
+                                                <p>Execute pick release in Oracle Fusion to create pick tasks.</p>
+                                                <ul>
+                                                    <li>Calls Fusion pick wave API</li>
+                                                    <li>Creates warehouse tasks</li>
+                                                    <li>Status updated in real-time</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                        <div class="process-step">
+                                            <div class="step-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                                                <i class="fas fa-boxes"></i>
+                                            </div>
+                                            <div class="step-content">
+                                                <h4>5. Allocate Lots</h4>
+                                                <p>Allocate specific inventory lots to the order lines.</p>
+                                                <ul>
+                                                    <li>Fetch available lots from Fusion</li>
+                                                    <li>Automatic or manual allocation</li>
+                                                    <li>FIFO/FEFO support</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                        <div class="process-step">
+                                            <div class="step-icon" style="background: linear-gradient(135deg, #ec4899, #db2777);">
+                                                <i class="fas fa-print"></i>
+                                            </div>
+                                            <div class="step-content">
+                                                <h4>6. Print Pick List</h4>
+                                                <p>Generate and print pick lists for the warehouse team.</p>
+                                                <ul>
+                                                    <li>Auto-print or manual print</li>
+                                                    <li>PDF preview available</li>
+                                                    <li>Batch printing supported</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                        <div class="process-step">
+                                            <div class="step-icon" style="background: linear-gradient(135deg, #06b6d4, #0891b2);">
+                                                <i class="fas fa-check-double"></i>
+                                            </div>
+                                            <div class="step-content">
+                                                <h4>7. Confirm Pick</h4>
+                                                <p>Confirm picking completion and update status.</p>
+                                                <ul>
+                                                    <li>Update pick confirm status</li>
+                                                    <li>Process S2V transactions</li>
+                                                    <li>Ready for dispatch</li>
+                                                </ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- S2V Transaction Process -->
+                                <div class="process-section">
+                                    <h3><i class="fas fa-exchange-alt"></i> Store to Vehicle (S2V) Transaction Process</h3>
+                                    <div class="process-description">
+                                        <p>The S2V process moves inventory from the store/warehouse to the delivery vehicle.</p>
+                                    </div>
+                                    <div class="process-flow horizontal">
+                                        <div class="horizontal-step">
+                                            <div class="h-step-number">1</div>
+                                            <div class="h-step-content">
+                                                <strong>Create S2V Request</strong>
+                                                <p>Generate transfer request</p>
+                                            </div>
+                                        </div>
+                                        <div class="horizontal-arrow"><i class="fas fa-arrow-right"></i></div>
+                                        <div class="horizontal-step">
+                                            <div class="h-step-number">2</div>
+                                            <div class="h-step-content">
+                                                <strong>Fetch Lot Details</strong>
+                                                <p>Get available lots</p>
+                                            </div>
+                                        </div>
+                                        <div class="horizontal-arrow"><i class="fas fa-arrow-right"></i></div>
+                                        <div class="horizontal-step">
+                                            <div class="h-step-number">3</div>
+                                            <div class="h-step-content">
+                                                <strong>Allocate Lots</strong>
+                                                <p>Assign lots to request</p>
+                                            </div>
+                                        </div>
+                                        <div class="horizontal-arrow"><i class="fas fa-arrow-right"></i></div>
+                                        <div class="horizontal-step">
+                                            <div class="h-step-number">4</div>
+                                            <div class="h-step-content">
+                                                <strong>Process Transaction</strong>
+                                                <p>Execute in Fusion</p>
+                                            </div>
+                                        </div>
+                                        <div class="horizontal-arrow"><i class="fas fa-arrow-right"></i></div>
+                                        <div class="horizontal-step">
+                                            <div class="h-step-number">5</div>
+                                            <div class="h-step-content">
+                                                <strong>Complete</strong>
+                                                <p>Update status</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Auto Processing Workflow -->
+                                <div class="process-section">
+                                    <h3><i class="fas fa-robot"></i> Automated Processing Workflow</h3>
+                                    <div class="process-description">
+                                        <p>WMS supports automated processing to reduce manual intervention and improve efficiency.</p>
+                                    </div>
+                                    <div class="auto-process-grid">
+                                        <div class="auto-process-card">
+                                            <div class="auto-process-header">
+                                                <i class="fas fa-boxes"></i>
+                                                <h4>Auto Inventory Processing</h4>
+                                            </div>
+                                            <ul>
+                                                <li>Automatically processes S2V transactions</li>
+                                                <li>Fetches and allocates lots without manual intervention</li>
+                                                <li>Retry logic for failed transactions</li>
+                                                <li>Real-time status updates</li>
+                                                <li>Configurable date range and instance</li>
+                                            </ul>
+                                        </div>
+                                        <div class="auto-process-card">
+                                            <div class="auto-process-header">
+                                                <i class="fas fa-shopping-cart"></i>
+                                                <h4>Auto Sales Order Processing</h4>
+                                            </div>
+                                            <ul>
+                                                <li>Automated pick release execution</li>
+                                                <li>Batch processing by trip</li>
+                                                <li>Auto picker assignment</li>
+                                                <li>Scheduled lines management</li>
+                                                <li>Progress tracking and reporting</li>
+                                            </ul>
+                                        </div>
+                                        <div class="auto-process-card">
+                                            <div class="auto-process-header">
+                                                <i class="fas fa-print"></i>
+                                                <h4>Auto Print Monitoring</h4>
+                                            </div>
+                                            <ul>
+                                                <li>Automatic print job creation</li>
+                                                <li>PDF generation and download</li>
+                                                <li>Printer queue management</li>
+                                                <li>Status tracking (Pending, Printing, Complete)</li>
+                                                <li>Error handling and retry</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- API Documentation Tab -->
+                        <div id="help-api" class="help-tab-pane">
+                            <div class="help-section">
+                                <h2><i class="fas fa-code"></i> API Documentation</h2>
+                                <p class="help-intro">Complete reference of all APIs used in the WMS application.</p>
+
+                                <!-- API Base URLs -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-server"></i> Base URLs</h3>
+                                    <div class="api-base-urls">
+                                        <div class="api-url-card">
+                                            <span class="api-label">APEX Base URL</span>
+                                            <code>https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT</code>
+                                        </div>
+                                        <div class="api-url-card">
+                                            <span class="api-label">Fusion PROD</span>
+                                            <code>https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/</code>
+                                        </div>
+                                        <div class="api-url-card">
+                                            <span class="api-label">Fusion TEST</span>
+                                            <code>https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/</code>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Trip Management APIs -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-truck"></i> Trip Management APIs</h3>
+                                    <div class="api-table-container">
+                                        <table class="api-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Endpoint</th>
+                                                    <th>Method</th>
+                                                    <th>Description</th>
+                                                    <th>Parameters</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/{tripId}</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get details for a specific trip</td>
+                                                    <td>P_INSTANCE_NAME</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/ALL</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get all trip details</td>
+                                                    <td>-</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trips/getpendingorders</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Fetch pending orders for trip</td>
+                                                    <td>instance</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trips/create</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Create a new trip</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trips/addtotrip</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Add orders to existing trip</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/fetchordervolume</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get order volume (weight/qty)</td>
+                                                    <td>p_instance_name, source_order_number, p_trip_id</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/gettriplines</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get trip lines</td>
+                                                    <td>P_TRIP_ID, P_INSTANCE_NAME</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Pick Release APIs -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-play-circle"></i> Pick Release APIs</h3>
+                                    <div class="api-table-container">
+                                        <table class="api-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Endpoint</th>
+                                                    <th>Method</th>
+                                                    <th>Description</th>
+                                                    <th>Parameters</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/pickrelease/oneorder/{orderNumber}</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Release single order pick</td>
+                                                    <td>P_TRIP_ID, P_INSTANCE_NAME</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/callpickwave</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Call Oracle pick wave</td>
+                                                    <td>warehouse, order_number, p_instance_name</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trips/getopenpicksbyorder</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get open picks for order</td>
+                                                    <td>organization_code, order_number, p_instance_name</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/getlotsforpicks</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get lot details for picks</td>
+                                                    <td>source_order_number, p_instance_name</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Order/Line APIs -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-file-invoice"></i> Order & Line APIs</h3>
+                                    <div class="api-table-container">
+                                        <table class="api-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Endpoint</th>
+                                                    <th>Method</th>
+                                                    <th>Description</th>
+                                                    <th>Parameters</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/order/fetchfusionorderlines</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Fetch Fusion order lines</td>
+                                                    <td>P_INSTANCE_NAME, p_order_number, p_trip_id</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/orders/getsalesorderlines/{orderNumber}</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get sales order lines</td>
+                                                    <td>P_INSTANCE_NAME</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trips/orders/getpickreleasedetails/{orderNumber}</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get pick release details</td>
+                                                    <td>P_INSTANCE_NAME</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/orders/cancelscheduledlines/{orderNumber}</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Cancel scheduled lines</td>
+                                                    <td>P_INSTANCE_NAME</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/orders/cancelorderline/{orderNumber}/{lineId}</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Cancel specific order line</td>
+                                                    <td>P_INSTANCE_NAME</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/orders/cancelnotpickedlines/{orderNumber}</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Cancel unpicked lines</td>
+                                                    <td>P_INSTANCE_NAME</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Lot/Transaction APIs -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-boxes"></i> Lot & Transaction APIs</h3>
+                                    <div class="api-table-container">
+                                        <table class="api-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Endpoint</th>
+                                                    <th>Method</th>
+                                                    <th>Description</th>
+                                                    <th>Parameters</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trip/fetchlotdetails</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get lot details for S2V</td>
+                                                    <td>v_trx_number (optional)</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/materialtrx/allocatelots</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Allocate lots to transaction</td>
+                                                    <td>p_trx_number, p_instance_name</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trip/s2vdetails/{orderNumber}</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get S2V details</td>
+                                                    <td>-</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trip/tripqoh</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get QOH for trip</td>
+                                                    <td>v_trx_number</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trip/processs2v</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Process S2V transaction</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/TRIPMANAGEMENT/trip/sets2vdata</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Set S2V data</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Picker/Vehicle APIs -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-users"></i> Picker & Vehicle APIs</h3>
+                                    <div class="api-table-container">
+                                        <table class="api-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Endpoint</th>
+                                                    <th>Method</th>
+                                                    <th>Description</th>
+                                                    <th>Parameters</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trip/pickerassignment</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Assign picker to order</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/trip/updatepickconfirmstatus</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Update pick confirmation</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/vehicles/get</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get all vehicles</td>
+                                                    <td>-</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/WAREHOUSEMANAGEMENT/pickers/getpickers</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get all pickers</td>
+                                                    <td>-</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Printer APIs -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-print"></i> Printer APIs</h3>
+                                    <div class="api-table-container">
+                                        <table class="api-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Endpoint</th>
+                                                    <th>Method</th>
+                                                    <th>Description</th>
+                                                    <th>Parameters</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>/printers/all</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get all printers</td>
+                                                    <td>-</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/config/printer</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Save printer config</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/printers/set-active</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Set active printer</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/printers/delete</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Delete printer</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Monitor Printing APIs -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-tasks"></i> Monitor Printing APIs</h3>
+                                    <div class="api-table-container">
+                                        <table class="api-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Endpoint</th>
+                                                    <th>Method</th>
+                                                    <th>Description</th>
+                                                    <th>Parameters</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>/monitor-printing/list</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>List print jobs</td>
+                                                    <td>fromDate, toDate</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/monitor-printing/orders</code></td>
+                                                    <td><span class="method-get">GET</span></td>
+                                                    <td>Get trip orders</td>
+                                                    <td>trip_id</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/monitor-printing/enable</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Enable auto-print</td>
+                                                    <td>tripId, tripDate, printerConfigId</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/monitor-printing/disable</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Disable auto-print</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>/monitor-printing/update-order-status</code></td>
+                                                    <td><span class="method-post">POST</span></td>
+                                                    <td>Update order print status</td>
+                                                    <td>Request body</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Oracle Fusion Resources -->
+                                <div class="api-section">
+                                    <h3><i class="fas fa-cloud"></i> Oracle Fusion Cloud Resources</h3>
+                                    <div class="fusion-resources">
+                                        <div class="fusion-resource">
+                                            <code>inventoryStagedTransactions</code>
+                                            <span>Inventory transaction management</span>
+                                        </div>
+                                        <div class="fusion-resource">
+                                            <code>pickTransactions</code>
+                                            <span>Pick transaction processing</span>
+                                        </div>
+                                        <div class="fusion-resource">
+                                            <code>salesOrdersForOrderHub</code>
+                                            <span>Sales order details</span>
+                                        </div>
+                                        <div class="fusion-resource">
+                                            <code>standardReceipts</code>
+                                            <span>Receipt processing</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Future Roadmap Tab -->
+                        <div id="help-roadmap" class="help-tab-pane">
+                            <div class="help-section">
+                                <h2><i class="fas fa-road"></i> Future Roadmap</h2>
+                                <p class="help-intro">Planned features and enhancements for the WMS application.</p>
+
+                                <div class="roadmap-timeline">
+                                    <!-- Phase 1 -->
+                                    <div class="roadmap-phase">
+                                        <div class="phase-header">
+                                            <div class="phase-icon completed">
+                                                <i class="fas fa-check"></i>
+                                            </div>
+                                            <div class="phase-info">
+                                                <h3>Phase 1 - Core Features</h3>
+                                                <span class="phase-status completed">Completed</span>
+                                            </div>
+                                        </div>
+                                        <div class="phase-items">
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Trip Management with multi-tab interface</span>
+                                            </div>
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Vehicle and Picker Management</span>
+                                            </div>
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Oracle Fusion Integration</span>
+                                            </div>
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Pick Release and Lot Allocation</span>
+                                            </div>
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Print Management System</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Phase 2 -->
+                                    <div class="roadmap-phase">
+                                        <div class="phase-header">
+                                            <div class="phase-icon completed">
+                                                <i class="fas fa-check"></i>
+                                            </div>
+                                            <div class="phase-info">
+                                                <h3>Phase 2 - Automation</h3>
+                                                <span class="phase-status completed">Completed</span>
+                                            </div>
+                                        </div>
+                                        <div class="phase-items">
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Auto Inventory Processing</span>
+                                            </div>
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Auto Sales Order Processing</span>
+                                            </div>
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Monitor Printing with Auto-Print</span>
+                                            </div>
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>WMS Co-Pilot Assistant</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Phase 3 -->
+                                    <div class="roadmap-phase">
+                                        <div class="phase-header">
+                                            <div class="phase-icon in-progress">
+                                                <i class="fas fa-spinner fa-spin"></i>
+                                            </div>
+                                            <div class="phase-info">
+                                                <h3>Phase 3 - Analytics & Reporting</h3>
+                                                <span class="phase-status in-progress">In Progress</span>
+                                            </div>
+                                        </div>
+                                        <div class="phase-items">
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>Vehicle Analytics Dashboard</span>
+                                            </div>
+                                            <div class="phase-item completed">
+                                                <i class="fas fa-check-circle"></i>
+                                                <span>KPI Cards and Metrics</span>
+                                            </div>
+                                            <div class="phase-item in-progress">
+                                                <i class="fas fa-clock"></i>
+                                                <span>Advanced Reporting Module</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Custom Dashboard Builder</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Performance Metrics Tracking</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Phase 4 -->
+                                    <div class="roadmap-phase">
+                                        <div class="phase-header">
+                                            <div class="phase-icon planned">
+                                                <i class="fas fa-calendar-alt"></i>
+                                            </div>
+                                            <div class="phase-info">
+                                                <h3>Phase 4 - Mobile & Integration</h3>
+                                                <span class="phase-status planned">Planned</span>
+                                            </div>
+                                        </div>
+                                        <div class="phase-items">
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Mobile App for Pickers</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Barcode/QR Code Scanning</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Real-time GPS Tracking</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Customer Delivery Notifications</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Third-party Carrier Integration</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Phase 5 -->
+                                    <div class="roadmap-phase">
+                                        <div class="phase-header">
+                                            <div class="phase-icon planned">
+                                                <i class="fas fa-calendar-alt"></i>
+                                            </div>
+                                            <div class="phase-info">
+                                                <h3>Phase 5 - AI & Optimization</h3>
+                                                <span class="phase-status planned">Planned</span>
+                                            </div>
+                                        </div>
+                                        <div class="phase-items">
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>AI-Powered Route Optimization</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Demand Forecasting</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Predictive Maintenance Alerts</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Intelligent Picker Assignment</span>
+                                            </div>
+                                            <div class="phase-item planned">
+                                                <i class="fas fa-circle"></i>
+                                                <span>Automated Exception Handling</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Feature Requests -->
+                                <div class="feature-request-section">
+                                    <h3><i class="fas fa-lightbulb"></i> Have a Feature Request?</h3>
+                                    <p>We value your feedback! If you have ideas for new features or improvements, please contact the development team.</p>
+                                    <div class="contact-info">
+                                        <div class="contact-item">
+                                            <i class="fas fa-envelope"></i>
+                                            <span>Email: jshaik@grays.mu</span>
+                                        </div>
+                                        <div class="contact-item">
+                                            <i class="fab fa-github"></i>
+                                            <span>GitHub: javeedin/graysWMSwebviewnew</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

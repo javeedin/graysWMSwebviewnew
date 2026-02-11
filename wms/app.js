@@ -2035,6 +2035,27 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Add click handlers for Help Documentation tabs
+    document.querySelectorAll('.help-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            const tabId = this.getAttribute('data-help-tab');
+            if (!tabId) return;
+
+            // Remove active class from all help tabs
+            document.querySelectorAll('.help-tab').forEach(t => t.classList.remove('active'));
+            // Add active class to clicked tab
+            this.classList.add('active');
+
+            // Hide all help tab panes
+            document.querySelectorAll('.help-tab-pane').forEach(pane => pane.classList.remove('active'));
+            // Show selected help tab pane
+            const targetPane = document.getElementById('help-' + tabId);
+            if (targetPane) {
+                targetPane.classList.add('active');
+            }
+        });
+    });
+
     // Fetch Trips button
     document.getElementById('fetch-trips-btn').addEventListener('click', function() {
         console.log('[Fetch Trips] ===== FETCH TRIPS BUTTON CLICKED =====');
