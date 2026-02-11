@@ -2728,8 +2728,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 col.dataType = 'date';
                 col.format = 'dd-MMM-yyyy';
             }
-            // Weight/Volume columns (including order_volume)
-            else if (key.toLowerCase().includes('weight') || key.toLowerCase().includes('volume') || key === 'order_volume' || key === 'ORDER_VOLUME') {
+            // Weight/Volume columns (including order_volume and order_volume1)
+            else if (key.toLowerCase().includes('weight') || key.toLowerCase().includes('volume') || key === 'order_volume' || key === 'ORDER_VOLUME' || key === 'order_volume1' || key === 'ORDER_VOLUME1') {
                 col.format = { type: 'fixedPoint', precision: 2 };
                 col.alignment = 'right';
                 console.log(`[Column Format] ${key} set to precision 2`);
@@ -2779,12 +2779,12 @@ document.addEventListener('DOMContentLoaded', function() {
             return col;
         });
 
-        // Force order_volume column to have 2 decimal precision (override any previous setting)
+        // Force order_volume/order_volume1 column to have 2 decimal precision (override any previous setting)
         columns.forEach(col => {
-            if (col.dataField && col.dataField.toLowerCase() === 'order_volume') {
+            if (col.dataField && (col.dataField.toLowerCase() === 'order_volume' || col.dataField.toLowerCase() === 'order_volume1')) {
                 col.format = { type: 'fixedPoint', precision: 2 };
                 col.alignment = 'right';
-                console.log('[Column Fix] Forced order_volume format to 2 decimals');
+                console.log('[Column Fix] Forced ' + col.dataField + ' format to 2 decimals');
             }
         });
 
@@ -2949,8 +2949,14 @@ document.addEventListener('DOMContentLoaded', function() {
         // Use nullish coalescing to handle "0" string properly
         const totalWeight = tripDetails.reduce((sum, r) => {
             // Check for actual numeric values, not just truthy values
-            // order_volume (lowercase) is the field from the API
-            let volumeVal = r.order_volume;
+            // order_volume1 is the new field name, also check order_volume for backwards compatibility
+            let volumeVal = r.order_volume1;
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = r.ORDER_VOLUME1;
+            }
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = r.order_volume;
+            }
             if (volumeVal === undefined || volumeVal === null) {
                 volumeVal = r.ORDER_VOLUME;
             }
@@ -3917,8 +3923,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const uniqueProducts = isEmpty ? 0 : new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
         const totalQuantity = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
         const totalWeight = isEmpty ? 0 : tripData.reduce((sum, t) => {
-            // Prefer lowercase order_volume (API field), then check uppercase or weight
-            let volumeVal = t.order_volume;
+            // Prefer order_volume1 (new field), then order_volume for backwards compatibility
+            let volumeVal = t.order_volume1;
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = t.ORDER_VOLUME1;
+            }
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = t.order_volume;
+            }
             if (volumeVal === undefined || volumeVal === null) {
                 volumeVal = t.ORDER_VOLUME ?? t.weight ?? t.WEIGHT;
             }
