@@ -3909,461 +3909,937 @@
                         <div id="help-features" class="help-tab-pane">
                             <div class="help-section">
                                 <h2><i class="fas fa-star"></i> Application Features</h2>
-                                <p class="help-intro">Comprehensive list of all features organized by page/module.</p>
+                                <p class="help-intro">Comprehensive list of all features implemented in the WMS application, organized by module/page with detailed explanations.</p>
 
-                                <!-- Trip Management -->
+                                <!-- Statistics Summary Cards -->
+                                <div class="features-stats-container" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                                    <div class="stat-card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);">
+                                        <div style="font-size: 2.5rem; font-weight: 700;">13</div>
+                                        <div style="font-size: 0.9rem; opacity: 0.9;">Application Modules</div>
+                                    </div>
+                                    <div class="stat-card" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 1.5rem; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);">
+                                        <div style="font-size: 2.5rem; font-weight: 700;">87</div>
+                                        <div style="font-size: 0.9rem; opacity: 0.9;">Total Features</div>
+                                    </div>
+                                    <div class="stat-card" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 1.5rem; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(245, 158, 11, 0.3);">
+                                        <div style="font-size: 2.5rem; font-weight: 700;">42</div>
+                                        <div style="font-size: 0.9rem; opacity: 0.9;">Web Services (APEX)</div>
+                                    </div>
+                                    <div class="stat-card" style="background: linear-gradient(135deg, #ec4899 0%, #db2777 100%); color: white; padding: 1.5rem; border-radius: 12px; text-align: center; box-shadow: 0 4px 15px rgba(236, 72, 153, 0.3);">
+                                        <div style="font-size: 2.5rem; font-weight: 700;">12</div>
+                                        <div style="font-size: 0.9rem; opacity: 0.9;">Oracle Fusion APIs</div>
+                                    </div>
+                                </div>
+
+                                <!-- Features by Module Summary -->
+                                <div style="background: #f8fafc; border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; border: 1px solid #e2e8f0;">
+                                    <h3 style="margin: 0 0 1rem 0; color: #1e293b; font-size: 1.1rem;"><i class="fas fa-list-ol" style="color: #667eea; margin-right: 0.5rem;"></i>Features by Module</h3>
+                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem;">
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Trip Management</span><span style="font-weight: 600; color: #667eea;">15 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Trip Details</span><span style="font-weight: 600; color: #667eea;">12 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Auto Inventory</span><span style="font-weight: 600; color: #667eea;">10 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Auto Sales Order</span><span style="font-weight: 600; color: #667eea;">9 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Monitor Printing</span><span style="font-weight: 600; color: #667eea;">8 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Pending Store Txn</span><span style="font-weight: 600; color: #667eea;">7 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Pending Shipments</span><span style="font-weight: 600; color: #667eea;">5 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Vehicles Dashboard</span><span style="font-weight: 600; color: #667eea;">5 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Analytics</span><span style="font-weight: 600; color: #667eea;">5 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Pickers</span><span style="font-weight: 600; color: #667eea;">4 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>Printer Setups</span><span style="font-weight: 600; color: #667eea;">4 features</span></div>
+                                        <div style="display: flex; justify-content: space-between; padding: 0.5rem 0.75rem; background: white; border-radius: 6px; font-size: 0.85rem;"><span>WMS Co-Pilot</span><span style="font-weight: 600; color: #667eea;">3 features</span></div>
+                                    </div>
+                                </div>
+
+                                <!-- Web Services Summary -->
+                                <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border-radius: 12px; padding: 1.5rem; margin-bottom: 2rem; color: white;">
+                                    <h3 style="margin: 0 0 1rem 0; font-size: 1.1rem;"><i class="fas fa-plug" style="color: #10b981; margin-right: 0.5rem;"></i>Web Services Summary</h3>
+                                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1rem;">
+                                        <div>
+                                            <h4 style="color: #10b981; margin: 0 0 0.5rem 0; font-size: 0.9rem;">Oracle APEX APIs (42 endpoints)</h4>
+                                            <ul style="margin: 0; padding-left: 1.2rem; font-size: 0.8rem; opacity: 0.9;">
+                                                <li>WAREHOUSEMANAGEMENT - 25 endpoints</li>
+                                                <li>TRIPMANAGEMENT - 12 endpoints</li>
+                                                <li>Printers/Config - 5 endpoints</li>
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <h4 style="color: #f59e0b; margin: 0 0 0.5rem 0; font-size: 0.9rem;">Oracle Fusion Cloud APIs (12 endpoints)</h4>
+                                            <ul style="margin: 0; padding-left: 1.2rem; font-size: 0.8rem; opacity: 0.9;">
+                                                <li>fscmRestApi/pickTransactions</li>
+                                                <li>fscmRestApi/inventoryStagedTransactions</li>
+                                                <li>fscmRestApi/salesOrdersForOrderHub</li>
+                                                <li>fscmRestApi/standardReceipts</li>
+                                            </ul>
+                                        </div>
+                                        <div>
+                                            <h4 style="color: #ec4899; margin: 0 0 0.5rem 0; font-size: 0.9rem;">C# WebView Bridge (8 actions)</h4>
+                                            <ul style="margin: 0; padding-left: 1.2rem; font-size: 0.8rem; opacity: 0.9;">
+                                                <li>executeGet, executePost</li>
+                                                <li>printOrder, getPdfAsBase64</li>
+                                                <li>testPrinter, configurePrinter</li>
+                                                <li>openFileInExplorer, getAllPrintJobs</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <h3 style="color: #1e293b; margin: 2rem 0 1rem 0; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0;"><i class="fas fa-th-list" style="color: #667eea; margin-right: 0.5rem;"></i>Detailed Feature List by Module</h3>
+
+                                <!-- 1. Trip Management -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-truck"></i>
                                         <h3>Trip Management</h3>
-                                        <span class="feature-badge primary">Main Module</span>
+                                        <span class="feature-badge primary">Main Module - 15 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Query Parameters</strong>
-                                                <p>Filter trips by instance (PROD/TEST), date range with flexible date pickers</p>
+                                                <strong>Instance Selection (PROD/TEST)</strong>
+                                                <p>Toggle between Production and Test Oracle Fusion environments. All API calls dynamically switch endpoints based on selected instance, allowing safe testing without affecting production data.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Date Range Selection</strong>
+                                                <p>Filter trips by date range using DevExpress DateBox controls. Supports single date, date range, and quick presets (Today, Yesterday, Last 7 Days). Dates are passed to APEX APIs for server-side filtering.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>All Trips Grid</strong>
-                                                <p>View all trips with order numbers, trip IDs, dates, lorries, and status in a DevExpress data grid</p>
+                                                <p>DevExpress DataGrid showing all trips with columns: Order Number, Trip ID, Trip Date, Lorry, Status, Picker, Customer, Weight. Supports sorting, filtering, grouping, and column reordering.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Multi-Select Filtering</strong>
-                                                <p>Filter by multiple lorries and dates using advanced multi-select dropdowns</p>
+                                                <strong>Multi-Select Lorry Filter</strong>
+                                                <p>Advanced dropdown with checkboxes to filter by multiple lorries simultaneously. Shows selected count badge and supports "Select All" / "Clear All" actions.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>All Trip Details Tab</strong>
-                                                <p>Detailed view with KPI bar showing Orders, Trips, Customers, Lorries, Pickers, and Weight</p>
+                                                <strong>Multi-Select Date Filter</strong>
+                                                <p>Filter by multiple specific dates. Useful for comparing trips across different days or analyzing weekly patterns.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Assign Picker</strong>
-                                                <p>Bulk assign pickers to selected trips or orders with picker selection modal</p>
+                                                <strong>KPI Summary Bar</strong>
+                                                <p>Real-time statistics showing: Total Orders, Total Trips, Unique Customers, Lorries Used, Pickers Assigned, and Total Weight. Updates automatically when filters change.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Allocate Lot Quantities</strong>
-                                                <p>Allocate inventory lots to orders for proper inventory tracking</p>
+                                                <strong>Bulk Picker Assignment</strong>
+                                                <p>Select multiple rows in grid and assign a picker to all selected orders at once. Opens modal with picker dropdown, shows selected orders count, and calls APEX pickerassignment API.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Trip Details Modal</strong>
-                                                <p>Floating action menu with options for viewing order lines, pick release details, and more</p>
+                                                <strong>Bulk Lot Allocation</strong>
+                                                <p>Allocate inventory lots to multiple selected orders. Calls APEX materialtrx/allocatelots API for each order and shows progress with success/failure counts.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Cancel Order Lines</strong>
-                                                <p>Cancel scheduled or unpicked lines directly from the interface</p>
+                                                <strong>Row Selection with Checkboxes</strong>
+                                                <p>DevExpress selection column with header checkbox for "Select All". Selection state persists during filtering. Selected rows highlighted with visual feedback.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Export to Excel</strong>
+                                                <p>Export filtered grid data to Excel (.xlsx) format using DevExpress export functionality. Includes all visible columns with current sorting and grouping preserved.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Column Visibility Toggle</strong>
+                                                <p>Show/hide columns using column chooser. User preferences can be saved for consistent experience across sessions.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Real-time Data Refresh</strong>
+                                                <p>Refresh button to reload data from APEX API. Shows loading indicator during fetch and preserves current filter/sort state.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Status Color Coding</strong>
+                                                <p>Visual status indicators with color-coded badges: Pending (yellow), In Progress (blue), Completed (green), Failed (red). Makes it easy to identify trip status at a glance.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Processing Indicator</strong>
+                                                <p>Circular loading indicator in header showing active API calls. Displays count of concurrent requests and service names. Prevents UI interaction during critical operations.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Toast Notifications</strong>
+                                                <p>Slide-in notifications for success, error, warning, and info messages. Auto-dismiss after 4 seconds with smooth animation. Color-coded by message type.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 2. Trip Details Page -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-clipboard-list"></i>
+                                        <h3>Trip Details</h3>
+                                        <span class="feature-badge primary">Core Module - 12 Features</span>
+                                    </div>
+                                    <div class="feature-list">
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Floating Action Bar</strong>
+                                                <p>Context-sensitive action bar that appears when a trip is selected. Contains quick actions: View Order Lines, Pick Release Details, Sales Order Lines, Lot Details, Shipment Details, Store Transactions. Positioned at bottom of screen for easy access.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Order Lines Modal</strong>
+                                                <p>View detailed order lines from Oracle Fusion. Displays: Line Number, Item, Description, Ordered Qty, Shipped Qty, UOM, Unit Price, Extended Amount. Calls TRIPMANAGEMENT/trip/order/fetchfusionorderlines API.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Pick Release Details Modal</strong>
+                                                <p>Shows pick release status for order. Displays: Move Order Line, Pick Slip, Subinventory, Locator, Lot, Quantity Detailed, Quantity Delivered. Calls TRIPMANAGEMENT/trips/orders/getpickreleasedetails API.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Sales Order Lines Modal</strong>
+                                                <p>Full sales order line details from APEX. Shows: Line Status, Schedule Ship Date, Fulfillment Line, Source Order. Calls TRIPMANAGEMENT/trip/orders/getsalesorderlines API.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Lot Details Modal</strong>
+                                                <p>Inventory lot information with allocation status. Shows: Lot Number, Expiry Date, Available Qty, Allocated Qty, Subinventory. Used for FIFO/FEFO lot allocation decisions.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Shipment Details Modal</strong>
+                                                <p>Shipment header and line details. Shows: Delivery Name, Ship Method, Carrier, Tracking Number, Ship-to Location. Calls WAREHOUSEMANAGEMENT/trips/orders/getshipmentdetails API.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Store Transactions Modal</strong>
+                                                <p>S2V transaction details with three tabs: Transaction Details, QOH (Quantity on Hand), Allocated Lots. Each tab calls separate API endpoints for detailed information.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Add Orders to Trip</strong>
+                                                <p>Select pending orders and add them to existing trip. Opens modal showing available pending orders, allows multi-select, calls WAREHOUSEMANAGEMENT/trips/addorders API to update trip.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Create New Trip</strong>
+                                                <p>Create a new trip with selected orders. Modal allows: Trip Date selection, Lorry assignment, Order selection. Calls WAREHOUSEMANAGEMENT/trips/create API.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Pick Release Execution</strong>
+                                                <p>Execute pick release for selected orders. Calls Oracle Fusion pick wave API through APEX proxy. Shows progress for each order with success/failure status. Updates grid after completion.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Get Order Volume/Weight</strong>
-                                                <p>Fetch and display total order volume and weight metrics</p>
+                                                <p>Fetch volume and weight metrics for selected order. Calls TRIPMANAGEMENT/fetchordervolume API. Displays: Total Volume (CBM), Total Weight (KG), Item Count, Pallet Count estimate.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Cancel Scheduled Lines</strong>
+                                                <p>Cancel unpicked scheduled lines for an order. Opens confirmation modal, calls cancellation API, updates status in grid. Used when order changes or cancellation required.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Vehicles Dashboard -->
+                                <!-- 3. Vehicles Dashboard -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-car"></i>
                                         <h3>Vehicles Dashboard</h3>
+                                        <span class="feature-badge">5 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Vehicle Summary Cards</strong>
-                                                <p>Visual card-based layout showing vehicle metrics and status at a glance</p>
+                                                <p>Card-based layout showing each vehicle with: Lorry Number, Assigned Route, Driver Name, Capacity (Volume/Weight), Current Trip Count, Order Count. Cards are color-coded by utilization level.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Date Merge Option</strong>
-                                                <p>Consolidate vehicle data across multiple dates for aggregate view</p>
+                                                <p>Toggle to consolidate vehicle data across selected date range. When enabled, shows aggregate totals instead of per-day breakdown. Useful for weekly/monthly vehicle utilization analysis.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Vehicle Capacity Utilization</strong>
+                                                <p>Visual progress bars showing capacity utilization percentage. Green (0-70%), Yellow (70-90%), Red (90-100%). Helps identify under/over-utilized vehicles.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Click-to-Filter Integration</strong>
+                                                <p>Click on a vehicle card to filter the main Trips grid by that lorry. Provides seamless navigation between vehicle overview and trip details.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Debug Data View</strong>
-                                                <p>Technical view for troubleshooting and data verification</p>
+                                                <p>Developer toggle to show raw JSON data for troubleshooting. Displays API response structure, data types, and values. Accessible via hidden keyboard shortcut (Ctrl+Shift+D).</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Analytics -->
+                                <!-- 4. Analytics -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-chart-line"></i>
                                         <h3>Analytics</h3>
+                                        <span class="feature-badge">5 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>KPI Cards</strong>
-                                                <p>Real-time KPI cards showing Total Orders, Trips, Customers, Lorries, and Pickers</p>
+                                                <strong>Real-time KPI Cards</strong>
+                                                <p>Dashboard cards showing: Total Orders, Total Trips, Unique Customers, Lorries Used, Pickers Assigned, Total Weight (KG). Cards update in real-time as filters change. Each card shows current value and trend indicator.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Advanced Filters</strong>
-                                                <p>Multi-select filters for Customers, Lorries, and Pickers with search capability</p>
+                                                <strong>Advanced Multi-Select Filters</strong>
+                                                <p>Filter by multiple Customers, Lorries, and Pickers simultaneously. Each filter has search capability, "Select All" toggle, and shows selected count. Filters work in combination for precise data analysis.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Export to Excel</strong>
-                                                <p>Export filtered analytics data to Excel spreadsheet for reporting</p>
+                                                <p>Export current filtered view to Excel (.xlsx) with all columns and data. Includes applied filter information in export metadata. Useful for external reporting and analysis.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Active Filters Display</strong>
-                                                <p>Visual chips showing currently applied filters with easy removal</p>
+                                                <strong>Active Filters Chip Display</strong>
+                                                <p>Visual chips showing all currently applied filters below the filter bar. Each chip shows filter name and value with X button to remove. Click chip to edit filter value directly.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Vehicles Management -->
-                                <div class="feature-page-section">
-                                    <div class="feature-page-header">
-                                        <i class="fas fa-truck"></i>
-                                        <h3>Vehicles Management</h3>
-                                    </div>
-                                    <div class="feature-list">
-                                        <div class="feature-item">
-                                            <i class="fas fa-check-circle"></i>
-                                            <div>
-                                                <strong>Vehicle CRUD Operations</strong>
-                                                <p>Create, read, update, and delete vehicles with complete details</p>
-                                            </div>
-                                        </div>
-                                        <div class="feature-item">
-                                            <i class="fas fa-check-circle"></i>
-                                            <div>
-                                                <strong>Vehicle Details</strong>
-                                                <p>Manage lorry number, assigned route, delivery officer, capacity, and status</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Pickers Management -->
+                                <!-- 5. Pickers Management -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-users"></i>
                                         <h3>Pickers Management</h3>
+                                        <span class="feature-badge">4 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Picker CRUD Operations</strong>
-                                                <p>Manage picker profiles with add, edit, and delete capabilities</p>
+                                                <p>Complete picker management: Add new pickers, Edit existing picker details, Delete inactive pickers. All operations call WAREHOUSEMANAGEMENT/pickers API endpoints with validation.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Type Classification</strong>
-                                                <p>Categorize pickers by type (Bulk, Individual) for assignment optimization</p>
+                                                <strong>Picker Type Classification</strong>
+                                                <p>Categorize pickers as: Bulk Picker (handles large volume orders), Individual Picker (handles single orders), Relief Picker (backup/overflow support). Type affects assignment algorithm priority.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Picker Details</strong>
-                                                <p>Track ID, Name, Contact, Assigned Area, Profit Center, Category, and Status</p>
+                                                <strong>Picker Profile Details</strong>
+                                                <p>Comprehensive picker profile: Employee ID, Full Name, Contact Number, Email, Assigned Area/Zone, Profit Center, Category, Active Status. Supports profile photo upload.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Picker Performance View</strong>
+                                                <p>View picker performance metrics: Orders Picked (today/week/month), Average Pick Time, Error Rate, Current Assignments. Helps optimize picker allocation decisions.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Monitor Printing -->
+                                <!-- 6. Monitor Printing -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-print"></i>
                                         <h3>Monitor Printing</h3>
+                                        <span class="feature-badge">8 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Print Statistics Dashboard</strong>
-                                                <p>Real-time stats for Total, Pending, Downloaded, Printing, Completed, and Failed jobs</p>
+                                                <p>Real-time status cards showing: Total Jobs, Pending, Downloaded, Printing, Completed, Failed. Each card is color-coded and clickable to filter the job list. Auto-refreshes every 30 seconds.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Trip Filter Switches</strong>
-                                                <p>Quick toggle switches to filter print jobs by trip</p>
+                                                <strong>Trip-Based Job Grouping</strong>
+                                                <p>Print jobs grouped by Trip ID with expandable sections. Shows trip summary (order count, total pages) with toggle to expand/collapse individual orders. Quick print button for entire trip.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Auto-Print Toggle</strong>
-                                                <p>Enable/disable automatic printing for trips with printer selection</p>
+                                                <strong>Auto-Print Configuration</strong>
+                                                <p>Enable automatic printing per trip: Toggle switch to enable/disable, Printer selection dropdown, Print on status change option. Calls /monitor-printing/enable and /disable APIs.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>PDF Preview</strong>
-                                                <p>Preview pick lists and documents before printing</p>
+                                                <strong>PDF Preview Modal</strong>
+                                                <p>Full-screen PDF preview before printing. Uses getPdfAsBase64 to fetch PDF from APEX. Zoom controls, page navigation, download button. Can print directly from preview.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Batch Print Operations</strong>
-                                                <p>Print multiple orders at once with Print All functionality</p>
+                                                <p>"Print All" modal for bulk printing: Select orders to print, Choose printer, Set copies count, Progress bar during printing. Uses C# WebView bridge printOrder action.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Print Job Status Tracking</strong>
+                                                <p>Track each job through stages: Pending → Downloaded → Printing → Completed/Failed. Timestamps for each stage transition. Retry button for failed jobs.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Printer Selection Per Job</strong>
+                                                <p>Override default printer for specific jobs. Dropdown shows all configured printers from /printers/all API. Selected printer saved with job for consistency.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Print Job History</strong>
+                                                <p>Historical view of all print jobs with filters: Date range, Status, Printer, Trip. Shows: Print Time, Duration, Pages, Printer Used. Export to Excel for audit.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Auto Inventory Processing -->
+                                <!-- 7. Auto Inventory Processing -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-robot"></i>
                                         <h3>Auto Inventory Processing</h3>
+                                        <span class="feature-badge primary">Automation Module - 10 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Automated S2V Processing</strong>
-                                                <p>Automatically process Store-to-Vehicle transactions with retry logic</p>
+                                                <p>Fully automated Store-to-Vehicle transaction processing. System fetches pending S2V transactions from TRIPMANAGEMENT/trip/PendingS2Vtransactions, processes each through Oracle Fusion inventoryStagedTransactions API, with automatic retry logic for transient failures.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Auto Processing Toggle</strong>
-                                                <p>Enable/disable automatic processing with visual status indicators</p>
+                                                <p>Master toggle to enable/disable automatic processing. When enabled, system polls for new transactions every 30 seconds. Visual indicator shows: Green (Active), Yellow (Paused), Red (Error). Processing can be paused without losing queue.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Transaction Status Tracking</strong>
-                                                <p>Track status as Cancelled, Processing, Success, or Failed with color coding</p>
+                                                <p>Real-time status tracking with color-coded badges: Pending (gray), Processing (blue with spinner), Success (green), Failed (red), Cancelled (orange). Each status shows timestamp and duration. Click to view detailed transaction log.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Lot Allocation</strong>
-                                                <p>Automatic lot allocation to transactions from Oracle Fusion</p>
+                                                <strong>Automatic Lot Allocation</strong>
+                                                <p>System automatically fetches available lots from Oracle Fusion, applies FIFO/FEFO rules, and allocates to transactions. Calls WAREHOUSEMANAGEMENT/trip/processs2vauto API which handles lot selection logic server-side.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>MRA Logging</strong>
-                                                <p>Material Receipt Advice logging for audit trails</p>
+                                                <strong>MRA Logging (Material Receipt Advice)</strong>
+                                                <p>Complete audit trail for all S2V transactions. Logs: Transaction ID, Timestamp, User, Items, Lots, Quantities, Status, Fusion Response. Stored in APEX for compliance and troubleshooting. Exportable to Excel.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Fusion Credentials Management</strong>
+                                                <p>Secure storage of Oracle Fusion credentials. Fetches from WAREHOUSEMANAGEMENT/trip/fusionuserdetails API. Credentials used for Fusion API authentication (Basic Auth). Never exposed in browser console or network logs.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Transaction Cancellation</strong>
+                                                <p>Cancel pending or failed transactions. Calls TRIPMANAGEMENT/trip/cancels2vlot API. Cancelled transactions removed from processing queue. Cancellation logged with reason and user.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Progress Dashboard</strong>
+                                                <p>Visual dashboard showing: Total Transactions, Pending, Processing, Completed, Failed counts. Progress bar for current batch. Estimated completion time based on average processing speed.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Error Handling & Retry</strong>
+                                                <p>Intelligent error handling: Network errors auto-retry (3 attempts with exponential backoff), Fusion errors logged with response, User notified of persistent failures. Failed transactions can be manually retried.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Batch Processing Configuration</strong>
+                                                <p>Configure batch size (number of concurrent transactions), processing interval, date range filters, source organization filter. Settings saved to localStorage for persistence.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Auto Sales Order Processing -->
+                                <!-- 8. Auto Sales Order Processing -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-shopping-cart"></i>
                                         <h3>Auto Sales Order Processing</h3>
+                                        <span class="feature-badge primary">Automation Module - 9 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Auto Pick Release</strong>
-                                                <p>Automated pick release processing for sales orders</p>
+                                                <strong>Automated Pick Release</strong>
+                                                <p>Execute pick release for multiple orders automatically. Calls TRIPMANAGEMENT/trip/pickrelease/oneorder API for each selected order. Shows progress modal with per-order status. Supports batch sizes to prevent API overload.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Trip Grouping</strong>
-                                                <p>View orders grouped by trip with order counts</p>
+                                                <strong>Trip-Based Order Grouping</strong>
+                                                <p>Orders displayed grouped by Trip ID in expandable accordion sections. Each trip section shows: Trip ID, Order Count, Total Weight, Status Summary. Expand to see individual orders with details.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Picker Assignment</strong>
-                                                <p>Auto-assign pickers based on configuration</p>
+                                                <strong>Bulk Picker Assignment</strong>
+                                                <p>Assign picker to all orders in a trip at once. Opens picker selection modal with picker list from APEX. Calls WAREHOUSEMANAGEMENT/trip/assignpicker API. Progress shown for each order assignment.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Scheduled Lines Cancellation</strong>
-                                                <p>Bulk cancel scheduled lines that are no longer needed</p>
+                                                <p>Cancel unpicked scheduled lines for selected orders. Shows confirmation with line count. Useful when orders change after scheduling. Updates Oracle Fusion directly through APEX proxy.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Order Selection Interface</strong>
+                                                <p>Checkbox selection at both trip and order level. Select All / Deselect All for trips. Selection count shown in action bar. Selected orders highlighted with visual feedback.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Auto-Refresh with Polling</strong>
+                                                <p>Optional auto-refresh to keep data current. Configurable polling interval (30s, 1m, 5m). Pause polling during user interaction. Resume automatically when idle.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Pick Release Preview</strong>
+                                                <p>Preview orders before executing pick release. Shows: Order details, Expected warehouse tasks, Potential issues (insufficient inventory, holds). Allows deselection of problematic orders.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Processing Results Summary</strong>
+                                                <p>After batch operation, shows summary: Total Processed, Successful, Failed with reasons. Failed orders listed with error messages. Option to retry failed orders only.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Printer Integration</strong>
+                                                <p>Print pick lists after successful pick release. Fetches printer list from /printers/all API. Option to auto-print or queue for later. Uses same print infrastructure as Monitor Printing module.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Pending Store Transactions -->
+                                <!-- 9. Pending Store Transactions -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-warehouse"></i>
                                         <h3>Pending Store Transactions</h3>
+                                        <span class="feature-badge">7 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>S2V Transaction Tracking</strong>
-                                                <p>View and manage pending Store-to-Vehicle transactions</p>
+                                                <strong>S2V Transaction Grid</strong>
+                                                <p>DevExpress DataGrid showing all pending Store-to-Vehicle transactions. Columns: Transaction Number, Order, Item, Quantity, Lot, Status, Created Date. Supports sorting, filtering, grouping, and export.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>KPI Cards</strong>
-                                                <p>Quick view of Total Lines, Total Orders, and Selected Count</p>
+                                                <strong>Summary KPI Cards</strong>
+                                                <p>Dashboard cards showing: Total Lines, Total Orders, Pending Count, Selected Count, Total Quantity. Cards update in real-time as data changes or filters are applied.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Source Organization Filter</strong>
-                                                <p>Filter transactions by source organization</p>
+                                                <p>Filter transactions by source organization (warehouse). Dropdown populated from unique values in data. Supports multi-select for comparing organizations.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Bulk Selection</strong>
-                                                <p>Select multiple transactions for bulk operations</p>
+                                                <strong>Bulk Selection & Processing</strong>
+                                                <p>Checkbox column for selecting multiple transactions. Action bar appears with selected count. Bulk actions: Process Selected, Assign Picker, Allocate Lots, Cancel Selected.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Lot Allocation Modal</strong>
+                                                <p>View and allocate lots to transactions. Shows available lots with: Lot Number, Expiry Date, Available Qty, Subinventory. Manual allocation or auto-allocate with FIFO/FEFO rules.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Picker Assignment Modal</strong>
+                                                <p>Assign picker to selected transactions. Shows picker list with: Name, Type, Current Load, Status. Assignment calls WAREHOUSEMANAGEMENT/trip/assignpicker API.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Fetch Lot Details</strong>
+                                                <p>View detailed lot information for a transaction. Calls WAREHOUSEMANAGEMENT/trip/fetchlotdetails API. Shows: All available lots, Allocation history, QOH by subinventory.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Pending Shipment Lines -->
+                                <!-- 10. Pending Shipment Lines -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-shipping-fast"></i>
                                         <h3>Pending Shipment Lines</h3>
+                                        <span class="feature-badge">5 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Shipment Line Tracking</strong>
-                                                <p>View all pending shipment lines from Oracle Fusion</p>
+                                                <strong>Shipment Lines Grid</strong>
+                                                <p>DevExpress DataGrid showing pending shipment lines from Oracle Fusion. Columns: Delivery Name, Order Number, Item, Quantity, Ship-To Location, Carrier, Ship Date. Data fetched from WAREHOUSEMANAGEMENT/getpendingshipmentlines API.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Instance-Based Filtering</strong>
-                                                <p>Filter by PROD or TEST instance</p>
+                                                <strong>Instance Toggle (PROD/TEST)</strong>
+                                                <p>Switch between Production and Test environments. All API calls redirect to appropriate Fusion instance. Clearly indicates current instance with color-coded badge (Green=PROD, Orange=TEST).</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Date Range Filtering</strong>
+                                                <p>Filter shipment lines by scheduled ship date range. DevExpress DateBox controls with calendar picker. Quick presets: Today, Tomorrow, This Week, Custom Range.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Export to Excel</strong>
-                                                <p>Export shipment line data for external analysis</p>
+                                                <p>Export filtered shipment line data to Excel (.xlsx). Includes all visible columns with current sorting. Useful for sharing with logistics partners or external analysis.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Add to Trip Integration</strong>
+                                                <p>Select pending shipment lines and add to existing or new trip. Links to Trip Management module. Streamlines workflow from pending orders to trip creation.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- Printer Setups -->
+                                <!-- 11. Printer Setups -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
                                         <i class="fas fa-print"></i>
                                         <h3>Printer Setups</h3>
+                                        <span class="feature-badge">4 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Printer Management</strong>
-                                                <p>Add, edit, and delete printer configurations</p>
+                                                <strong>Printer CRUD Operations</strong>
+                                                <p>Add, edit, and delete printer configurations. Form fields: Printer Name, Network Path/IP, Port, Description, Paper Size, Orientation. Saved to APEX via /config/printer API. Changes sync across all workstations.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
                                                 <strong>Active Printer Selection</strong>
-                                                <p>Set default active printer for the application</p>
+                                                <p>Set one printer as the default active printer. Radio button selection in printer list. Calls /printers/set-active API. Active printer used for all auto-print operations and as default in manual print dialogs.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Test Printer</strong>
-                                                <p>Test printer connectivity and functionality</p>
+                                                <strong>Printer Connectivity Test</strong>
+                                                <p>Test printer connection before saving. Uses C# WebView bridge testPrinter action. Shows result: Success (green checkmark), Failed (red X with error message). Validates network path and printer availability.</p>
+                                            </div>
+                                        </div>
+                                        <div class="feature-item">
+                                            <i class="fas fa-check-circle"></i>
+                                            <div>
+                                                <strong>Printer Configuration Sync</strong>
+                                                <p>Printer configurations stored centrally in APEX database. All workstations share same printer list. Local C# app caches printer list for offline operation. Sync on startup and periodic refresh.</p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                <!-- WMS Co-Pilot -->
+                                <!-- 12. WMS Co-Pilot -->
                                 <div class="feature-page-section">
                                     <div class="feature-page-header">
-                                        <i class="fas fa-robot"></i>
+                                        <i class="fas fa-magic"></i>
                                         <h3>WMS Co-Pilot</h3>
+                                        <span class="feature-badge">3 Features</span>
                                     </div>
                                     <div class="feature-list">
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Quick Actions Panel</strong>
-                                                <p>Floating button with quick access to common operations</p>
+                                                <strong>Quick Actions Floating Panel</strong>
+                                                <p>Floating action button (FAB) in bottom-right corner. Expands to show context-aware quick actions based on current page. Actions include: Create Trip, Assign Picker, Pick Release, Allocate Lots, View Process Flow. One-click execution of common workflows.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Context-Aware Prompts</strong>
-                                                <p>Suggested prompts based on current page context</p>
+                                                <strong>Process Flow Visualization</strong>
+                                                <p>Visual representation of order processing stages. Shows: Order Created → Pick Released → Lots Allocated → Picked → Shipped. Current stage highlighted. Click stage to view details. Shows counts and status for each stage.</p>
                                             </div>
                                         </div>
                                         <div class="feature-item">
                                             <i class="fas fa-check-circle"></i>
                                             <div>
-                                                <strong>Chat Interface</strong>
-                                                <p>Conversational interface for help and guidance</p>
+                                                <strong>Trip Details Quick View</strong>
+                                                <p>Expanded trip information panel accessible from Co-Pilot. Shows: Trip summary, All orders in trip, KPI metrics, Quick action buttons. Fetches data from WAREHOUSEMANAGEMENT/GETTRIPDETAILS API. Data cards for sales order lines, pick release details, lot details.</p>
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Web Services Reference -->
+                                <h3 style="color: #1e293b; margin: 2.5rem 0 1rem 0; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0;"><i class="fas fa-plug" style="color: #10b981; margin-right: 0.5rem;"></i>Web Services Reference (54 Total)</h3>
+
+                                <!-- APEX WAREHOUSEMANAGEMENT APIs -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-database"></i>
+                                        <h3>Oracle APEX - WAREHOUSEMANAGEMENT</h3>
+                                        <span class="feature-badge" style="background: #10b981;">25 Endpoints</span>
+                                    </div>
+                                    <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; line-height: 1.8;">
+                                        <div><strong>Trip Management:</strong></div>
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • GETTRIPDETAILS/{tripId} - Get trip details<br>
+                                            • GETTRIPDETAILS/ALL - Get all trip details<br>
+                                            • trips/create - Create new trip<br>
+                                            • trips/addorders - Add orders to trip<br>
+                                            • trips/addtotrip - Add order to existing trip<br>
+                                            • trips/getpendingorders - Get pending orders<br>
+                                            • trips/assignpicker - Assign picker to trip<br>
+                                            • trips/transactionforautopr - Get transactions for auto processing
+                                        </div>
+                                        <div style="margin-top: 0.5rem;"><strong>Order Details:</strong></div>
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • trips/orders/getpickreleasedetails/{order} - Pick release details<br>
+                                            • trips/orders/getsalesorderlines/{order} - Sales order lines<br>
+                                            • trips/orders/getlotdetails/{order} - Lot details<br>
+                                            • trips/orders/getshipmentdetails/{order} - Shipment details
+                                        </div>
+                                        <div style="margin-top: 0.5rem;"><strong>Store Transactions:</strong></div>
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • storetrans/gettransactiondetails/{order} - Transaction details<br>
+                                            • storetrans/getqohdetails/{order} - QOH details<br>
+                                            • storetrans/getallocatedlots/{order} - Allocated lots<br>
+                                            • storetrans/process - Process store transaction<br>
+                                            • trip/processs2vauto/{lid} - Auto process S2V
+                                        </div>
+                                        <div style="margin-top: 0.5rem;"><strong>Master Data:</strong></div>
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • pickers/getpickers - Get all pickers<br>
+                                            • vehicles/get - Get all vehicles<br>
+                                            • getpendingshipmentlines - Get pending shipments<br>
+                                            • materialtrx/allocatelots - Allocate lots<br>
+                                            • trip/fetchlotdetails - Fetch lot details<br>
+                                            • trip/pickerassignment - Picker assignment<br>
+                                            • trip/fusionuserdetails - Fusion credentials<br>
+                                            • trip/releasepick - Release pick
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- APEX TRIPMANAGEMENT APIs -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-route"></i>
+                                        <h3>Oracle APEX - TRIPMANAGEMENT</h3>
+                                        <span class="feature-badge" style="background: #f59e0b;">12 Endpoints</span>
+                                    </div>
+                                    <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; line-height: 1.8;">
+                                        <div><strong>Trip Operations:</strong></div>
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • trip/autosalesorderprocessing - Auto sales order processing<br>
+                                            • trip/PendingS2Vtransactions - Pending S2V transactions<br>
+                                            • trip/pickrelease/oneorder/{order} - Pick release single order<br>
+                                            • trip/cancels2vlot/{lid} - Cancel S2V lot<br>
+                                            • trip/callpickwave - Call pick wave<br>
+                                            • trip/getpickersview - Get pickers view<br>
+                                            • trip/getlotsforpicks - Get lots for picks
+                                        </div>
+                                        <div style="margin-top: 0.5rem;"><strong>Order APIs:</strong></div>
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • trip/order/fetchfusionorderlines - Fetch Fusion order lines<br>
+                                            • fetchordervolume - Fetch order volume/weight<br>
+                                            • gettrillines - Get trip lines<br>
+                                            • trips/getopenpicksbyorder - Get open picks<br>
+                                            • trips/orders/getpickreleasedetails - Pick release details
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Oracle Fusion APIs -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-cloud"></i>
+                                        <h3>Oracle Fusion Cloud REST APIs</h3>
+                                        <span class="feature-badge" style="background: #ec4899;">12 Endpoints</span>
+                                    </div>
+                                    <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; line-height: 1.8;">
+                                        <div><strong>fscmRestApi/resources/11.13.18.05/</strong></div>
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • pickTransactions - Pick transactions (GET/POST)<br>
+                                            • inventoryStagedTransactions - Inventory staged transactions (GET/POST/PATCH)<br>
+                                            • salesOrdersForOrderHub/OPS:{order} - Sales order details (GET)<br>
+                                            • standardReceipts - Standard receipts (GET/POST)
+                                        </div>
+                                        <div style="margin-top: 0.5rem;"><strong>Environments:</strong></div>
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • PROD: efmh.fa.em3.oraclecloud.com<br>
+                                            • TEST: efmh-test.fa.em3.oraclecloud.com
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Printer/Monitor APIs -->
+                                <div class="feature-page-section">
+                                    <div class="feature-page-header">
+                                        <i class="fas fa-print"></i>
+                                        <h3>Printer & Monitor APIs</h3>
+                                        <span class="feature-badge" style="background: #8b5cf6;">5 Endpoints</span>
+                                    </div>
+                                    <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.8rem; line-height: 1.8;">
+                                        <div style="padding-left: 1rem; color: #475569;">
+                                            • /printers/all - Get all printers (GET)<br>
+                                            • /printers/set-active - Set active printer (POST)<br>
+                                            • /printers/delete - Delete printer (POST)<br>
+                                            • /config/printer - Save printer config (POST)<br>
+                                            • /monitor-printing/list - Get monitor list (GET)<br>
+                                            • /monitor-printing/enable - Enable auto-print (POST)<br>
+                                            • /monitor-printing/disable - Disable auto-print (POST)<br>
+                                            • /monitor-printing/update-order-status - Update status (POST)<br>
+                                            • /monitor-printing/orders - Get orders for trip (GET)
                                         </div>
                                     </div>
                                 </div>
