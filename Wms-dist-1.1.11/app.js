@@ -17,6 +17,374 @@ let qohDetailsGrid = null;
 let allocatedLotsGrid = null;
 
 // ========================================
+// NOTIFICATION SYSTEM
+// ========================================
+
+// Simple toast notification function
+window.showNotification = function(message, type = 'info') {
+    console.log(`[Notification] ${type.toUpperCase()}: ${message}`);
+
+    // Remove existing notification if any
+    const existing = document.getElementById('wms-notification-toast');
+    if (existing) existing.remove();
+
+    // Define colors based on type
+    const colors = {
+        success: { bg: '#22c55e', icon: 'fa-check-circle' },
+        error: { bg: '#ef4444', icon: 'fa-times-circle' },
+        warning: { bg: '#f59e0b', icon: 'fa-exclamation-triangle' },
+        info: { bg: '#3b82f6', icon: 'fa-info-circle' }
+    };
+
+    const color = colors[type] || colors.info;
+
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.id = 'wms-notification-toast';
+    toast.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${color.bg};
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        z-index: 999999;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+        font-weight: 500;
+        max-width: 400px;
+        animation: slideIn 0.3s ease-out;
+    `;
+
+    toast.innerHTML = `<i class="fas ${color.icon}"></i> <span>${message}</span>`;
+
+    // Add animation keyframes if not already added
+    if (!document.getElementById('wms-notification-styles')) {
+        const style = document.createElement('style');
+        style.id = 'wms-notification-styles';
+        style.textContent = `
+            @keyframes slideIn {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            @keyframes slideOut {
+                from { transform: translateX(0); opacity: 1; }
+                to { transform: translateX(100%); opacity: 0; }
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    document.body.appendChild(toast);
+
+    // Auto-remove after 4 seconds
+    setTimeout(() => {
+        toast.style.animation = 'slideOut 0.3s ease-in forwards';
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+};
+
+// ========================================
+// PROCESSING INDICATOR SYSTEM
+// ========================================
+
+// Track active service calls
+window.activeServiceCalls = {};
+let processingIndicatorContainer = null;
+
+// Service name mapping for friendly display
+const SERVICE_NAMES = {
+    // C# Bridge Actions
+    'executeGet': 'Fetching Data',
+    'executePost': 'Sending Data',
+    'getAllPrintJobs': 'Loading Print Jobs',
+    'getPdfAsBase64': 'Loading PDF',
+    'openFileInExplorer': 'Opening File',
+    'downloadOrderPdf': 'Downloading PDF',
+    'printOrder': 'Sending to Printer',
+    'testPrinter': 'Testing Printer',
+    'configurePrinter': 'Configuring Printer',
+    'setInstanceSetting': 'Syncing Instance',
+    // APEX Endpoints
+    '/printers/all': 'Loading Printers',
+    '/config/printer': 'Saving Printer Config',
+    '/printers/set-active': 'Setting Active Printer',
+    '/printers/delete': 'Deleting Printer',
+    '/monitor-printing/list': 'Loading Monitor List',
+    '/monitor-printing/enable': 'Enabling Auto-Print',
+    '/monitor-printing/disable': 'Disabling Auto-Print',
+    '/monitor-printing/update-order-status': 'Updating Order Status',
+    // Trip Management
+    'GETTRIPDETAILS': 'Loading Trip Details',
+    'getpendingorders': 'Loading Pending Orders',
+    'addtotrip': 'Adding Orders to Trip',
+    'trips/create': 'Creating Trip',
+    'trips/addorders': 'Adding Orders',
+    'getpendingshipmentlines': 'Loading Shipment Lines',
+    'getpickers': 'Loading Pickers',
+    'vehicles/get': 'Loading Vehicles',
+    'pickerassignment': 'Assigning Picker',
+    'updatepickconfirmstatus': 'Updating Pick Status',
+    'PendingS2Vtransactions': 'Loading Store Transactions',
+    'pickrelease': 'Processing Pick Release',
+    'autosalesorderprocessing': 'Loading Sales Orders',
+    'gettrillines': 'Loading Trip Lines',
+    // Oracle Fusion
+    'pickTransactions': 'Processing Pick Transaction',
+    'salesOrders': 'Loading Sales Orders',
+    'standardReceipts': 'Processing Receipt'
+};
+
+// Initialize the processing indicator (circular icon in header)
+function initializeProcessingIndicator() {
+    if (processingIndicatorContainer) return;
+
+    // Add styles for processing indicator
+    if (!document.getElementById('wms-processing-styles')) {
+        const style = document.createElement('style');
+        style.id = 'wms-processing-styles';
+        style.textContent = `
+            /* Circular loading indicator in header */
+            #wms-loading-indicator {
+                position: relative;
+                width: 32px;
+                height: 32px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                margin-left: 12px;
+            }
+            #wms-loading-indicator.active {
+                display: flex;
+            }
+            #wms-loading-indicator .loader-ring {
+                width: 24px;
+                height: 24px;
+                border: 3px solid #e2e8f0;
+                border-top-color: #6366f1;
+                border-radius: 50%;
+                animation: wms-spin 0.8s linear infinite;
+            }
+            #wms-loading-indicator .loader-count {
+                position: absolute;
+                top: -4px;
+                right: -4px;
+                min-width: 16px;
+                height: 16px;
+                background: #6366f1;
+                color: white;
+                border-radius: 8px;
+                font-size: 10px;
+                font-weight: 700;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 0 4px;
+                box-shadow: 0 2px 4px rgba(99, 102, 241, 0.3);
+            }
+            @keyframes wms-spin {
+                to { transform: rotate(360deg); }
+            }
+
+            /* Full overlay for blocking operations */
+            #wms-processing-overlay {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                z-index: 999997;
+                display: none;
+                align-items: center;
+                justify-content: center;
+            }
+            #wms-processing-overlay.active {
+                display: flex;
+            }
+            .wms-overlay-content {
+                background: white;
+                padding: 30px 40px;
+                border-radius: 16px;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                text-align: center;
+                max-width: 400px;
+            }
+            .wms-overlay-content .spinner-large {
+                width: 50px;
+                height: 50px;
+                border: 4px solid #e2e8f0;
+                border-top-color: #667eea;
+                border-radius: 50%;
+                animation: wms-spin 1s linear infinite;
+                margin: 0 auto 20px;
+            }
+            .wms-overlay-content .overlay-title {
+                font-size: 18px;
+                font-weight: 700;
+                color: #1e293b;
+                margin-bottom: 8px;
+            }
+            .wms-overlay-content .overlay-message {
+                font-size: 14px;
+                color: #64748b;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // Create loading indicator in header (after logo)
+    const header = document.querySelector('.header');
+    if (header) {
+        const loadingIndicator = document.createElement('div');
+        loadingIndicator.id = 'wms-loading-indicator';
+        loadingIndicator.innerHTML = `
+            <div class="loader-ring"></div>
+            <span class="loader-count" id="wms-loading-count" style="display: none;">1</span>
+        `;
+        loadingIndicator.title = 'Processing...';
+
+        // Insert after logo
+        const logo = header.querySelector('.logo');
+        if (logo && logo.nextSibling) {
+            header.insertBefore(loadingIndicator, logo.nextSibling);
+        } else {
+            header.appendChild(loadingIndicator);
+        }
+
+        processingIndicatorContainer = loadingIndicator;
+    }
+
+    // Create overlay (for blocking operations)
+    const overlay = document.createElement('div');
+    overlay.id = 'wms-processing-overlay';
+    overlay.innerHTML = `
+        <div class="wms-overlay-content">
+            <div class="spinner-large"></div>
+            <div class="overlay-title">Processing...</div>
+            <div class="overlay-message" id="wms-overlay-message">Please wait</div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+// Update loading indicator visibility based on active calls
+function updateLoadingIndicator() {
+    const indicator = document.getElementById('wms-loading-indicator');
+    const countEl = document.getElementById('wms-loading-count');
+    if (!indicator) return;
+
+    const activeCount = Object.keys(window.activeServiceCalls).length;
+
+    if (activeCount > 0) {
+        indicator.classList.add('active');
+        if (activeCount > 1 && countEl) {
+            countEl.textContent = activeCount;
+            countEl.style.display = 'flex';
+        } else if (countEl) {
+            countEl.style.display = 'none';
+        }
+
+        // Update tooltip with current services
+        const services = Object.values(window.activeServiceCalls).map(s => s.serviceName).join(', ');
+        indicator.title = `Processing: ${services}`;
+    } else {
+        indicator.classList.remove('active');
+        indicator.title = 'Processing...';
+    }
+}
+
+// Get friendly service name from action/endpoint (globally available)
+window.getServiceDisplayName = function(action, endpoint) {
+    // Check direct action mapping
+    if (SERVICE_NAMES[action]) {
+        return SERVICE_NAMES[action];
+    }
+
+    // Check endpoint mapping
+    if (endpoint) {
+        for (const key in SERVICE_NAMES) {
+            if (endpoint.includes(key)) {
+                return SERVICE_NAMES[key];
+            }
+        }
+    }
+
+    // Default: format the action name
+    if (action) {
+        return action.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()).trim();
+    }
+
+    return 'Processing...';
+};
+
+// Local alias for internal use
+const getServiceDisplayName = window.getServiceDisplayName;
+
+// Show processing indicator for a service call
+window.showProcessingIndicator = function(requestId, serviceName, detail = '') {
+    initializeProcessingIndicator();
+
+    const startTime = Date.now();
+
+    // Store the service call info
+    window.activeServiceCalls[requestId] = {
+        serviceName,
+        detail,
+        startTime
+    };
+
+    // Update the header loading indicator
+    updateLoadingIndicator();
+
+    console.log(`[Processing] Started: ${serviceName} (${requestId})${detail ? ' - ' + detail : ''}`);
+
+    return requestId;
+};
+
+// Hide processing indicator for a service call
+window.hideProcessingIndicator = function(requestId) {
+    const serviceCall = window.activeServiceCalls[requestId];
+    if (!serviceCall) return;
+
+    const elapsed = ((Date.now() - serviceCall.startTime) / 1000).toFixed(2);
+    console.log(`[Processing] Completed: ${serviceCall.serviceName} (${requestId}) in ${elapsed}s`);
+
+    delete window.activeServiceCalls[requestId];
+
+    // Update the header loading indicator
+    updateLoadingIndicator();
+};
+
+// Show blocking overlay (for critical operations)
+window.showProcessingOverlay = function(message = 'Processing...') {
+    initializeProcessingIndicator();
+    const overlay = document.getElementById('wms-processing-overlay');
+    const messageEl = document.getElementById('wms-overlay-message');
+    if (overlay) {
+        overlay.classList.add('active');
+        if (messageEl) messageEl.textContent = message;
+    }
+};
+
+// Hide blocking overlay
+window.hideProcessingOverlay = function() {
+    const overlay = document.getElementById('wms-processing-overlay');
+    if (overlay) {
+        overlay.classList.remove('active');
+    }
+};
+
+// Get count of active service calls
+window.getActiveServiceCount = function() {
+    return Object.keys(window.activeServiceCalls).length;
+};
+
+// ========================================
 // INSTANCE MANAGEMENT
 // ========================================
 
@@ -112,7 +480,7 @@ function generateRequestId() {
 
 
 
-function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
+function sendMessageToCSharp(message, callback, timeoutMs = 120000, showIndicator = true) {
     const requestId = message.requestId || generateRequestId();
     message.requestId = requestId;
     const startTime = Date.now();
@@ -125,6 +493,13 @@ function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
     console.log('[JS] Timeout set to:', timeoutMs, 'ms');
     console.log('[JS] ════════════════════════════════════════════════════════');
 
+    // Show processing indicator for this service call
+    if (showIndicator && typeof window.showProcessingIndicator === 'function') {
+        const serviceName = getServiceDisplayName(message.action, message.fullUrl);
+        const detail = message.fullUrl ? extractEndpointFromUrl(message.fullUrl) : '';
+        window.showProcessingIndicator(requestId, serviceName, detail);
+    }
+
     // Setup timeout to catch stuck requests
     const timeoutId = setTimeout(() => {
         if (window.pendingRequests[requestId]) {
@@ -133,6 +508,11 @@ function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
             console.error('[JS] ⏰ Timed out Request ID:', requestId);
             console.error('[JS] ⏰ Timed out Action:', message.action);
             console.error('[JS] ⏰ Check if C# received and processed this request');
+
+            // Hide processing indicator on timeout
+            if (typeof window.hideProcessingIndicator === 'function') {
+                window.hideProcessingIndicator(requestId);
+            }
 
             delete window.pendingRequests[requestId];
             callback(`Request timed out after ${timeoutMs}ms. C# did not respond for action: ${message.action}`, null);
@@ -144,6 +524,12 @@ function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
         clearTimeout(timeoutId);
         const elapsed = Date.now() - startTime;
         console.log('[JS] ⏱️ Response received in', elapsed, 'ms for:', requestId);
+
+        // Hide processing indicator when response arrives
+        if (typeof window.hideProcessingIndicator === 'function') {
+            window.hideProcessingIndicator(requestId);
+        }
+
         callback(error, response);
     };
 
@@ -155,15 +541,46 @@ function sendMessageToCSharp(message, callback, timeoutMs = 120000) {
         } catch (postError) {
             console.error('[JS] ❌ Error posting message:', postError);
             clearTimeout(timeoutId);
+
+            // Hide processing indicator on error
+            if (typeof window.hideProcessingIndicator === 'function') {
+                window.hideProcessingIndicator(requestId);
+            }
+
             delete window.pendingRequests[requestId];
             callback('Error posting message to C#: ' + postError.message, null);
         }
     } else {
         console.error('[JS] ❌ WebView2 not available - window.chrome.webview is:', window.chrome?.webview);
         clearTimeout(timeoutId);
+
+        // Hide processing indicator when WebView2 not available
+        if (typeof window.hideProcessingIndicator === 'function') {
+            window.hideProcessingIndicator(requestId);
+        }
+
         delete window.pendingRequests[requestId];
         callback('WebView2 not available', null);
     }
+}
+
+// Helper function to extract readable endpoint from URL
+function extractEndpointFromUrl(url) {
+    if (!url) return '';
+    try {
+        const urlObj = new URL(url);
+        const path = urlObj.pathname;
+        // Get the last meaningful part of the path
+        const parts = path.split('/').filter(p => p && !p.match(/^v\d+$/));
+        if (parts.length > 0) {
+            return parts[parts.length - 1];
+        }
+    } catch (e) {
+        // If URL parsing fails, try to extract the endpoint manually
+        const match = url.match(/\/([^\/\?]+)(?:\?|$)/);
+        if (match) return match[1];
+    }
+    return '';
 }
 
 // ============================================================
@@ -1486,36 +1903,112 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('sidebar').classList.toggle('collapsed');
     });
 
-    // Menu navigation
+    // ========================================
+    // MOBILE BACK NAVIGATION SUPPORT
+    // ========================================
+
+    // Navigate to page function (with history support)
+    window.navigateToPage = function(pageId, pushState = true) {
+        const menuItem = document.querySelector(`.menu-item[data-page="${pageId}"]`);
+        if (!menuItem) {
+            console.warn(`[Navigation] Page not found: ${pageId}`);
+            return;
+        }
+
+        // Update menu active state
+        document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
+        menuItem.classList.add('active');
+
+        // Hide all pages and show target page
+        document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
+        const pageElement = document.getElementById(pageId);
+        if (pageElement) {
+            pageElement.style.display = 'block';
+        }
+
+        const pageTitle = menuItem.textContent.trim();
+        document.title = `WMS - ${pageTitle}`;
+
+        // Push state to browser history for mobile back button support
+        if (pushState) {
+            history.pushState({ pageId: pageId, pageTitle: pageTitle }, pageTitle, `#${pageId}`);
+        }
+
+        // Collapse sidebar when navigating to Auto Inventory Processing
+        if (pageId === 'auto-inventory-processing') {
+            document.getElementById('sidebar').classList.add('collapsed');
+        }
+
+        // Page-specific initialization
+        if (pageId === 'vehicles' && currentFullData.length > 0) {
+            initVehiclesPage();
+        } else if (pageId === 'monitor-printing') {
+            if (typeof restoreMonitoringGridIfNeeded === 'function') {
+                restoreMonitoringGridIfNeeded();
+            }
+        } else if (pageId === 'printer-setup') {
+            loadInstalledPrinters();
+            loadPrinterConfiguration();
+        }
+
+        console.log(`[Navigation] Navigated to: ${pageId}`);
+    };
+
+    // Handle browser back/forward buttons (mobile back navigation)
+    window.addEventListener('popstate', function(event) {
+        console.log('[Navigation] Popstate event:', event.state);
+
+        if (event.state && event.state.pageId) {
+            const pageId = event.state.pageId;
+
+            // Handle trip-details-management specially
+            if (pageId === 'trip-details-management' && event.state.tripData) {
+                console.log(`[Navigation] Back/Forward to Trip Details: ${event.state.tripId}`);
+                // Re-open trip details with stored data
+                if (typeof window.openTripDetailsPage === 'function') {
+                    // Don't push state again since we're handling popstate
+                    const tripDetailsPage = document.getElementById('trip-details-management');
+                    if (tripDetailsPage) {
+                        document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
+                        tripDetailsPage.style.display = 'block';
+                    }
+                }
+            } else {
+                console.log(`[Navigation] Back/Forward to: ${pageId}`);
+                navigateToPage(pageId, false); // Don't push state again
+            }
+        } else {
+            // Default handling based on URL hash
+            const hash = window.location.hash.replace('#', '');
+            if (hash && !hash.startsWith('trip-details/')) {
+                navigateToPage(hash, false);
+            } else if (!hash) {
+                // Go to default page (trip-management)
+                navigateToPage('trip-management', false);
+            }
+        }
+    });
+
+    // Menu navigation (updated to use navigateToPage)
     document.querySelectorAll('.menu-item').forEach(item => {
         item.addEventListener('click', function() {
-            document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('active'));
-            this.classList.add('active');
-            document.querySelectorAll('.page-content').forEach(page => page.style.display = 'none');
             const pageId = this.getAttribute('data-page');
-            document.getElementById(pageId).style.display = 'block';
-
-            const pageTitle = this.textContent.trim();
-            document.title = `WMS - ${pageTitle}`;
-
-            // Collapse sidebar when navigating to Auto Inventory Processing
-            if (pageId === 'auto-inventory-processing') {
-                document.getElementById('sidebar').classList.add('collapsed');
-            }
-
-            if (pageId === 'vehicles' && currentFullData.length > 0) {
-                initVehiclesPage();
-            } else if (pageId === 'monitor-printing') {
-                // ✅ Restore grid data if available (don't refresh unless user clicks Fetch Trips)
-                if (typeof restoreMonitoringGridIfNeeded === 'function') {
-                    restoreMonitoringGridIfNeeded();
-                }
-            } else if (pageId === 'printer-setup') {
-                loadInstalledPrinters();
-                loadPrinterConfiguration();
-            }
+            navigateToPage(pageId, true);
         });
     });
+
+    // Initialize: Set initial state based on URL hash or default page
+    const initialHash = window.location.hash.replace('#', '');
+    if (initialHash) {
+        navigateToPage(initialHash, false);
+    } else {
+        // Set initial history state for default page
+        const defaultPage = document.querySelector('.menu-item.active');
+        if (defaultPage) {
+            const pageId = defaultPage.getAttribute('data-page');
+            history.replaceState({ pageId: pageId, pageTitle: 'Trip Management' }, '', `#${pageId}`);
+        }
+    }
 
     // Set default dates
     const today = new Date();
@@ -1542,11 +2035,36 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Add click handlers for Help Documentation tabs
+    document.querySelectorAll('.help-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            const tabId = this.getAttribute('data-help-tab');
+            if (!tabId) return;
+
+            // Remove active class from all help tabs
+            document.querySelectorAll('.help-tab').forEach(t => t.classList.remove('active'));
+            // Add active class to clicked tab
+            this.classList.add('active');
+
+            // Hide all help tab panes
+            document.querySelectorAll('.help-tab-pane').forEach(pane => pane.classList.remove('active'));
+            // Show selected help tab pane
+            const targetPane = document.getElementById('help-' + tabId);
+            if (targetPane) {
+                targetPane.classList.add('active');
+            }
+        });
+    });
+
     // Fetch Trips button
     document.getElementById('fetch-trips-btn').addEventListener('click', function() {
+        console.log('[Fetch Trips] ===== FETCH TRIPS BUTTON CLICKED =====');
+
         const instanceName = document.getElementById('trip-instance-name').value;
         const dateFrom = document.getElementById('trip-date-from').value;
         const dateTo = document.getElementById('trip-date-to').value;
+
+        console.log('[Fetch Trips] Parameters - Instance:', instanceName, 'From:', dateFrom, 'To:', dateTo);
 
         if (!dateFrom || !dateTo) {
             alert('Please select both From Date and To Date');
@@ -1556,6 +2074,11 @@ document.addEventListener('DOMContentLoaded', function() {
             alert('From Date cannot be after To Date');
             return;
         }
+
+        // Clear old data before fetching new data
+        currentFullData = [];
+        window.currentFullData = [];
+        console.log('[Fetch Trips] Cleared old data');
 
         const fetchBtn = document.getElementById('fetch-trips-btn');
         const fetchIcon = document.getElementById('fetch-icon');
@@ -1577,6 +2100,13 @@ document.addEventListener('DOMContentLoaded', function() {
             P_INSTANCE_NAME: instanceName
         });
         const fullUrl = `${baseUrl}?${params.toString()}`;
+
+        console.log('[Fetch Trips] ========================================');
+        console.log('[Fetch Trips] Instance Name:', instanceName);
+        console.log('[Fetch Trips] Date From:', dateFrom, '-> Formatted:', formatDate(dateFrom));
+        console.log('[Fetch Trips] Date To:', dateTo, '-> Formatted:', formatDate(dateTo));
+        console.log('[Fetch Trips] Full URL:', fullUrl);
+        console.log('[Fetch Trips] ========================================');
 
         currentParams = {
             fromDate: formatDate(dateFrom),
@@ -1608,13 +2138,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 `;
             } else {
                 try {
+                    console.log('[Fetch Trips] Raw Response:', data);
                     let trips = JSON.parse(data);
+                    console.log('[Fetch Trips] Parsed Response:', trips);
                     if (!Array.isArray(trips) && trips?.items) trips = trips.items;
                     if (!Array.isArray(trips)) trips = [];
+                    console.log('[Fetch Trips] Trips Count:', trips.length);
+                    if (trips.length > 0) {
+                        console.log('[Fetch Trips] Sample Trip:', trips[0]);
+                    }
                     displayTripData(trips);
                     currentFullData = trips;
                     window.currentFullData = trips;
                 } catch (e) {
+                    console.error('[Fetch Trips] Parse Error:', e);
                     gridContainer.innerHTML = `<div style="padding:2rem;color:#e53e3e;">Invalid JSON: ${e.message}</div>`;
                 }
             }
@@ -1658,10 +2195,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log('=== All Trip Details - First Record ===');
                         console.log('All columns:', Object.keys(tripDetails[0]));
                         console.log('First record data:', tripDetails[0]);
-                        // Check specifically for item-related columns
-                        const itemCols = Object.keys(tripDetails[0]).filter(k => k.toLowerCase().includes('item'));
-                        console.log('Item-related columns:', itemCols);
-                        itemCols.forEach(col => console.log(`${col}:`, tripDetails[0][col]));
+                        // Check specifically for volume-related columns
+                        const volumeCols = Object.keys(tripDetails[0]).filter(k => k.toLowerCase().includes('volume'));
+                        console.log('Volume-related columns:', volumeCols);
+                        volumeCols.forEach(col => console.log(`${col}:`, tripDetails[0][col], typeof tripDetails[0][col]));
                     }
                     displayTripDetailsData(tripDetails);
                 } catch (e) {
@@ -1673,9 +2210,150 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // Show Trip Management API Info popup
+    window.showTripManagementApiInfo = function() {
+        const instanceName = document.getElementById('trip-instance-name')?.value || 'TEST';
+        const dateFrom = document.getElementById('trip-date-from')?.value || '2026-02-01';
+        const dateTo = document.getElementById('trip-date-to')?.value || '2026-02-07';
+
+        // Format dates for API 1
+        const formatDate = (dateStr) => {
+            const d = new Date(dateStr);
+            return `${String(d.getDate()).padStart(2, '0')}-${String(d.getMonth() + 1).padStart(2, '0')}-${d.getFullYear()}`;
+        };
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT';
+
+        // API URLs
+        const fetchTripsUrl = `${baseUrl}/GETTRIPDETAILS?P_DATE_FROM=${formatDate(dateFrom)}&P_DATE_TO=${formatDate(dateTo)}&P_INSTANCE_NAME=${instanceName}`;
+        const allTripDetailsUrl = `${baseUrl}/GETTRIPDETAILS/ALL?P_FROM_DATE=${dateFrom}&P_TO_DATE=${dateTo}`;
+        const viewDetailsUrl = `${baseUrl}/GETTRIPDETAILS/{tripId}?P_INSTANCE_NAME=${instanceName}`;
+
+        // Remove existing popup
+        const existingPopup = document.getElementById('trip-api-info-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Create popup
+        const popup = document.createElement('div');
+        popup.id = 'trip-api-info-popup';
+        popup.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            z-index: 100000;
+            width: 90%;
+            max-width: 700px;
+            max-height: 85vh;
+            overflow: hidden;
+        `;
+
+        popup.innerHTML = `
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="font-weight: 600; font-size: 16px;">
+                    <i class="fas fa-code"></i> Trip Management APIs
+                </div>
+                <button onclick="document.getElementById('trip-api-info-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 10px; border-radius: 6px; cursor: pointer;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div style="padding: 20px; overflow-y: auto; max-height: calc(85vh - 60px);">
+                <!-- API 1: Fetch Trips -->
+                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #6366f1;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <span style="background: #6366f1; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b;">Fetch Trips (All Trips Tab)</strong>
+                    </div>
+                    <p style="color: #64748b; font-size: 12px; margin-bottom: 10px;">Called when clicking "Fetch Trips" button. Returns list of trips for the selected date range.</p>
+                    <div style="background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all; position: relative;">
+                        <button onclick="navigator.clipboard.writeText(this.nextElementSibling.textContent); this.innerHTML='<i class=\\'fas fa-check\\'></i>'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i>', 2000)" style="position: absolute; top: 8px; right: 8px; background: #374151; border: none; color: #9ca3af; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <code>${fetchTripsUrl}</code>
+                    </div>
+                </div>
+
+                <!-- API 2: All Trip Details -->
+                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #10b981;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <span style="background: #10b981; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b;">All Trip Details (All Trip Details Tab)</strong>
+                    </div>
+                    <p style="color: #64748b; font-size: 12px; margin-bottom: 10px;">Called simultaneously with Fetch Trips. Returns all order details across all trips.</p>
+                    <div style="background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all; position: relative;">
+                        <button onclick="navigator.clipboard.writeText(this.nextElementSibling.textContent); this.innerHTML='<i class=\\'fas fa-check\\'></i>'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i>', 2000)" style="position: absolute; top: 8px; right: 8px; background: #374151; border: none; color: #9ca3af; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <code>${allTripDetailsUrl}</code>
+                    </div>
+                </div>
+
+                <!-- API 3: View Details -->
+                <div style="background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 16px; border-left: 4px solid #f59e0b;">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px;">
+                        <span style="background: #f59e0b; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b;">View Details (Single Trip)</strong>
+                    </div>
+                    <p style="color: #64748b; font-size: 12px; margin-bottom: 10px;">Called when clicking "View Details" on a trip card. Returns orders for a specific trip.</p>
+                    <div style="background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: monospace; font-size: 11px; word-break: break-all; position: relative;">
+                        <button onclick="navigator.clipboard.writeText(this.nextElementSibling.textContent); this.innerHTML='<i class=\\'fas fa-check\\'></i>'; setTimeout(() => this.innerHTML='<i class=\\'fas fa-copy\\'></i>', 2000)" style="position: absolute; top: 8px; right: 8px; background: #374151; border: none; color: #9ca3af; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 10px;">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <code>${viewDetailsUrl}</code>
+                    </div>
+                    <p style="color: #94a3b8; font-size: 11px; margin-top: 8px; font-style: italic;">
+                        <i class="fas fa-info-circle"></i> Replace <code style="background: #e2e8f0; padding: 2px 6px; border-radius: 3px;">{tripId}</code> with actual trip ID (e.g., 2901)
+                    </p>
+                </div>
+
+                <!-- Parameters Info -->
+                <div style="background: #fef3c7; padding: 12px 16px; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                    <div style="font-weight: 600; color: #92400e; margin-bottom: 8px;">
+                        <i class="fas fa-lightbulb"></i> Current Parameters
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; font-size: 12px;">
+                        <div>
+                            <span style="color: #92400e;">Instance:</span>
+                            <span style="font-weight: 600; color: #78350f;">${instanceName}</span>
+                        </div>
+                        <div>
+                            <span style="color: #92400e;">From:</span>
+                            <span style="font-weight: 600; color: #78350f;">${dateFrom}</span>
+                        </div>
+                        <div>
+                            <span style="color: #92400e;">To:</span>
+                            <span style="font-weight: 600; color: #78350f;">${dateTo}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.appendChild(popup);
+    };
+
     function displayTripData(trips) {
+        console.log('[Fetch Trips] displayTripData called with', trips ? trips.length : 0, 'trips');
+
         const gridContainer = document.getElementById('trips-grid');
         const tripCount = document.getElementById('trip-count');
+
+        // Dispose existing grid instance if it exists
+        if (window.tripsGridInstance) {
+            try {
+                window.tripsGridInstance.dispose();
+                console.log('[Fetch Trips] Disposed existing grid instance');
+            } catch (e) {
+                console.log('[Fetch Trips] Error disposing grid:', e);
+            }
+            window.tripsGridInstance = null;
+        }
+
+        // Clear the container
+        $(gridContainer).empty();
 
         if (!trips || trips.length === 0) {
             gridContainer.innerHTML = `<div style="padding:3rem;text-align:center;color:#64748b;">
@@ -2015,7 +2693,7 @@ document.addEventListener('DOMContentLoaded', function() {
             } else if (keyLower.includes('status')) {
                 col.width = 100;
                 col.minWidth = 80;
-            } else if (keyLower.includes('weight') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
+            } else if (keyLower.includes('weight') || keyLower.includes('volume') || keyLower.includes('qty') || keyLower.includes('quantity') || keyLower.includes('amount')) {
                 col.width = 100;
                 col.minWidth = 70;
             } else {
@@ -2050,10 +2728,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 col.dataType = 'date';
                 col.format = 'dd-MMM-yyyy';
             }
-            // Weight columns
-            else if (key.toLowerCase().includes('weight')) {
+            // Weight/Volume columns (including order_volume and order_volume1)
+            else if (key.toLowerCase().includes('weight') || key.toLowerCase().includes('volume') || key === 'order_volume' || key === 'ORDER_VOLUME' || key === 'order_volume1' || key === 'ORDER_VOLUME1') {
                 col.format = { type: 'fixedPoint', precision: 2 };
                 col.alignment = 'right';
+                console.log(`[Column Format] ${key} set to precision 2`);
             }
             // Quantity/Amount columns
             else if (key.toLowerCase().includes('qty') || key.toLowerCase().includes('quantity') || key.toLowerCase().includes('amount')) {
@@ -2098,6 +2777,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             return col;
+        });
+
+        // Force order_volume/order_volume1 column to have 2 decimal precision (override any previous setting)
+        columns.forEach(col => {
+            if (col.dataField && (col.dataField.toLowerCase() === 'order_volume' || col.dataField.toLowerCase() === 'order_volume1')) {
+                col.format = { type: 'fixedPoint', precision: 2 };
+                col.alignment = 'right';
+                console.log('[Column Fix] Forced ' + col.dataField + ' format to 2 decimals');
+            }
         });
 
         // Add PICKER column explicitly if not returned by API
@@ -2246,6 +2934,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('kpi-trip-customers').textContent = '0';
             document.getElementById('kpi-trip-lorries').textContent = '0';
             document.getElementById('kpi-trip-pickers').textContent = '0';
+            document.getElementById('kpi-trip-weight').textContent = '0 m³';
             return;
         }
 
@@ -2256,11 +2945,31 @@ document.addEventListener('DOMContentLoaded', function() {
         const uniqueLorries = new Set(tripDetails.map(r => r.LORRY_NUMBER || r.lorry_number)).size;
         const uniquePickers = new Set(tripDetails.map(r => r.PICKER || r.picker).filter(Boolean)).size;
 
+        // Calculate total order volume (treat null as 0)
+        // Use nullish coalescing to handle "0" string properly
+        const totalWeight = tripDetails.reduce((sum, r) => {
+            // Check for actual numeric values, not just truthy values
+            // order_volume1 is the new field name, also check order_volume for backwards compatibility
+            let volumeVal = r.order_volume1;
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = r.ORDER_VOLUME1;
+            }
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = r.order_volume;
+            }
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = r.ORDER_VOLUME;
+            }
+            const volume = parseFloat(volumeVal) || 0;
+            return sum + volume;
+        }, 0);
+
         document.getElementById('kpi-trip-orders').textContent = uniqueOrders;
         document.getElementById('kpi-trip-trips').textContent = uniqueTrips;
         document.getElementById('kpi-trip-customers').textContent = uniqueCustomers;
         document.getElementById('kpi-trip-lorries').textContent = uniqueLorries;
         document.getElementById('kpi-trip-pickers').textContent = uniquePickers;
+        document.getElementById('kpi-trip-weight').textContent = totalWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m³';
     }
 
     // Global function: Assign Picker for Selected Orders in All Trip Details grid
@@ -2632,13 +3341,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    window.openTripManagementTab = function(tabType) {
+    window.openTripManagementTab = function(tabType, forceRefresh = true) {
+        console.log('[Trip Tab] openTripManagementTab called for:', tabType, 'forceRefresh:', forceRefresh);
+
         const tabHeader = document.getElementById('trip-tab-header');
         const tabContent = document.getElementById('trip-tab-content');
-        
+
         const tabId = `trip-${tabType}`;
         const existingTab = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
-        if (existingTab) {
+
+        // If tab exists and we need to force refresh, remove it first
+        if (existingTab && forceRefresh) {
+            console.log('[Trip Tab] Removing existing tab for refresh');
+            const existingPane = document.getElementById(`trip-${tabId}-tab`);
+            if (existingTab) existingTab.remove();
+            if (existingPane) existingPane.remove();
+        } else if (existingTab) {
             activateTripTab(tabId);
             return;
         }
@@ -2822,6 +3540,13 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderTripsAsCards(tabId) {
+        console.log('[Fetch Trips] renderTripsAsCards called for tab:', tabId);
+        console.log('[Fetch Trips] currentFullData has', currentFullData ? currentFullData.length : 0, 'records');
+
+        // Get the current selected instance from the dropdown
+        const selectedInstanceDropdown = document.getElementById('trip-instance-name');
+        const selectedInstance = selectedInstanceDropdown ? selectedInstanceDropdown.value : 'PROD';
+
         const tripMap = {};
         currentFullData.forEach(trip => {
             const tripId = trip.trip_id || trip.TRIP_ID || 'Unknown';
@@ -2829,28 +3554,41 @@ document.addEventListener('DOMContentLoaded', function() {
                 let tripDate = null;
                 for (let key in trip) {
                     const lowerKey = key.toLowerCase();
-                    if (lowerKey === 'order_date' || lowerKey === 'orderdate' || 
+                    if (lowerKey === 'order_date' || lowerKey === 'orderdate' ||
                         lowerKey === 'shipment_date' || lowerKey === 'shipmentdate' ||
                         lowerKey === 'trip_date' || lowerKey === 'tripdate') {
                         tripDate = trip[key];
                         break;
                     }
                 }
-                
+
+                // Format date - handle ISO strings like 2026-02-05T00:00:00Z
+                let formattedDate = 'N/A';
+                if (tripDate) {
+                    const dateStr = String(tripDate);
+                    if (dateStr.includes('T')) {
+                        formattedDate = dateStr.split('T')[0];
+                    } else {
+                        formattedDate = dateStr.split(' ')[0];
+                    }
+                }
+
                 tripMap[tripId] = {
                     TRIP_ID: tripId,
-                    TRIP_DATE: tripDate ? String(tripDate).split(' ')[0] : 'N/A',
+                    TRIP_DATE: formattedDate,
                     LORRY_NUMBER: trip.trip_lorry || trip.TRIP_LORRY || 'N/A',
                     PRIORITY: trip.TRIP_PRIORITY || trip.trip_priority || 'Medium',
                     STATUS: trip.TRIP_STATUS || trip.trip_status || trip.LINE_STATUS || 'ACTIVE',
-                    INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || null,
+                    INSTANCE: trip.INSTANCE || trip.instance || trip.instance_name || trip.INSTANCE_NAME || selectedInstance,
                     LOADING_BAY: trip.TRIP_LOADING_BAY || trip.trip_loading_bay || trip.LOADING_BAY || trip.loading_bay || null,
-                    TOTAL_ORDERS: 0,
-                    orders: []
+                    // Use order_count from API instead of counting records
+                    TOTAL_ORDERS: trip.order_count || trip.ORDER_COUNT || 0,
+                    orders: [trip]
                 };
+            } else {
+                // If there are multiple records for the same trip, add to orders array
+                tripMap[tripId].orders.push(trip);
             }
-            tripMap[tripId].TOTAL_ORDERS++;
-            tripMap[tripId].orders.push(trip);
         });
         
         let tripsArray = Object.values(tripMap);
@@ -2958,7 +3696,7 @@ document.addEventListener('DOMContentLoaded', function() {
             container.innerHTML = '<div class="empty-state"><i class="fas fa-truck"></i><h3>No Trips Found</h3><p>No trips match the selected dates</p></div>';
             return;
         }
-        
+
         let html = '';
         filteredTrips.forEach(trip => {
             const priorityColor = trip.PRIORITY.toLowerCase().includes('high') ? '#ef4444' :
@@ -2966,75 +3704,67 @@ document.addEventListener('DOMContentLoaded', function() {
             const priorityBg = trip.PRIORITY.toLowerCase().includes('high') ? 'linear-gradient(135deg, #ef4444, #dc2626)' :
                               trip.PRIORITY.toLowerCase().includes('low') ? 'linear-gradient(135deg, #22c55e, #16a34a)' : 'linear-gradient(135deg, #f59e0b, #d97706)';
 
+            // Format date - extract just the date part from ISO string
+            let displayDate = trip.TRIP_DATE || 'N/A';
+            if (displayDate && displayDate.includes('T')) {
+                displayDate = displayDate.split('T')[0];
+            }
+
             html += `
-                <div style="background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 3px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 3px 8px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';">
+                <div style="background: white; border-radius: 6px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); overflow: hidden; transition: all 0.2s ease; border-left: 3px solid ${priorityColor};" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 3px 8px rgba(0,0,0,0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(0,0,0,0.1)';">
                     <!-- Card Header -->
-                    <div style="padding: 0.5rem 0.75rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                        <div style="display: flex; align-items: center; gap: 0.5rem;">
-                            <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 5px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-route" style="color: white; font-size: 0.75rem;"></i>
+                    <div style="padding: 0.4rem 0.6rem; background: linear-gradient(to right, #f8f9fc, #ffffff); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.4rem;">
+                            <div style="width: 24px; height: 24px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 4px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: white; font-size: 0.65rem;"></i>
                             </div>
-                            <div style="display: flex; flex-direction: column; gap: 0.1rem;">
-                                <span style="font-size: 0.9rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}${trip.LOADING_BAY ? ` - Bay ${trip.LOADING_BAY}` : ''}</span>
-                                <span style="font-size: 0.65rem; font-weight: 600; color: #64748b; text-transform: uppercase;">${trip.STATUS || 'ACTIVE'}</span>
+                            <div style="display: flex; flex-direction: column; gap: 0.05rem;">
+                                <span style="font-size: 0.8rem; font-weight: 700; color: #1e293b;">Trip #${trip.TRIP_ID}${trip.LOADING_BAY ? ` - Bay ${trip.LOADING_BAY}` : ''}</span>
+                                <span style="font-size: 0.55rem; font-weight: 600; color: #64748b; text-transform: uppercase;">${trip.STATUS || 'ACTIVE'}</span>
                             </div>
                         </div>
-                        <div style="background: ${priorityBg}; color: white; padding: 0.25rem 0.6rem; border-radius: 10px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase;">
+                        <div style="background: ${priorityBg}; color: white; padding: 0.2rem 0.5rem; border-radius: 8px; font-size: 0.5rem; font-weight: 600; text-transform: uppercase;">
                             ${trip.PRIORITY}
                         </div>
                     </div>
 
                     <!-- Card Body -->
-                    <div style="padding: 0.75rem;">
-                        <div style="display: flex; gap: 0.5rem; margin-bottom: 0.6rem;">
+                    <div style="padding: 0.5rem;">
+                        <div style="display: flex; gap: 0.4rem; margin-bottom: 0.5rem;">
                             <!-- Trip Date -->
-                            <div style="flex: 1; padding: 0.5rem; background: #f0f9ff; border-radius: 5px; border-left: 2px solid #3b82f6;">
-                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Date</div>
-                                <div style="font-size: 0.75rem; font-weight: 700; color: #1e293b;">${trip.TRIP_DATE}</div>
+                            <div style="flex: 1; padding: 0.35rem; background: #f0f9ff; border-radius: 4px; border-left: 2px solid #3b82f6;">
+                                <div style="font-size: 0.5rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem; text-transform: uppercase;">Date</div>
+                                <div style="font-size: 0.65rem; font-weight: 700; color: #1e293b;">${displayDate}</div>
                             </div>
 
                             <!-- Lorry Number -->
-                            <div style="flex: 1; padding: 0.5rem; background: #f0fdf4; border-radius: 5px; border-left: 2px solid #10b981;">
-                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
-                                <div style="font-size: 0.75rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
+                            <div style="flex: 1; padding: 0.35rem; background: #f0fdf4; border-radius: 4px; border-left: 2px solid #10b981;">
+                                <div style="font-size: 0.5rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem; text-transform: uppercase;">Lorry</div>
+                                <div style="font-size: 0.65rem; font-weight: 700; color: #1e293b;">${trip.LORRY_NUMBER}</div>
                             </div>
 
                             <!-- Total Orders -->
-                            <div style="flex: 1; padding: 0.5rem; background: #fff7ed; border-radius: 5px; border-left: 2px solid #f59e0b;">
-                                <div style="font-size: 0.6rem; font-weight: 600; color: #64748b; margin-bottom: 0.2rem; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            <div style="flex: 1; padding: 0.35rem; background: #fff7ed; border-radius: 4px; border-left: 2px solid #f59e0b;">
+                                <div style="font-size: 0.5rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem; text-transform: uppercase;">Orders</div>
+                                <div style="font-size: 0.75rem; font-weight: 800; color: #1e293b;">${trip.TOTAL_ORDERS}</div>
+                            </div>
+
+                            <!-- Instance -->
+                            <div style="flex: 0 0 45px; padding: 0.35rem; background: #faf5ff; border-radius: 4px; border-left: 2px solid #8b5cf6;">
+                                <div style="font-size: 0.5rem; font-weight: 600; color: #64748b; margin-bottom: 0.1rem; text-transform: uppercase;">Inst</div>
+                                <div style="font-size: 0.6rem; font-weight: 700; color: #7c3aed;">${trip.INSTANCE || 'N/A'}</div>
                             </div>
                         </div>
 
-                        <!-- Auto Print Section -->
-                        <div style="padding: 0.4rem 0.5rem; background: #f8fafc; border-radius: 5px; border: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
-                            <div style="display: flex; align-items: center; gap: 0.35rem;">
-                                <i class="fas fa-print" style="color: #667eea; font-size: 0.65rem;"></i>
-                                <span style="font-size: 0.65rem; color: #1e293b; font-weight: 600;">Auto Print</span>
-                            </div>
-                            <label class="toggle-switch" style="transform: scale(0.8);">
-                                <input type="checkbox"
-                                       class="auto-print-toggle"
-                                       id="autoPrint_${trip.TRIP_ID}_${trip.TRIP_DATE}"
-                                       data-trip-id="${trip.TRIP_ID}"
-                                       data-trip-date="${trip.TRIP_DATE}"
-                                       onchange="handleAutoPrintToggle('${trip.TRIP_ID}', '${trip.TRIP_DATE}', this.checked, ${trip.TOTAL_ORDERS})">
-                                <span class="toggle-slider"></span>
-                            </label>
-                        </div>
-                        <div class="auto-print-status" id="status_${trip.TRIP_ID}_${trip.TRIP_DATE}" style="margin-top: 0.35rem; padding: 0.3rem; font-size: 0.6rem; border-radius: 4px; display: none;"></div>
-                    </div>
-
-                    <!-- Card Footer -->
-                    <div style="padding: 0.45rem 0.65rem; background: #f8f9fc; border-top: 1px solid #e2e8f0;">
-                        <button class="btn btn-primary" onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}')" style="width: 100%; font-size: 0.65rem; padding: 0.4rem 0.6rem; justify-content: center;">
-                            <i class="fas fa-eye"></i> View Details
+                        <!-- View Details Button -->
+                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
+                            <i class="fas fa-eye" style="font-size: 0.55rem;"></i> View Details
                         </button>
                     </div>
                 </div>
             `;
         });
-        
+
         container.innerHTML = html;
         
         setTimeout(() => {
@@ -3064,6 +3794,10 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         console.log('[JS] Using instance:', instance, '(from:', instanceFromCard ? 'trip card' : 'localStorage', ')');
+
+        // Store the current trip's instance globally for use by Add Orders modal
+        window.currentTripInstance = instance;
+        console.log('[JS] Stored currentTripInstance:', window.currentTripInstance);
 
         // Show loading indicator
         const loadingDiv = document.createElement('div');
@@ -3108,7 +3842,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         const tripData = result.items;
                         openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
                     } else {
-                        alert('No data found for trip: ' + tripId);
+                        // No orders yet - still open the trip page with empty data
+                        console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
+                        const emptyTripData = [{
+                            trip_id: tripId,
+                            TRIP_ID: tripId,
+                            trip_date: tripDate,
+                            TRIP_DATE: tripDate,
+                            trip_lorry: lorryNumber,
+                            TRIP_LORRY: lorryNumber,
+                            INSTANCE: instance
+                        }];
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true);
                     }
                 } catch (parseError) {
                     console.error('[JS] Error parsing trip details response:', parseError);
@@ -3130,7 +3875,18 @@ document.addEventListener('DOMContentLoaded', function() {
                         const tripData = result.items;
                         openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
                     } else {
-                        alert('No data found for trip: ' + tripId);
+                        // No orders yet - still open the trip page with empty data
+                        console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
+                        const emptyTripData = [{
+                            trip_id: tripId,
+                            TRIP_ID: tripId,
+                            trip_date: tripDate,
+                            TRIP_DATE: tripDate,
+                            trip_lorry: lorryNumber,
+                            TRIP_LORRY: lorryNumber,
+                            INSTANCE: instance
+                        }];
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true);
                     }
                 })
                 .catch(error => {
@@ -3145,29 +3901,52 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Helper function to open trip details with data
-    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber) {
-        console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId);
-        
+    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false) {
+        console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId, 'isEmpty:', isEmpty);
+
         // Create unique tab ID
         const tabId = 'trip-detail-' + tripId;
-        
+
         // Check if tab already exists
         const existingTab = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
         if (existingTab) {
             activateTripTab(tabId);
             return;
         }
-        
+
         // Get first record for summary info
         const firstRecord = tripData[0];
-        const totalOrders = tripData.length;
+        const totalOrders = isEmpty ? 0 : tripData.length;
         
-        // Calculate KPI statistics
-        const uniqueCustomers = new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
-        const uniqueProducts = new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
-        const totalQuantity = tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
-        const totalWeight = tripData.reduce((sum, t) => sum + (parseFloat(t.WEIGHT || t.weight || 0)), 0);
+        // Calculate KPI statistics (handle empty trip case)
+        const uniqueCustomers = isEmpty ? 0 : new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
+        const uniqueProducts = isEmpty ? 0 : new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
+        const totalQuantity = isEmpty ? 0 : tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
+        const totalWeight = isEmpty ? 0 : tripData.reduce((sum, t) => {
+            // Prefer order_volume1 (new field), then order_volume for backwards compatibility
+            let volumeVal = t.order_volume1;
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = t.ORDER_VOLUME1;
+            }
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = t.order_volume;
+            }
+            if (volumeVal === undefined || volumeVal === null) {
+                volumeVal = t.ORDER_VOLUME ?? t.weight ?? t.WEIGHT;
+            }
+            return sum + (parseFloat(volumeVal) || 0);
+        }, 0);
+
+        // Get lorry capacity (volume_m3) - this is the truck capacity in cubic meters
+        const lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
+        // Calculate volume fill percentage
+        const volumeFillPercent = lorryCapacity > 0 ? Math.min((totalWeight / lorryCapacity) * 100, 100) : 0;
+        const availableVolume = lorryCapacity > 0 ? Math.max(lorryCapacity - totalWeight, 0) : 0;
+        // Determine color based on fill percentage
+        const volumeColor = volumeFillPercent >= 90 ? '#ef4444' : volumeFillPercent >= 70 ? '#f59e0b' : '#22c55e';
+
         const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+        const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
         
         // Create tab item
         const tabHeader = document.getElementById('trip-tab-header');
@@ -3194,17 +3973,17 @@ document.addEventListener('DOMContentLoaded', function() {
             <div style="padding: 1rem;">
                 <!-- Trip Summary Section -->
                 <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden;">
-                    <div onclick="toggleTripSummary('${tabId}')" style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
+                    <div onclick="toggleTripSummary('${tabId}')" style="padding: 1rem 1.25rem; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; cursor: pointer; display: flex; justify-content: space-between; align-items: center;">
                         <div style="display: flex; align-items: center; gap: 0.75rem;">
-                            <div style="width: 40px; height: 40px; background: rgba(255,255,255,0.2); border-radius: 10px; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-route" style="color: white; font-size: 1.2rem;"></i>
+                            <div style="width: 40px; height: 40px; background: #e2e8f0; border-radius: 10px; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-route" style="color: #475569; font-size: 1.2rem;"></i>
                             </div>
                             <div>
-                                <h2 style="font-size: 1.1rem; font-weight: 700; color: white; margin: 0;">Trip: ${tripId}</h2>
-                                <p style="color: rgba(255,255,255,0.9); font-size: 0.75rem; margin: 0.2rem 0 0 0;">Trip Summary & Statistics</p>
+                                <h2 style="font-size: 1.1rem; font-weight: 700; color: #1e293b; margin: 0;">Trip: ${tripId}</h2>
+                                <p style="color: #64748b; font-size: 0.75rem; margin: 0.2rem 0 0 0;">Trip Summary & Statistics</p>
                             </div>
                         </div>
-                        <i class="fas fa-chevron-down" id="summary-icon-${tabId}" style="color: white; font-size: 1rem; transition: transform 0.3s ease;"></i>
+                        <i class="fas fa-chevron-down" id="summary-icon-${tabId}" style="color: #64748b; font-size: 1rem; transition: transform 0.3s ease;"></i>
                     </div>
 
                     <div id="trip-summary-${tabId}" style="padding: 0.75rem; background: linear-gradient(to bottom, #f8f9fc 0%, #ffffff 100%);">
@@ -3264,15 +4043,27 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
                             </div>
 
-                            <!-- Total Weight Card -->
-                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(236, 72, 153, 0.1); border-left: 3px solid #ec4899; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(236, 72, 153, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(236, 72, 153, 0.1)';">
+                            <!-- Volume Capacity Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(236, 72, 153, 0.1); border-left: 3px solid ${volumeColor}; transition: transform 0.2s ease, box-shadow 0.2s ease; min-width: 180px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(236, 72, 153, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(236, 72, 153, 0.1)';">
                                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
-                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #ec4899, #db2777); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-weight" style="color: white; font-size: 0.7rem;"></i>
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, ${volumeColor}, ${volumeColor}dd); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-cube" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Weight</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Volume (m³)</div>
                                 </div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalWeight.toFixed(2)} kg</div>
+                                <div style="margin-left: 2.15rem;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; margin-bottom: 0.25rem;">
+                                        <span style="color: #64748b;">Filled: <strong style="color: #1e293b;">${totalWeight.toFixed(2)}</strong></span>
+                                        <span style="color: #64748b;">Capacity: <strong style="color: #1e293b;">${lorryCapacity.toFixed(2)}</strong></span>
+                                    </div>
+                                    <div style="background: #e2e8f0; border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 0.25rem;">
+                                        <div style="background: ${volumeColor}; height: 100%; width: ${volumeFillPercent.toFixed(1)}%; transition: width 0.3s ease;"></div>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.65rem;">
+                                        <span style="color: ${volumeColor}; font-weight: 700;">${volumeFillPercent.toFixed(1)}% Full</span>
+                                        <span style="color: #22c55e; font-weight: 600;">Avail: ${availableVolume.toFixed(2)} m³</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Products Card -->
@@ -3321,6 +4112,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-truck-loading"></i> Pick Release All
                             </button>
+                            <button class="btn" onclick="showTripLines('${tripId}', '${instanceName}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
+                                <i class="fas fa-list-alt"></i> Show Lines
+                            </button>
                             <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-plus"></i> Add Orders
                             </button>
@@ -3346,8 +4140,19 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
 
-                if (tripData.length === 0) {
-                    gridContainer.html('<div style="padding:2rem;text-align:center;color:#64748b;">No data found</div>');
+                if (tripData.length === 0 || isEmpty) {
+                    gridContainer.html(`
+                        <div style="padding:3rem;text-align:center;color:#64748b;">
+                            <div style="width: 80px; height: 80px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;">
+                                <i class="fas fa-box-open" style="color: white; font-size: 2rem;"></i>
+                            </div>
+                            <h3 style="color: #1e293b; margin-bottom: 0.5rem;">No Orders Yet</h3>
+                            <p style="margin-bottom: 1.5rem;">This trip doesn't have any orders. Click "Add Orders" to start adding orders to this trip.</p>
+                            <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="padding: 0.75rem 1.5rem;">
+                                <i class="fas fa-plus"></i> Add Orders to Trip
+                            </button>
+                        </div>
+                    `);
                     return;
                 }
 
@@ -3415,7 +4220,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add Actions column at the beginning
             columns.unshift({
                 caption: 'Actions',
-                width: 180,
+                width: 60,
                 alignment: 'center',
                 allowFiltering: false,
                 allowSorting: false,
@@ -3452,26 +4257,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     $(container).html(`
                         <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button class="icon-btn" onclick="openMRAProcessingPopup('${rowData.ORDER_NUMBER || rowData.order_number}')" title="MRA Interface">
-                                <i class="fas fa-file-invoice-dollar" style="color: #667eea;"></i>
-                            </button>
                             <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
                                 <i class="fas fa-print" style="color: #8b5cf6;"></i>
-                            </button>
-                            <button class="icon-btn" onclick='assignPickerForTripOrder(${JSON.stringify(rowData)}, "${tripId}")' title="Assign Picker">
-                                <i class="fas fa-user-plus" style="color: #10b981;"></i>
-                            </button>
-                            <button class="icon-btn" onclick="unassignPicker('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Unassign Picker">
-                                <i class="fas fa-user-times" style="color: #ef4444;"></i>
-                            </button>
-                            <button class="icon-btn" onclick="pickRelease('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Pick Release">
-                                <i class="fas fa-check-circle" style="color: #10b981;"></i>
-                            </button>
-                            <button class="icon-btn" onclick='editTripOrder(${JSON.stringify(rowData)})' title="Edit">
-                                <i class="fas fa-edit" style="color: #3b82f6;"></i>
-                            </button>
-                            <button class="icon-btn" onclick="deleteTripOrder('${tripId}', '${rowData.ORDER_NUMBER || rowData.order_number}')" title="Delete">
-                                <i class="fas fa-trash" style="color: #f59e0b;"></i>
                             </button>
                         </div>
                     `);
@@ -3550,35 +4337,37 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Find trip data from currentFullData
-        const tripRecords = currentFullData.filter(trip => {
+        // Try to find trip data from currentFullData (may not exist for newly created trips)
+        const tripRecords = currentFullData ? currentFullData.filter(trip => {
             const tripIdLower = (trip.trip_id || '').toString().toLowerCase();
             const tripIdUpper = (trip.TRIP_ID || '').toString().toLowerCase();
             const searchId = tripId.toString().toLowerCase();
             return tripIdLower === searchId || tripIdUpper === searchId;
-        });
+        }) : [];
 
-        if (tripRecords.length === 0) {
-            alert('Trip data not found. Please try again.');
-            return;
+        // If trip data found in currentFullData, use it to set modal data
+        if (tripRecords.length > 0) {
+            const firstRecord = tripRecords[0];
+
+            // Set trip details data for trip-details.js to use
+            if (typeof window.setTripDetailsDataForModal === 'function') {
+                window.setTripDetailsDataForModal({
+                    trip_id: tripId,
+                    trip_date: firstRecord.TRIP_DATE || firstRecord.trip_date,
+                    trip_lorry: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
+                    trip_loading_bay: firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay,
+                    trip_priority: firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY,
+                    vehicle: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
+                    status: firstRecord.TRIP_STATUS || firstRecord.trip_status || 'ACTIVE'
+                });
+            }
+        } else {
+            // Trip not in currentFullData (e.g., newly created trip)
+            // The instance should already be set in window.currentTripInstance from openTripDetails
+            console.log('[Trip Management] Trip not in currentFullData, using stored instance:', window.currentTripInstance);
         }
 
-        const firstRecord = tripRecords[0];
-
-        // Set trip details data for trip-details.js to use
-        if (typeof window.setTripDetailsDataForModal === 'function') {
-            window.setTripDetailsDataForModal({
-                trip_id: tripId,
-                trip_date: firstRecord.TRIP_DATE || firstRecord.trip_date,
-                trip_lorry: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
-                trip_loading_bay: firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay,
-                trip_priority: firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY,
-                vehicle: firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY,
-                status: firstRecord.TRIP_STATUS || firstRecord.trip_status || 'ACTIVE'
-            });
-        }
-
-        // Open the modal
+        // Open the modal - it will use window.currentTripInstance for the instance
         window.openAddOrdersModal();
     };
 
@@ -3717,6 +4506,20 @@ document.addEventListener('DOMContentLoaded', function() {
     window.openAssignPickerDialog = function(tripId, selectedOrders) {
         console.log('[Assign Picker] Opening dialog for', selectedOrders.length, 'orders');
 
+        // Store for API info button
+        window.pendingAssignPickerTripId = tripId;
+        window.pendingAssignPickerOrders = selectedOrders;
+
+        // Determine instance from order data first, then toolbar, then localStorage
+        const firstOrder = selectedOrders[0] || {};
+        const instanceFromOrder = firstOrder.instance_name || firstOrder.INSTANCE_NAME || firstOrder.instance || firstOrder.INSTANCE;
+        const toolbarInstance = document.getElementById('trip-instance-name')?.value;
+        const instance = instanceFromOrder || window.currentTripInstance || toolbarInstance || localStorage.getItem('fusionInstance') || 'PROD';
+
+        // Store instance for API info and submit
+        window.pendingAssignPickerInstance = instance;
+        console.log('[Assign Picker] Using instance:', instance, '(from order:', instanceFromOrder, ', toolbar:', toolbarInstance, ')');
+
         // Build the list of selected order numbers
         let orderListHtml = '';
         selectedOrders.forEach((order, index) => {
@@ -3757,8 +4560,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
                     <!-- Header -->
                     <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
-                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fas fa-user-check"></i> Assign Picker
+                            <span style="background: ${instance === 'PROD' ? '#ef4444' : '#22c55e'}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700;">${instance}</span>
                         </h3>
                         <p style="margin: 0.5rem 0 0 0; color: rgba(255,255,255,0.9); font-size: 0.85rem;">
                             Trip ID: ${tripId} • ${selectedOrders.length} order(s) selected
@@ -3797,13 +4601,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
 
                     <!-- Footer -->
-                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: flex-end;">
-                        <button class="btn btn-secondary" onclick="closeAssignPickerDialog()">
-                            <i class="fas fa-times"></i> Cancel
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: space-between; align-items: center;">
+                        <button onclick="showAssignPickerApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
+                            <i class="fas fa-code"></i> API Info
                         </button>
-                        <button class="btn btn-primary" onclick="submitAssignPicker('${tripId}', ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})">
-                            <i class="fas fa-check"></i> Assign
-                        </button>
+                        <div style="display: flex; gap: 0.75rem;">
+                            <button class="btn btn-secondary" onclick="closeAssignPickerDialog()">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button class="btn btn-primary" onclick="submitAssignPicker('${tripId}', ${JSON.stringify(selectedOrders).replace(/"/g, '&quot;')})">
+                                <i class="fas fa-check"></i> Assign
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -3824,6 +4633,108 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modal) {
             modal.remove();
         }
+    };
+
+    // Show API Information for Assign Picker
+    window.showAssignPickerApiInfo = function() {
+        const tripId = window.pendingAssignPickerTripId || 'N/A';
+        const selectedOrders = window.pendingAssignPickerOrders || [];
+        // Use the instance stored when dialog was opened (from order data or toolbar)
+        const instance = window.pendingAssignPickerInstance || localStorage.getItem('fusionInstance') || 'TEST';
+
+        // Get sample order for display
+        const sampleOrder = selectedOrders[0] || {};
+        const sampleOrderNumber = sampleOrder.ORDER_NUMBER || sampleOrder.order_number || '{orderNumber}';
+
+        const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/pickerassignment';
+
+        // Build sample payload
+        const samplePayload = {
+            orders: [{
+                orderNumber: sampleOrderNumber,
+                accountNumber: sampleOrder.ACCOUNT_NUMBER || sampleOrder.account_number || '',
+                accountName: sampleOrder.ACCOUNT_NAME || sampleOrder.account_name || '',
+                pickerName: '{selectedPickerName}',
+                loadingBay: sampleOrder.LOADING_BAY || sampleOrder.loading_bay || '',
+                orderTypeCode: sampleOrder.ORDER_TYPE_CODE || sampleOrder.order_type_code || '',
+                assignmentDate: new Date().toISOString().split('T')[0],
+                pickslip: sampleOrder.PICKSLIP || sampleOrder.pickslip || '',
+                pickwave: sampleOrder.PICKWAVE || sampleOrder.pickwave || '',
+                instance: instance
+            }]
+        };
+
+        const popupHtml = `
+            <div id="assign-picker-api-info-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 700px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;">
+                            <i class="fas fa-code"></i> Assign Picker API Information
+                        </h3>
+                        <button onclick="document.getElementById('assign-picker-api-info-popup').remove()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem; max-height: 70vh; overflow-y: auto;">
+                        <!-- Current Context -->
+                        <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                            <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Current Context</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Trip ID:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${tripId}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Orders Count:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${selectedOrders.length}</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- API Details -->
+                        <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #667eea;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span>
+                                <strong style="color: #1e293b; font-size: 12px;">Picker Assignment</strong>
+                            </div>
+                            <div style="margin-bottom: 0.5rem;">
+                                <strong style="color: #4a5568; font-size: 11px;">Full URL:</strong>
+                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${apiUrl}</code>
+                            </div>
+                        </div>
+
+                        <!-- Request Body -->
+                        <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #22c55e;">
+                            <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">Sample Request Body</div>
+                            <pre style="background: #1e293b; color: #e2e8f0; padding: 1rem; border-radius: 6px; font-size: 10px; overflow-x: auto; margin: 0;">${JSON.stringify(samplePayload, null, 2)}</pre>
+                        </div>
+
+                        <!-- Instance Note -->
+                        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Instance Parameter:</strong>
+                            <span style="color: #78350f; font-size: 12px;">
+                                The <code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">instance</code> field is included in each order object in the request body (not as a query parameter).
+                                Current value: <strong style="color: ${instance === 'PROD' ? '#dc2626' : '#16a34a'};">${instance}</strong> (from order data or toolbar)
+                            </span>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('assign-picker-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('assign-picker-api-info-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
     };
 
     // Submit Assign Picker (POST to API via C# backend)
@@ -3852,8 +4763,8 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Assign Picker] To orders:', selectedOrders);
         console.log('[Assign Picker] Trip ID:', tripId);
 
-        // Get instance from toolbar
-        const instance = localStorage.getItem('fusionInstance') || 'TEST';
+        // Get instance from stored value (set when dialog opened from order data or toolbar)
+        const instance = window.pendingAssignPickerInstance || localStorage.getItem('fusionInstance') || 'TEST';
         console.log('[Assign Picker] Instance:', instance);
 
         // Build orders array for API
@@ -4041,8 +4952,2139 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.pickReleaseAll = function(tripId) {
-        console.log('[Trip Management] Pick release all for trip:', tripId);
-        alert('Pick Release All functionality - To be implemented');
+        console.log('[Pick Release All] Processing trip:', tripId);
+
+        // Get the grid instance - check both tab and dialog grids
+        const tabId = `trip-detail-${tripId}`;
+        const tabGridId = `grid-${tabId}`;
+        const dialogGridId = 'trip-dialog-grid';
+
+        console.log('[Pick Release All] Looking for grid:', tabGridId, 'or', dialogGridId);
+
+        // Try tab grid first, then dialog grid
+        let gridContainer = $(`#${tabGridId}`);
+        if (!gridContainer || gridContainer.length === 0) {
+            console.log('[Pick Release All] Tab grid not found, trying dialog grid...');
+            gridContainer = $(`#${dialogGridId}`);
+        }
+
+        if (!gridContainer || gridContainer.length === 0) {
+            console.error('[Pick Release All] Grid not found');
+            alert('Grid not found. Please try again.');
+            return;
+        }
+
+        const gridInstance = gridContainer.dxDataGrid('instance');
+        if (!gridInstance) {
+            alert('Grid instance not found. Please try again.');
+            return;
+        }
+
+        // Get selected rows
+        const selectedRows = gridInstance.getSelectedRowsData();
+
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one order to pick release.');
+            return;
+        }
+
+        console.log('[Pick Release All] Selected rows:', selectedRows.length);
+
+        // Separate S2V and Sales Orders
+        const s2vOrders = [];
+        const salesOrders = [];
+
+        selectedRows.forEach(row => {
+            const orderType = (row.ORDER_TYPE || row.order_type || row.ORDER_TYPE_CODE || row.order_type_code || '').toUpperCase().trim();
+            console.log('[Pick Release All] Order:', row.ORDER_NUMBER || row.order_number, 'Type:', orderType);
+
+            if (orderType === 'S2V' || orderType === 'STORE TO VAN' || orderType.includes('STORE TO VAN')) {
+                s2vOrders.push(row);
+            } else {
+                salesOrders.push(row);
+            }
+        });
+
+        console.log('[Pick Release All] S2V Orders:', s2vOrders.length, 'Sales Orders:', salesOrders.length);
+
+        // If we have both types, ask user which to process or process both
+        if (s2vOrders.length > 0 && salesOrders.length > 0) {
+            if (!confirm(`You have selected:\n• ${s2vOrders.length} Store to Van (S2V) order(s)\n• ${salesOrders.length} Sales Order(s)\n\nDo you want to process ALL orders?\n\nClick OK to process all, or Cancel to select only one type.`)) {
+                return;
+            }
+        }
+
+        // Process S2V orders using existing logic
+        if (s2vOrders.length > 0) {
+            console.log('[Pick Release All] Processing S2V orders with existing allocateLots logic...');
+            // Call existing allocateLots for S2V
+            processS2VPickRelease(s2vOrders, tripId);
+        }
+
+        // Process Sales Orders using new API
+        if (salesOrders.length > 0) {
+            console.log('[Pick Release All] Processing Sales Orders with new API...');
+            processSalesOrderPickRelease(salesOrders, tripId);
+        }
+    };
+
+    // Process S2V Pick Release (uses existing allocate lots logic)
+    function processS2VPickRelease(orders, tripId) {
+        console.log('[S2V Pick Release] Processing', orders.length, 'S2V orders');
+
+        // Show progress popup
+        const modalHtml = `
+            <div id="s2v-pick-release-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 500px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #10b981 0%, #059669 100%); display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                            <i class="fas fa-truck-loading"></i> Pick Release - Store to Van
+                        </h3>
+                        <button onclick="closeS2VPickReleaseModal()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="margin-bottom: 1rem;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                <span style="font-weight: 600; color: #1f2937;">Progress</span>
+                                <span id="s2v-pr-progress-text" style="color: #64748b;">0 / ${orders.length}</span>
+                            </div>
+                            <div style="background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden;">
+                                <div id="s2v-pr-progress-bar" style="background: linear-gradient(90deg, #10b981, #059669); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                            </div>
+                        </div>
+                        <div id="s2v-pr-log" style="max-height: 200px; overflow-y: auto; font-size: 0.85rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;"></div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; justify-content: flex-end;">
+                        <button onclick="closeS2VPickReleaseModal()" class="btn btn-secondary">Close</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Process using existing allocateLots logic - call processS2VOrders function
+        if (typeof processS2VOrders === 'function') {
+            // Redirect to existing S2V processing
+            closeS2VPickReleaseModal();
+            window.allocateLotsForS2V && window.allocateLotsForS2V(tripId);
+        } else {
+            addS2VPRLog('S2V processing uses Allocate Lots functionality.', 'info');
+            addS2VPRLog('Please use "Allocate Lots for S2V" button for S2V orders.', 'info');
+        }
+    }
+
+    window.closeS2VPickReleaseModal = function() {
+        const modal = document.getElementById('s2v-pick-release-modal');
+        if (modal) modal.remove();
+    };
+
+    function addS2VPRLog(message, type = 'info') {
+        const logDiv = document.getElementById('s2v-pr-log');
+        if (logDiv) {
+            const color = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : '#64748b';
+            logDiv.innerHTML += `<div style="color: ${color}; margin-bottom: 0.25rem;">${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+    }
+
+    // Process Sales Order Pick Release (uses new API)
+    function processSalesOrderPickRelease(orders, tripId) {
+        console.log('[Sales Order Pick Release] Showing', orders.length, 'sales orders for trip:', tripId);
+
+        // Store orders and tripId globally for the button click
+        window.pendingSalesOrdersForPickRelease = orders;
+        window.pendingTripIdForPickRelease = tripId;
+
+        // Get instance
+        const instance = orders[0]?.INSTANCE_NAME || orders[0]?.instance_name || window.currentTripInstance || 'TEST';
+        const warehouse = 'GIC'; // Default warehouse
+
+        // Initialize data for individual button functions
+        window.withLotsPickReleaseData = {
+            orders: orders,
+            tripId: tripId,
+            instance: instance,
+            warehouse: warehouse,
+            results: orders.map(() => ({ step1: null, step2: null, step3: null }))
+        };
+
+        // Build order list HTML for No Lots mode (simple list)
+        let noLotsOrderListHtml = '';
+        orders.forEach((order, index) => {
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
+            const customerName = order.ACCOUNT_NAME || order.account_name || order.CUSTOMER_NAME || order.customer_name || '';
+
+            noLotsOrderListHtml += `
+                <div id="pr-order-row-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span id="pr-order-status-${index}" style="width: 20px; text-align: center; color: #94a3b8;">
+                            <i class="fas fa-circle" style="font-size: 0.5rem;"></i>
+                        </span>
+                        <span style="font-weight: 600; color: #1f2937;">${orderNumber}</span>
+                        ${customerName ? `<span style="color: #64748b; font-size: 0.85rem;">- ${customerName}</span>` : ''}
+                    </div>
+                    <span style="color: #64748b; font-size: 0.75rem;">${index + 1} of ${orders.length}</span>
+                </div>
+            `;
+        });
+
+        // Build order table HTML for With Lots mode
+        let withLotsTableHtml = '';
+        orders.forEach((order, index) => {
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || `Order ${index + 1}`;
+            const totalLines = order.TOTAL_LINES || order.total_lines || order.LINE_COUNT || order.line_count || '-';
+
+            withLotsTableHtml += `
+                <tr id="wl-order-row-${index}" data-order-number="${orderNumber}" data-index="${index}">
+                    <td style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 600; color: #1f2937; font-size: 11px;">${orderNumber}</td>
+                    <td id="wl-total-lines-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 11px;">
+                        <span style="color: #94a3b8;">-</span>
+                    </td>
+                    <td id="wl-release-st-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
+                    </td>
+                    <td id="wl-get-picks-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
+                    </td>
+                    <td id="wl-get-lots-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
+                    </td>
+                    <td id="wl-retry-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <button onclick="retryWithLotsOrder(${index})" class="btn btn-sm" style="padding: 4px 8px; font-size: 10px; background: #e5e7eb; color: #374151; border: none; border-radius: 4px; cursor: pointer;" disabled>
+                            <i class="fas fa-redo"></i>
+                        </button>
+                    </td>
+                    <td id="wl-time-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center; font-size: 10px; color: #64748b;">
+                        -
+                    </td>
+                </tr>
+            `;
+        });
+
+        // Show popup with orders list and Pick Release button
+        const modalHtml = `
+            <div id="sales-pick-release-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 900px; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                                <i class="fas fa-truck-loading"></i> Pick Release - Sales Orders
+                            </h3>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.2); padding: 4px 10px; border-radius: 6px;">
+                                <label style="color: white; font-size: 11px; font-weight: 600;">Release Mode:</label>
+                                <select id="pick-release-mode" onchange="togglePickReleaseMode()" style="padding: 4px 8px; border-radius: 4px; border: none; font-size: 11px; font-weight: 600; cursor: pointer;">
+                                    <option value="with-lots" selected>With Lots</option>
+                                    <option value="no-lots">No Lots</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onclick="closeSalesPickReleaseModal()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <!-- Body -->
+                    <div style="padding: 1.5rem; overflow-y: auto; max-height: 65vh;">
+                        <!-- No Lots View (hidden by default) -->
+                        <div id="no-lots-view" style="display: none;">
+                            <div style="margin-bottom: 1.5rem;">
+                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                    <i class="fas fa-list"></i> Selected Orders (${orders.length})
+                                </label>
+                                <div style="border: 1px solid #e2e8f0; border-radius: 8px; max-height: 200px; overflow-y: auto; background: #f8f9fc;">
+                                    ${noLotsOrderListHtml}
+                                </div>
+                            </div>
+                            <div id="sales-pr-progress-section" style="display: none;">
+                                <div style="margin-bottom: 1rem;">
+                                    <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                        <span style="font-weight: 600; color: #1f2937;">Progress</span>
+                                        <span id="sales-pr-progress-text" style="color: #64748b;">0 / ${orders.length}</span>
+                                    </div>
+                                    <div style="background: #e2e8f0; border-radius: 8px; height: 8px; overflow: hidden;">
+                                        <div id="sales-pr-progress-bar" style="background: linear-gradient(90deg, #f59e0b, #d97706); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                                    </div>
+                                </div>
+                                <div id="sales-pr-log" style="max-height: 150px; overflow-y: auto; font-size: 0.85rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; border: 1px solid #e2e8f0;"></div>
+                            </div>
+                        </div>
+
+                        <!-- With Lots View (shown by default) -->
+                        <div id="with-lots-view">
+                            <!-- Step Progress Indicators -->
+                            <div style="display: flex; justify-content: space-around; margin-bottom: 1.5rem; padding: 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <div id="step-indicator-1" style="text-align: center; padding: 0.5rem 1rem;">
+                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.5rem; font-weight: 700; color: #64748b;">1</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: #64748b;">Release Pick Wave</div>
+                                    <div id="step-1-status" style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Pending</div>
+                                </div>
+                                <div style="display: flex; align-items: center; color: #cbd5e1;"><i class="fas fa-arrow-right"></i></div>
+                                <div id="step-indicator-2" style="text-align: center; padding: 0.5rem 1rem;">
+                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.5rem; font-weight: 700; color: #64748b;">2</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: #64748b;">Total Picks</div>
+                                    <div id="step-2-status" style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Pending</div>
+                                </div>
+                                <div style="display: flex; align-items: center; color: #cbd5e1;"><i class="fas fa-arrow-right"></i></div>
+                                <div id="step-indicator-3" style="text-align: center; padding: 0.5rem 1rem;">
+                                    <div style="width: 40px; height: 40px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; margin: 0 auto 0.5rem; font-weight: 700; color: #64748b;">3</div>
+                                    <div style="font-size: 11px; font-weight: 600; color: #64748b;">Lots in the Pick</div>
+                                    <div id="step-3-status" style="font-size: 10px; color: #94a3b8; margin-top: 2px;">Pending</div>
+                                </div>
+                            </div>
+
+                            <!-- Orders Table -->
+                            <div style="margin-bottom: 1rem;">
+                                <label style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
+                                    <i class="fas fa-table"></i> Orders Progress (${orders.length})
+                                </label>
+                                <div style="border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; max-height: 300px; overflow-y: auto;">
+                                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                        <thead style="background: #f1f5f9; position: sticky; top: 0;">
+                                            <tr>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: left; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Order Number</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Total Lines</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Release St</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Total Picks</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Lots in the Pick</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Retry</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Time</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="with-lots-orders-table">
+                                            ${withLotsTableHtml}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Overall Progress -->
+                            <div id="with-lots-progress-section" style="display: none; padding: 1rem; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
+                                    <span style="font-weight: 600; color: #1f2937;">Overall Progress</span>
+                                    <span id="with-lots-progress-text" style="color: #64748b;">0 / ${orders.length * 3} steps</span>
+                                </div>
+                                <div style="background: #e2e8f0; border-radius: 8px; height: 10px; overflow: hidden;">
+                                    <div id="with-lots-progress-bar" style="background: linear-gradient(90deg, #10b981, #059669); height: 100%; width: 0%; transition: width 0.3s;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; gap: 0.75rem; justify-content: space-between; align-items: center;">
+                        <button onclick="showPickReleaseApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
+                            <i class="fas fa-code"></i> API Info
+                        </button>
+                        <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                            <button id="btn-fetch-order-lines" onclick="fetchSalesOrderLines()" class="btn" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 11px; cursor: pointer;">
+                                <i class="fas fa-list-ol"></i> Fetch Sales Order Lines
+                            </button>
+                            <button id="btn-fetch-picks-lots" onclick="fetchPicksAndLots()" class="btn" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white; border: none; padding: 8px 12px; border-radius: 6px; font-size: 11px; cursor: pointer;">
+                                <i class="fas fa-boxes"></i> Fetch Picks and Total Lots
+                            </button>
+                            <button onclick="closeSalesPickReleaseModal()" class="btn btn-secondary">
+                                <i class="fas fa-times"></i> Cancel
+                            </button>
+                            <button id="btn-start-pick-release" onclick="startSalesOrderPickRelease()" class="btn btn-primary" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border: none;">
+                                <i class="fas fa-truck-loading"></i> Pick Release
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    }
+
+    // Toggle between With Lots and No Lots views
+    window.togglePickReleaseMode = function() {
+        const mode = document.getElementById('pick-release-mode').value;
+        const noLotsView = document.getElementById('no-lots-view');
+        const withLotsView = document.getElementById('with-lots-view');
+
+        if (mode === 'with-lots') {
+            noLotsView.style.display = 'none';
+            withLotsView.style.display = 'block';
+        } else {
+            noLotsView.style.display = 'block';
+            withLotsView.style.display = 'none';
+        }
+
+        console.log('[Pick Release] Mode changed to:', mode);
+    };
+
+    // Start Pick Release when button is clicked
+    window.startSalesOrderPickRelease = function() {
+        const orders = window.pendingSalesOrdersForPickRelease;
+        const tripId = window.pendingTripIdForPickRelease;
+
+        if (!orders || orders.length === 0) {
+            alert('No orders to process.');
+            return;
+        }
+
+        // Check release mode
+        const modeSelect = document.getElementById('pick-release-mode');
+        const mode = modeSelect ? modeSelect.value : 'no-lots';
+
+        console.log('[Pick Release] Starting in mode:', mode);
+
+        // Disable the Pick Release button
+        const btn = document.getElementById('btn-start-pick-release');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            btn.style.opacity = '0.6';
+        }
+
+        if (mode === 'with-lots') {
+            // Run With Lots 3-step flow
+            startWithLotsPickRelease(orders, tripId);
+        } else {
+            // Run existing No Lots flow
+            const progressSection = document.getElementById('sales-pr-progress-section');
+            if (progressSection) progressSection.style.display = 'block';
+            processSalesOrdersSequentially(orders, 0, tripId);
+        }
+    };
+
+    // ============================================================================
+    // FLOATING PROGRESS INDICATOR
+    // Shows processing status when popup is closed during processing
+    // ============================================================================
+
+    // Global processing state
+    window.pickReleaseProcessingState = {
+        isProcessing: false,
+        totalOrders: 0,
+        completedOrders: 0,
+        completedSteps: 0,
+        totalSteps: 0,
+        currentStep: '',
+        startTime: null,
+        // Individual stage tracking
+        step1Status: 'pending', // pending, in-progress, complete
+        step2Status: 'pending',
+        step3Status: 'pending',
+        step1Count: 0,  // Orders completed in step 1
+        step2Count: 0,  // Orders completed in step 2
+        step3Count: 0   // Orders completed in step 3
+    };
+
+    // Create or update floating indicator
+    function showFloatingProgressIndicator() {
+        let floatingDiv = document.getElementById('pick-release-floating-indicator');
+
+        if (!floatingDiv) {
+            floatingDiv = document.createElement('div');
+            floatingDiv.id = 'pick-release-floating-indicator';
+            floatingDiv.style.cssText = `
+                position: fixed;
+                bottom: 20px;
+                right: 20px;
+                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                color: white;
+                padding: 12px 16px;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                z-index: 99999;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                font-size: 13px;
+                font-weight: 500;
+                min-width: 200px;
+                transition: all 0.3s ease;
+            `;
+            floatingDiv.onclick = function() {
+                showFloatingProgressDetails();
+            };
+            document.body.appendChild(floatingDiv);
+        }
+
+        updateFloatingIndicator();
+    }
+
+    // Update floating indicator content
+    function updateFloatingIndicator() {
+        const floatingDiv = document.getElementById('pick-release-floating-indicator');
+        if (!floatingDiv) return;
+
+        const state = window.pickReleaseProcessingState;
+
+        if (!state.isProcessing) {
+            // Processing complete
+            floatingDiv.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+            floatingDiv.innerHTML = `
+                <i class="fas fa-check-circle" style="font-size: 18px;"></i>
+                <div>
+                    <div style="font-weight: 600;">Pick Release Complete</div>
+                    <div style="font-size: 11px; opacity: 0.9;">${state.completedOrders} orders processed</div>
+                </div>
+                <button onclick="event.stopPropagation(); hideFloatingIndicator();" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 8px; border-radius: 4px; cursor: pointer; margin-left: auto;">
+                    <i class="fas fa-times"></i>
+                </button>
+            `;
+
+            // Auto-hide after 10 seconds
+            setTimeout(() => {
+                hideFloatingIndicator();
+            }, 10000);
+        } else {
+            // Still processing - calculate progress based on steps
+            const progress = state.totalSteps > 0 ? Math.round((state.completedSteps / state.totalSteps) * 100) : 0;
+
+            // Get step status icons
+            const getStepIcon = (status, count, total) => {
+                if (status === 'complete') return `<i class="fas fa-check-circle" style="color: #86efac;"></i> ${count}/${total}`;
+                if (status === 'in-progress') return `<i class="fas fa-spinner fa-spin" style="color: #fef08a;"></i> ${count}/${total}`;
+                return `<i class="fas fa-clock" style="color: rgba(255,255,255,0.5);"></i> 0/${total}`;
+            };
+
+            const totalOrders = state.totalOrders || 0;
+
+            floatingDiv.innerHTML = `
+                <div style="flex: 1;">
+                    <div style="font-weight: 600; margin-bottom: 6px;">Pick Release Running...</div>
+                    <div style="display: flex; gap: 8px; font-size: 10px; margin-bottom: 6px;">
+                        <span title="Step 1: Release Pick Wave">S1: ${getStepIcon(state.step1Status, state.step1Count, totalOrders)}</span>
+                        <span title="Step 2: Get Picks">S2: ${getStepIcon(state.step2Status, state.step2Count, totalOrders)}</span>
+                        <span title="Step 3: Get Lots">S3: ${getStepIcon(state.step3Status, state.step3Count, totalOrders)}</span>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.3); border-radius: 4px; height: 6px; overflow: hidden;">
+                        <div style="background: white; height: 100%; width: ${progress}%; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                <div style="font-size: 18px; font-weight: 700; margin-left: 10px;">${progress}%</div>
+            `;
+        }
+    }
+
+    // Show detailed progress popup
+    function showFloatingProgressDetails() {
+        const state = window.pickReleaseProcessingState;
+        const data = window.withLotsPickReleaseData;
+
+        if (!data) return;
+
+        const elapsed = state.startTime ? formatDuration(Date.now() - state.startTime) : '-';
+        const progress = state.totalSteps > 0 ? Math.round((state.completedSteps / state.totalSteps) * 100) : 0;
+
+        // Step status helper
+        const getStepStatusIcon = (status) => {
+            if (status === 'complete') return '<i class="fas fa-check-circle" style="color: #10b981;"></i>';
+            if (status === 'in-progress') return '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
+            return '<i class="fas fa-clock" style="color: #94a3b8;"></i>';
+        };
+
+        let detailsHtml = `
+            <div id="floating-details-popup" style="position: fixed; bottom: 80px; right: 20px; background: white; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 99998; width: 400px; max-height: 450px; overflow: hidden;">
+                <div style="padding: 12px 16px; background: linear-gradient(135deg, ${state.isProcessing ? '#f59e0b, #d97706' : '#10b981, #059669'}); color: white; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 600;"><i class="fas fa-tasks"></i> Pick Release Progress</span>
+                    <button onclick="document.getElementById('floating-details-popup').remove();" style="background: none; border: none; color: white; cursor: pointer; font-size: 18px;">&times;</button>
+                </div>
+                <div style="padding: 12px 16px;">
+                    <!-- Overall Progress Bar -->
+                    <div style="margin-bottom: 12px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px;">
+                            <span><strong>${state.isProcessing ? 'Processing...' : 'Complete!'}</strong></span>
+                            <span><strong>${progress}%</strong> | ${elapsed}</span>
+                        </div>
+                        <div style="background: #e2e8f0; border-radius: 4px; height: 8px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #10b981, #059669); height: 100%; width: ${progress}%; transition: width 0.3s;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Step Summary -->
+                    <div style="display: flex; gap: 12px; margin-bottom: 12px; padding: 10px; background: #f8fafc; border-radius: 8px;">
+                        <div style="flex: 1; text-align: center;">
+                            ${getStepStatusIcon(state.step1Status)}
+                            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Release</div>
+                            <div style="font-size: 11px; font-weight: 600;">${state.step1Count}/${state.totalOrders}</div>
+                        </div>
+                        <div style="flex: 1; text-align: center;">
+                            ${getStepStatusIcon(state.step2Status)}
+                            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Picks</div>
+                            <div style="font-size: 11px; font-weight: 600;">${state.step2Count}/${state.totalOrders}</div>
+                        </div>
+                        <div style="flex: 1; text-align: center;">
+                            ${getStepStatusIcon(state.step3Status)}
+                            <div style="font-size: 10px; color: #64748b; margin-top: 2px;">Lots</div>
+                            <div style="font-size: 11px; font-weight: 600;">${state.step3Count}/${state.totalOrders}</div>
+                        </div>
+                    </div>
+
+                    <!-- Order Details -->
+                    <div style="border-top: 1px solid #e2e8f0; padding-top: 10px; max-height: 200px; overflow-y: auto;">
+                        <div style="font-size: 11px; color: #64748b; margin-bottom: 6px; font-weight: 600;">Order Details:</div>
+                        <table style="width: 100%; font-size: 10px; border-collapse: collapse;">
+                            <thead>
+                                <tr style="background: #f1f5f9;">
+                                    <th style="padding: 4px; text-align: left;">Order</th>
+                                    <th style="padding: 4px; text-align: center;">S1</th>
+                                    <th style="padding: 4px; text-align: center;">S2</th>
+                                    <th style="padding: 4px; text-align: center;">S3</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+        `;
+
+        // Show order status with individual steps
+        if (data.orders) {
+            data.orders.forEach((order, i) => {
+                const orderNum = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+                const result = data.results[i];
+
+                // Get status icon for each step
+                const getResultIcon = (stepResult) => {
+                    if (stepResult === null) return '<i class="fas fa-clock" style="color: #94a3b8;"></i>';
+                    if (stepResult.success) return '<i class="fas fa-check" style="color: #10b981;"></i>';
+                    return '<i class="fas fa-times" style="color: #ef4444;"></i>';
+                };
+
+                detailsHtml += `
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 4px; font-weight: 500;">${orderNum}</td>
+                        <td style="padding: 4px; text-align: center;">${getResultIcon(result.step1)}</td>
+                        <td style="padding: 4px; text-align: center;">${getResultIcon(result.step2)}</td>
+                        <td style="padding: 4px; text-align: center;">${getResultIcon(result.step3)}</td>
+                    </tr>
+                `;
+            });
+        }
+
+        detailsHtml += `
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('floating-details-popup');
+        if (existingPopup) existingPopup.remove();
+
+        document.body.insertAdjacentHTML('beforeend', detailsHtml);
+    }
+
+    // Hide floating indicator
+    function hideFloatingIndicator() {
+        const floatingDiv = document.getElementById('pick-release-floating-indicator');
+        if (floatingDiv) floatingDiv.remove();
+
+        const detailsPopup = document.getElementById('floating-details-popup');
+        if (detailsPopup) detailsPopup.remove();
+    }
+
+    // Reopen the Pick Release popup and restore current state
+    function reopenPickReleasePopup() {
+        const data = window.withLotsPickReleaseData;
+        if (!data || !data.orders) {
+            console.log('[Pick Release] No data to restore');
+            return;
+        }
+
+        // Hide floating indicator
+        hideFloatingIndicator();
+
+        // Reopen the popup with the stored orders
+        processSalesOrderPickRelease(data.orders, data.tripId);
+
+        // After popup is created, restore the state of each cell
+        setTimeout(() => {
+            // Switch to With Lots mode
+            const modeSelect = document.getElementById('pick-release-mode');
+            if (modeSelect) {
+                modeSelect.value = 'with-lots';
+                togglePickReleaseMode();
+            }
+
+            // Show progress section
+            const progressSection = document.getElementById('with-lots-progress-section');
+            if (progressSection) progressSection.style.display = 'block';
+
+            // Restore state for each order
+            data.orders.forEach((order, i) => {
+                const result = data.results[i];
+
+                // Restore Total Lines
+                if (window.pickReleaseProcessingState.totalLinesCount && window.pickReleaseProcessingState.totalLinesCount[i] !== undefined) {
+                    const linesCell = document.getElementById(`wl-total-lines-${i}`);
+                    if (linesCell) {
+                        linesCell.innerHTML = `<span style="font-weight: 600;">${window.pickReleaseProcessingState.totalLinesCount[i]}</span>`;
+                    }
+                }
+
+                // Restore Step 1 status
+                if (result.step1 !== null) {
+                    if (result.step1.success) {
+                        updateCellStatus(`wl-release-st-${i}`, 'success');
+                    } else {
+                        updateCellStatus(`wl-release-st-${i}`, 'error', result.step1.error);
+                        enableRetryButton(i);
+                    }
+                } else if (window.pickReleaseProcessingState.isProcessing) {
+                    // Still processing, might be on this step
+                    updateCellStatus(`wl-release-st-${i}`, 'processing');
+                }
+
+                // Restore Step 2 status
+                if (result.step2 !== null) {
+                    if (result.step2.success) {
+                        const count = result.step2.data?.RECORDCOUNT || result.step2.data?.recordcount || 0;
+                        updateCellStatus(`wl-get-picks-${i}`, 'success', null, count);
+                    } else {
+                        updateCellStatus(`wl-get-picks-${i}`, 'error', result.step2.error);
+                        enableRetryButton(i);
+                    }
+                } else if (result.step1?.success && window.pickReleaseProcessingState.isProcessing) {
+                    updateCellStatus(`wl-get-picks-${i}`, 'processing');
+                } else if (!result.step1?.success && result.step1 !== null) {
+                    updateCellStatus(`wl-get-picks-${i}`, 'skipped');
+                }
+
+                // Restore Step 3 status
+                if (result.step3 !== null) {
+                    if (result.step3.success) {
+                        const count = result.step3.data?.RECORDCOUNT || result.step3.data?.recordcount || 0;
+                        updateCellStatus(`wl-get-lots-${i}`, 'success', null, count);
+                    } else {
+                        updateCellStatus(`wl-get-lots-${i}`, 'error', result.step3.error);
+                        enableRetryButton(i);
+                    }
+                } else if (result.step2?.success && window.pickReleaseProcessingState.isProcessing) {
+                    updateCellStatus(`wl-get-lots-${i}`, 'processing');
+                } else if (!result.step2?.success && result.step2 !== null) {
+                    updateCellStatus(`wl-get-lots-${i}`, 'skipped');
+                }
+            });
+
+            // Update step indicators based on current state
+            const state = window.pickReleaseProcessingState;
+            if (state.currentStep.includes('Step 1')) {
+                updateStepIndicator(1, 'in-progress');
+            } else if (state.currentStep.includes('Step 2') || state.currentStep.includes('Processing')) {
+                updateStepIndicator(1, 'complete');
+                updateStepIndicator(2, 'in-progress');
+            }
+
+            if (!state.isProcessing) {
+                updateStepIndicator(1, 'complete');
+                updateStepIndicator(2, 'complete');
+                updateStepIndicator(3, 'complete');
+                const s1El = document.getElementById('step-1-status');
+                const s2El = document.getElementById('step-2-status');
+                const s3El = document.getElementById('step-3-status');
+                if (s1El) s1El.textContent = 'Complete';
+                if (s2El) s2El.textContent = 'Complete';
+                if (s3El) s3El.textContent = 'Complete';
+
+                // Update button to show completed
+                const btn = document.getElementById('btn-start-pick-release');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-check"></i> Completed';
+                    btn.style.opacity = '1';
+                    btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                    btn.onclick = function() { closeSalesPickReleaseModal(); };
+                }
+            } else {
+                // Disable the start button while processing
+                const btn = document.getElementById('btn-start-pick-release');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                    btn.style.opacity = '0.7';
+                }
+            }
+
+            // Update progress bar
+            const completedOrders = state.completedOrders || 0;
+            const totalOrders = state.totalOrders || data.orders.length;
+            updateWithLotsProgress(completedOrders * 3, totalOrders * 3);
+
+        }, 100); // Small delay to ensure popup is rendered
+    }
+
+    // ============================================================================
+    // WITH LOTS PICK RELEASE - 3 Step Process
+    // Step 1: Release Pick Wave (for all orders)
+    // Step 2: Total Picks (per order)
+    // Step 3: Lots in the Pick (per order)
+    // ============================================================================
+
+    window.startWithLotsPickRelease = async function(orders, tripId) {
+        console.log('[With Lots Pick Release] Starting 3-step process for', orders.length, 'orders');
+
+        // Track overall timing
+        const overallStartTime = Date.now();
+        const orderStartTimes = [];
+
+        // Track counts for comparison
+        const totalLinesCount = [];
+        const totalPicksCount = [];
+
+        // Initialize processing state for floating indicator
+        window.pickReleaseProcessingState = {
+            isProcessing: true,
+            totalOrders: orders.length,
+            completedOrders: 0,
+            completedSteps: 0,
+            totalSteps: orders.length * 3, // 3 steps per order
+            currentStep: 'Starting...',
+            startTime: overallStartTime,
+            step1Status: 'pending',
+            step2Status: 'pending',
+            step3Status: 'pending',
+            step1Count: 0,
+            step2Count: 0,
+            step3Count: 0
+        };
+
+        // Show progress section
+        const progressSection = document.getElementById('with-lots-progress-section');
+        if (progressSection) progressSection.style.display = 'block';
+
+        // Get instance
+        const instance = orders[0]?.INSTANCE_NAME || orders[0]?.instance_name || window.currentTripInstance || 'TEST';
+        const warehouse = 'GIC'; // Default warehouse
+
+        // Store for retry functionality
+        window.withLotsPickReleaseData = {
+            orders: orders,
+            tripId: tripId,
+            instance: instance,
+            warehouse: warehouse,
+            results: orders.map(() => ({ step1: null, step2: null, step3: null }))
+        };
+
+        let totalSteps = orders.length * 3;
+        let completedSteps = 0;
+
+        // STEP 0: Fetch Total Lines for all orders first (in parallel)
+        console.log('[With Lots] Fetching Total Lines for all orders...');
+        const totalLinesPromises = orders.map((order, i) => {
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+            return fetchFusionOrderLinesAPI(orderNumber, instance, tripId).then(result => {
+                totalLinesCount[i] = result.count || 0;
+                const cell = document.getElementById(`wl-total-lines-${i}`);
+                if (cell) {
+                    cell.innerHTML = `<span style="font-weight: 600;">${totalLinesCount[i]}</span>`;
+                }
+                return result;
+            });
+        });
+        await Promise.all(totalLinesPromises);
+
+        // Store total lines count in processing state for popup restoration
+        window.pickReleaseProcessingState.totalLinesCount = totalLinesCount;
+
+        // Update step indicator to show Step 1 in progress
+        updateStepIndicator(1, 'in-progress');
+
+        // STEP 1: Release Pick Wave for ALL orders first
+        console.log('[With Lots] Step 1: Release Pick Wave for all orders');
+        const step1StatusEl = document.getElementById('step-1-status');
+        if (step1StatusEl) step1StatusEl.textContent = 'In Progress...';
+
+        // Update processing state
+        window.pickReleaseProcessingState.currentStep = 'Step 1: Release Pick Wave';
+        window.pickReleaseProcessingState.step1Status = 'in-progress';
+        updateFloatingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            // Track start time for this order
+            orderStartTimes[i] = Date.now();
+
+            updateCellStatus(`wl-release-st-${i}`, 'processing');
+
+            try {
+                const result = await callReleasePickWaveAPI(orderNumber, warehouse, instance);
+                window.withLotsPickReleaseData.results[i].step1 = result;
+
+                if (result.success) {
+                    updateCellStatus(`wl-release-st-${i}`, 'success');
+                } else {
+                    updateCellStatus(`wl-release-st-${i}`, 'error', result.error);
+                    enableRetryButton(i);
+                }
+            } catch (error) {
+                window.withLotsPickReleaseData.results[i].step1 = { success: false, error: error.message };
+                updateCellStatus(`wl-release-st-${i}`, 'error', error.message);
+                enableRetryButton(i);
+            }
+
+            completedSteps++;
+            updateWithLotsProgress(completedSteps, totalSteps);
+
+            // Update floating indicator with step 1 progress
+            window.pickReleaseProcessingState.step1Count = i + 1;
+            window.pickReleaseProcessingState.completedSteps = completedSteps;
+            updateFloatingIndicator();
+        }
+
+        // Mark Step 1 complete
+        updateStepIndicator(1, 'complete');
+        const step1CompleteEl = document.getElementById('step-1-status');
+        if (step1CompleteEl) step1CompleteEl.textContent = 'Complete';
+
+        // Update floating indicator - Step 1 complete
+        window.pickReleaseProcessingState.step1Status = 'complete';
+        updateFloatingIndicator();
+
+        // STEP 2 & 3: Total Picks and Lots in the Pick per order
+        updateStepIndicator(2, 'in-progress');
+        const step2StatusEl = document.getElementById('step-2-status');
+        if (step2StatusEl) step2StatusEl.textContent = 'In Progress...';
+
+        // Update processing state
+        window.pickReleaseProcessingState.currentStep = 'Step 2: Fetching Picks';
+        window.pickReleaseProcessingState.step2Status = 'in-progress';
+        updateFloatingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            // Only proceed if Step 1 was successful
+            if (!window.withLotsPickReleaseData.results[i].step1?.success) {
+                updateCellStatus(`wl-get-picks-${i}`, 'skipped');
+                updateCellStatus(`wl-get-lots-${i}`, 'skipped');
+                completedSteps += 2;
+                updateWithLotsProgress(completedSteps, totalSteps);
+                // Update time for this row
+                updateOrderTime(i, orderStartTimes[i]);
+                continue;
+            }
+
+            // Step 2: Total Picks
+            updateCellStatus(`wl-get-picks-${i}`, 'processing');
+
+            try {
+                const picksResult = await callGetPicksAPI(orderNumber, warehouse, instance);
+                window.withLotsPickReleaseData.results[i].step2 = picksResult;
+
+                if (picksResult.success) {
+                    const count = picksResult.data?.RECORDCOUNT || picksResult.data?.recordcount || picksResult.data?.items?.length || 0;
+                    totalPicksCount[i] = count; // Store for comparison
+                    updateCellStatus(`wl-get-picks-${i}`, 'success', null, count);
+                } else {
+                    totalPicksCount[i] = 0;
+                    updateCellStatus(`wl-get-picks-${i}`, 'error', picksResult.error);
+                    enableRetryButton(i);
+                }
+            } catch (error) {
+                totalPicksCount[i] = 0;
+                window.withLotsPickReleaseData.results[i].step2 = { success: false, error: error.message };
+                updateCellStatus(`wl-get-picks-${i}`, 'error', error.message);
+                enableRetryButton(i);
+            }
+
+            completedSteps++;
+            updateWithLotsProgress(completedSteps, totalSteps);
+
+            // Update floating indicator with step 2 progress
+            window.pickReleaseProcessingState.step2Count = i + 1;
+            window.pickReleaseProcessingState.completedSteps = completedSteps;
+            updateFloatingIndicator();
+
+            // Step 3: Lots in the Pick (only if Step 2 was successful)
+            window.pickReleaseProcessingState.currentStep = 'Step 3: Fetching Lots';
+            window.pickReleaseProcessingState.step3Status = 'in-progress';
+
+            if (window.withLotsPickReleaseData.results[i].step2?.success) {
+                updateCellStatus(`wl-get-lots-${i}`, 'processing');
+
+                try {
+                    const lotsResult = await callGetPickLotsAPI(orderNumber, instance);
+                    window.withLotsPickReleaseData.results[i].step3 = lotsResult;
+
+                    if (lotsResult.success) {
+                        const count = lotsResult.data?.RECORDCOUNT || lotsResult.data?.recordcount || lotsResult.data?.items?.length || 0;
+                        updateCellStatus(`wl-get-lots-${i}`, 'success', null, count);
+                    } else {
+                        updateCellStatus(`wl-get-lots-${i}`, 'error', lotsResult.error);
+                        enableRetryButton(i);
+                    }
+                } catch (error) {
+                    window.withLotsPickReleaseData.results[i].step3 = { success: false, error: error.message };
+                    updateCellStatus(`wl-get-lots-${i}`, 'error', error.message);
+                    enableRetryButton(i);
+                }
+            } else {
+                updateCellStatus(`wl-get-lots-${i}`, 'skipped');
+            }
+
+            completedSteps++;
+            updateWithLotsProgress(completedSteps, totalSteps);
+
+            // Update floating indicator with step 3 progress
+            window.pickReleaseProcessingState.step3Count = i + 1;
+            window.pickReleaseProcessingState.completedSteps = completedSteps;
+
+            // Update time for this row
+            updateOrderTime(i, orderStartTimes[i]);
+
+            // Update floating indicator progress
+            window.pickReleaseProcessingState.completedOrders = i + 1;
+            window.pickReleaseProcessingState.currentStep = `Processing order ${i + 1} of ${orders.length}`;
+            updateFloatingIndicator();
+        }
+
+        // Mark steps complete
+        updateStepIndicator(2, 'complete');
+        updateStepIndicator(3, 'complete');
+        const step2CompleteEl = document.getElementById('step-2-status');
+        const step3CompleteEl = document.getElementById('step-3-status');
+        if (step2CompleteEl) step2CompleteEl.textContent = 'Complete';
+        if (step3CompleteEl) step3CompleteEl.textContent = 'Complete';
+
+        // Update floating indicator - all steps complete
+        window.pickReleaseProcessingState.step2Status = 'complete';
+        window.pickReleaseProcessingState.step3Status = 'complete';
+        updateFloatingIndicator();
+
+        // Mark orders where Total Lines < Total Picks (mismatch warning)
+        let mismatchCount = 0;
+        for (let i = 0; i < orders.length; i++) {
+            const lines = totalLinesCount[i] || 0;
+            const picks = totalPicksCount[i] || 0;
+            if (lines > 0 && picks > 0 && lines < picks) {
+                mismatchCount++;
+                const row = document.getElementById(`wl-order-row-${i}`);
+                if (row) {
+                    row.style.background = '#fef3c7'; // Yellow warning background
+                }
+                // Update Total Lines cell to show warning
+                const linesCell = document.getElementById(`wl-total-lines-${i}`);
+                if (linesCell) {
+                    linesCell.innerHTML = `<span style="color: #d97706; font-weight: 600;">${lines} <i class="fas fa-exclamation-triangle" style="font-size: 10px;" title="Total Lines (${lines}) < Total Picks (${picks})"></i></span>`;
+                }
+            }
+        }
+
+        if (mismatchCount > 0) {
+            console.log(`[With Lots] Warning: ${mismatchCount} order(s) have Total Lines < Total Picks`);
+        }
+
+        // Calculate and display total time
+        const totalTime = Date.now() - overallStartTime;
+        const totalTimeFormatted = formatDuration(totalTime);
+
+        // Show total time summary
+        const progressSection2 = document.getElementById('with-lots-progress-section');
+        if (progressSection2) {
+            const totalTimeDiv = document.createElement('div');
+            totalTimeDiv.style.cssText = 'margin-top: 1rem; padding: 0.75rem; background: linear-gradient(135deg, #10b981 0%, #059669 100%); border-radius: 8px; text-align: center;';
+            totalTimeDiv.innerHTML = `
+                <span style="color: white; font-weight: 600; font-size: 14px;">
+                    <i class="fas fa-clock"></i> Total Time: ${totalTimeFormatted}
+                </span>
+            `;
+            progressSection2.appendChild(totalTimeDiv);
+        }
+
+        // Update button to show completed
+        const btn = document.getElementById('btn-start-pick-release');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check"></i> Completed';
+            btn.style.opacity = '1';
+            btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+            btn.onclick = function() { closeSalesPickReleaseModal(); };
+        }
+
+        // Mark processing as complete for floating indicator
+        window.pickReleaseProcessingState.isProcessing = false;
+        window.pickReleaseProcessingState.currentStep = 'Complete';
+        window.pickReleaseProcessingState.completedOrders = orders.length;
+        updateFloatingIndicator();
+
+        console.log('[With Lots Pick Release] Process complete. Total time:', totalTimeFormatted);
+    };
+
+    // ============================================================================
+    // INDIVIDUAL BUTTON FUNCTIONS
+    // ============================================================================
+
+    // Fetch Sales Order Lines - Only calls fetchfusionorderlines API
+    window.fetchSalesOrderLines = async function() {
+        const data = window.withLotsPickReleaseData;
+        if (!data) {
+            console.log('[Fetch Sales Order Lines] No data available');
+            return;
+        }
+
+        const orders = data.orders;
+        const instance = data.instance;
+
+        console.log('[Fetch Sales Order Lines] Starting for', orders.length, 'orders');
+
+        // Disable button during processing
+        const btn = document.getElementById('btn-fetch-order-lines');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+        }
+
+        const startTime = Date.now();
+
+        // Fetch total lines for all orders in parallel
+        const promises = orders.map((order, i) => {
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            // Show loading in cell
+            const cell = document.getElementById(`wl-total-lines-${i}`);
+            if (cell) {
+                cell.innerHTML = '<span style="color: #94a3b8;"><i class="fas fa-spinner fa-spin" style="font-size: 10px;"></i></span>';
+            }
+
+            return fetchFusionOrderLinesAPI(orderNumber, instance, data.tripId).then(result => {
+                const count = result.count || 0;
+                if (cell) {
+                    cell.innerHTML = `<span style="font-weight: 600;">${count}</span>`;
+                }
+                return { index: i, count: count, success: result.success };
+            });
+        });
+
+        const results = await Promise.all(promises);
+
+        const elapsed = Date.now() - startTime;
+        console.log('[Fetch Sales Order Lines] Complete. Time:', formatDuration(elapsed));
+
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check"></i> Lines Fetched';
+            btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        }
+    };
+
+    // Fetch Picks and Total Lots - Calls both getopenpicksbyorder and getlotsforpicks APIs
+    window.fetchPicksAndLots = async function() {
+        const data = window.withLotsPickReleaseData;
+        if (!data) {
+            console.log('[Fetch Picks & Lots] No data available');
+            return;
+        }
+
+        const orders = data.orders;
+        const instance = data.instance;
+        const warehouse = data.warehouse;
+
+        console.log('[Fetch Picks & Lots] Starting for', orders.length, 'orders');
+
+        // Disable button during processing
+        const btn = document.getElementById('btn-fetch-picks-lots');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+        }
+
+        const startTime = Date.now();
+        const orderStartTimes = [];
+
+        // Process each order sequentially
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            orderStartTimes[i] = Date.now();
+
+            // Step 1: Get Picks
+            updateCellStatus(`wl-get-picks-${i}`, 'processing');
+
+            try {
+                const picksResult = await callGetPicksAPI(orderNumber, warehouse, instance);
+
+                if (picksResult.success) {
+                    const count = picksResult.data?.RECORDCOUNT || picksResult.data?.recordcount || picksResult.data?.items?.length || 0;
+                    updateCellStatus(`wl-get-picks-${i}`, 'success', null, count);
+                } else {
+                    updateCellStatus(`wl-get-picks-${i}`, 'error', picksResult.error);
+                }
+            } catch (error) {
+                updateCellStatus(`wl-get-picks-${i}`, 'error', error.message);
+            }
+
+            // Step 2: Get Pick Lots
+            updateCellStatus(`wl-get-lots-${i}`, 'processing');
+
+            try {
+                const lotsResult = await callGetPickLotsAPI(orderNumber, instance);
+
+                if (lotsResult.success) {
+                    const count = lotsResult.data?.RECORDCOUNT || lotsResult.data?.recordcount || lotsResult.data?.items?.length || 0;
+                    updateCellStatus(`wl-get-lots-${i}`, 'success', null, count);
+                } else {
+                    updateCellStatus(`wl-get-lots-${i}`, 'error', lotsResult.error);
+                }
+            } catch (error) {
+                updateCellStatus(`wl-get-lots-${i}`, 'error', error.message);
+            }
+
+            // Update time for this row
+            updateOrderTime(i, orderStartTimes[i]);
+        }
+
+        const elapsed = Date.now() - startTime;
+        console.log('[Fetch Picks & Lots] Complete. Time:', formatDuration(elapsed));
+
+        // Re-enable button
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check"></i> Picks & Lots Fetched';
+            btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+        }
+    };
+
+    // API Call Functions
+    function callReleasePickWaveAPI(orderNumber, warehouse, instance) {
+        return new Promise((resolve) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/callpickwave?warehouse=${warehouse}&order_number=${orderNumber}&p_instance_name=${instance}`;
+
+            console.log('[With Lots] Calling Release Pick Wave:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve({ success: true, data: response });
+                    } catch (e) {
+                        resolve({ success: true, data: data });
+                    }
+                }
+            });
+        });
+    }
+
+    function callGetPicksAPI(orderNumber, warehouse, instance) {
+        return new Promise((resolve) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/getopenpicksbyorder?organization_code=${warehouse}&order_number=${orderNumber}&p_instance_name=${instance}`;
+
+            console.log('[With Lots] Calling Total Picks:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve({ success: true, data: response });
+                    } catch (e) {
+                        resolve({ success: true, data: data });
+                    }
+                }
+            });
+        });
+    }
+
+    function callGetPickLotsAPI(orderNumber, instance) {
+        return new Promise((resolve) => {
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/getlotsforpicks?source_order_number=${orderNumber}&p_instance_name=${instance}`;
+
+            console.log('[With Lots] Calling Lots in the Pick:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve({ success: true, data: response });
+                    } catch (e) {
+                        resolve({ success: true, data: data });
+                    }
+                }
+            });
+        });
+    }
+
+    // Fetch total lines count from Fusion for an order
+    function fetchFusionOrderLinesAPI(orderNumber, instance, tripId) {
+        return new Promise((resolve) => {
+            let apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+            // Add trip_id if provided
+            if (tripId) {
+                apiUrl += `&p_trip_id=${tripId}`;
+            }
+
+            console.log('[With Lots] Fetching Total Lines:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error, count: 0 });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        const count = response?.RECORDCOUNT || response?.recordcount || 0;
+                        resolve({ success: true, data: response, count: count });
+                    } catch (e) {
+                        resolve({ success: false, error: e.message, count: 0 });
+                    }
+                }
+            });
+        });
+    }
+
+    // Fetch order volume from API
+    function callGetOrderVolumeAPI(orderNumber, instance, tripId) {
+        return new Promise((resolve) => {
+            let apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume?p_instance_name=${instance}&source_order_number=${orderNumber}`;
+            // Add trip_id if provided
+            if (tripId) {
+                apiUrl += `&p_trip_id=${tripId}`;
+            }
+
+            console.log('[Order Volume] Fetching order volume:', apiUrl);
+
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: JSON.stringify({})
+            }, function(error, data) {
+                if (error) {
+                    resolve({ success: false, error: error });
+                } else {
+                    try {
+                        const response = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve({ success: true, data: response });
+                    } catch (e) {
+                        resolve({ success: true, data: data });
+                    }
+                }
+            });
+        });
+    }
+
+    // Helper Functions for With Lots UI
+    function updateStepIndicator(step, status) {
+        const indicator = document.getElementById(`step-indicator-${step}`);
+        if (!indicator) return;
+
+        const circle = indicator.querySelector('div');
+        if (!circle) return;
+
+        if (status === 'in-progress') {
+            circle.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+            circle.style.color = 'white';
+            circle.innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size: 16px;"></i>';
+        } else if (status === 'complete') {
+            circle.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+            circle.style.color = 'white';
+            circle.innerHTML = '<i class="fas fa-check" style="font-size: 16px;"></i>';
+        }
+    }
+
+    function updateCellStatus(cellId, status, errorMsg, count) {
+        const cell = document.getElementById(cellId);
+        if (!cell) return;
+
+        if (status === 'processing') {
+            cell.innerHTML = '<span style="color: #f59e0b;"><i class="fas fa-spinner fa-spin" style="font-size: 12px;"></i></span>';
+        } else if (status === 'success') {
+            if (count !== undefined) {
+                cell.innerHTML = `<span style="color: #10b981;"><i class="fas fa-check-circle" style="font-size: 12px;"></i> <span style="font-size: 10px;">(${count})</span></span>`;
+            } else {
+                cell.innerHTML = '<span style="color: #10b981;"><i class="fas fa-check-circle" style="font-size: 12px;"></i></span>';
+            }
+        } else if (status === 'error') {
+            cell.innerHTML = `<span style="color: #ef4444;" title="${errorMsg || 'Error'}"><i class="fas fa-times-circle" style="font-size: 12px;"></i></span>`;
+        } else if (status === 'skipped') {
+            cell.innerHTML = '<span style="color: #94a3b8;"><i class="fas fa-minus-circle" style="font-size: 12px;"></i></span>';
+        }
+    }
+
+    // Format duration in ms to readable format (e.g., "1m 23s" or "45s" or "1.2s")
+    function formatDuration(ms) {
+        if (ms < 1000) {
+            return `${ms}ms`;
+        } else if (ms < 60000) {
+            return `${(ms / 1000).toFixed(1)}s`;
+        } else {
+            const minutes = Math.floor(ms / 60000);
+            const seconds = ((ms % 60000) / 1000).toFixed(0);
+            return `${minutes}m ${seconds}s`;
+        }
+    }
+
+    // Update time cell for a specific order row
+    function updateOrderTime(index, startTime) {
+        const elapsed = Date.now() - startTime;
+        const timeCell = document.getElementById(`wl-time-${index}`);
+        if (timeCell) {
+            timeCell.innerHTML = `<span style="color: #3b82f6; font-weight: 500;">${formatDuration(elapsed)}</span>`;
+        }
+    }
+
+    function enableRetryButton(index) {
+        const btn = document.querySelector(`#wl-retry-${index} button`);
+        if (btn) {
+            btn.disabled = false;
+            btn.style.background = '#fef3c7';
+            btn.style.color = '#d97706';
+        }
+    }
+
+    function updateWithLotsProgress(completed, total) {
+        const progressText = document.getElementById('with-lots-progress-text');
+        const progressBar = document.getElementById('with-lots-progress-bar');
+
+        if (progressText) progressText.textContent = `${completed} / ${total} steps`;
+        if (progressBar) progressBar.style.width = `${(completed / total) * 100}%`;
+    }
+
+    // Retry function for a single order
+    window.retryWithLotsOrder = async function(index) {
+        const data = window.withLotsPickReleaseData;
+        if (!data) return;
+
+        const order = data.orders[index];
+        const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+        console.log('[With Lots] Retrying order:', orderNumber);
+
+        // Disable retry button
+        const btn = document.querySelector(`#wl-retry-${index} button`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        }
+
+        // Retry Step 1
+        updateCellStatus(`wl-release-st-${index}`, 'processing');
+        try {
+            const result1 = await callReleasePickWaveAPI(orderNumber, data.warehouse, data.instance);
+            data.results[index].step1 = result1;
+
+            if (result1.success) {
+                updateCellStatus(`wl-release-st-${index}`, 'success');
+            } else {
+                updateCellStatus(`wl-release-st-${index}`, 'error', result1.error);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-redo"></i>';
+                }
+                return;
+            }
+        } catch (error) {
+            updateCellStatus(`wl-release-st-${index}`, 'error', error.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-redo"></i>';
+            }
+            return;
+        }
+
+        // Retry Step 2
+        updateCellStatus(`wl-get-picks-${index}`, 'processing');
+        try {
+            const result2 = await callGetPicksAPI(orderNumber, data.warehouse, data.instance);
+            data.results[index].step2 = result2;
+
+            if (result2.success) {
+                const count = result2.data?.RECORDCOUNT || result2.data?.recordcount || result2.data?.items?.length || 0;
+                updateCellStatus(`wl-get-picks-${index}`, 'success', null, count);
+            } else {
+                updateCellStatus(`wl-get-picks-${index}`, 'error', result2.error);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-redo"></i>';
+                }
+                return;
+            }
+        } catch (error) {
+            updateCellStatus(`wl-get-picks-${index}`, 'error', error.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-redo"></i>';
+            }
+            return;
+        }
+
+        // Retry Step 3
+        updateCellStatus(`wl-get-lots-${index}`, 'processing');
+        try {
+            const result3 = await callGetPickLotsAPI(orderNumber, data.instance);
+            data.results[index].step3 = result3;
+
+            if (result3.success) {
+                const count = result3.data?.RECORDCOUNT || result3.data?.recordcount || result3.data?.items?.length || 0;
+                updateCellStatus(`wl-get-lots-${index}`, 'success', null, count);
+            } else {
+                updateCellStatus(`wl-get-lots-${index}`, 'error', result3.error);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="fas fa-redo"></i>';
+                }
+                return;
+            }
+        } catch (error) {
+            updateCellStatus(`wl-get-lots-${index}`, 'error', error.message);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-redo"></i>';
+            }
+            return;
+        }
+
+        // All steps successful - disable retry button
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-check"></i>';
+            btn.style.background = '#d1fae5';
+            btn.style.color = '#059669';
+        }
+    };
+
+    window.closeSalesPickReleaseModal = function() {
+        const modal = document.getElementById('sales-pick-release-modal');
+
+        // Check if processing is still in progress
+        if (window.pickReleaseProcessingState && window.pickReleaseProcessingState.isProcessing) {
+            // Show floating indicator before closing
+            showFloatingProgressIndicator();
+        }
+
+        if (modal) modal.remove();
+    };
+
+    // Show API Information for Pick Release
+    window.showPickReleaseApiInfo = function() {
+        const orders = window.pendingSalesOrdersForPickRelease || [];
+        const tripId = window.pendingTripIdForPickRelease || 'N/A';
+
+        // Get current mode
+        const modeSelect = document.getElementById('pick-release-mode');
+        const mode = modeSelect ? modeSelect.value : 'no-lots';
+
+        // Get sample order for display
+        const sampleOrder = orders[0] || {};
+        const sampleOrderNumber = sampleOrder.SOURCE_ORDER_NUMBER || sampleOrder.source_order_number || sampleOrder.ORDER_NUMBER || sampleOrder.order_number || '{orderNumber}';
+        const instance = sampleOrder.INSTANCE_NAME || sampleOrder.instance_name || window.currentTripInstance || 'TEST';
+        const warehouse = 'GIC';
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+
+        let apiContent = '';
+
+        if (mode === 'with-lots') {
+            // With Lots mode - show 3 APIs
+            apiContent = `
+                <!-- Mode Badge -->
+                <div style="background: #dbeafe; padding: 0.5rem 1rem; border-radius: 6px; margin-bottom: 1rem; display: inline-block;">
+                    <span style="color: #1e40af; font-weight: 600; font-size: 12px;"><i class="fas fa-boxes"></i> Mode: With Lots (3-Step Process)</span>
+                </div>
+
+                <!-- Step 1: Release Pick Wave -->
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; border-left: 3px solid #3b82f6;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: #dbeafe; color: #1e40af; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">STEP 1</span>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b; font-size: 12px;">Release Pick Wave</strong>
+                    </div>
+                    <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${baseUrl}/trip/callpickwave?warehouse=${warehouse}&order_number=${sampleOrderNumber}&p_instance_name=${instance}</code>
+                </div>
+
+                <!-- Step 2: Total Picks -->
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; border-left: 3px solid #10b981;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: #d1fae5; color: #065f46; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">STEP 2</span>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b; font-size: 12px;">Total Picks</strong>
+                    </div>
+                    <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${baseUrl}/trips/getopenpicksbyorder?organization_code=${warehouse}&order_number=${sampleOrderNumber}&p_instance_name=${instance}</code>
+                </div>
+
+                <!-- Step 3: Lots in the Pick -->
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 0.75rem; border-left: 3px solid #8b5cf6;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: #ede9fe; color: #5b21b6; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">STEP 3</span>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                        <strong style="color: #1e293b; font-size: 12px;">Lots in the Pick</strong>
+                    </div>
+                    <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${baseUrl}/trip/getlotsforpicks?source_order_number=${sampleOrderNumber}&p_instance_name=${instance}</code>
+                </div>
+
+                <!-- Flow Note -->
+                <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                    <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Process Flow:</strong>
+                    <span style="color: #78350f; font-size: 11px;">
+                        Step 1 runs for ALL orders first, then Step 2 & 3 run per order sequentially. Total: ${orders.length * 3} API calls.
+                    </span>
+                </div>
+            `;
+        } else {
+            // No Lots mode - show single API
+            const fullUrl = `${baseUrl}/trip/pickrelease/oneorder/${sampleOrderNumber}?P_TRIP_ID1=${tripId}&P_INSTANCE_NAME=${instance}`;
+
+            apiContent = `
+                <!-- Mode Badge -->
+                <div style="background: #fef3c7; padding: 0.5rem 1rem; border-radius: 6px; margin-bottom: 1rem; display: inline-block;">
+                    <span style="color: #92400e; font-weight: 600; font-size: 12px;"><i class="fas fa-box"></i> Mode: No Lots (Single API)</span>
+                </div>
+
+                <!-- API Details -->
+                <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #f59e0b;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span>
+                        <strong style="color: #1e293b; font-size: 12px;">Pick Release One Order</strong>
+                    </div>
+                    <div style="margin-bottom: 0.5rem;">
+                        <strong style="color: #4a5568; font-size: 11px;">Endpoint:</strong>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; display: block; margin-top: 4px;">trip/pickrelease/oneorder/{orderNumber}?P_TRIP_ID1={tripId}&P_INSTANCE_NAME={instance}</code>
+                    </div>
+                    <div style="margin-bottom: 0.5rem;">
+                        <strong style="color: #4a5568; font-size: 11px;">Sample Full URL:</strong>
+                        <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${fullUrl}</code>
+                    </div>
+                    <div style="margin-bottom: 0.5rem;">
+                        <strong style="color: #4a5568; font-size: 11px;">Request Body:</strong>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; display: block; margin-top: 4px;">{}</code>
+                    </div>
+                </div>
+
+                <!-- Note -->
+                <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                    <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Note:</strong>
+                    <span style="color: #78350f; font-size: 12px;">This API is called for each order sequentially. Total ${orders.length} API calls will be made.</span>
+                </div>
+            `;
+        }
+
+        const popupHtml = `
+            <div id="pick-release-api-info-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 750px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;">
+                            <i class="fas fa-code"></i> Pick Release API Information
+                        </h3>
+                        <button onclick="document.getElementById('pick-release-api-info-popup').remove()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem; max-height: 70vh; overflow-y: auto;">
+                        <!-- Current Context -->
+                        <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                            <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Current Context</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Trip ID:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${tripId}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Warehouse:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${warehouse}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Orders Count:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${orders.length}</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        ${apiContent}
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('pick-release-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('pick-release-api-info-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+    };
+
+    function addSalesPRLog(message, type = 'info') {
+        const logDiv = document.getElementById('sales-pr-log');
+        if (logDiv) {
+            const color = type === 'success' ? '#10b981' : type === 'error' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#64748b';
+            const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : type === 'warning' ? '⚠' : '→';
+            logDiv.innerHTML += `<div style="color: ${color}; margin-bottom: 0.25rem;">${icon} ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+    }
+
+    function updateSalesPRProgress(current, total) {
+        const progressText = document.getElementById('sales-pr-progress-text');
+        const progressBar = document.getElementById('sales-pr-progress-bar');
+        if (progressText) progressText.textContent = `${current} / ${total}`;
+        if (progressBar) progressBar.style.width = `${(current / total) * 100}%`;
+    }
+
+    function processSalesOrdersSequentially(orders, index, tripId) {
+        if (index >= orders.length) {
+            addSalesPRLog(`Completed! Processed ${orders.length} order(s).`, 'success');
+
+            // Update button to show completed state - clicking will close modal
+            const btn = document.getElementById('btn-start-pick-release');
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-check"></i> Completed';
+                btn.style.opacity = '1';
+                btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+                btn.onclick = function() { closeSalesPickReleaseModal(); };
+            }
+            return;
+        }
+
+        // Update current order status to "processing"
+        const statusEl = document.getElementById(`pr-order-status-${index}`);
+        if (statusEl) {
+            statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color: #f59e0b;"></i>';
+        }
+
+        const order = orders[index];
+        const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || '';
+
+        if (!orderNumber) {
+            addSalesPRLog(`Order ${index + 1}: Missing order number, skipping...`, 'warning');
+            updateSalesPRProgress(index + 1, orders.length);
+            setTimeout(() => processSalesOrdersSequentially(orders, index + 1, tripId), 300);
+            return;
+        }
+
+        addSalesPRLog(`Processing order: ${orderNumber}...`, 'info');
+
+        // Get instance from order or fallback
+        const instance = order.INSTANCE_NAME || order.instance_name || window.currentTripInstance || 'TEST';
+
+        // Build API URL with trip ID and instance parameters
+        const PICK_RELEASE_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/${orderNumber}?P_TRIP_ID1=${tripId}&P_INSTANCE_NAME=${instance}`;
+
+        console.log('[Sales Order Pick Release] Calling API:', PICK_RELEASE_API);
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: PICK_RELEASE_API,
+                body: '{}'
+            }, function(error, data) {
+                const statusEl = document.getElementById(`pr-order-status-${index}`);
+                let isSuccess = false;
+
+                if (error) {
+                    console.error('[Sales Order Pick Release] Error:', error);
+                    addSalesPRLog(`${orderNumber}: Error - ${error}`, 'error');
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Sales Order Pick Release] Response:', result);
+
+                        if (result.success === true || result.success === 'true' || result.status === 'success') {
+                            addSalesPRLog(`${orderNumber}: Pick release successful`, 'success');
+                            isSuccess = true;
+                        } else {
+                            const msg = result.message || result.error || 'Unknown response';
+                            addSalesPRLog(`${orderNumber}: ${msg}`, result.success === false ? 'error' : 'success');
+                            isSuccess = result.success !== false;
+                        }
+                    } catch (parseError) {
+                        // If response is not JSON, assume success
+                        addSalesPRLog(`${orderNumber}: Pick release completed`, 'success');
+                        isSuccess = true;
+                    }
+                }
+
+                // Update status icon
+                if (statusEl) {
+                    if (isSuccess) {
+                        statusEl.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i>';
+                    } else {
+                        statusEl.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
+                    }
+                }
+
+                updateSalesPRProgress(index + 1, orders.length);
+                setTimeout(() => processSalesOrdersSequentially(orders, index + 1, tripId), 500);
+            });
+        } else {
+            // Browser testing fallback
+            let isSuccess = false;
+            fetch(PICK_RELEASE_API, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: '{}'
+            })
+            .then(response => response.json())
+            .then(result => {
+                console.log('[Sales Order Pick Release] Response:', result);
+                addSalesPRLog(`${orderNumber}: Pick release completed`, 'success');
+                isSuccess = true;
+            })
+            .catch(error => {
+                console.error('[Sales Order Pick Release] Error:', error);
+                addSalesPRLog(`${orderNumber}: Error - ${error.message}`, 'error');
+                isSuccess = false;
+            })
+            .finally(() => {
+                // Update status icon
+                const statusEl = document.getElementById(`pr-order-status-${index}`);
+                if (statusEl) {
+                    if (isSuccess) {
+                        statusEl.innerHTML = '<i class="fas fa-check-circle" style="color: #10b981;"></i>';
+                    } else {
+                        statusEl.innerHTML = '<i class="fas fa-times-circle" style="color: #ef4444;"></i>';
+                    }
+                }
+
+                updateSalesPRProgress(index + 1, orders.length);
+                setTimeout(() => processSalesOrdersSequentially(orders, index + 1, tripId), 500);
+            });
+        }
+    }
+
+    // ============================================================================
+    // SHOW TRIP LINES - Displays trip line details in popup
+    // ============================================================================
+    window.showTripLines = function(tripId, instanceName) {
+        console.log('[Show Trip Lines] Loading lines for trip:', tripId, 'instance:', instanceName);
+        const instance = instanceName || window.currentTripInstance || 'PROD';
+
+        // Show loading popup
+        const modalHtml = `
+            <div id="trip-lines-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 1200px; height: 85vh; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="padding: 1rem 1.5rem; border-bottom: 2px solid #e2e8f0; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: white; font-size: 1.1rem;">
+                            <i class="fas fa-list-alt"></i> Trip Lines - Trip ID: ${tripId}
+                        </h3>
+                        <button onclick="closeTripLinesModal()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <!-- Filter/Search Bar -->
+                    <div style="padding: 1rem 1.5rem; background: #f8f9fc; border-bottom: 1px solid #e2e8f0;">
+                        <div style="display: flex; gap: 1rem; align-items: center;">
+                            <div style="flex: 1;">
+                                <input type="text" id="trip-lines-search" placeholder="Search by Order Number, Customer, Item..."
+                                    style="width: 100%; padding: 0.6rem 1rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;"
+                                    onkeyup="filterTripLines()">
+                            </div>
+                            <button onclick="filterTripLines()" class="btn btn-primary" style="padding: 0.6rem 1rem;">
+                                <i class="fas fa-search"></i> Search
+                            </button>
+                            <button onclick="clearTripLinesFilter()" class="btn btn-secondary" style="padding: 0.6rem 1rem;">
+                                <i class="fas fa-times"></i> Clear
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Content/Grid -->
+                    <div style="flex: 1; padding: 1rem 1.5rem; overflow: auto;">
+                        <div id="trip-lines-content" style="height: 100%;">
+                            <div style="display: flex; justify-content: center; align-items: center; height: 200px;">
+                                <div style="text-align: center;">
+                                    <i class="fas fa-spinner fa-spin" style="font-size: 2rem; color: #8b5cf6;"></i>
+                                    <p style="margin-top: 1rem; color: #64748b;">Loading trip lines...</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; display: flex; justify-content: space-between; align-items: center;">
+                        <span id="trip-lines-count" style="color: #64748b; font-size: 0.9rem;">Loading...</span>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="showTripLinesApiInfo('${tripId}', '${instance}')" class="btn" style="background: #3b82f6; color: white;">
+                                <i class="fas fa-code"></i> API
+                            </button>
+                            <button onclick="closeTripLinesModal()" class="btn btn-secondary">
+                                <i class="fas fa-times"></i> Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Fetch trip lines from API
+        fetchTripLines(tripId, instance);
+    };
+
+    window.closeTripLinesModal = function() {
+        const modal = document.getElementById('trip-lines-modal');
+        if (modal) modal.remove();
+        window.tripLinesData = null;
+    };
+
+    // Show API Information for Trip Lines
+    window.showTripLinesApiInfo = function(tripId, instanceName) {
+        const instance = instanceName || window.currentTripInstance || 'PROD';
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+        const fullUrl = `${baseUrl}/gettrillines?P_TRIP_ID=${tripId}&P_INSTANCE_NAME=${instance}`;
+
+        const modalHtml = `
+            <div id="trip-lines-api-info-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; border-radius: 12px; width: 90%; max-width: 700px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #3b82f6, #1e40af); padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; color: white; font-size: 1rem;">
+                            <i class="fas fa-code"></i> API Information - Trip Lines
+                        </h3>
+                        <button onclick="document.getElementById('trip-lines-api-info-modal').remove()" style="background: none; border: none; color: white; font-size: 1.5rem; cursor: pointer;">&times;</button>
+                    </div>
+
+                    <!-- Content -->
+                    <div style="padding: 1.5rem;">
+                        <!-- Endpoint Info -->
+                        <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #3b82f6;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                                <strong style="color: #1e293b; font-size: 12px;">Get Trip Lines</strong>
+                            </div>
+                            <code style="background: #edf2f7; padding: 8px 12px; border-radius: 4px; font-size: 11px; word-break: break-all; display: block; color: #334155;">${fullUrl}</code>
+                        </div>
+
+                        <!-- Parameters -->
+                        <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                            <strong style="color: #166534; font-size: 12px;"><i class="fas fa-cog"></i> Parameters:</strong>
+                            <table style="width: 100%; margin-top: 0.5rem; font-size: 11px;">
+                                <tr>
+                                    <td style="padding: 4px 8px; color: #64748b; width: 140px;">P_TRIP_ID</td>
+                                    <td style="padding: 4px 8px; color: #1e293b; font-weight: 600;">${tripId}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; color: #64748b; width: 140px;">P_INSTANCE_NAME</td>
+                                    <td style="padding: 4px 8px; color: #7c3aed; font-weight: 600;">${instance}</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- Response Info -->
+                        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Response:</strong>
+                            <span style="color: #78350f; font-size: 11px;">
+                                Returns array of trip line items with order details, quantities, and item information.
+                            </span>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #e2e8f0; background: #f8f9fc; text-align: right;">
+                        <button onclick="navigator.clipboard.writeText('${fullUrl}').then(() => alert('URL copied to clipboard!'))" class="btn" style="background: #10b981; color: white; margin-right: 0.5rem;">
+                            <i class="fas fa-copy"></i> Copy URL
+                        </button>
+                        <button onclick="document.getElementById('trip-lines-api-info-modal').remove()" class="btn btn-secondary">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+    };
+
+    function fetchTripLines(tripId, instanceName) {
+        const instance = instanceName || window.currentTripInstance || 'PROD';
+        const TRIP_LINES_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettrillines?P_TRIP_ID=${tripId}&P_INSTANCE_NAME=${instance}`;
+
+        console.log('[Show Trip Lines] Fetching from:', TRIP_LINES_API);
+
+        if (window.chrome && window.chrome.webview) {
+            // WebView2 environment - use C# backend
+            sendMessageToCSharp({
+                action: 'executeGet',
+                fullUrl: TRIP_LINES_API
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Show Trip Lines] Error:', error);
+                    showTripLinesError(error);
+                } else {
+                    try {
+                        const result = typeof data === 'string' ? JSON.parse(data) : data;
+                        console.log('[Show Trip Lines] Response:', result);
+                        displayTripLines(result);
+                    } catch (parseError) {
+                        console.error('[Show Trip Lines] Parse error:', parseError);
+                        showTripLinesError('Failed to parse response');
+                    }
+                }
+            });
+        } else {
+            // Browser testing fallback
+            fetch(TRIP_LINES_API, {
+                method: 'GET',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(result => {
+                console.log('[Show Trip Lines] Response:', result);
+                displayTripLines(result);
+            })
+            .catch(error => {
+                console.error('[Show Trip Lines] Error:', error);
+                showTripLinesError(error.message);
+            });
+        }
+    }
+
+    function showTripLinesError(message) {
+        const content = document.getElementById('trip-lines-content');
+        if (content) {
+            content.innerHTML = `
+                <div style="display: flex; justify-content: center; align-items: center; height: 200px;">
+                    <div style="text-align: center;">
+                        <i class="fas fa-exclamation-triangle" style="font-size: 2rem; color: #ef4444;"></i>
+                        <p style="margin-top: 1rem; color: #ef4444;">Error: ${message}</p>
+                    </div>
+                </div>
+            `;
+        }
+        const countEl = document.getElementById('trip-lines-count');
+        if (countEl) countEl.textContent = 'Error loading data';
+    }
+
+    function displayTripLines(data) {
+        // Handle different response formats
+        const items = data.items || data.ITEMS || data || [];
+        window.tripLinesData = Array.isArray(items) ? items : [];
+
+        console.log('[Show Trip Lines] Displaying', window.tripLinesData.length, 'lines');
+
+        const countEl = document.getElementById('trip-lines-count');
+        if (countEl) countEl.textContent = `${window.tripLinesData.length} line(s) found`;
+
+        if (window.tripLinesData.length === 0) {
+            const content = document.getElementById('trip-lines-content');
+            if (content) {
+                content.innerHTML = `
+                    <div style="display: flex; justify-content: center; align-items: center; height: 200px;">
+                        <div style="text-align: center;">
+                            <i class="fas fa-inbox" style="font-size: 2rem; color: #64748b;"></i>
+                            <p style="margin-top: 1rem; color: #64748b;">No lines found for this trip.</p>
+                        </div>
+                    </div>
+                `;
+            }
+            return;
+        }
+
+        renderTripLinesGrid(window.tripLinesData);
+    }
+
+    function renderTripLinesGrid(data) {
+        const content = document.getElementById('trip-lines-content');
+        if (!content) return;
+
+        // Build columns dynamically from first row
+        const firstRow = data[0];
+        const columns = Object.keys(firstRow).map(key => ({
+            dataField: key,
+            caption: key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+            width: key.toLowerCase().includes('number') || key.toLowerCase().includes('id') ? 120 :
+                   key.toLowerCase().includes('name') || key.toLowerCase().includes('description') ? 200 : 100
+        }));
+
+        // Create DevExpress DataGrid
+        content.innerHTML = '<div id="trip-lines-grid" style="height: 100%;"></div>';
+
+        $('#trip-lines-grid').dxDataGrid({
+            dataSource: data,
+            columns: columns,
+            showBorders: true,
+            showRowLines: true,
+            showColumnLines: true,
+            rowAlternationEnabled: true,
+            columnAutoWidth: false,
+            allowColumnReordering: true,
+            allowColumnResizing: true,
+            columnResizingMode: 'widget',
+            hoverStateEnabled: true,
+            scrolling: {
+                mode: 'virtual',
+                rowRenderingMode: 'virtual'
+            },
+            filterRow: {
+                visible: true,
+                applyFilter: 'auto'
+            },
+            searchPanel: {
+                visible: false // We use our own search
+            },
+            paging: {
+                pageSize: 50
+            },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [25, 50, 100, 200],
+                showInfo: true
+            },
+            headerFilter: {
+                visible: true
+            },
+            export: {
+                enabled: true,
+                fileName: 'TripLines'
+            },
+            columnChooser: {
+                enabled: true,
+                mode: 'select'
+            },
+            height: '100%'
+        });
+
+        window.tripLinesGridInstance = $('#trip-lines-grid').dxDataGrid('instance');
+    }
+
+    window.filterTripLines = function() {
+        const searchValue = document.getElementById('trip-lines-search')?.value || '';
+
+        if (window.tripLinesGridInstance) {
+            if (searchValue.trim()) {
+                window.tripLinesGridInstance.searchByText(searchValue);
+            } else {
+                window.tripLinesGridInstance.clearFilter();
+            }
+        }
+    };
+
+    window.clearTripLinesFilter = function() {
+        const searchInput = document.getElementById('trip-lines-search');
+        if (searchInput) searchInput.value = '';
+
+        if (window.tripLinesGridInstance) {
+            window.tripLinesGridInstance.clearFilter();
+        }
     };
 
     // Allocate Lots for S2V - Process selected S2V orders
@@ -4627,30 +7669,34 @@ document.addEventListener('DOMContentLoaded', function() {
     window.refreshTripDetails = function(tripId) {
         console.log('[Refresh Trip] Refreshing trip:', tripId);
 
-        // Get instance - try from trip data first, then fall back to toolbar
-        let instance = localStorage.getItem('fusionInstance') || 'TEST';
+        // Get instance - try from window.currentTripInstance first, then localStorage
+        let instance = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'TEST';
 
         // Check if we have trip data with instance - check both tab and dialog grids
         const tabId = `trip-detail-${tripId}`;
         const tabGridId = `grid-${tabId}`;
         const dialogGridId = 'trip-dialog-grid';
 
-        // Try tab grid first, then dialog grid
+        // Try tab grid first, then dialog grid - use try-catch to handle uninitialized grids
         let gridContainer = $(`#${tabGridId}`);
         if (!gridContainer || gridContainer.length === 0) {
             gridContainer = $(`#${dialogGridId}`);
         }
 
         if (gridContainer && gridContainer.length > 0) {
-            const gridInstance = gridContainer.dxDataGrid('instance');
-            if (gridInstance) {
-                const dataSource = gridInstance.option('dataSource');
-                if (dataSource && dataSource.length > 0 && dataSource[0].INSTANCE) {
-                    instance = dataSource[0].INSTANCE;
-                    console.log('[Refresh Trip] Using instance from trip data:', instance);
-                } else {
-                    console.log('[Refresh Trip] Using instance from toolbar:', instance);
+            try {
+                const gridInstance = gridContainer.dxDataGrid('instance');
+                if (gridInstance) {
+                    const dataSource = gridInstance.option('dataSource');
+                    if (dataSource && dataSource.length > 0 && dataSource[0].INSTANCE) {
+                        instance = dataSource[0].INSTANCE;
+                        console.log('[Refresh Trip] Using instance from trip data:', instance);
+                    } else {
+                        console.log('[Refresh Trip] Using instance from window/localStorage:', instance);
+                    }
                 }
+            } catch (gridError) {
+                console.log('[Refresh Trip] Grid not initialized, using instance from window/localStorage:', instance);
             }
         }
 
@@ -4659,10 +7705,18 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Refresh Trip] API URL:', GET_TRIP_DETAILS_API);
 
         // Show loading indicator
-        const refreshBtn = event.target.closest('button');
-        const originalBtnHtml = refreshBtn.innerHTML;
-        refreshBtn.disabled = true;
-        refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+        let refreshBtn = null;
+        let originalBtnHtml = '';
+        try {
+            refreshBtn = event.target.closest('button');
+            if (refreshBtn) {
+                originalBtnHtml = refreshBtn.innerHTML;
+                refreshBtn.disabled = true;
+                refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Refreshing...';
+            }
+        } catch (e) {
+            console.log('[Refresh Trip] Could not find refresh button');
+        }
 
         if (window.chrome && window.chrome.webview) {
             // WebView2 environment - use C# backend
@@ -4671,8 +7725,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 fullUrl: GET_TRIP_DETAILS_API
             }, function(error, data) {
                 // Restore button
-                refreshBtn.disabled = false;
-                refreshBtn.innerHTML = originalBtnHtml;
+                if (refreshBtn) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.innerHTML = originalBtnHtml;
+                }
 
                 if (error) {
                     console.error('[Refresh Trip] Error:', error);
@@ -4690,25 +7746,33 @@ document.addEventListener('DOMContentLoaded', function() {
                             }
 
                             if (updateGridContainer && updateGridContainer.length > 0) {
-                                const gridInstance = updateGridContainer.dxDataGrid('instance');
-                                if (gridInstance) {
-                                    gridInstance.option('dataSource', result.items);
-                                    gridInstance.refresh();
+                                try {
+                                    const gridInstance = updateGridContainer.dxDataGrid('instance');
+                                    if (gridInstance) {
+                                        gridInstance.option('dataSource', result.items);
+                                        gridInstance.refresh();
 
-                                    // Update order count (for tab version)
-                                    const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
-                                    if (orderCountDiv.length > 0) {
-                                        orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                        // Update order count (for tab version)
+                                        const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                        if (orderCountDiv.length > 0) {
+                                            orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                        }
                                     }
-
-                                    // Show success notification
-                                    const notification = document.createElement('div');
-                                    notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
-                                    notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
-                                    document.body.appendChild(notification);
-                                    setTimeout(() => notification.remove(), 3000);
+                                } catch (gridError) {
+                                    console.log('[Refresh Trip] Grid not initialized, reopening trip with fresh data');
+                                    // Grid not initialized - close the tab and reopen with new data
+                                    if (typeof showTripDetails === 'function') {
+                                        showTripDetails(result.items, tripId);
+                                    }
                                 }
                             }
+
+                            // Show success notification
+                            const notification = document.createElement('div');
+                            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                            notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
+                            document.body.appendChild(notification);
+                            setTimeout(() => notification.remove(), 3000);
                         } else {
                             alert('No data returned from API');
                         }
@@ -4724,42 +7788,58 @@ document.addEventListener('DOMContentLoaded', function() {
                 .then(response => response.json())
                 .then(result => {
                     // Restore button
-                    refreshBtn.disabled = false;
-                    refreshBtn.innerHTML = originalBtnHtml;
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = originalBtnHtml;
+                    }
 
                     console.log('[Refresh Trip] Data received:', result);
 
                     if (result && result.items && result.items.length > 0) {
                         // Update grid with new data
-                        const gridContainer = $(`#${gridId}`);
-                        if (gridContainer && gridContainer.length > 0) {
-                            const gridInstance = gridContainer.dxDataGrid('instance');
-                            if (gridInstance) {
-                                gridInstance.option('dataSource', result.items);
-                                gridInstance.refresh();
+                        let updateGridContainer = $(`#${tabGridId}`);
+                        if (!updateGridContainer || updateGridContainer.length === 0) {
+                            updateGridContainer = $(`#${dialogGridId}`);
+                        }
 
-                                // Update order count
-                                const orderCountDiv = gridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
-                                if (orderCountDiv.length > 0) {
-                                    orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                        if (updateGridContainer && updateGridContainer.length > 0) {
+                            try {
+                                const gridInstance = updateGridContainer.dxDataGrid('instance');
+                                if (gridInstance) {
+                                    gridInstance.option('dataSource', result.items);
+                                    gridInstance.refresh();
+
+                                    // Update order count
+                                    const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
+                                    if (orderCountDiv.length > 0) {
+                                        orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                    }
                                 }
-
-                                // Show success notification
-                                const notification = document.createElement('div');
-                                notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
-                                notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
-                                document.body.appendChild(notification);
-                                setTimeout(() => notification.remove(), 3000);
+                            } catch (gridError) {
+                                console.log('[Refresh Trip] Grid not initialized, reopening trip with fresh data');
+                                // Grid not initialized - close the tab and reopen with new data
+                                if (typeof showTripDetails === 'function') {
+                                    showTripDetails(result.items, tripId);
+                                }
                             }
                         }
+
+                        // Show success notification
+                        const notification = document.createElement('div');
+                        notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+                        notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
+                        document.body.appendChild(notification);
+                        setTimeout(() => notification.remove(), 3000);
                     } else {
                         alert('No data returned from API');
                     }
                 })
                 .catch(error => {
                     // Restore button
-                    refreshBtn.disabled = false;
-                    refreshBtn.innerHTML = originalBtnHtml;
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = originalBtnHtml;
+                    }
 
                     console.error('[Refresh Trip] Error:', error);
                     alert('Error refreshing trip data:\n' + error.message);
@@ -4967,10 +8047,14 @@ document.addEventListener('DOMContentLoaded', function() {
     // ORDER TRANSACTIONS DIALOG (Non-S2V/V2S Orders)
     // ============================================================================
 
+    // Store current order transaction context
+    window.currentOrderTransContext = null;
+
     window.openOrderTransactionsDialog = function(rowData) {
         console.log('[Order Transactions] Opening dialog for order:', rowData);
 
         const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || '';
+        const sourceOrderNumber = rowData.SOURCE_ORDERNUM || rowData.source_ordernum || rowData.SOURCE_ORDER_NUMBER || rowData.source_order_number || orderNumber;
         const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
         const orderDate = rowData.ORDER_DATE || rowData.order_date || '';
         const tripId = rowData.TRIP_ID || rowData.trip_id || '';
@@ -4981,9 +8065,29 @@ document.addEventListener('DOMContentLoaded', function() {
         const lorry = rowData.LORRY_NUMBER || rowData.lorry_number || '';
         const priority = rowData.PRIORITY || rowData.priority || '';
         const lineStatus = rowData.LINE_STATUS || rowData.line_status || '';
-        const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || 'TEST';
+        const instance = rowData.instance_name || rowData.INSTANCE_NAME || rowData.instance || rowData.INSTANCE || window.currentTripInstance || 'TEST';
 
-        console.log('[Order Transactions] ORDER_NUMBER:', orderNumber, 'ORDER_TYPE:', orderType);
+        // Store instance globally for use by updatePickConfirmStatusSelected
+        window.currentOrderTransactionsInstance = instance;
+
+        // Store context globally for API calls
+        window.currentOrderTransContext = {
+            orderNumber,
+            sourceOrderNumber,
+            orderType,
+            orderDate,
+            tripId,
+            tripDate,
+            accountNumber,
+            accountName,
+            picker,
+            lorry,
+            priority,
+            lineStatus,
+            instance
+        };
+
+        console.log('[Order Transactions] ORDER_NUMBER:', orderNumber, 'SOURCE_ORDERNUM:', sourceOrderNumber, 'ORDER_TYPE:', orderType, 'INSTANCE:', instance);
 
         // Create modal HTML
         const modalHtml = `
@@ -4999,6 +8103,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button id="order-trans-header-toggle" onclick="toggleOrderTransHeader()" style="background: transparent; border: none; cursor: pointer; color: #667eea; padding: 0.2rem 0.4rem; transition: all 0.2s;" title="Toggle Details">
                                     <i class="fas fa-chevron-down" style="font-size: 0.9rem; transition: transform 0.3s;"></i>
                                 </button>
+                                <button onclick="showOrderTransactionsApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
+                                    <i class="fas fa-code"></i> API
+                                </button>
+                                <button onclick="refreshPickSlipDetail('${orderNumber}')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="Refresh Pick Slip Detail (Web Services 2 & 3)">
+                                    <i class="fas fa-sync-alt"></i> Refresh Pick Slip
+                                </button>
+                                <span style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">
+                                    Instance: ${instance}
+                                </span>
                             </div>
                             <button onclick="closeOrderTransactionsModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: #64748b; transition: color 0.2s; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 6px;" onmouseover="this.style.background='#fee2e2'; this.style.color='#dc2626';" onmouseout="this.style.background='none'; this.style.color='#64748b';">
                                 <i class="fas fa-times"></i>
@@ -5018,6 +8131,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Status:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lineStatus}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Instance:</span><br><strong style="color: #7c3aed; font-size: 0.75rem;">${instance}</strong></div>
                         </div>
                     </div>
 
@@ -5063,14 +8177,14 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button class="btn btn-secondary" onclick="refreshSalesOrderLines('${orderNumber}')">
                                     <i class="fas fa-sync-alt"></i> Refresh
                                 </button>
-                                <button class="btn btn-warning" onclick="cancelScheduledLines('${orderNumber}')" style="background: #f59e0b; color: white;">
+                                <button class="btn btn-warning" onclick="showCancelLinesPopup('${orderNumber}', 'scheduled')" style="background: #f59e0b; color: white;">
                                     <i class="fas fa-clock"></i> Cancel Scheduled Lines
                                 </button>
-                                <button class="btn btn-danger" onclick="cancelSelectedSalesOrderLine('${orderNumber}')" style="background: #ef4444; color: white;">
-                                    <i class="fas fa-times-circle"></i> Cancel Selected Line
+                                <button class="btn btn-danger" onclick="showCancelLinesPopup('${orderNumber}', 'selected')" style="background: #ef4444; color: white;">
+                                    <i class="fas fa-times-circle"></i> Cancel Selected Lines
                                 </button>
-                                <button class="btn btn-danger" onclick="cancelNotPickedLines('${orderNumber}')" style="background: #dc2626; color: white;">
-                                    <i class="fas fa-ban"></i> Cancel Not Picked Lines
+                                <button class="btn btn-primary" onclick="fetchFusionOrderLines('${orderNumber}')" style="background: #2563eb; color: white;">
+                                    <i class="fas fa-cloud-download-alt"></i> Fetch Order Lines from Fusion
                                 </button>
                             </div>
                             <div id="sales-order-lines-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
@@ -5080,9 +8194,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         <!-- Tab 3: Lot Details -->
                         <div id="order-trans-lot-details" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
-                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
                                 <button class="btn btn-secondary" onclick="refreshLotDetails('${orderNumber}')">
                                     <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn btn-primary" onclick="openPickSelectedLinesPopup('${orderNumber}')" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                                    <i class="fas fa-check-square"></i> Pick Selected Lines
+                                </button>
+                                <button class="btn btn-warning" onclick="updatePickConfirmStatusSelected('${orderNumber}')" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white;">
+                                    <i class="fas fa-database"></i> Update WMS Status
+                                </button>
+                                <button class="btn btn-primary" onclick="shipConfirmOrder('${orderNumber}')" style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);">
+                                    <i class="fas fa-shipping-fast"></i> Ship Confirm Order
                                 </button>
                             </div>
                             <div id="lot-details-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
@@ -5149,6 +8272,141 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modal) {
             modal.remove();
         }
+        // Clear context
+        window.currentOrderTransContext = null;
+    };
+
+    // Show API Information for Order Transactions
+    window.showOrderTransactionsApiInfo = function() {
+        const ctx = window.currentOrderTransContext || {};
+        const orderNumber = ctx.orderNumber || 'N/A';
+        const instance = ctx.instance || 'N/A';
+        const tripId = ctx.tripId || 'N/A';
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+
+        const apis = [
+            {
+                name: 'Pick Release Details',
+                method: 'GET',
+                endpoint: `trips/orders/getpickreleasedetails/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trips/orders/getpickreleasedetails/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
+            },
+            {
+                name: 'Sales Order Lines',
+                method: 'GET',
+                endpoint: `trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
+            },
+            {
+                name: 'Lot Details',
+                method: 'GET',
+                endpoint: `trips/orders/getlotdetails/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                fullUrl: `${baseUrl}/trips/orders/getlotdetails/${orderNumber}?P_INSTANCE_NAME=${instance}`,
+                note: '✅ Instance parameter passed from row data'
+            },
+            {
+                name: 'Cancel Lines in Oracle Fusion',
+                method: 'PATCH',
+                endpoint: `salesOrdersForOrderHub/OPS:{sourceOrderNumber}`,
+                fullUrl: instance.toUpperCase() === 'PROD'
+                    ? `https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${ctx.sourceOrderNumber || orderNumber}`
+                    : `https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${ctx.sourceOrderNumber || orderNumber}`,
+                note: '✅ Uses Oracle Fusion credentials, sets OrderedQuantity=0 with CancelReason'
+            },
+            {
+                name: 'Fetch Order Lines from Fusion',
+                method: 'POST',
+                endpoint: `trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}&p_trip_id=${tripId}`,
+                fullUrl: `${baseUrl}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}&p_trip_id=${tripId}`,
+                note: '✅ Instance and Trip ID parameters passed from row data'
+            }
+        ];
+
+        let apiHtml = '';
+        apis.forEach((api, idx) => {
+            const bgColor = idx % 2 === 0 ? '#f8fafc' : '#ffffff';
+            let methodColor = '#c6f6d5'; // GET - green
+            let methodTextColor = '#22543d';
+            if (api.method === 'POST') { methodColor = '#fed7aa'; methodTextColor = '#9c4221'; }
+            else if (api.method === 'PATCH') { methodColor = '#fecaca'; methodTextColor = '#991b1b'; }
+
+            apiHtml += `
+                <div style="background: ${bgColor}; padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid #667eea;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: ${methodColor}; color: ${methodTextColor}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">${api.method}</span>
+                        <strong style="color: #1e293b; font-size: 12px;">${api.name}</strong>
+                    </div>
+                    <div style="margin-bottom: 0.25rem;">
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${api.fullUrl}</code>
+                    </div>
+                    <div style="font-size: 10px; color: #f59e0b; font-style: italic;">
+                        <i class="fas fa-exclamation-triangle"></i> ${api.note}
+                    </div>
+                </div>
+            `;
+        });
+
+        const apiInfo = `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <h4 style="margin: 0 0 1rem 0; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">
+                    <i class="fas fa-code" style="color: #667eea;"></i> API Information - Order Transactions
+                </h4>
+
+                <!-- Current Context -->
+                <div style="background: #e0f2fe; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #0284c7;">
+                    <div style="font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">Current Context</div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <tr>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Order Number:</td>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600;">${orderNumber}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Instance (from row):</td>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600; color: #7c3aed;">${instance}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Trip ID:</td>
+                            <td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600; color: #0ea5e9;">${tripId}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- APIs Used -->
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.75rem;">APIs Used in Order Transactions</div>
+                    ${apiHtml}
+                </div>
+
+                <!-- Success Note -->
+                <div style="background: #d1fae5; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #10b981;">
+                    <strong style="color: #065f46;"><i class="fas fa-check-circle"></i> Parameters Configured:</strong>
+                    <span style="color: #047857; font-size: 12px;">
+                        Instance <strong>P_INSTANCE_NAME=${instance}</strong> and Trip ID <strong>p_trip_id=${tripId}</strong> are being passed to API calls from the order row data.
+                    </span>
+                </div>
+            </div>
+        `;
+
+        // Create and show popup
+        const popup = document.createElement('div');
+        popup.id = 'order-trans-api-info-popup';
+        popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 26000; display: flex; justify-content: center; align-items: center;';
+        popup.innerHTML = `
+            <div style="background: white; width: 90%; max-width: 750px; max-height: 85%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                <div style="padding: 1.5rem; max-height: calc(85vh - 60px); overflow-y: auto;">
+                    ${apiInfo}
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; text-align: right;">
+                    <button onclick="document.getElementById('order-trans-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
     };
 
     // Toggle Order Transactions Header Details
@@ -5199,10 +8457,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Pick Release Details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Fetching Pick Release Details from:', apiUrl);
 
@@ -5305,10 +8567,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Sales Order Lines...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Fetching Sales Order Lines from:', apiUrl);
 
@@ -5361,7 +8627,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         columnAutoWidth: true,
                         height: '100%',
                         selection: {
-                            mode: 'single',
+                            mode: 'multiple',
                             showCheckBoxesMode: 'always'
                         },
                         paging: { pageSize: 25 },
@@ -5378,8 +8644,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             console.log('[Order Transactions] Sales Order Lines grid rendered');
                         },
                         onSelectionChanged: function(e) {
+                            window.selectedSalesOrderLines = e.selectedRowsData || [];
                             window.selectedSalesOrderLine = e.selectedRowsData[0] || null;
-                            console.log('[Order Transactions] Selected Sales Order Line:', window.selectedSalesOrderLine);
+                            console.log('[Order Transactions] Selected Sales Order Lines:', window.selectedSalesOrderLines.length, 'items');
                         }
                     });
                 } else {
@@ -5429,6 +8696,124 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[Order Transactions] Selected Sales Order Line:', window.selectedSalesOrderLine);
     };
 
+    // Fetch Order Lines from Fusion function
+    window.fetchFusionOrderLines = function(orderNumber) {
+        console.log('[Order Transactions] Fetch Order Lines from Fusion for order:', orderNumber);
+
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
+        // Show confirmation popup with API details
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+
+        // Create confirmation popup
+        const popupHtml = `
+            <div id="fetch-fusion-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 600px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 1rem 1.5rem;">
+                        <h3 style="margin: 0; font-size: 1.1rem;">
+                            <i class="fas fa-cloud-download-alt"></i> Fetch Order Lines from Fusion
+                        </h3>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                            <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">API Details</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Method:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;"><span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span></td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Order Number:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${orderNumber}</td>
+                                </tr>
+                            </table>
+                        </div>
+                        <div style="margin-bottom: 1rem;">
+                            <strong style="color: #4a5568; font-size: 12px;">Full URL:</strong>
+                            <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">${apiUrl}</code>
+                        </div>
+                        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Note:</strong>
+                            <span style="color: #78350f; font-size: 12px;">This will fetch the latest order lines from Oracle Fusion and update the local data.</span>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                        <button onclick="document.getElementById('fetch-fusion-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button id="fetch-fusion-execute-btn" onclick="executeFetchFusionOrderLines('${orderNumber}', '${instance}')" class="btn btn-primary" style="padding: 8px 20px; background: #2563eb; color: white; border: none; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-cloud-download-alt"></i> Fetch Now
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('fetch-fusion-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+    };
+
+    // Execute the Fetch Fusion Order Lines API call
+    window.executeFetchFusionOrderLines = function(orderNumber, instance) {
+        console.log('[Order Transactions] Executing Fetch Fusion Order Lines...');
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+
+        // Update button to show loading
+        const fetchBtn = document.getElementById('fetch-fusion-execute-btn');
+        if (fetchBtn) {
+            fetchBtn.disabled = true;
+            fetchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+        }
+
+        console.log('[Order Transactions] Fetch Fusion Order Lines API:', apiUrl);
+
+        // Use C# REST handler with POST method
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify({})
+        }, function(error, data) {
+            // Close popup
+            const popup = document.getElementById('fetch-fusion-popup');
+            if (popup) popup.remove();
+
+            if (error) {
+                console.error('[Order Transactions] Error fetching Fusion order lines:', error);
+                alert('Error fetching order lines from Fusion:\n' + error);
+                return;
+            }
+
+            try {
+                let responseData = typeof data === 'string' ? JSON.parse(data) : data;
+                console.log('[Order Transactions] Fetch Fusion Order Lines response:', responseData);
+
+                // Show success message
+                const message = responseData.message || responseData.MESSAGE || 'Order lines fetched successfully from Fusion';
+                alert('✅ ' + message);
+
+                // Refresh the Sales Order Lines grid to show updated data
+                setTimeout(() => {
+                    refreshSalesOrderLines(orderNumber);
+                }, 500);
+
+            } catch (parseError) {
+                console.error('[Order Transactions] Parse error:', parseError);
+                alert('Error parsing response: ' + parseError.message);
+            }
+        });
+    };
+
     // Cancel Scheduled Lines function
     window.cancelScheduledLines = function(orderNumber) {
         console.log('[Order Transactions] Cancel Scheduled Lines for order:', orderNumber);
@@ -5438,10 +8823,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading indicator
         showLoading('Cancelling scheduled lines...');
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelscheduledlines/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelscheduledlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Cancel Scheduled Lines API:', apiUrl);
 
@@ -5489,6 +8878,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show confirmation dialog
         if (!confirm(`Are you sure you want to cancel line ${lineId} for order ${orderNumber}?`)) {
             return;
@@ -5497,7 +8890,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         showLoading('Cancelling selected line...');
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelorderline/${orderNumber}/${lineId}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelorderline/${orderNumber}/${lineId}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Cancel Selected Line API:', apiUrl);
 
@@ -5532,10 +8925,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading indicator
         showLoading('Cancelling not picked lines...');
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelnotpickedlines/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/cancelnotpickedlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Cancel Not Picked Lines API:', apiUrl);
 
@@ -5560,6 +8957,330 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
+    // Show Cancel Lines Popup - displays selected lines and allows cancellation via Oracle Fusion
+    window.showCancelLinesPopup = function(orderNumber, mode) {
+        console.log('[Order Transactions] Show Cancel Lines Popup for order:', orderNumber, 'mode:', mode);
+
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        const sourceOrderNumber = window.currentOrderTransContext?.sourceOrderNumber || orderNumber;
+
+        // Determine which lines to show based on mode
+        let linesToCancel = [];
+
+        if (mode === 'selected') {
+            // Get selected lines from the grid
+            if (window.salesOrderLinesGrid && typeof window.salesOrderLinesGrid.getSelectedRowsData === 'function') {
+                linesToCancel = window.salesOrderLinesGrid.getSelectedRowsData() || [];
+            } else if (window.selectedSalesOrderLines && window.selectedSalesOrderLines.length > 0) {
+                linesToCancel = window.selectedSalesOrderLines;
+            } else if (window.selectedSalesOrderLine) {
+                linesToCancel = [window.selectedSalesOrderLine];
+            }
+
+            if (linesToCancel.length === 0) {
+                showNotification('Please select at least one line to cancel', 'warning');
+                return;
+            }
+        } else if (mode === 'scheduled') {
+            // Filter lines with STATUS_CODE = 'RES_MANUAL'
+            let allLines = [];
+            if (window.salesOrderLinesGrid && typeof window.salesOrderLinesGrid.option === 'function') {
+                allLines = window.salesOrderLinesGrid.option('dataSource') || [];
+            } else if (window.salesOrderLinesData) {
+                allLines = window.salesOrderLinesData;
+            }
+
+            // Filter for RES_MANUAL status
+            linesToCancel = allLines.filter(line => {
+                const statusCode = line.STATUS_CODE || line.status_code || line.StatusCode || '';
+                return statusCode.toUpperCase() === 'RES_MANUAL';
+            });
+
+            if (linesToCancel.length === 0) {
+                showNotification('No lines with RES_MANUAL status found', 'warning');
+                return;
+            }
+
+            // Auto-select these lines in the grid if DevExpress grid is available
+            if (window.salesOrderLinesGrid && typeof window.salesOrderLinesGrid.selectRows === 'function') {
+                const keys = linesToCancel.map(line => line.LINE_ID || line.line_id || line.FULFILL_LINE_ID || line.fulfill_line_id);
+                window.salesOrderLinesGrid.selectRows(keys, false);
+            }
+        }
+
+        console.log('[Order Transactions] Lines to cancel:', linesToCancel.length);
+        console.log('[Order Transactions] Lines data:', linesToCancel);
+
+        // Build the popup HTML
+        let linesTableHtml = '';
+        // Extract HeaderId from the first line (all lines belong to the same order header)
+        const headerId = linesToCancel[0]?.HEADER_ID || linesToCancel[0]?.header_id || linesToCancel[0]?.HeaderId || '';
+        console.log('[Order Transactions] HeaderId from lines:', headerId);
+
+        linesToCancel.forEach((line, idx) => {
+            const lineId = line.LINE_ID || line.line_id || line.FULFILL_LINE_ID || line.fulfill_line_id || 'N/A';
+            const itemNumber = line.ITEM_NUMBER || line.item_number || line.INVENTORY_ITEM || line.inventory_item || 'N/A';
+            const description = line.DESCRIPTION || line.description || line.ITEM_DESCRIPTION || line.item_description || '';
+            const qty = line.ORDERED_QTY || line.ordered_qty || line.QUANTITY || line.quantity || line.ORDERED_QUANTITY || line.ordered_quantity || 0;
+            const statusCode = line.STATUS_CODE || line.status_code || line.StatusCode || 'N/A';
+            const fulfillLineId = line.FULFILL_LINE_ID || line.fulfill_line_id || line.FulfillLineId || lineId;
+
+            const bgColor = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
+            linesTableHtml += `
+                <tr style="background: ${bgColor};" data-fulfill-line-id="${fulfillLineId}" data-header-id="${headerId}">
+                    <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: center;">
+                        <input type="checkbox" class="cancel-line-checkbox" checked data-fulfill-line-id="${fulfillLineId}" data-header-id="${headerId}">
+                    </td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0; font-family: monospace;">${lineId}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">${itemNumber}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0; max-width: 200px; overflow: hidden; text-overflow: ellipsis;" title="${description}">${description}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0; text-align: right;">${qty}</td>
+                    <td style="padding: 8px; border: 1px solid #e2e8f0;">
+                        <span style="background: ${statusCode === 'RES_MANUAL' ? '#fef3c7' : '#e2e8f0'}; color: ${statusCode === 'RES_MANUAL' ? '#92400e' : '#475569'}; padding: 2px 8px; border-radius: 4px; font-size: 11px;">${statusCode}</span>
+                    </td>
+                </tr>
+            `;
+        });
+
+        const popupHtml = `
+            <div id="cancel-lines-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 95%; max-width: 900px; max-height: 80vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden; display: flex; flex-direction: column;">
+                    <div style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;">
+                            <i class="fas fa-times-circle"></i> Cancel Lines in Oracle Fusion
+                        </h3>
+                        <button onclick="document.getElementById('cancel-lines-popup').remove()" style="background: transparent; border: none; color: white; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; flex: 1; overflow: auto;">
+                        <div style="background: #fef3c7; padding: 0.75rem 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-exclamation-triangle"></i> Warning:</strong>
+                            <span style="color: #78350f; font-size: 13px;">This will cancel the selected lines in Oracle Fusion by setting OrderedQuantity to 0.</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Order Number</div>
+                                <div style="font-weight: 600; color: #1e293b;">${orderNumber}</div>
+                            </div>
+                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Source Order Number</div>
+                                <div style="font-weight: 600; color: #7c3aed;">${sourceOrderNumber}</div>
+                            </div>
+                            <div style="background: ${headerId ? '#e0f2fe' : '#fef2f2'}; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Fusion HeaderId</div>
+                                <div style="font-weight: 600; color: ${headerId ? '#0369a1' : '#dc2626'};">${headerId || 'Not Available'}</div>
+                            </div>
+                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Instance</div>
+                                <div style="font-weight: 600; color: #059669;">${instance}</div>
+                            </div>
+                            <div style="background: #f8fafc; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">Lines Selected</div>
+                                <div style="font-weight: 600; color: #dc2626;">${linesToCancel.length}</div>
+                            </div>
+                            <div style="background: #f0fdf4; padding: 0.75rem; border-radius: 8px;">
+                                <div style="font-size: 11px; color: #64748b; margin-bottom: 2px;">API Key Type</div>
+                                <div style="font-weight: 600; color: #16a34a;">${headerId ? 'HeaderId (Primary)' : 'Alternate Key'}</div>
+                            </div>
+                        </div>
+                        <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;">Lines to Cancel:</div>
+                        <div style="max-height: 300px; overflow: auto; border: 1px solid #e2e8f0; border-radius: 8px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <thead style="background: #f1f5f9; position: sticky; top: 0;">
+                                    <tr>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: center; width: 40px;">
+                                            <input type="checkbox" id="select-all-cancel-lines" checked onclick="toggleAllCancelLines(this)">
+                                        </th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: left;">Line ID</th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: left;">Item</th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: left;">Description</th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: right;">Qty</th>
+                                        <th style="padding: 10px 8px; border: 1px solid #e2e8f0; text-align: left;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${linesTableHtml}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
+                        <div id="cancel-lines-status" style="font-size: 12px; color: #64748b;"></div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="document.getElementById('cancel-lines-popup').remove()" class="btn btn-secondary" style="padding: 10px 24px;">
+                                <i class="fas fa-arrow-left"></i> Close
+                            </button>
+                            <button onclick="cancelLinesInFusion('${orderNumber}', '${sourceOrderNumber}', '${instance}', '${headerId}')" class="btn btn-danger" style="padding: 10px 24px; background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-times-circle"></i> Cancel Lines
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('cancel-lines-popup');
+        if (existingPopup) {
+            existingPopup.remove();
+        }
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+
+        // Store lines data for later use
+        window.linesToCancelData = linesToCancel;
+    };
+
+    // Toggle all cancel lines checkboxes
+    window.toggleAllCancelLines = function(selectAllCheckbox) {
+        const checkboxes = document.querySelectorAll('.cancel-line-checkbox');
+        checkboxes.forEach(cb => {
+            cb.checked = selectAllCheckbox.checked;
+        });
+    };
+
+    // Cancel Lines in Oracle Fusion via PATCH API
+    window.cancelLinesInFusion = function(orderNumber, sourceOrderNumber, instance, headerId) {
+        console.log('[Order Transactions] Cancel Lines in Fusion for order:', orderNumber);
+        console.log('[Order Transactions] HeaderId received:', headerId);
+
+        // Get checked lines from the popup
+        const checkboxes = document.querySelectorAll('.cancel-line-checkbox:checked');
+        if (checkboxes.length === 0) {
+            showNotification('Please select at least one line to cancel', 'warning');
+            return;
+        }
+
+        // Build the lines array for the API and try to get headerId from checkboxes if not provided
+        const linesPayload = [];
+        let extractedHeaderId = headerId;
+        checkboxes.forEach(cb => {
+            const fulfillLineId = cb.getAttribute('data-fulfill-line-id');
+            // Try to extract headerId from checkbox if not already set
+            if (!extractedHeaderId || extractedHeaderId === 'undefined' || extractedHeaderId === '') {
+                extractedHeaderId = cb.getAttribute('data-header-id');
+            }
+            if (fulfillLineId && fulfillLineId !== 'N/A') {
+                linesPayload.push({
+                    FulfillLineId: parseInt(fulfillLineId),
+                    OrderedQuantity: 0,
+                    CancelReason: "OUT OF STOCK"
+                });
+            }
+        });
+
+        if (linesPayload.length === 0) {
+            showNotification('No valid lines found to cancel', 'error');
+            return;
+        }
+
+        console.log('[Order Transactions] Lines payload:', linesPayload);
+        console.log('[Order Transactions] Extracted HeaderId:', extractedHeaderId);
+
+        // Determine the Fusion URL based on instance
+        const fusionBaseUrl = instance.toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+
+        // Use HeaderId if available (primary key), otherwise fall back to alternate key format
+        let fusionUrl;
+        if (extractedHeaderId && extractedHeaderId !== 'undefined' && extractedHeaderId !== '' && extractedHeaderId !== 'null') {
+            // Use HeaderId (primary key) - more reliable
+            fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/${extractedHeaderId}`;
+            console.log('[Order Transactions] Using HeaderId for Fusion URL');
+        } else {
+            // Fall back to alternate key format
+            fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${sourceOrderNumber}`;
+            console.log('[Order Transactions] Using alternate key (OPS:sourceOrderNumber) for Fusion URL');
+        }
+
+        console.log('[Order Transactions] Fusion URL:', fusionUrl);
+
+        // Update status
+        const statusDiv = document.getElementById('cancel-lines-status');
+        if (statusDiv) {
+            statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling lines in Oracle Fusion...';
+            statusDiv.style.color = '#3b82f6';
+        }
+
+        // Prepare the request body
+        const requestBody = {
+            lines: linesPayload
+        };
+
+        console.log('[Order Transactions] Request body:', JSON.stringify(requestBody, null, 2));
+
+        // Call the C# backend to make the PATCH request with Fusion credentials
+        sendMessageToCSharp({
+            action: 'executeOracleFusionPatch',
+            fullUrl: fusionUrl,
+            body: JSON.stringify(requestBody),
+            instance: instance
+        }, function(error, data) {
+            console.log('[Order Transactions] Fusion response:', data);
+
+            if (error) {
+                console.error('[Order Transactions] Error cancelling lines in Fusion:', error);
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + error;
+                    statusDiv.style.color = '#ef4444';
+                }
+                showNotification('Error cancelling lines in Fusion: ' + error, 'error');
+                return;
+            }
+
+            try {
+                let responseData = typeof data === 'string' ? JSON.parse(data) : data;
+                console.log('[Order Transactions] Parsed response:', responseData);
+
+                // Check for error response
+                if (responseData.ReturnStatus === 'Error' || responseData.ErrorExplanation) {
+                    const errorMsg = responseData.ErrorExplanation || responseData.message || 'Unknown error';
+                    if (statusDiv) {
+                        statusDiv.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error: ' + errorMsg;
+                        statusDiv.style.color = '#ef4444';
+                    }
+                    showNotification('Error: ' + errorMsg, 'error');
+                    return;
+                }
+
+                // Success
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Lines cancelled successfully!';
+                    statusDiv.style.color = '#10b981';
+                }
+                showNotification('Lines cancelled successfully in Oracle Fusion', 'success');
+
+                // Close popup after 2 seconds and refresh grid
+                setTimeout(() => {
+                    const popup = document.getElementById('cancel-lines-popup');
+                    if (popup) {
+                        popup.remove();
+                    }
+                    refreshSalesOrderLines(orderNumber);
+                }, 2000);
+
+            } catch (parseError) {
+                console.error('[Order Transactions] Parse error:', parseError);
+                if (statusDiv) {
+                    statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Request completed';
+                    statusDiv.style.color = '#10b981';
+                }
+                showNotification('Lines cancelled in Oracle Fusion', 'success');
+
+                // Close popup and refresh
+                setTimeout(() => {
+                    const popup = document.getElementById('cancel-lines-popup');
+                    if (popup) {
+                        popup.remove();
+                    }
+                    refreshSalesOrderLines(orderNumber);
+                }, 2000);
+            }
+        });
+    };
+
     window.refreshLotDetails = function(orderNumber) {
         console.log('[Order Transactions] Refresh Lot Details for:', orderNumber);
         const gridContainer = document.getElementById('lot-details-grid');
@@ -5568,10 +9289,14 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance from context
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        console.log('[Order Transactions] Using instance:', instance);
+
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Lot Details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getlotdetails/${orderNumber}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getlotdetails/${orderNumber}?P_INSTANCE_NAME=${instance}`;
 
         console.log('[Order Transactions] Fetching Lot Details from:', apiUrl);
 
@@ -5610,12 +9335,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     };
                 });
 
-                // Initialize DevExpress Grid
+                // Initialize DevExpress Grid with multi-selection
                 if (typeof DevExpress !== 'undefined' && DevExpress.ui?.dxDataGrid) {
                     // Clear container
                     gridContainer.innerHTML = '';
 
-                    new DevExpress.ui.dxDataGrid(gridContainer, {
+                    window.lotDetailsGridInstance = new DevExpress.ui.dxDataGrid(gridContainer, {
                         dataSource: items,
                         showBorders: true,
                         showRowLines: true,
@@ -5632,9 +9357,16 @@ document.addEventListener('DOMContentLoaded', function() {
                         filterRow: { visible: true },
                         headerFilter: { visible: true },
                         searchPanel: { visible: true, width: 200, placeholder: 'Search...' },
+                        selection: {
+                            mode: 'multiple',
+                            showCheckBoxesMode: 'always'
+                        },
                         columns: columns,
                         onContentReady: function(e) {
-                            console.log('[Order Transactions] Lot Details grid rendered');
+                            console.log('[Order Transactions] Lot Details grid rendered with multi-selection');
+                        },
+                        onSelectionChanged: function(e) {
+                            console.log('[Order Transactions] Lot Details selection changed:', e.selectedRowsData.length, 'items selected');
                         }
                     });
                 } else {
@@ -5688,6 +9420,891 @@ document.addEventListener('DOMContentLoaded', function() {
         if (gridContainer) {
             gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Shipment Confirmation Responses will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
         }
+    };
+
+    // Refresh Pick Slip Detail - calls Web Services 2 (Sales Order Lines) and 3 (Lot Details)
+    window.refreshPickSlipDetail = function(orderNumber) {
+        console.log('[Order Transactions] Refresh Pick Slip Detail for:', orderNumber);
+        console.log('[Order Transactions] Calling Web Service 2 (Sales Order Lines) and Web Service 3 (Lot Details)');
+
+        // Call Web Service 2 - Sales Order Lines
+        refreshSalesOrderLines(orderNumber);
+
+        // Call Web Service 3 - Lot Details
+        refreshLotDetails(orderNumber);
+
+        // Show notification to user
+        if (typeof showNotification === 'function') {
+            showNotification('Refreshing Pick Slip Detail...', 'info');
+        }
+    };
+
+    // Open Pick Selected Lines Popup
+    window.openPickSelectedLinesPopup = function(orderNumber) {
+        console.log('[Order Transactions] Opening Pick Selected Lines popup for:', orderNumber);
+
+        // Get selected rows from lot details grid
+        if (!window.lotDetailsGridInstance) {
+            alert('Please load Lot Details first by clicking Refresh.');
+            return;
+        }
+
+        const selectedRows = window.lotDetailsGridInstance.getSelectedRowsData();
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one line to pick.');
+            return;
+        }
+
+        console.log('[Order Transactions] Selected rows for picking:', selectedRows.length);
+        console.log('[Order Transactions] First row data:', selectedRows[0]);
+
+        // Get instance
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+
+        // Initialize pick line results storage
+        window.pickLineResults = {};
+
+        // Build table rows for selected items
+        let tableRows = '';
+        selectedRows.forEach((row, index) => {
+            const itemCode = row.ITEM_CODE || row.item_code || row.ITEM || row.item || '';
+            const description = row.DESCRIPTION || row.description || row.ITEM_DESC || row.item_desc || row.ITEM_DESCRIPTION || '';
+            const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
+            const quantity = row.QUANTITY || row.quantity || row.QTY || row.qty || row.TRANSACTION_QUANTITY || 0;
+            const pickSlip = row.PICK_SLIP || row.pick_slip || row.PICKSLIP || row.pickslip || '';
+            const pickSlipLine = row.PICK_SLIP_LINE || row.pick_slip_line || row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
+            const subinventory = row.SOURCE_SUBINVENTORY || row.source_subinventory || row.SUBINVENTORY || row.subinventory || row.SUBINVENTORY_CODE || 'DUTY PAID';
+            const pickConfirmSt = row.PICK_CONFIRM_ST || row.pick_confirm_st || '';
+            const isAlreadyConfirmed = pickConfirmSt === 'YES';
+
+            tableRows += `
+                <tr data-index="${index}" id="pick-line-row-${index}" style="${isAlreadyConfirmed ? 'background: #f0fdf4;' : ''}">
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">${index + 1}</td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 600;">${itemCode}</td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-size: 0.8rem;">${description}</td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 500;">${lotNumber}</td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: right;">${quantity}</td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <input type="number" class="pick-qty-input" id="pick-qty-${index}" data-index="${index}" value="${quantity}" min="0" max="${quantity}"
+                            style="width: 70px; padding: 0.3rem; border: 1px solid #d1d5db; border-radius: 4px; text-align: right; font-size: 0.85rem;" ${isAlreadyConfirmed ? 'disabled' : ''}>
+                    </td>
+                    <td id="pick-fusion-status-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        ${isAlreadyConfirmed ? '<span style="color: #22c55e;"><i class="fas fa-check-circle"></i></span>' : '<span style="color: #9ca3af;"><i class="fas fa-minus-circle"></i></span>'}
+                    </td>
+                    <td id="pick-wms-status-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        ${isAlreadyConfirmed ? '<span style="color: #22c55e;"><i class="fas fa-check-circle"></i></span>' : '<span style="color: #9ca3af;"><i class="fas fa-minus-circle"></i></span>'}
+                    </td>
+                    <td id="pick-confirm-st-${index}" style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600; color: ${isAlreadyConfirmed ? '#22c55e' : '#9ca3af'};">
+                        ${pickConfirmSt || '-'}
+                    </td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <button id="pick-result-btn-${index}" onclick="showPickLineResult(${index})" style="padding: 0.3rem 0.5rem; background: #f1f5f9; color: #6366f1; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer; font-size: 0.75rem; display: none;" title="View Result">
+                            <i class="fas fa-info-circle"></i>
+                        </button>
+                        <button onclick="showPickLineApiInfo(${index}, '${pickSlip}', '${pickSlipLine}', '${lotNumber}', '${subinventory}', '${instance}')"
+                            style="padding: 0.3rem 0.5rem; background: #f1f5f9; color: #6366f1; border: 1px solid #e2e8f0; border-radius: 4px; cursor: pointer; font-size: 0.75rem;"
+                            title="View API Info">
+                            <i class="fas fa-code"></i>
+                        </button>
+                    </td>
+                    <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <button id="pick-btn-${index}" onclick="confirmPickByLine(${index}, '${orderNumber}', '${instance}')"
+                            style="padding: 0.35rem 0.6rem; background: ${isAlreadyConfirmed ? '#9ca3af' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)'}; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.75rem; font-weight: 600; white-space: nowrap;" ${isAlreadyConfirmed ? 'disabled' : ''}>
+                            ${isAlreadyConfirmed ? '<i class="fas fa-check-circle"></i> Done' : '<i class="fas fa-check"></i> Confirm'}
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+
+        // Create popup HTML
+        const popupHtml = `
+            <div id="pick-lines-popup-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100001; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 95%; max-width: 1100px; max-height: 85vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas fa-check-square" style="font-size: 1.25rem;"></i>
+                            <div>
+                                <div style="font-weight: 600; font-size: 1.1rem;">Pick Selected Lines (Oracle Fusion)</div>
+                                <div style="font-size: 0.8rem; opacity: 0.9;">Order: ${orderNumber} | ${selectedRows.length} line(s) selected | Instance: ${instance}</div>
+                            </div>
+                        </div>
+                        <button onclick="closePickLinesPopup()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <!-- Content -->
+                    <div style="flex: 1; overflow: auto; padding: 1rem;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="background: #f8fafc;">
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 40px;">S.No</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Item Code</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Description</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Lot Number</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: right; border-bottom: 2px solid #e2e8f0; width: 70px;">Qty</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 90px;">Picked Qty</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 70px;">Fusion</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 70px;">WMS</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 80px;">Pick ST</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 80px;">Info</th>
+                                    <th style="padding: 0.6rem 0.4rem; text-align: center; border-bottom: 2px solid #e2e8f0; width: 100px;">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${tableRows}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div id="pick-confirm-progress" style="font-size: 0.85rem; color: #64748b; display: none;">
+                            <i class="fas fa-spinner fa-spin"></i> <span id="pick-progress-text">Processing...</span>
+                        </div>
+                        <div style="display: flex; gap: 0.75rem; margin-left: auto;">
+                            <button id="pick-confirm-all-btn" onclick="confirmPickAllLines('${orderNumber}', '${instance}')" style="padding: 0.6rem 1.25rem; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                                <i class="fas fa-check-double"></i> Pick Confirm All
+                            </button>
+                            <button onclick="closePickLinesPopup()" style="padding: 0.6rem 1.25rem; background: #e2e8f0; color: #475569; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                                <i class="fas fa-times"></i> Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Store selected rows for later use
+        window.pickLinesSelectedRows = selectedRows;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('pick-lines-popup-overlay');
+        if (existingPopup) existingPopup.remove();
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+    };
+
+    // Close Pick Lines Popup
+    window.closePickLinesPopup = function() {
+        const popup = document.getElementById('pick-lines-popup-overlay');
+        if (popup) popup.remove();
+        window.pickLinesSelectedRows = null;
+    };
+
+    // Confirm Pick By Line - calls Oracle Fusion API for individual line
+    window.confirmPickByLine = function(index, orderNumber, instance, skipConfirmDialog = false) {
+        console.log('[Order Transactions] Confirming pick for line index:', index);
+
+        if (!window.pickLinesSelectedRows || !window.pickLinesSelectedRows[index]) {
+            alert('Line data not found.');
+            return Promise.reject('Line data not found');
+        }
+
+        const row = window.pickLinesSelectedRows[index];
+        const pickedQtyInput = document.getElementById(`pick-qty-${index}`);
+        const pickedQty = pickedQtyInput ? parseFloat(pickedQtyInput.value) || 0 : 0;
+
+        if (pickedQty <= 0) {
+            alert('Please enter a valid picked quantity.');
+            return Promise.reject('Invalid quantity');
+        }
+
+        // Extract data from row for Oracle Fusion API
+        const pickSlip = row.PICK_SLIP || row.pick_slip || row.PICKSLIP || row.pickslip || '';
+        const pickSlipLine = row.PICK_SLIP_LINE || row.pick_slip_line || row.LINE_NO || row.line_no || row.LINE_NUMBER || row.line_number || '';
+        const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
+        const subinventory = row.SOURCE_SUBINVENTORY || row.source_subinventory || row.SUBINVENTORY || row.subinventory || row.SUBINVENTORY_CODE || 'DUTY PAID';
+        const itemCode = row.ITEM_CODE || row.item_code || row.ITEM || row.item || '';
+        const transactionId = row.TRANSACTION_ID || row.transaction_id || '';
+
+        // Show confirmation dialog (unless skipped for batch processing)
+        if (!skipConfirmDialog) {
+            const confirmMsg = `Confirm Pick for Line?\n\nItem: ${itemCode}\nPick Slip: ${pickSlip}\nLine: ${pickSlipLine}\nLot: ${lotNumber}\nPicked Qty: ${pickedQty}\nSubinventory: ${subinventory}`;
+            if (!confirm(confirmMsg)) {
+                return Promise.reject('User cancelled');
+            }
+        }
+
+        // Prepare Oracle Fusion API request body
+        const requestBody = {
+            pickLines: [
+                {
+                    PickSlip: String(pickSlip),
+                    PickSlipLine: String(pickSlipLine),
+                    PickedQuantity: String(pickedQty),
+                    SubinventoryCode: String(subinventory),
+                    lotItemLots: [
+                        {
+                            Lot: String(lotNumber),
+                            Quantity: String(pickedQty)
+                        }
+                    ]
+                }
+            ]
+        };
+
+        console.log('[Order Transactions] Oracle Fusion Pick Confirm API Request:', requestBody);
+
+        // Disable button and show loading
+        const btn = document.getElementById(`pick-btn-${index}`);
+        const fusionStatusCell = document.getElementById(`pick-fusion-status-${index}`);
+        const wmsStatusCell = document.getElementById(`pick-wms-status-${index}`);
+        const pickConfirmStCell = document.getElementById(`pick-confirm-st-${index}`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.style.background = '#9ca3af';
+        }
+        if (fusionStatusCell) {
+            fusionStatusCell.innerHTML = '<span style="color: #f59e0b;"><i class="fas fa-spinner fa-spin"></i></span>';
+        }
+
+        // Get Oracle Fusion API URL based on instance
+        const apiUrl = instance.toUpperCase() === 'PROD'
+            ? API_CONFIG.ORACLE_FUSION_PICK_API.PROD
+            : API_CONFIG.ORACLE_FUSION_PICK_API.TEST;
+
+        console.log('[Order Transactions] Using Oracle Fusion API:', apiUrl);
+
+        return new Promise((resolve, reject) => {
+            sendMessageToCSharp({
+                action: 'executeOracleFusionPost',
+                fullUrl: apiUrl,
+                body: JSON.stringify(requestBody),
+                instance: instance
+            }, async function(error, data) {
+                let response = null;
+                let isSuccess = false;
+
+                console.log('[Oracle Fusion] Callback received - Error:', error, 'Data type:', typeof data);
+                console.log('[Oracle Fusion] Raw data:', data);
+
+                if (error) {
+                    console.error('[Oracle Fusion] API Error:', error);
+                    response = { error: error, ReturnStatus: 'Error', ErrorExplanation: error };
+                } else {
+                    // Parse response - handle nested JSON strings
+                    try {
+                        if (typeof data === 'string') {
+                            // First parse
+                            response = JSON.parse(data);
+                            console.log('[Oracle Fusion] First parse result:', response);
+
+                            // If the result is still a string (double-encoded), parse again
+                            if (typeof response === 'string') {
+                                response = JSON.parse(response);
+                                console.log('[Oracle Fusion] Second parse result:', response);
+                            }
+                        } else {
+                            response = data;
+                        }
+                    } catch (e) {
+                        console.error('[Oracle Fusion] Parse error:', e.message);
+                        response = { rawResponse: data, ReturnStatus: 'Unknown', parseError: e.message };
+                    }
+
+                    console.log('[Oracle Fusion] Final parsed response:', response);
+
+                    // Check for success - Oracle Fusion returns ReturnStatus
+                    isSuccess = response.ReturnStatus === 'Success';
+                    console.log('[Oracle Fusion] Is Success:', isSuccess, 'ReturnStatus:', response.ReturnStatus);
+                }
+
+                // Store result for viewing later
+                window.pickLineResults = window.pickLineResults || {};
+                window.pickLineResults[index] = {
+                    request: requestBody,
+                    response: response,
+                    isSuccess: isSuccess,
+                    timestamp: new Date().toISOString(),
+                    itemCode: itemCode,
+                    lotNumber: lotNumber
+                };
+
+                // Update Fusion status cell with icon
+                if (fusionStatusCell) {
+                    if (isSuccess) {
+                        fusionStatusCell.innerHTML = '<span style="color: #22c55e; font-size: 1.1rem;"><i class="fas fa-check-circle"></i></span>';
+                    } else {
+                        fusionStatusCell.innerHTML = '<span style="color: #ef4444; font-size: 1.1rem;"><i class="fas fa-times-circle"></i></span>';
+                    }
+                }
+
+                // Show result button
+                const resultBtn = document.getElementById(`pick-result-btn-${index}`);
+                if (resultBtn) {
+                    resultBtn.style.display = 'inline-block';
+                    if (isSuccess) {
+                        resultBtn.style.color = '#22c55e';
+                        resultBtn.style.borderColor = '#22c55e';
+                    } else {
+                        resultBtn.style.color = '#ef4444';
+                        resultBtn.style.borderColor = '#ef4444';
+                    }
+                }
+
+                // Mark row with appropriate color
+                const rowEl = document.getElementById(`pick-line-row-${index}`);
+                if (rowEl) {
+                    rowEl.style.background = isSuccess ? '#f0fdf4' : '#fef2f2';
+                }
+
+                // Show notification
+                if (isSuccess) {
+                    showNotification(`Fusion Pick confirmed for ${itemCode} - Lot: ${lotNumber}`, 'success');
+
+                    // Show loading for WMS status
+                    if (wmsStatusCell) {
+                        wmsStatusCell.innerHTML = '<span style="color: #f59e0b;"><i class="fas fa-spinner fa-spin"></i></span>';
+                    }
+
+                    // Call updatepickconfirmstatus webservice on success
+                    const updateStatusUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatepickconfirmstatus';
+                    const updateStatusBody = {
+                        P_TRANSACTION_ID: transactionId,
+                        p_instance_name: instance.toUpperCase(),
+                        p_pickedQty: pickedQty
+                    };
+
+                    console.log('[Pick Confirm] Calling updatepickconfirmstatus API:', updateStatusUrl);
+                    console.log('[Pick Confirm] Request Body:', updateStatusBody);
+
+                    // Store the update status request in results
+                    window.pickLineResults[index].updateStatusRequest = updateStatusBody;
+                    window.pickLineResults[index].updateStatusUrl = updateStatusUrl;
+
+                    // Make the API call to update pick confirm status via C# backend (to avoid CORS)
+                    try {
+                        const updateData = await new Promise((resolveUpdate, rejectUpdate) => {
+                            sendMessageToCSharp({
+                                action: 'executePost',
+                                fullUrl: updateStatusUrl,
+                                body: JSON.stringify(updateStatusBody)
+                            }, function(error, data) {
+                                if (error) {
+                                    rejectUpdate(new Error(error));
+                                } else {
+                                    // Parse the response if it's a string
+                                    let parsedData = data;
+                                    if (typeof data === 'string') {
+                                        try {
+                                            parsedData = JSON.parse(data);
+                                        } catch (e) {
+                                            // Keep as string if not valid JSON
+                                        }
+                                    }
+                                    resolveUpdate(parsedData);
+                                }
+                            });
+                        });
+                        console.log('[Pick Confirm] updatepickconfirmstatus API Response:', updateData);
+                        window.pickLineResults[index].updateStatusResponse = updateData;
+                        window.pickLineResults[index].updateStatusSuccess = true;
+
+                        // Update WMS status cell to success
+                        if (wmsStatusCell) {
+                            wmsStatusCell.innerHTML = '<span style="color: #22c55e; font-size: 1.1rem;"><i class="fas fa-check-circle"></i></span>';
+                        }
+
+                        // Update Pick Confirm ST to YES
+                        if (pickConfirmStCell) {
+                            pickConfirmStCell.innerHTML = 'YES';
+                            pickConfirmStCell.style.color = '#22c55e';
+                        }
+
+                        showNotification(`WMS status updated for ${itemCode}`, 'success');
+                    } catch (updateError) {
+                        console.error('[Pick Confirm] updatepickconfirmstatus API Error:', updateError);
+                        window.pickLineResults[index].updateStatusResponse = { error: updateError.message };
+                        window.pickLineResults[index].updateStatusSuccess = false;
+
+                        // Update WMS status cell to error
+                        if (wmsStatusCell) {
+                            wmsStatusCell.innerHTML = '<span style="color: #ef4444; font-size: 1.1rem;"><i class="fas fa-times-circle"></i></span>';
+                        }
+
+                        showNotification(`WMS status update failed for ${itemCode}: ${updateError.message}`, 'error');
+                    }
+
+                    // Update button state after everything is done
+                    if (btn) {
+                        btn.innerHTML = '<i class="fas fa-check-circle"></i> Done';
+                        btn.style.background = '#22c55e';
+                        btn.disabled = true;
+                    }
+
+                    resolve(response);
+                } else {
+                    // Update button state for failure
+                    if (btn) {
+                        btn.innerHTML = '<i class="fas fa-times"></i> Failed';
+                        btn.style.background = '#ef4444';
+                        btn.disabled = false;
+                        btn.onclick = function() { confirmPickByLine(index, orderNumber, instance); };
+                    }
+
+                    const errorMsg = response.ErrorExplanation || response.error || 'Unknown error';
+                    showNotification(`Pick failed for ${itemCode}: ${errorMsg}`, 'error');
+                    reject(response);
+                }
+            });
+        });
+    };
+
+    // Show Pick Line Result popup
+    window.showPickLineResult = function(index) {
+        const result = window.pickLineResults && window.pickLineResults[index];
+        if (!result) {
+            alert('No result available for this line.');
+            return;
+        }
+
+        const isSuccess = result.isSuccess;
+        const statusColor = isSuccess ? '#22c55e' : '#ef4444';
+        const statusIcon = isSuccess ? 'fa-check-circle' : 'fa-times-circle';
+        const statusText = isSuccess ? 'Success' : 'Error';
+
+        const popupHtml = `
+            <div id="pick-result-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100010; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 90%; max-width: 700px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <!-- Header -->
+                    <div style="background: ${statusColor}; color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas ${statusIcon}" style="font-size: 1.25rem;"></i>
+                            <div>
+                                <div style="font-weight: 600; font-size: 1.1rem;">Pick Confirm Result - ${statusText}</div>
+                                <div style="font-size: 0.8rem; opacity: 0.9;">Item: ${result.itemCode} | Lot: ${result.lotNumber}</div>
+                            </div>
+                        </div>
+                        <button onclick="document.getElementById('pick-result-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <!-- Content -->
+                    <div style="flex: 1; overflow: auto; padding: 1.5rem;">
+                        <!-- Timestamp -->
+                        <div style="margin-bottom: 1rem; font-size: 0.85rem; color: #64748b;">
+                            <i class="fas fa-clock" style="margin-right: 0.5rem;"></i>
+                            Processed: ${new Date(result.timestamp).toLocaleString()}
+                        </div>
+
+                        <!-- Request -->
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-upload" style="color: #6366f1; margin-right: 0.5rem;"></i>Request Body
+                            </div>
+                            <pre style="background: #1e293b; border-radius: 6px; padding: 1rem; font-family: monospace; font-size: 0.75rem; color: #e2e8f0; overflow-x: auto; margin: 0; white-space: pre-wrap; max-height: 150px;">${JSON.stringify(result.request, null, 2)}</pre>
+                        </div>
+
+                        <!-- Response -->
+                        <div>
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-download" style="color: ${statusColor}; margin-right: 0.5rem;"></i>Response
+                            </div>
+                            <pre style="background: #1e293b; border-radius: 6px; padding: 1rem; font-family: monospace; font-size: 0.75rem; color: #e2e8f0; overflow-x: auto; margin: 0; white-space: pre-wrap; max-height: 200px;">${JSON.stringify(result.response, null, 2)}</pre>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('pick-result-popup').remove()" style="padding: 0.6rem 1.25rem; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('pick-result-popup');
+        if (existingPopup) existingPopup.remove();
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+    };
+
+    // Confirm Pick All Lines - loops through all lines
+    window.confirmPickAllLines = async function(orderNumber, instance) {
+        if (!window.pickLinesSelectedRows || window.pickLinesSelectedRows.length === 0) {
+            alert('No lines to process.');
+            return;
+        }
+
+        const totalLines = window.pickLinesSelectedRows.length;
+        const confirmMsg = `Are you sure you want to pick confirm ALL ${totalLines} line(s)?\n\nThis will process each line one by one using Oracle Fusion API.`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        // Disable the Pick Confirm All button
+        const allBtn = document.getElementById('pick-confirm-all-btn');
+        if (allBtn) {
+            allBtn.disabled = true;
+            allBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            allBtn.style.background = '#9ca3af';
+        }
+
+        // Show progress indicator
+        const progressDiv = document.getElementById('pick-confirm-progress');
+        const progressText = document.getElementById('pick-progress-text');
+        if (progressDiv) progressDiv.style.display = 'block';
+
+        let successCount = 0;
+        let failureCount = 0;
+
+        // Process each line sequentially
+        for (let i = 0; i < totalLines; i++) {
+            // Check if already processed (button is disabled)
+            const btn = document.getElementById(`pick-btn-${i}`);
+            if (btn && btn.disabled && btn.innerHTML.includes('Done')) {
+                successCount++;
+                continue; // Skip already processed lines
+            }
+
+            // Update progress
+            if (progressText) {
+                progressText.textContent = `Processing line ${i + 1} of ${totalLines}...`;
+            }
+
+            try {
+                await confirmPickByLine(i, orderNumber, instance, true);
+                successCount++;
+            } catch (error) {
+                console.error(`[Order Transactions] Error processing line ${i}:`, error);
+                failureCount++;
+            }
+
+            // Small delay between API calls to avoid overwhelming the server
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        // Hide progress
+        if (progressDiv) progressDiv.style.display = 'none';
+
+        // Update button to show completion
+        if (allBtn) {
+            allBtn.innerHTML = `<i class="fas fa-check-double"></i> Completed (${successCount}/${totalLines})`;
+            allBtn.style.background = failureCount === 0 ? '#22c55e' : '#f59e0b';
+            allBtn.disabled = true;
+        }
+
+        // Show summary notification
+        if (failureCount === 0) {
+            showNotification(`All ${successCount} lines pick confirmed successfully!`, 'success');
+        } else {
+            showNotification(`Pick confirm completed: ${successCount} success, ${failureCount} failed. Click info icons to see details.`, 'warning');
+        }
+    };
+
+    // Update Pick Confirm Status for selected lines from the Lot Details grid (WMS only, no Fusion call)
+    window.updatePickConfirmStatusSelected = async function(orderNumber) {
+        if (!window.lotDetailsGridInstance) {
+            alert('Lot Details grid not initialized.');
+            return;
+        }
+
+        const selectedRows = window.lotDetailsGridInstance.getSelectedRowsData();
+        if (!selectedRows || selectedRows.length === 0) {
+            alert('Please select at least one line to update WMS status.');
+            return;
+        }
+
+        // Get instance from the current context
+        const instance = window.currentOrderTransactionsInstance || 'PROD';
+
+        const confirmMsg = `Update WMS Pick Confirm Status for ${selectedRows.length} selected line(s)?\n\nThis will call the updatepickconfirmstatus webservice for each selected line.`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        const updateStatusUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatepickconfirmstatus';
+
+        let successCount = 0;
+        let failureCount = 0;
+        const results = [];
+
+        // Show processing notification
+        showNotification(`Processing ${selectedRows.length} lines...`, 'info');
+
+        for (let i = 0; i < selectedRows.length; i++) {
+            const row = selectedRows[i];
+            const transactionId = row.TRANSACTION_ID || row.transaction_id || '';
+            const pickedQty = row.QUANTITY || row.quantity || row.QTY || row.qty || row.TRANSACTION_QUANTITY || 0;
+            const itemCode = row.ITEM_CODE || row.item_code || row.ITEM || row.item || '';
+            const lotNumber = row.LOT_NUMBER || row.lot_number || row.LOT || row.lot || '';
+
+            if (!transactionId) {
+                console.warn('[Update WMS Status] Skipping row without TRANSACTION_ID:', row);
+                failureCount++;
+                results.push({ itemCode, lotNumber, success: false, error: 'No transaction ID' });
+                continue;
+            }
+
+            const updateStatusBody = {
+                P_TRANSACTION_ID: transactionId,
+                p_instance_name: instance.toUpperCase(),
+                p_pickedQty: pickedQty
+            };
+
+            console.log('[Update WMS Status] Calling API for:', itemCode, lotNumber);
+            console.log('[Update WMS Status] Request Body:', updateStatusBody);
+
+            try {
+                // Use C# backend to avoid CORS issues
+                const data = await new Promise((resolveUpdate, rejectUpdate) => {
+                    sendMessageToCSharp({
+                        action: 'executePost',
+                        fullUrl: updateStatusUrl,
+                        body: JSON.stringify(updateStatusBody)
+                    }, function(error, responseData) {
+                        if (error) {
+                            rejectUpdate(new Error(error));
+                        } else {
+                            // Parse the response if it's a string
+                            let parsedData = responseData;
+                            if (typeof responseData === 'string') {
+                                try {
+                                    parsedData = JSON.parse(responseData);
+                                } catch (e) {
+                                    // Keep as string if not valid JSON
+                                }
+                            }
+                            resolveUpdate(parsedData);
+                        }
+                    });
+                });
+                console.log('[Update WMS Status] Response:', data);
+                successCount++;
+                results.push({ itemCode, lotNumber, success: true, response: data });
+            } catch (error) {
+                console.error('[Update WMS Status] Error:', error);
+                failureCount++;
+                results.push({ itemCode, lotNumber, success: false, error: error.message });
+            }
+
+            // Small delay between calls
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        // Show results
+        if (failureCount === 0) {
+            showNotification(`WMS status updated for all ${successCount} lines successfully!`, 'success');
+        } else {
+            showNotification(`WMS status update: ${successCount} success, ${failureCount} failed.`, 'warning');
+        }
+
+        // Show detailed results popup
+        showUpdateWmsStatusResults(results);
+
+        // Refresh the lot details grid
+        setTimeout(() => {
+            refreshLotDetails(orderNumber);
+        }, 1000);
+    };
+
+    // Show Update WMS Status Results popup
+    window.showUpdateWmsStatusResults = function(results) {
+        let tableRows = results.map((r, i) => `
+            <tr style="background: ${r.success ? '#f0fdf4' : '#fef2f2'};">
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${i + 1}</td>
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-weight: 600;">${r.itemCode}</td>
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0;">${r.lotNumber}</td>
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                    ${r.success
+                        ? '<span style="color: #22c55e;"><i class="fas fa-check-circle"></i> Success</span>'
+                        : '<span style="color: #ef4444;"><i class="fas fa-times-circle"></i> Failed</span>'}
+                </td>
+                <td style="padding: 0.5rem; border-bottom: 1px solid #e2e8f0; font-size: 0.75rem;">
+                    ${r.success ? JSON.stringify(r.response || {}) : (r.error || 'Unknown error')}
+                </td>
+            </tr>
+        `).join('');
+
+        const popupHtml = `
+            <div id="update-wms-results-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100010; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 90%; max-width: 800px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <div style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas fa-database" style="font-size: 1.25rem;"></i>
+                            <div style="font-weight: 600; font-size: 1.1rem;">Update WMS Status Results</div>
+                        </div>
+                        <button onclick="document.getElementById('update-wms-results-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                    <div style="flex: 1; overflow: auto; padding: 1rem;">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                            <thead>
+                                <tr style="background: #f8fafc;">
+                                    <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">#</th>
+                                    <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Item</th>
+                                    <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Lot</th>
+                                    <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #e2e8f0;">Status</th>
+                                    <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Details</th>
+                                </tr>
+                            </thead>
+                            <tbody>${tableRows}</tbody>
+                        </table>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('update-wms-results-popup').remove()" style="padding: 0.6rem 1.25rem; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const existingPopup = document.getElementById('update-wms-results-popup');
+        if (existingPopup) existingPopup.remove();
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+    };
+
+    // Show Pick Line API Info popup - Oracle Fusion API format
+    window.showPickLineApiInfo = function(index, pickSlip, pickSlipLine, lotNumber, subinventory, instance) {
+        // Get picked qty from input
+        const pickedQtyInput = document.getElementById(`pick-qty-${index}`);
+        const pickedQty = pickedQtyInput ? pickedQtyInput.value : '0';
+
+        // Get Oracle Fusion API URL based on instance
+        const apiUrl = instance.toUpperCase() === 'PROD'
+            ? API_CONFIG.ORACLE_FUSION_PICK_API.PROD
+            : API_CONFIG.ORACLE_FUSION_PICK_API.TEST;
+
+        // Build Oracle Fusion request body
+        const requestBody = {
+            pickLines: [
+                {
+                    PickSlip: String(pickSlip),
+                    PickSlipLine: String(pickSlipLine),
+                    PickedQuantity: String(pickedQty),
+                    SubinventoryCode: String(subinventory),
+                    lotItemLots: [
+                        {
+                            Lot: String(lotNumber),
+                            Quantity: String(pickedQty)
+                        }
+                    ]
+                }
+            ]
+        };
+
+        const jsonBodyFormatted = JSON.stringify(requestBody, null, 2);
+
+        const popupHtml = `
+            <div id="pick-api-info-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 100010; display: flex; align-items: center; justify-content: center;">
+                <div style="background: white; border-radius: 12px; box-shadow: 0 25px 50px rgba(0,0,0,0.3); width: 90%; max-width: 700px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column;">
+                    <!-- Header -->
+                    <div style="background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); color: white; padding: 1rem 1.5rem; display: flex; align-items: center; justify-content: space-between;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <i class="fas fa-cloud" style="font-size: 1.25rem;"></i>
+                            <div>
+                                <div style="font-weight: 600; font-size: 1.1rem;">Oracle Fusion API - Line ${index + 1}</div>
+                                <div style="font-size: 0.8rem; opacity: 0.9;">Pick Transactions API (${instance})</div>
+                            </div>
+                        </div>
+                        <button onclick="document.getElementById('pick-api-info-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer;">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <!-- Content -->
+                    <div style="flex: 1; overflow: auto; padding: 1.5rem;">
+                        <!-- Instance Badge -->
+                        <div style="margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+                            <span style="background: ${instance.toUpperCase() === 'PROD' ? '#ef4444' : '#22c55e'}; color: white; padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600;">
+                                ${instance.toUpperCase() === 'PROD' ? 'PRODUCTION' : 'TEST'}
+                            </span>
+                            <span style="color: #64748b; font-size: 0.85rem;">Oracle Fusion Cloud</span>
+                        </div>
+
+                        <!-- Method -->
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-exchange-alt" style="color: #10b981; margin-right: 0.5rem;"></i>Method
+                            </div>
+                            <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.75rem; font-family: monospace; font-size: 0.85rem; color: #166534;">
+                                POST
+                            </div>
+                        </div>
+
+                        <!-- URL -->
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-link" style="color: #6366f1; margin-right: 0.5rem;"></i>Full URL
+                            </div>
+                            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.75rem; font-family: monospace; font-size: 0.75rem; word-break: break-all; color: #475569;">
+                                ${apiUrl}
+                            </div>
+                        </div>
+
+                        <!-- JSON Body -->
+                        <div style="margin-bottom: 1rem;">
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-file-code" style="color: #f59e0b; margin-right: 0.5rem;"></i>JSON Request Body
+                            </div>
+                            <pre style="background: #1e293b; border-radius: 6px; padding: 1rem; font-family: monospace; font-size: 0.8rem; color: #e2e8f0; overflow-x: auto; margin: 0; white-space: pre-wrap;">${jsonBodyFormatted}</pre>
+                        </div>
+
+                        <!-- Expected Response -->
+                        <div>
+                            <div style="font-weight: 600; color: #374151; margin-bottom: 0.5rem; font-size: 0.85rem;">
+                                <i class="fas fa-reply" style="color: #10b981; margin-right: 0.5rem;"></i>Expected Response Format
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem;">
+                                <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 0.75rem;">
+                                    <div style="font-weight: 600; color: #166534; font-size: 0.75rem; margin-bottom: 0.5rem;"><i class="fas fa-check-circle"></i> Success</div>
+                                    <pre style="font-size: 0.7rem; color: #166534; margin: 0; white-space: pre-wrap;">ReturnStatus: "Success"</pre>
+                                </div>
+                                <div style="background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 0.75rem;">
+                                    <div style="font-weight: 600; color: #dc2626; font-size: 0.75rem; margin-bottom: 0.5rem;"><i class="fas fa-times-circle"></i> Error</div>
+                                    <pre style="font-size: 0.7rem; color: #dc2626; margin: 0; white-space: pre-wrap;">ReturnStatus: "Error"</pre>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Footer -->
+                    <div style="padding: 1rem 1.5rem; background: #f8fafc; border-top: 1px solid #e2e8f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('pick-api-info-popup').remove()" style="padding: 0.6rem 1.25rem; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Remove existing popup if any
+        const existingPopup = document.getElementById('pick-api-info-popup');
+        if (existingPopup) {
+            existingPopup.remove();
+        }
+
+        // Add popup to body
+        document.body.insertAdjacentHTML('beforeend', popupHtml);
+    };
+
+    // Ship Confirm Order
+    window.shipConfirmOrder = function(orderNumber) {
+        console.log('[Order Transactions] Ship Confirm for order:', orderNumber);
+
+        // Get instance
+        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+
+        // Show confirmation
+        const confirmMsg = `Are you sure you want to ship confirm order ${orderNumber}?`;
+        if (!confirm(confirmMsg)) {
+            return;
+        }
+
+        // TODO: Call API to ship confirm
+        // For now, show message
+        alert(`Ship Confirm initiated for order: ${orderNumber}\n\nNote: API integration pending.`);
     };
 
     // Toggle Store Transactions Header Details
@@ -8899,6 +13516,727 @@ document.addEventListener('DOMContentLoaded', function() {
         originalDisplayTripData(trips);
         updateAnalytics(trips);
     };
+
+    // ============================================================================
+    // ACTION FLOATING ICON
+    // ============================================================================
+
+    // Global state for action processing
+    window.actionProcessingState = {
+        isProcessing: false,
+        actionType: '',
+        totalOrders: 0,
+        completedOrders: 0,
+        currentStep: '',
+        startTime: null,
+        results: []
+    };
+
+    // Create Action Floating Button
+    function createActionFloatingButton() {
+        if (document.getElementById('action-floating-btn')) return;
+
+        const floatingBtn = document.createElement('div');
+        floatingBtn.id = 'action-floating-btn';
+        floatingBtn.style.cssText = `
+            position: fixed;
+            bottom: 150px;
+            right: 30px;
+            z-index: 9999;
+            display: none;
+        `;
+        floatingBtn.innerHTML = `
+            <button id="action-float-trigger" style="
+                width: 56px;
+                height: 56px;
+                border-radius: 50%;
+                background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+                border: none;
+                color: white;
+                cursor: pointer;
+                box-shadow: 0 4px 20px rgba(99, 102, 241, 0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.3s;
+            " onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'" title="Actions">
+                <i class="fas fa-bolt" style="font-size: 22px;"></i>
+            </button>
+            <span id="action-selected-count" style="
+                position: absolute;
+                top: -5px;
+                right: -5px;
+                background: #ef4444;
+                color: white;
+                font-size: 11px;
+                font-weight: 700;
+                min-width: 22px;
+                height: 22px;
+                border-radius: 11px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            ">0</span>
+        `;
+        document.body.appendChild(floatingBtn);
+
+        // Create dropdown menu
+        const menu = document.createElement('div');
+        menu.id = 'action-floating-menu';
+        menu.style.cssText = `
+            position: fixed;
+            bottom: 215px;
+            right: 30px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.25);
+            z-index: 10000;
+            display: none;
+            min-width: 240px;
+            overflow: hidden;
+        `;
+        menu.innerHTML = `
+            <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 12px 16px; font-weight: 600; font-size: 14px;">
+                <i class="fas fa-tasks"></i> Actions
+            </div>
+            <div style="padding: 8px 0;">
+                <button onclick="executeFloatingAction('fetchLines')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-list-ol" style="color: #3b82f6; width: 20px;"></i>
+                    <span style="font-size: 13px;">Fetch Sales Order Lines</span>
+                </button>
+                <button onclick="executeFloatingAction('releasePicks')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-play-circle" style="color: #10b981; width: 20px;"></i>
+                    <span style="font-size: 13px;">Release Picks</span>
+                </button>
+                <button onclick="executeFloatingAction('fetchPickslipDetails')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-file-alt" style="color: #f59e0b; width: 20px;"></i>
+                    <span style="font-size: 13px;">Fetch Pickslip Details</span>
+                </button>
+                <button onclick="executeFloatingAction('getOrderVolume')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-cube" style="color: #06b6d4; width: 20px;"></i>
+                    <span style="font-size: 13px;">Get Order Volume</span>
+                </button>
+                <div style="border-top: 1px solid #e5e7eb; margin: 4px 0;"></div>
+                <button onclick="executeFloatingAction('assignPicker')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                    <i class="fas fa-user-plus" style="color: #8b5cf6; width: 20px;"></i>
+                    <span style="font-size: 13px;">Assign Picker</span>
+                </button>
+            </div>
+        `;
+        document.body.appendChild(menu);
+
+        // Toggle menu on button click
+        document.getElementById('action-float-trigger').addEventListener('click', function(e) {
+            e.stopPropagation();
+            const menuEl = document.getElementById('action-floating-menu');
+            menuEl.style.display = menuEl.style.display === 'none' ? 'block' : 'none';
+        });
+
+        // Close menu when clicking outside
+        document.addEventListener('click', function(e) {
+            const menu = document.getElementById('action-floating-menu');
+            const btn = document.getElementById('action-floating-btn');
+            if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
+                menu.style.display = 'none';
+            }
+        });
+    }
+
+    // Check if any trip details grid is available
+    function isTripDetailsGridAvailable() {
+        // Check global instance first
+        if (window.tripDetailsGridInstance) return true;
+
+        // Check for single trip detail grids (grid-{tripId} pattern)
+        try {
+            const tripGrids = document.querySelectorAll('[id^="grid-"]');
+            for (const grid of tripGrids) {
+                if ($(grid).dxDataGrid('instance')) return true;
+            }
+        } catch (e) {}
+
+        // Check for other trip-related grids
+        try {
+            const gridContainer = document.querySelector('#trip-details-grid, [id*="trip"][id*="grid"]');
+            if (gridContainer && $(gridContainer).dxDataGrid('instance')) return true;
+        } catch (e) {}
+
+        return false;
+    }
+
+    // Helper to get selected orders from any available grid
+    function getSelectedOrdersFromGrid() {
+        let selectedOrders = [];
+
+        // Try global tripDetailsGridInstance first (All Trip Details tab)
+        if (window.tripDetailsGridInstance) {
+            try {
+                selectedOrders = window.tripDetailsGridInstance.getSelectedRowsData() || [];
+                if (selectedOrders.length > 0) {
+                    console.log('[Action Float] tripDetailsGridInstance selected:', selectedOrders.length);
+                    return selectedOrders;
+                }
+            } catch (e) {
+                console.log('[Action Float] Error getting selected from tripDetailsGridInstance:', e);
+            }
+        }
+
+        // Try single trip detail grids (grid-{tripId} pattern) - most common case
+        try {
+            const tripGrids = document.querySelectorAll('[id^="grid-"]');
+            for (const grid of tripGrids) {
+                try {
+                    const gridInstance = $(grid).dxDataGrid('instance');
+                    if (gridInstance) {
+                        const rows = gridInstance.getSelectedRowsData() || [];
+                        if (rows.length > 0) {
+                            console.log('[Action Float] Single trip grid selected:', rows.length, 'from', grid.id);
+                            return rows;
+                        }
+                    }
+                } catch (e) {}
+            }
+        } catch (e) {
+            console.log('[Action Float] Error checking single trip grids:', e);
+        }
+
+        // Try other trip-related grids
+        try {
+            const gridContainer = document.querySelector('#trip-details-grid, [id*="trip"][id*="grid"]');
+            if (gridContainer) {
+                const gridInstance = $(gridContainer).dxDataGrid('instance');
+                if (gridInstance) {
+                    selectedOrders = gridInstance.getSelectedRowsData() || [];
+                    if (selectedOrders.length > 0) {
+                        console.log('[Action Float] DOM grid selected:', selectedOrders.length);
+                        return selectedOrders;
+                    }
+                }
+            }
+        } catch (e) {
+            console.log('[Action Float] Error getting from DOM grid:', e);
+        }
+
+        return selectedOrders;
+    }
+
+    // Update floating button visibility based on grid availability
+    function updateActionFloatingButton() {
+        const btn = document.getElementById('action-floating-btn');
+        const countEl = document.getElementById('action-selected-count');
+
+        if (!btn) {
+            createActionFloatingButton();
+            return updateActionFloatingButton();
+        }
+
+        // Show button when any trip details grid exists
+        if (isTripDetailsGridAvailable()) {
+            btn.style.display = 'block';
+            const selectedOrders = getSelectedOrdersFromGrid();
+            const count = selectedOrders ? selectedOrders.length : 0;
+            if (countEl) {
+                countEl.textContent = count;
+                countEl.style.display = count > 0 ? 'flex' : 'none';
+            }
+        } else {
+            btn.style.display = 'none';
+            // Hide menu too
+            const menu = document.getElementById('action-floating-menu');
+            if (menu) menu.style.display = 'none';
+        }
+    }
+
+    // Poll for grid availability and selection changes
+    setInterval(updateActionFloatingButton, 500);
+
+    // Execute action from floating menu
+    window.executeFloatingAction = async function(action) {
+        // Hide menu
+        const menu = document.getElementById('action-floating-menu');
+        if (menu) menu.style.display = 'none';
+
+        const selectedOrders = getSelectedOrdersFromGrid();
+
+        if (!selectedOrders || selectedOrders.length === 0) {
+            alert('Please select at least one order by clicking the checkboxes in the grid.');
+            return;
+        }
+
+        console.log('[Action Float] Executing:', action, 'for', selectedOrders.length, 'orders');
+
+        switch (action) {
+            case 'fetchLines':
+                await executeActionFetchLines(selectedOrders);
+                break;
+            case 'releasePicks':
+                await executeActionReleasePicks(selectedOrders);
+                break;
+            case 'fetchPickslipDetails':
+                await executeActionFetchPickslipDetails(selectedOrders);
+                break;
+            case 'assignPicker':
+                executeActionAssignPicker(selectedOrders);
+                break;
+            case 'getOrderVolume':
+                await executeActionGetOrderVolume(selectedOrders);
+                break;
+        }
+    };
+
+    // Action: Fetch Sales Order Lines
+    async function executeActionFetchLines(orders) {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+
+        window.actionProcessingState = {
+            isProcessing: true,
+            actionType: 'Fetch Sales Order Lines',
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Fetching order lines...',
+            startTime: Date.now(),
+            results: []
+        };
+
+        showActionProcessingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            window.actionProcessingState.currentStep = `Processing ${orderNumber} (${i + 1}/${orders.length})`;
+            window.actionProcessingState.completedOrders = i;
+            updateActionProcessingIndicator();
+
+            try {
+                const tripId = order.TRIP_ID || order.trip_id || null;
+                const result = await fetchFusionOrderLinesAPI(orderNumber, instance, tripId);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: result.success,
+                    count: result.count || 0
+                });
+            } catch (err) {
+                console.error('[Action Float] Error fetching lines for', orderNumber, err);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: false,
+                    error: err.message
+                });
+            }
+        }
+
+        window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.completedOrders = orders.length;
+        window.actionProcessingState.currentStep = 'Complete';
+        updateActionProcessingIndicator();
+    }
+
+    // Action: Release Picks (calls callpickwave API)
+    async function executeActionReleasePicks(orders) {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+        const warehouse = document.getElementById('whlocationDropdown')?.value || 'GreensW';
+
+        window.actionProcessingState = {
+            isProcessing: true,
+            actionType: 'Release Picks',
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Releasing picks...',
+            startTime: Date.now(),
+            results: []
+        };
+
+        showActionProcessingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            window.actionProcessingState.currentStep = `Releasing ${orderNumber} (${i + 1}/${orders.length})`;
+            window.actionProcessingState.completedOrders = i;
+            updateActionProcessingIndicator();
+
+            try {
+                const result = await callReleasePickWaveAPI(orderNumber, warehouse, instance);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: result.success,
+                    message: result.message || ''
+                });
+            } catch (err) {
+                console.error('[Action Float] Error releasing picks for', orderNumber, err);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: false,
+                    error: err.message
+                });
+            }
+        }
+
+        window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.completedOrders = orders.length;
+        window.actionProcessingState.currentStep = 'Complete';
+        updateActionProcessingIndicator();
+    }
+
+    // Action: Fetch Pickslip Details (calls getopenpicksbyorder + getlotsforpicks APIs)
+    async function executeActionFetchPickslipDetails(orders) {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+        const warehouse = document.getElementById('whlocationDropdown')?.value || 'GreensW';
+
+        window.actionProcessingState = {
+            isProcessing: true,
+            actionType: 'Fetch Pickslip Details',
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Fetching pickslip details...',
+            startTime: Date.now(),
+            results: [],
+            step1Count: 0,
+            step2Count: 0
+        };
+
+        showActionProcessingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+
+            // Step 1: Get Picks
+            window.actionProcessingState.currentStep = `Getting picks for ${orderNumber} (${i + 1}/${orders.length})`;
+            updateActionProcessingIndicator();
+
+            let picksResult = null;
+            try {
+                picksResult = await callGetPicksAPI(orderNumber, warehouse, instance);
+                window.actionProcessingState.step1Count = i + 1;
+            } catch (err) {
+                console.error('[Action Float] Error getting picks for', orderNumber, err);
+            }
+
+            // Step 2: Get Lots
+            window.actionProcessingState.currentStep = `Getting lots for ${orderNumber} (${i + 1}/${orders.length})`;
+            updateActionProcessingIndicator();
+
+            let lotsResult = null;
+            try {
+                lotsResult = await callGetPickLotsAPI(orderNumber, instance);
+                window.actionProcessingState.step2Count = i + 1;
+            } catch (err) {
+                console.error('[Action Float] Error getting lots for', orderNumber, err);
+            }
+
+            window.actionProcessingState.completedOrders = i + 1;
+            window.actionProcessingState.results.push({
+                orderNumber,
+                picksSuccess: picksResult?.success || false,
+                picksCount: picksResult?.data?.RECORDCOUNT || 0,
+                lotsSuccess: lotsResult?.success || false,
+                lotsCount: lotsResult?.data?.RECORDCOUNT || lotsResult?.data?.items?.length || 0
+            });
+            updateActionProcessingIndicator();
+        }
+
+        window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.currentStep = 'Complete';
+        updateActionProcessingIndicator();
+    }
+
+    // Action: Get Order Volume
+    async function executeActionGetOrderVolume(orders) {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+
+        window.actionProcessingState = {
+            isProcessing: true,
+            actionType: 'Get Order Volume',
+            totalOrders: orders.length,
+            completedOrders: 0,
+            currentStep: 'Fetching order volume...',
+            startTime: Date.now(),
+            results: []
+        };
+
+        showActionProcessingIndicator();
+
+        for (let i = 0; i < orders.length; i++) {
+            const order = orders[i];
+            const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+            const tripId = order.TRIP_ID || order.trip_id || '';
+
+            window.actionProcessingState.currentStep = `Getting volume for ${orderNumber} (${i + 1}/${orders.length})`;
+            window.actionProcessingState.completedOrders = i;
+            updateActionProcessingIndicator();
+
+            try {
+                const result = await callGetOrderVolumeAPI(orderNumber, instance, tripId);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: result.success,
+                    data: result.data || null
+                });
+            } catch (err) {
+                console.error('[Action Float] Error getting volume for', orderNumber, err);
+                window.actionProcessingState.results.push({
+                    orderNumber,
+                    success: false,
+                    error: err.message
+                });
+            }
+        }
+
+        window.actionProcessingState.isProcessing = false;
+        window.actionProcessingState.completedOrders = orders.length;
+        window.actionProcessingState.currentStep = 'Complete';
+        updateActionProcessingIndicator();
+    }
+
+    // Action: Assign Picker (opens dialog)
+    function executeActionAssignPicker(selectedOrders) {
+        console.log('[Action Float] Opening Assign Picker for', selectedOrders.length, 'orders');
+
+        // Filter out orders with lot_count = 0
+        const ordersWithLots = selectedOrders.filter(order => {
+            const lotCount = order.LOT_COUNT || order.lot_count || 0;
+            return lotCount > 0;
+        });
+
+        const skippedCount = selectedOrders.length - ordersWithLots.length;
+        if (skippedCount > 0) {
+            console.log('[Action Float] Skipped', skippedCount, 'orders with lot_count = 0');
+        }
+
+        if (ordersWithLots.length === 0) {
+            alert(`Cannot assign picker: All ${selectedOrders.length} selected order(s) have lot count = 0.`);
+            return;
+        }
+
+        if (skippedCount > 0) {
+            console.log('[Action Float] Proceeding with', ordersWithLots.length, 'orders (skipped', skippedCount, 'with lot_count = 0)');
+        }
+
+        // Get trip ID from first valid order
+        const tripId = ordersWithLots[0].TRIP_ID || ordersWithLots[0].trip_id || '';
+
+        // Check if pickers data is loaded
+        if (!window.pickersData || window.pickersData.length === 0) {
+            console.log('[Action Float] Pickers not loaded, loading now...');
+
+            const loadingMsg = document.createElement('div');
+            loadingMsg.id = 'loading-pickers-msg';
+            loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#667eea;color:white;padding:1rem 2rem;border-radius:8px;z-index:20000;';
+            loadingMsg.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading pickers...';
+            document.body.appendChild(loadingMsg);
+
+            if (typeof window.loadPickers === 'function') {
+                window.loadPickers();
+
+                const checkInterval = setInterval(() => {
+                    if (window.pickersData && window.pickersData.length > 0) {
+                        clearInterval(checkInterval);
+                        const msg = document.getElementById('loading-pickers-msg');
+                        if (msg) msg.remove();
+                        window.openAssignPickerDialog(tripId, ordersWithLots);
+                    }
+                }, 500);
+
+                setTimeout(() => {
+                    clearInterval(checkInterval);
+                    const msg = document.getElementById('loading-pickers-msg');
+                    if (msg) msg.remove();
+                    if (!window.pickersData || window.pickersData.length === 0) {
+                        alert('Failed to load pickers. Please try again.');
+                    }
+                }, 10000);
+            } else {
+                const msg = document.getElementById('loading-pickers-msg');
+                if (msg) msg.remove();
+                alert('Pickers loading function not available.');
+            }
+            return;
+        }
+
+        // Pickers already loaded, open dialog directly
+        window.openAssignPickerDialog(tripId, ordersWithLots);
+    }
+
+    // Show action processing indicator
+    function showActionProcessingIndicator() {
+        let indicator = document.getElementById('action-processing-indicator');
+
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'action-processing-indicator';
+            indicator.style.cssText = `
+                position: fixed;
+                bottom: 100px;
+                right: 20px;
+                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+                color: white;
+                padding: 16px 20px;
+                border-radius: 12px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                z-index: 99999;
+                cursor: pointer;
+                min-width: 280px;
+                transition: all 0.3s ease;
+            `;
+            indicator.onclick = function() {
+                showActionDetailsPopup();
+            };
+            document.body.appendChild(indicator);
+        }
+
+        indicator.style.display = 'block';
+        updateActionProcessingIndicator();
+    }
+
+    // Update action processing indicator
+    function updateActionProcessingIndicator() {
+        const indicator = document.getElementById('action-processing-indicator');
+        if (!indicator) return;
+
+        const state = window.actionProcessingState;
+
+        if (!state.isProcessing) {
+            // Complete
+            const elapsed = Date.now() - state.startTime;
+            const successCount = state.results.filter(r => r.success !== false).length;
+
+            indicator.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
+            indicator.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <i class="fas fa-check-circle" style="font-size: 24px;"></i>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 14px;">${state.actionType} Complete</div>
+                        <div style="font-size: 12px; opacity: 0.9;">${successCount}/${state.totalOrders} orders processed in ${formatDuration(elapsed)}</div>
+                    </div>
+                    <button onclick="event.stopPropagation(); hideActionIndicator();" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 10px; border-radius: 6px; cursor: pointer;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+
+            // Auto-hide after 10 seconds
+            setTimeout(hideActionIndicator, 10000);
+        } else {
+            // Processing
+            const progress = state.totalOrders > 0 ? Math.round((state.completedOrders / state.totalOrders) * 100) : 0;
+
+            indicator.style.background = 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)';
+            indicator.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <i class="fas fa-spinner fa-spin" style="font-size: 24px;"></i>
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; font-size: 14px;">${state.actionType}</div>
+                        <div style="font-size: 12px; opacity: 0.9;">${state.currentStep}</div>
+                        <div style="background: rgba(255,255,255,0.3); border-radius: 4px; height: 6px; margin-top: 6px; overflow: hidden;">
+                            <div style="background: white; height: 100%; width: ${progress}%; transition: width 0.3s;"></div>
+                        </div>
+                        <div style="font-size: 11px; margin-top: 4px; opacity: 0.8;">${state.completedOrders}/${state.totalOrders} orders (${progress}%)</div>
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Hide action indicator
+    window.hideActionIndicator = function() {
+        const indicator = document.getElementById('action-processing-indicator');
+        if (indicator) {
+            indicator.style.display = 'none';
+        }
+    };
+
+    // Show action details popup
+    function showActionDetailsPopup() {
+        const state = window.actionProcessingState;
+
+        // Remove existing popup
+        let popup = document.getElementById('action-details-popup');
+        if (popup) popup.remove();
+
+        popup = document.createElement('div');
+        popup.id = 'action-details-popup';
+        popup.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 25px 50px rgba(0,0,0,0.3);
+            z-index: 100000;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow: hidden;
+        `;
+
+        const elapsed = state.startTime ? Date.now() - state.startTime : 0;
+
+        popup.innerHTML = `
+            <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between;">
+                <div style="font-weight: 600; font-size: 16px;">
+                    <i class="fas fa-tasks"></i> ${state.actionType || 'Action'} Details
+                </div>
+                <button onclick="document.getElementById('action-details-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 10px; border-radius: 6px; cursor: pointer;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div style="padding: 20px;">
+                <div style="display: flex; gap: 16px; margin-bottom: 16px;">
+                    <div style="flex: 1; background: #f3f4f6; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: #6366f1;">${state.completedOrders}/${state.totalOrders}</div>
+                        <div style="font-size: 12px; color: #6b7280;">Orders Processed</div>
+                    </div>
+                    <div style="flex: 1; background: #f3f4f6; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: #10b981;">${formatDuration(elapsed)}</div>
+                        <div style="font-size: 12px; color: #6b7280;">Time Elapsed</div>
+                    </div>
+                    <div style="flex: 1; background: #f3f4f6; border-radius: 8px; padding: 12px; text-align: center;">
+                        <div style="font-size: 24px; font-weight: 700; color: ${state.isProcessing ? '#f59e0b' : '#10b981'};">
+                            ${state.isProcessing ? '<i class="fas fa-spinner fa-spin"></i>' : '<i class="fas fa-check"></i>'}
+                        </div>
+                        <div style="font-size: 12px; color: #6b7280;">${state.isProcessing ? 'Processing' : 'Complete'}</div>
+                    </div>
+                </div>
+                <div style="max-height: 300px; overflow-y: auto;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <thead>
+                            <tr style="background: #f3f4f6;">
+                                <th style="padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb;">#</th>
+                                <th style="padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb;">Order</th>
+                                <th style="padding: 8px; text-align: center; border-bottom: 1px solid #e5e7eb;">Status</th>
+                                <th style="padding: 8px; text-align: left; border-bottom: 1px solid #e5e7eb;">Details</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${state.results.map((r, i) => `
+                                <tr>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">${i + 1}</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 500;">${r.orderNumber}</td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; text-align: center;">
+                                        ${r.success !== false ? '<i class="fas fa-check-circle" style="color: #10b981;"></i>' : '<i class="fas fa-times-circle" style="color: #ef4444;"></i>'}
+                                    </td>
+                                    <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; color: #6b7280;">
+                                        ${r.count !== undefined ? `Lines: ${r.count}` : ''}
+                                        ${r.picksCount !== undefined ? `Picks: ${r.picksCount}` : ''}
+                                        ${r.lotsCount !== undefined ? `, Lots: ${r.lotsCount}` : ''}
+                                        ${r.error || ''}
+                                    </td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
+    }
+
+    // Initialize action floating button
+    createActionFloatingButton();
 
     console.log('[JS] ✅ Application initialized');
 });

@@ -2934,7 +2934,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('kpi-trip-customers').textContent = '0';
             document.getElementById('kpi-trip-lorries').textContent = '0';
             document.getElementById('kpi-trip-pickers').textContent = '0';
-            document.getElementById('kpi-trip-weight').textContent = '0';
+            document.getElementById('kpi-trip-weight').textContent = '0 m³';
             return;
         }
 
@@ -2969,7 +2969,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('kpi-trip-customers').textContent = uniqueCustomers;
         document.getElementById('kpi-trip-lorries').textContent = uniqueLorries;
         document.getElementById('kpi-trip-pickers').textContent = uniquePickers;
-        document.getElementById('kpi-trip-weight').textContent = totalWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        document.getElementById('kpi-trip-weight').textContent = totalWeight.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m³';
     }
 
     // Global function: Assign Picker for Selected Orders in All Trip Details grid
@@ -3936,6 +3936,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
             return sum + (parseFloat(volumeVal) || 0);
         }, 0);
+
+        // Get lorry capacity (volume_m3) - this is the truck capacity in cubic meters
+        const lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
+        // Calculate volume fill percentage
+        const volumeFillPercent = lorryCapacity > 0 ? Math.min((totalWeight / lorryCapacity) * 100, 100) : 0;
+        const availableVolume = lorryCapacity > 0 ? Math.max(lorryCapacity - totalWeight, 0) : 0;
+        // Determine color based on fill percentage
+        const volumeColor = volumeFillPercent >= 90 ? '#ef4444' : volumeFillPercent >= 70 ? '#f59e0b' : '#22c55e';
+
         const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
         const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
         
@@ -4034,15 +4043,27 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
                             </div>
 
-                            <!-- Total Weight Card -->
-                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(236, 72, 153, 0.1); border-left: 3px solid #ec4899; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(236, 72, 153, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(236, 72, 153, 0.1)';">
+                            <!-- Volume Capacity Card -->
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(236, 72, 153, 0.1); border-left: 3px solid ${volumeColor}; transition: transform 0.2s ease, box-shadow 0.2s ease; min-width: 180px;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(236, 72, 153, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(236, 72, 153, 0.1)';">
                                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
-                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #ec4899, #db2777); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-weight" style="color: white; font-size: 0.7rem;"></i>
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, ${volumeColor}, ${volumeColor}dd); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                        <i class="fas fa-cube" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Weight</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Volume (m³)</div>
                                 </div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalWeight.toFixed(2)} kg</div>
+                                <div style="margin-left: 2.15rem;">
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.7rem; margin-bottom: 0.25rem;">
+                                        <span style="color: #64748b;">Filled: <strong style="color: #1e293b;">${totalWeight.toFixed(2)}</strong></span>
+                                        <span style="color: #64748b;">Capacity: <strong style="color: #1e293b;">${lorryCapacity.toFixed(2)}</strong></span>
+                                    </div>
+                                    <div style="background: #e2e8f0; border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 0.25rem;">
+                                        <div style="background: ${volumeColor}; height: 100%; width: ${volumeFillPercent.toFixed(1)}%; transition: width 0.3s ease;"></div>
+                                    </div>
+                                    <div style="display: flex; justify-content: space-between; font-size: 0.65rem;">
+                                        <span style="color: ${volumeColor}; font-weight: 700;">${volumeFillPercent.toFixed(1)}% Full</span>
+                                        <span style="color: #22c55e; font-weight: 600;">Avail: ${availableVolume.toFixed(2)} m³</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <!-- Products Card -->
