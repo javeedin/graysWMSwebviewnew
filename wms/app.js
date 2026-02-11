@@ -2728,10 +2728,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 col.dataType = 'date';
                 col.format = 'dd-MMM-yyyy';
             }
-            // Weight/Volume columns
-            else if (key.toLowerCase().includes('weight') || key.toLowerCase().includes('volume')) {
+            // Weight/Volume columns (including order_volume)
+            else if (key.toLowerCase().includes('weight') || key.toLowerCase().includes('volume') || key === 'order_volume' || key === 'ORDER_VOLUME') {
                 col.format = { type: 'fixedPoint', precision: 2 };
                 col.alignment = 'right';
+                console.log(`[Column Format] ${key} set to precision 2`);
             }
             // Quantity/Amount columns
             else if (key.toLowerCase().includes('qty') || key.toLowerCase().includes('quantity') || key.toLowerCase().includes('amount')) {
@@ -2776,6 +2777,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             return col;
+        });
+
+        // Force order_volume column to have 2 decimal precision (override any previous setting)
+        columns.forEach(col => {
+            if (col.dataField && col.dataField.toLowerCase() === 'order_volume') {
+                col.format = { type: 'fixedPoint', precision: 2 };
+                col.alignment = 'right';
+                console.log('[Column Fix] Forced order_volume format to 2 decimals');
+            }
         });
 
         // Add PICKER column explicitly if not returned by API
