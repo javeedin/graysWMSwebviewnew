@@ -8558,6 +8558,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
+        // Disable background page scrolling while modal is open
+        document.body.style.overflow = 'hidden';
+
         // Auto-load all tabs data
         console.log('[Store Transactions] Auto-loading all tab data for order:', orderNumber);
         setTimeout(() => {
@@ -8572,6 +8575,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modal) {
             modal.remove();
         }
+        // Re-enable background page scrolling
+        document.body.style.overflow = '';
     };
 
     // ============================================================================
@@ -8791,6 +8796,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
+        // Disable background page scrolling while modal is open
+        document.body.style.overflow = 'hidden';
+
         // Auto-load first tab data
         console.log('[Order Transactions] Auto-loading Pick Release Details for order:', orderNumber);
         setTimeout(() => {
@@ -8803,6 +8811,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modal) {
             modal.remove();
         }
+        // Re-enable background page scrolling
+        document.body.style.overflow = '';
         // Clear context
         window.currentOrderTransContext = null;
     };
