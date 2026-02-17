@@ -8421,8 +8421,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Create modal HTML
         const modalHtml = `
-            <div id="store-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 25000; justify-content: center; align-items: center;">
-                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+            <div id="store-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 25000; justify-content: center; align-items: center; overscroll-behavior: contain;">
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden; overscroll-behavior: contain;">
                     <!-- Modal Header -->
                     <div style="padding: 0.75rem 1rem; border-bottom: 2px solid #e2e8f0; background: whitesmoke;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
@@ -8558,8 +8558,17 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-        // Disable background page scrolling while modal is open
+        // Disable background page scrolling and prevent browser back/forward swipe
         document.body.style.overflow = 'hidden';
+        const storeModal = document.getElementById('store-transactions-modal');
+        if (storeModal) {
+            storeModal.addEventListener('wheel', function(e) {
+                e.stopPropagation();
+            }, { passive: false });
+            storeModal.addEventListener('touchmove', function(e) {
+                e.stopPropagation();
+            }, { passive: false });
+        }
 
         // Auto-load all tabs data
         console.log('[Store Transactions] Auto-loading all tab data for order:', orderNumber);
@@ -8627,8 +8636,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Create modal HTML
         const modalHtml = `
-            <div id="order-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 25000; justify-content: center; align-items: center;">
-                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+            <div id="order-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 25000; justify-content: center; align-items: center; overscroll-behavior: contain;">
+                <div style="background: white; width: 95%; max-width: 1400px; height: 90%; border-radius: 12px; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden; overscroll-behavior: contain;">
                     <!-- Modal Header -->
                     <div style="padding: 0.75rem 1rem; border-bottom: 2px solid #e2e8f0; background: whitesmoke;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
@@ -8796,8 +8805,17 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-        // Disable background page scrolling while modal is open
+        // Disable background page scrolling and prevent browser back/forward swipe
         document.body.style.overflow = 'hidden';
+        const orderModal = document.getElementById('order-transactions-modal');
+        if (orderModal) {
+            orderModal.addEventListener('wheel', function(e) {
+                e.stopPropagation();
+            }, { passive: false });
+            orderModal.addEventListener('touchmove', function(e) {
+                e.stopPropagation();
+            }, { passive: false });
+        }
 
         // Auto-load first tab data
         console.log('[Order Transactions] Auto-loading Pick Release Details for order:', orderNumber);

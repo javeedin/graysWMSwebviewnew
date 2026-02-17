@@ -1536,6 +1536,7 @@ navPanel.Controls.Add(wmsDevButton);
                 wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
+                wv.CoreWebView2.Settings.IsSwipeNavigationEnabled = false;
 
                 wv.CoreWebView2.WebMessageReceived += async (sender, args) =>
                 {
