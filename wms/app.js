@@ -8614,46 +8614,46 @@ document.addEventListener('DOMContentLoaded', function() {
             {
                 name: 'Transaction Details (S2V Details)',
                 method: 'GET',
-                fullUrl: `${baseUrl}/trip/s2vdetails/${orderNumber}`,
-                note: 'Returns transaction line details for the order'
+                fullUrl: `${baseUrl}/trip/s2vdetails/${orderNumber}?p_instance_name=${instance}`,
+                note: `Instance from trip detail row: ${instance}`
             },
             {
                 name: 'QOH Details (Quantity On Hand)',
                 method: 'GET',
-                fullUrl: `${baseUrl}/trip/tripqoh?v_trx_number=${orderNumber}`,
-                note: 'Returns quantity on hand for items in the transaction'
+                fullUrl: `${baseUrl}/trip/tripqoh?v_trx_number=${orderNumber}&p_instance_name=${instance}`,
+                note: `Instance from trip detail row: ${instance}`
             },
             {
                 name: 'Allocated Lots (Fetch Lot Details)',
                 method: 'GET',
-                fullUrl: `${baseUrl}/trip/fetchlotdetails?v_trx_number=${orderNumber}`,
-                note: 'Returns allocated lot information for the transaction'
+                fullUrl: `${baseUrl}/trip/fetchlotdetails?v_trx_number=${orderNumber}&p_instance_name=${instance}`,
+                note: `Instance from trip detail row: ${instance}`
             },
             {
                 name: 'Fetch Lot Details from Fusion',
                 method: 'POST',
                 fullUrl: `${baseUrl}/trip/fetchlotdetails`,
-                body: `{ "p_trx_number": "${orderNumber}", "p_instance_name": "${fusionInstance}" }`,
-                note: 'Fetches lot details from Oracle Fusion and stores locally'
+                body: `{ "p_trx_number": "${orderNumber}", "p_instance_name": "${instance}" }`,
+                note: `Instance from trip detail row: ${instance}`
             },
             {
                 name: 'Cancel S2V Line',
                 method: 'GET',
-                fullUrl: `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/{transactionId}`,
-                note: 'Cancels a specific Store-to-Van transaction line'
+                fullUrl: `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/{transactionId}?p_instance_name=${instance}`,
+                note: `Instance from trip detail row: ${instance}`
             },
             {
                 name: 'Process Transaction (S2V)',
                 method: 'POST',
                 fullUrl: `${baseUrl}/trip/processs2v`,
-                body: `{ "p_trx_number": "${orderNumber}", "p_instance_name": "${fusionInstance}" }`,
-                note: 'Processes the Store-to-Van transaction in Oracle Fusion'
+                body: `{ "p_trx_number": "${orderNumber}", "p_instance_name": "${instance}" }`,
+                note: `Instance from trip detail row: ${instance}`
             },
             {
                 name: 'Allocate Lots',
                 method: 'GET',
-                fullUrl: `${baseUrl}/materialtrx/allocatelots?p_trx_number=${orderNumber}&p_instance_name=${fusionInstance}`,
-                note: 'Allocates lots for the material transaction'
+                fullUrl: `${baseUrl}/materialtrx/allocatelots?p_trx_number=${orderNumber}&p_instance_name=${instance}`,
+                note: `Instance from trip detail row: ${instance}`
             }
         ];
 
@@ -11183,8 +11183,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
 
-        const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
+        const currentInstance = (window.currentStoreTransContext && window.currentStoreTransContext.instance) || localStorage.getItem('fusionInstance') || 'PROD';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}?p_instance_name=${currentInstance}`;
 
         // Log debug info
         logDebugInfo('Refresh Transaction Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
@@ -11342,8 +11342,8 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Get fusion instance from localStorage
-        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+        // Get instance from row data context first, then localStorage
+        const fusionInstance = (window.currentStoreTransContext && window.currentStoreTransContext.instance) || localStorage.getItem('fusionInstance') || 'TEST';
 
         // Show loading state
         const fetchBtn = document.getElementById('fetch-lot-btn');
@@ -11360,7 +11360,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
 
-        console.log('[Store Transactions] Calling fetch lot details API:', apiUrl, postData);
+        console.log('[Store Transactions] Calling fetch lot details API:', apiUrl, postData, 'instance:', fusionInstance);
 
         // Log debug info
         logDebugInfo('Fetch Lot Details', apiUrl, postData, null, null, 'POST');
@@ -11598,9 +11598,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Call Cancel Line API
     function callCancelLineAPI(transactionId) {
         return new Promise((resolve, reject) => {
-            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/${transactionId}`;
+            const currentInstance = (window.currentStoreTransContext && window.currentStoreTransContext.instance) || localStorage.getItem('fusionInstance') || 'PROD';
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/${transactionId}?p_instance_name=${currentInstance}`;
 
-            console.log('[Store Transactions] Calling cancel API for transaction:', transactionId);
+            console.log('[Store Transactions] Calling cancel API for transaction:', transactionId, 'instance:', currentInstance);
 
             sendMessageToCSharp({
                 action: 'executePost',
@@ -11663,10 +11664,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading allocated lots...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}`;
+        const currentInstance = (window.currentStoreTransContext && window.currentStoreTransContext.instance) || localStorage.getItem('fusionInstance') || 'PROD';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}`;
 
         // Log debug info
-        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber }, null, null, 'GET');
+        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -11890,10 +11892,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading QOH details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}`;
+        const currentInstance = (window.currentStoreTransContext && window.currentStoreTransContext.instance) || localStorage.getItem('fusionInstance') || 'PROD';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}`;
 
         // Log debug info
-        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber }, null, null, 'GET');
+        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -12067,8 +12070,8 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Get fusion instance from localStorage
-        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+        // Get instance from row data context first, then localStorage
+        const fusionInstance = (window.currentStoreTransContext && window.currentStoreTransContext.instance) || localStorage.getItem('fusionInstance') || 'TEST';
 
         // Prepare POST data
         const postData = {
