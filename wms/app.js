@@ -4820,11 +4820,52 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // Get the grid instance
-        const gridInstance = gridContainer.dxDataGrid('instance');
-        if (gridInstance) {
-            console.log('[Trip Management] Reloading grid data...');
-            gridInstance.refresh();
+        // Try to get grid instance - may not exist if trip was initially empty
+        try {
+            const gridInstance = gridContainer.dxDataGrid('instance');
+            if (gridInstance) {
+                console.log('[Trip Management] Grid exists, refreshing via API...');
+                // Use refreshTripDetails which re-fetches from the API
+                if (typeof window.refreshTripDetails === 'function') {
+                    window.refreshTripDetails(tripId);
+                } else {
+                    gridInstance.refresh();
+                }
+            }
+        } catch (e) {
+            // Grid was never initialized (empty trip case) - close tab and reopen
+            console.log('[Trip Management] Grid not initialized (empty trip), closing and reopening tab...');
+
+            // Get trip info before closing the tab
+            const tabPane = document.getElementById(`trip-${tabId}-tab`);
+            let tripDate = '';
+            let lorryNumber = '';
+
+            // Try to extract trip date and lorry from the tab's summary section
+            if (tabPane) {
+                const summaryText = tabPane.textContent || '';
+                // Look in currentFullData for this trip's info
+                if (currentFullData) {
+                    const tripRecord = currentFullData.find(t =>
+                        (t.TRIP_ID || t.trip_id || '').toString() === tripId.toString()
+                    );
+                    if (tripRecord) {
+                        tripDate = tripRecord.TRIP_DATE || tripRecord.trip_date || '';
+                        lorryNumber = tripRecord.LORRY_NUMBER || tripRecord.lorry_number || '';
+                    }
+                }
+            }
+
+            // Remove the existing tab
+            const tabItem = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
+            if (tabPane) tabPane.remove();
+            if (tabItem) tabItem.remove();
+
+            // Reopen trip details - this re-fetches from API and creates a fresh grid
+            if (typeof window.openTripDetails === 'function') {
+                console.log('[Trip Management] Reopening trip details for:', tripId);
+                window.openTripDetails(tripId, tripDate, lorryNumber, window.currentTripInstance || '');
+            }
         }
 
         // Also refresh the trip cards to update totals
