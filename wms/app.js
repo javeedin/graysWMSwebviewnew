@@ -9075,6 +9075,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         allowColumnResizing: true,
                         columnAutoWidth: true,
                         height: '100%',
+                        scrolling: {
+                            mode: 'standard',
+                            useNative: false,
+                            showScrollbar: 'always'
+                        },
                         paging: { pageSize: 25 },
                         pager: {
                             showPageSizeSelector: true,
@@ -9185,6 +9190,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         allowColumnResizing: true,
                         columnAutoWidth: true,
                         height: '100%',
+                        scrolling: {
+                            mode: 'standard',
+                            useNative: false,
+                            showScrollbar: 'always'
+                        },
                         selection: {
                             mode: 'multiple',
                             showCheckBoxesMode: 'always'
@@ -9907,6 +9917,11 @@ document.addEventListener('DOMContentLoaded', function() {
                         allowColumnResizing: true,
                         columnAutoWidth: true,
                         height: '100%',
+                        scrolling: {
+                            mode: 'standard',
+                            useNative: false,
+                            showScrollbar: 'always'
+                        },
                         paging: { pageSize: 25 },
                         pager: {
                             showPageSizeSelector: true,
@@ -11099,7 +11114,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         scrolling: {
                             mode: 'standard',
                             columnRenderingMode: 'virtual',
-                            useNative: true
+                            useNative: false,
+                            showScrollbar: 'always'
                         },
                         columnFixing: {
                             enabled: true
@@ -11641,7 +11657,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         scrolling: {
                             mode: 'standard',
                             columnRenderingMode: 'virtual',
-                            useNative: true
+                            useNative: false,
+                            showScrollbar: 'always'
                         },
                         columnFixing: {
                             enabled: true
@@ -11805,7 +11822,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         scrolling: {
                             mode: 'standard',
                             columnRenderingMode: 'virtual',
-                            useNative: true
+                            useNative: false,
+                            showScrollbar: 'always'
                         },
                         columnFixing: {
                             enabled: true
