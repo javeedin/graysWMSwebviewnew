@@ -7788,6 +7788,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (index >= orders.length) {
             // All done
             document.getElementById('s2v-summary').innerHTML = '<span style="color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> All orders processed!</span>';
+            const allocateBtn = document.getElementById('s2v-allocate-btn');
+            if (allocateBtn) {
+                allocateBtn.disabled = false;
+                allocateBtn.innerHTML = '<i class="fas fa-check-circle"></i> Completed';
+                allocateBtn.style.background = '#10b981';
+                allocateBtn.onclick = function() { closeS2VDialog(); };
+            }
             return;
         }
 
