@@ -4433,7 +4433,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Trip Date</div>
                                 </div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${tripDate}</div>
+                                <div id="kpi-date-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${tripDate}</div>
                             </div>
 
                             <!-- Lorry Number Card -->
@@ -4444,7 +4444,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
                                 </div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${lorryNumber}</div>
+                                <div id="kpi-lorry-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${lorryNumber}</div>
                             </div>
 
                             <!-- Total Orders Card -->
@@ -4455,7 +4455,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
                                 </div>
-                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalOrders}</div>
+                                <div id="kpi-orders-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalOrders}</div>
                             </div>
 
                             <!-- Customers Card -->
@@ -4466,7 +4466,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Customers</div>
                                 </div>
-                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
+                                <div id="kpi-customers-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
                             </div>
 
                             <!-- Total Quantity Card -->
@@ -4477,7 +4477,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Quantity</div>
                                 </div>
-                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
+                                <div id="kpi-quantity-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
                             </div>
 
                             <!-- Volume Capacity Card -->
@@ -4488,7 +4488,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Volume (m³)</div>
                                 </div>
-                                <div style="margin-left: 2.15rem;">
+                                <div id="kpi-volume-${tabId}" style="margin-left: 2.15rem;">
                                     <div style="display: flex; justify-content: space-between; font-size: 0.7rem; margin-bottom: 0.25rem;">
                                         <span style="color: #64748b;">Filled: <strong style="color: #1e293b;">${totalWeight.toFixed(2)}</strong></span>
                                         <span style="color: #64748b;">Capacity: <strong style="color: #1e293b;">${lorryCapacity.toFixed(2)}</strong></span>
@@ -4511,7 +4511,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Products</div>
                                 </div>
-                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueProducts}</div>
+                                <div id="kpi-products-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueProducts}</div>
                             </div>
 
                             <!-- Priority Card -->
@@ -4522,7 +4522,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Priority</div>
                                 </div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
+                                <div id="kpi-priority-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
                             </div>
                         </div>
                     </div>
@@ -8143,7 +8143,142 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
+    // Update KPI cards from fresh trip data
+    window.updateTripKPIs = function(tabId, tripData) {
+        console.log('[Update KPIs] Updating KPIs for tab:', tabId, 'with', tripData.length, 'records');
+
+        const totalOrders = tripData.length;
+        const uniqueCustomers = new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
+        const uniqueProducts = new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
+        const totalQuantity = tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
+        const totalWeight = tripData.reduce((sum, t) => {
+            let volumeVal = t.order_volume1;
+            if (volumeVal === undefined || volumeVal === null) volumeVal = t.ORDER_VOLUME1;
+            if (volumeVal === undefined || volumeVal === null) volumeVal = t.order_volume;
+            if (volumeVal === undefined || volumeVal === null) volumeVal = t.ORDER_VOLUME ?? t.weight ?? t.WEIGHT;
+            return sum + (parseFloat(volumeVal) || 0);
+        }, 0);
+
+        // Get lorry capacity from first record or vehiclesData
+        const firstRecord = tripData[0] || {};
+        let lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
+        if (lorryCapacity === 0) {
+            const lorryNumber = firstRecord.LORRY_NUMBER || firstRecord.lorry_number || firstRecord.TRIP_LORRY || firstRecord.trip_lorry || '';
+            if (lorryNumber && window.vehiclesData && window.vehiclesData.length > 0) {
+                const tripLorryNormalized = lorryNumber.replace(/\s+/g, '').toUpperCase();
+                const matchedVehicle = window.vehiclesData.find(v => (v.lorry_number || '').replace(/\s+/g, '').toUpperCase() === tripLorryNormalized);
+                if (matchedVehicle) lorryCapacity = parseFloat(matchedVehicle.volume_m3 || 0);
+            }
+        }
+        const volumeFillPercent = lorryCapacity > 0 ? Math.min((totalWeight / lorryCapacity) * 100, 100) : 0;
+        const availableVolume = lorryCapacity > 0 ? Math.max(lorryCapacity - totalWeight, 0) : 0;
+        const volumeColor = volumeFillPercent >= 90 ? '#ef4444' : volumeFillPercent >= 70 ? '#f59e0b' : '#22c55e';
+        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+
+        // Update each KPI element
+        const ordersEl = document.getElementById(`kpi-orders-${tabId}`);
+        if (ordersEl) ordersEl.textContent = totalOrders;
+
+        const customersEl = document.getElementById(`kpi-customers-${tabId}`);
+        if (customersEl) customersEl.textContent = uniqueCustomers;
+
+        const quantityEl = document.getElementById(`kpi-quantity-${tabId}`);
+        if (quantityEl) quantityEl.textContent = totalQuantity.toLocaleString();
+
+        const productsEl = document.getElementById(`kpi-products-${tabId}`);
+        if (productsEl) productsEl.textContent = uniqueProducts;
+
+        const priorityEl = document.getElementById(`kpi-priority-${tabId}`);
+        if (priorityEl) {
+            priorityEl.textContent = priority;
+            priorityEl.style.color = priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
+        }
+
+        // Update volume KPI
+        const volumeEl = document.getElementById(`kpi-volume-${tabId}`);
+        if (volumeEl) {
+            volumeEl.innerHTML = `
+                <div style="display: flex; justify-content: space-between; font-size: 0.7rem; margin-bottom: 0.25rem;">
+                    <span style="color: #64748b;">Filled: <strong style="color: #1e293b;">${totalWeight.toFixed(2)}</strong></span>
+                    <span style="color: #64748b;">Capacity: <strong style="color: #1e293b;">${lorryCapacity.toFixed(2)}</strong></span>
+                </div>
+                <div style="background: #e2e8f0; border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 0.25rem;">
+                    <div style="background: ${volumeColor}; height: 100%; width: ${volumeFillPercent.toFixed(1)}%; transition: width 0.3s ease;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.65rem;">
+                    <span style="color: ${volumeColor}; font-weight: 700;">${volumeFillPercent.toFixed(1)}% Full</span>
+                    <span style="color: #22c55e; font-weight: 600;">Avail: ${availableVolume.toFixed(2)} m³</span>
+                </div>
+            `;
+        }
+
+        console.log('[Update KPIs] KPIs updated - Orders:', totalOrders, 'Customers:', uniqueCustomers, 'Qty:', totalQuantity, 'Volume:', totalWeight.toFixed(2));
+    };
+
     // Refresh Trip Details - calls GET endpoint to reload trip data
+    // Helper to process refresh result and update grid + KPIs
+    function handleRefreshResult(result, tripId, tabId, tabGridId, dialogGridId, refreshBtn, originalBtnHtml) {
+        // Restore button
+        if (refreshBtn) {
+            refreshBtn.disabled = false;
+            refreshBtn.innerHTML = originalBtnHtml;
+        }
+
+        if (result && result.items && result.items.length > 0) {
+            const tripData = result.items;
+
+            // Update grid with new data
+            let updateGridContainer = $(`#${tabGridId}`);
+            if (!updateGridContainer || updateGridContainer.length === 0) {
+                updateGridContainer = $(`#${dialogGridId}`);
+            }
+
+            if (updateGridContainer && updateGridContainer.length > 0) {
+                try {
+                    const gridInstance = updateGridContainer.dxDataGrid('instance');
+                    if (gridInstance) {
+                        gridInstance.option('dataSource', tripData);
+                        gridInstance.refresh();
+                    }
+                } catch (gridError) {
+                    console.log('[Refresh Trip] Grid not initialized, closing and reopening trip tab');
+                    // Grid not initialized (empty trip) - close tab and reopen
+                    const tabPane = document.getElementById(`trip-${tabId}-tab`);
+                    const tabItem = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
+                    const firstRecord = tripData[0] || {};
+                    const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '';
+                    const lorryNumber = firstRecord.LORRY_NUMBER || firstRecord.lorry_number || firstRecord.TRIP_LORRY || '';
+                    if (tabPane) tabPane.remove();
+                    if (tabItem) tabItem.remove();
+                    if (typeof window.openTripDetails === 'function') {
+                        window.openTripDetails(tripId, tripDate, lorryNumber, window.currentTripInstance || '');
+                    }
+                    return; // KPIs will be set during openTripDetails
+                }
+            }
+
+            // Update KPI cards with fresh data
+            if (typeof window.updateTripKPIs === 'function') {
+                window.updateTripKPIs(tabId, tripData);
+            }
+
+            // Update order count text
+            const orderCountEl = document.querySelector(`#trip-${tabId}-tab .fa-info-circle`);
+            if (orderCountEl && orderCountEl.parentElement) {
+                orderCountEl.parentElement.innerHTML = `<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${tripData.length} orders`;
+            }
+
+            // Show success notification
+            const notification = document.createElement('div');
+            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
+            notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${tripData.length} order(s) loaded`;
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+        } else {
+            alert('No data returned from API');
+        }
+    }
+
     window.refreshTripDetails = function(tripId) {
         console.log('[Refresh Trip] Refreshing trip:', tripId);
 
@@ -8202,59 +8337,23 @@ document.addEventListener('DOMContentLoaded', function() {
                 action: 'executeGet',
                 fullUrl: GET_TRIP_DETAILS_API
             }, function(error, data) {
-                // Restore button
-                if (refreshBtn) {
-                    refreshBtn.disabled = false;
-                    refreshBtn.innerHTML = originalBtnHtml;
-                }
-
                 if (error) {
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.innerHTML = originalBtnHtml;
+                    }
                     console.error('[Refresh Trip] Error:', error);
                     alert('Error refreshing trip data:\n' + error);
                 } else {
                     try {
                         const result = typeof data === 'string' ? JSON.parse(data) : data;
                         console.log('[Refresh Trip] Data received:', result);
-
-                        if (result && result.items && result.items.length > 0) {
-                            // Update grid with new data - reuse gridContainer from earlier
-                            let updateGridContainer = $(`#${tabGridId}`);
-                            if (!updateGridContainer || updateGridContainer.length === 0) {
-                                updateGridContainer = $(`#${dialogGridId}`);
-                            }
-
-                            if (updateGridContainer && updateGridContainer.length > 0) {
-                                try {
-                                    const gridInstance = updateGridContainer.dxDataGrid('instance');
-                                    if (gridInstance) {
-                                        gridInstance.option('dataSource', result.items);
-                                        gridInstance.refresh();
-
-                                        // Update order count (for tab version)
-                                        const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
-                                        if (orderCountDiv.length > 0) {
-                                            orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
-                                        }
-                                    }
-                                } catch (gridError) {
-                                    console.log('[Refresh Trip] Grid not initialized, reopening trip with fresh data');
-                                    // Grid not initialized - close the tab and reopen with new data
-                                    if (typeof showTripDetails === 'function') {
-                                        showTripDetails(result.items, tripId);
-                                    }
-                                }
-                            }
-
-                            // Show success notification
-                            const notification = document.createElement('div');
-                            notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
-                            notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
-                            document.body.appendChild(notification);
-                            setTimeout(() => notification.remove(), 3000);
-                        } else {
-                            alert('No data returned from API');
-                        }
+                        handleRefreshResult(result, tripId, tabId, tabGridId, dialogGridId, refreshBtn, originalBtnHtml);
                     } catch (parseError) {
+                        if (refreshBtn) {
+                            refreshBtn.disabled = false;
+                            refreshBtn.innerHTML = originalBtnHtml;
+                        }
                         console.error('[Refresh Trip] Error parsing response:', parseError);
                         alert('Error processing response: ' + parseError.message);
                     }
@@ -8265,60 +8364,14 @@ document.addEventListener('DOMContentLoaded', function() {
             fetch(GET_TRIP_DETAILS_API)
                 .then(response => response.json())
                 .then(result => {
-                    // Restore button
-                    if (refreshBtn) {
-                        refreshBtn.disabled = false;
-                        refreshBtn.innerHTML = originalBtnHtml;
-                    }
-
                     console.log('[Refresh Trip] Data received:', result);
-
-                    if (result && result.items && result.items.length > 0) {
-                        // Update grid with new data
-                        let updateGridContainer = $(`#${tabGridId}`);
-                        if (!updateGridContainer || updateGridContainer.length === 0) {
-                            updateGridContainer = $(`#${dialogGridId}`);
-                        }
-
-                        if (updateGridContainer && updateGridContainer.length > 0) {
-                            try {
-                                const gridInstance = updateGridContainer.dxDataGrid('instance');
-                                if (gridInstance) {
-                                    gridInstance.option('dataSource', result.items);
-                                    gridInstance.refresh();
-
-                                    // Update order count
-                                    const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
-                                    if (orderCountDiv.length > 0) {
-                                        orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
-                                    }
-                                }
-                            } catch (gridError) {
-                                console.log('[Refresh Trip] Grid not initialized, reopening trip with fresh data');
-                                // Grid not initialized - close the tab and reopen with new data
-                                if (typeof showTripDetails === 'function') {
-                                    showTripDetails(result.items, tripId);
-                                }
-                            }
-                        }
-
-                        // Show success notification
-                        const notification = document.createElement('div');
-                        notification.style.cssText = 'position: fixed; top: 80px; right: 20px; background: #10b981; color: white; padding: 1rem 1.5rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 10002; font-weight: 600;';
-                        notification.innerHTML = `<i class="fas fa-check-circle"></i> Trip refreshed - ${result.items.length} order(s) loaded`;
-                        document.body.appendChild(notification);
-                        setTimeout(() => notification.remove(), 3000);
-                    } else {
-                        alert('No data returned from API');
-                    }
+                    handleRefreshResult(result, tripId, tabId, tabGridId, dialogGridId, refreshBtn, originalBtnHtml);
                 })
                 .catch(error => {
-                    // Restore button
                     if (refreshBtn) {
                         refreshBtn.disabled = false;
                         refreshBtn.innerHTML = originalBtnHtml;
                     }
-
                     console.error('[Refresh Trip] Error:', error);
                     alert('Error refreshing trip data:\n' + error.message);
                 });
