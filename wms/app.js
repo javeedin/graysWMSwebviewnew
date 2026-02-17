@@ -8419,6 +8419,12 @@ document.addEventListener('DOMContentLoaded', function() {
         window.currentStoreTransTripId = String(tripId);  // Convert to string for C# handler
         window.currentStoreTransTripDate = tripDate;
 
+        // Store context for API info dialog
+        window.currentStoreTransContext = {
+            orderNumber, orderType, tripId, tripDate,
+            accountNumber, accountName, picker, lorry, priority, instance
+        };
+
         // Create modal HTML
         const modalHtml = `
             <div id="store-transactions-modal" style="display: flex; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 25000; justify-content: center; align-items: center; overscroll-behavior: contain;">
@@ -8435,6 +8441,12 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </button>
                             </div>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button onclick="showStoreTransactionsApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
+                                    <i class="fas fa-code"></i> API
+                                </button>
+                                <span style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">
+                                    Instance: ${instance}
+                                </span>
                                 <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}', '${tripId}', '${tripDate}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.75rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
                                     <i class="fas fa-print"></i> Print
                                 </button>
@@ -8586,6 +8598,129 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         // Re-enable background page scrolling
         document.body.style.overflow = '';
+    };
+
+    // Show API Information for Store Transactions
+    window.showStoreTransactionsApiInfo = function() {
+        const ctx = window.currentStoreTransContext || {};
+        const orderNumber = ctx.orderNumber || 'N/A';
+        const instance = ctx.instance || 'N/A';
+        const tripId = ctx.tripId || 'N/A';
+        const fusionInstance = localStorage.getItem('fusionInstance') || instance;
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT';
+
+        const apis = [
+            {
+                name: 'Transaction Details (S2V Details)',
+                method: 'GET',
+                fullUrl: `${baseUrl}/trip/s2vdetails/${orderNumber}`,
+                note: 'Returns transaction line details for the order'
+            },
+            {
+                name: 'QOH Details (Quantity On Hand)',
+                method: 'GET',
+                fullUrl: `${baseUrl}/trip/tripqoh?v_trx_number=${orderNumber}`,
+                note: 'Returns quantity on hand for items in the transaction'
+            },
+            {
+                name: 'Allocated Lots (Fetch Lot Details)',
+                method: 'GET',
+                fullUrl: `${baseUrl}/trip/fetchlotdetails?v_trx_number=${orderNumber}`,
+                note: 'Returns allocated lot information for the transaction'
+            },
+            {
+                name: 'Fetch Lot Details from Fusion',
+                method: 'POST',
+                fullUrl: `${baseUrl}/trip/fetchlotdetails`,
+                body: `{ "p_trx_number": "${orderNumber}", "p_instance_name": "${fusionInstance}" }`,
+                note: 'Fetches lot details from Oracle Fusion and stores locally'
+            },
+            {
+                name: 'Cancel S2V Line',
+                method: 'GET',
+                fullUrl: `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/{transactionId}`,
+                note: 'Cancels a specific Store-to-Van transaction line'
+            },
+            {
+                name: 'Process Transaction (S2V)',
+                method: 'POST',
+                fullUrl: `${baseUrl}/trip/processs2v`,
+                body: `{ "p_trx_number": "${orderNumber}", "p_instance_name": "${fusionInstance}" }`,
+                note: 'Processes the Store-to-Van transaction in Oracle Fusion'
+            },
+            {
+                name: 'Allocate Lots',
+                method: 'GET',
+                fullUrl: `${baseUrl}/materialtrx/allocatelots?p_trx_number=${orderNumber}&p_instance_name=${fusionInstance}`,
+                note: 'Allocates lots for the material transaction'
+            }
+        ];
+
+        let apiHtml = '';
+        apis.forEach((api, idx) => {
+            const bgColor = idx % 2 === 0 ? '#f8fafc' : '#ffffff';
+            let methodColor = '#c6f6d5'; // GET - green
+            let methodTextColor = '#22543d';
+            if (api.method === 'POST') { methodColor = '#fed7aa'; methodTextColor = '#9c4221'; }
+
+            apiHtml += `
+                <div style="background: ${bgColor}; padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; border-left: 3px solid #667eea;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                        <span style="background: ${methodColor}; color: ${methodTextColor}; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">${api.method}</span>
+                        <strong style="color: #1e293b; font-size: 12px;">${api.name}</strong>
+                    </div>
+                    <div style="margin-bottom: 0.25rem;">
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${api.fullUrl}</code>
+                    </div>
+                    ${api.body ? `<div style="margin-bottom: 0.25rem;"><span style="font-size: 10px; color: #64748b; font-weight: 600;">Body:</span><code style="background: #fefce8; padding: 4px 8px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block;">${api.body}</code></div>` : ''}
+                    <div style="font-size: 10px; color: #64748b; font-style: italic;">
+                        <i class="fas fa-info-circle"></i> ${api.note}
+                    </div>
+                </div>
+            `;
+        });
+
+        const apiInfo = `
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+                <h4 style="margin: 0 0 1rem 0; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">
+                    <i class="fas fa-code" style="color: #667eea;"></i> API Information - Store Transactions
+                </h4>
+
+                <div style="background: #e0f2fe; padding: 0.75rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #0284c7;">
+                    <div style="font-weight: 600; color: #0369a1; margin-bottom: 0.5rem;">Current Context</div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <tr><td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Order Number:</td><td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600;">${orderNumber}</td></tr>
+                        <tr><td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Order Type:</td><td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600;">${ctx.orderType || 'N/A'}</td></tr>
+                        <tr><td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Instance:</td><td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600; color: #7c3aed;">${instance}</td></tr>
+                        <tr><td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Fusion Instance (localStorage):</td><td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600; color: #0ea5e9;">${fusionInstance}</td></tr>
+                        <tr><td style="padding: 4px 8px; border: 1px solid #7dd3fc;">Trip ID:</td><td style="padding: 4px 8px; border: 1px solid #7dd3fc; font-weight: 600;">${tripId}</td></tr>
+                    </table>
+                </div>
+
+                <div style="background: #f8f9fa; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                    <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.75rem;">APIs Used in Store Transactions (${apis.length} endpoints)</div>
+                    ${apiHtml}
+                </div>
+            </div>
+        `;
+
+        const popup = document.createElement('div');
+        popup.id = 'store-trans-api-info-popup';
+        popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 26000; display: flex; justify-content: center; align-items: center;';
+        popup.innerHTML = `
+            <div style="background: white; width: 90%; max-width: 750px; max-height: 85%; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                <div style="padding: 1.5rem; max-height: calc(85vh - 60px); overflow-y: auto;">
+                    ${apiInfo}
+                </div>
+                <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; text-align: right;">
+                    <button onclick="document.getElementById('store-trans-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(popup);
     };
 
     // ============================================================================
