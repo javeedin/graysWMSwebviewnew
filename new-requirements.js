@@ -1548,12 +1548,28 @@ window.resetRequirementsFilters = function() {
 $(document).ready(function() {
     console.log('[Requirements] New Requirements module loaded');
 
-    // Initialize when navigating to requirements page
-    $(document).on('click', '.menu-item[data-page="new-requirements"]', function() {
+    // Initialize when navigating to Help page
+    $(document).on('click', '.menu-item[data-page="help-page"]', function() {
         setTimeout(function() {
             if (!requirementsGrid) {
                 initializeRequirementsPage();
             }
         }, 100);
+    });
+
+    // Help page tab switching
+    $(document).on('click', '#help-tab-header .tab-item', function() {
+        const tabName = $(this).data('tab');
+        if (!tabName) return;
+
+        $('#help-tab-header .tab-item').removeClass('active');
+        $('#help-tab-content .tab-pane').removeClass('active');
+        $(this).addClass('active');
+        $('#help-' + tabName + '-tab').addClass('active');
+
+        // Initialize requirements grid if switching to that tab and not yet loaded
+        if (tabName === 'new-requirements' && !requirementsGrid) {
+            initializeRequirementsPage();
+        }
     });
 });
