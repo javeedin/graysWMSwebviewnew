@@ -67,10 +67,6 @@
                 <i class="fas fa-print"></i>
                 <span>Printer Setup New</span>
             </div>
-            <div class="menu-item" data-page="help-page">
-                <i class="fas fa-question-circle"></i>
-                <span>Help</span>
-            </div>
             <div class="menu-item" data-page="api-log">
                 <i class="fas fa-code"></i>
                 <span>API Log</span>
@@ -614,91 +610,6 @@
                 </div>
             </div>
 
-            <!-- HELP PAGE -->
-            <div id="help-page" class="page-content" style="display: none;">
-                <div style="margin-bottom: 1rem;">
-                    <h2 class="page-title" style="margin: 0 0 0.5rem 0;">Help</h2>
-                    <p style="color: #666; margin: 0;">Documentation, requirements, and support resources</p>
-                </div>
-
-                <div class="grid-container">
-                    <div class="grid-header" style="padding: 0;">
-                        <div id="help-tab-header" class="tab-header" style="width: 100%;">
-                            <div class="tab-item active" data-tab="new-requirements">
-                                <i class="fas fa-clipboard-list" style="margin-right: 6px;"></i>
-                                <span>New Requirements</span>
-                            </div>
-                        </div>
-                    </div>
-                    <div id="help-tab-content" class="tab-content">
-
-                        <!-- NEW REQUIREMENTS TAB -->
-                        <div id="help-new-requirements-tab" class="tab-pane active">
-                            <div style="padding: 1.5rem;">
-                                <div style="margin-bottom: 1rem;">
-                                    <h3 style="margin: 0 0 0.25rem 0; color: #2d3748;">WMS Feature Tracker</h3>
-                                    <p style="color: #666; margin: 0; font-size: 0.875rem;">Complete list of all WMS requirements organized by category and priority</p>
-                                </div>
-
-                                <!-- Summary Cards -->
-                                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
-                                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(102,126,234,0.4);">
-                                        <div style="font-size: 2rem; font-weight: 700;" id="req-total-count">0</div>
-                                        <div style="font-size: 0.875rem; opacity: 0.9;">Total Requirements</div>
-                                    </div>
-                                    <div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(17,153,142,0.4);">
-                                        <div style="font-size: 2rem; font-weight: 700;" id="req-must-have-count">0</div>
-                                        <div style="font-size: 0.875rem; opacity: 0.9;">Must Have</div>
-                                    </div>
-                                    <div style="background: linear-gradient(135deg, #f7971e 0%, #ffd200 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(247,151,30,0.4);">
-                                        <div style="font-size: 2rem; font-weight: 700;" id="req-nice-to-have-count">0</div>
-                                        <div style="font-size: 0.875rem; opacity: 0.9;">Nice To Have</div>
-                                    </div>
-                                    <div style="background: linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(161,140,209,0.4);">
-                                        <div style="font-size: 2rem; font-weight: 700;" id="req-2nd-phase-count">0</div>
-                                        <div style="font-size: 0.875rem; opacity: 0.9;">2nd Phase</div>
-                                    </div>
-                                    <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(79,172,254,0.4);">
-                                        <div style="font-size: 2rem; font-weight: 700;" id="req-category-count">0</div>
-                                        <div style="font-size: 0.875rem; opacity: 0.9;">Categories</div>
-                                    </div>
-                                </div>
-
-                                <!-- Filter Controls -->
-                                <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
-                                    <div class="form-group" style="margin-bottom: 0; min-width: 220px;">
-                                        <label for="req-category-filter">Filter by Category</label>
-                                        <select id="req-category-filter" class="form-control" onchange="filterRequirements()">
-                                            <option value="">All Categories</option>
-                                        </select>
-                                    </div>
-                                    <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
-                                        <label for="req-priority-filter">Filter by Priority</label>
-                                        <select id="req-priority-filter" class="form-control" onchange="filterRequirements()">
-                                            <option value="">All Priorities</option>
-                                            <option value="Must Have">Must Have</option>
-                                            <option value="Nice To Have">Nice To Have</option>
-                                            <option value="2nd Phase">2nd Phase</option>
-                                        </select>
-                                    </div>
-                                    <button class="btn btn-secondary" style="margin-top: 1.2rem;" onclick="resetRequirementsFilters()">
-                                        <i class="fas fa-times"></i> Clear Filters
-                                    </button>
-                                </div>
-
-                                <!-- Requirements Grid -->
-                                <div style="padding: 0.75rem 0 0.5rem 0; display: flex; justify-content: space-between; align-items: center;">
-                                    <div class="grid-title">WMS Requirements</div>
-                                    <div id="req-filtered-count" style="color: #666; font-size: 14px;">0 requirements</div>
-                                </div>
-                                <div id="requirements-grid" style="height: 600px;"></div>
-                            </div>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
-
             <!-- API LOG PAGE -->
             <div id="api-log" class="page-content" style="display: none;">
                 <div style="margin-bottom: 1.5rem;">
@@ -773,7 +684,6 @@
     <script src="printer-management.js"></script>
     <script src="printer-management-new.js"></script>
     <script src="monitor-printing.js"></script>
-    <script src="new-requirements.js"></script>
     <script src="api-log.js"></script>
 </body>
 </html>
