@@ -215,6 +215,10 @@
                 <i class="fas fa-question-circle"></i>
                 <span>Help</span>
             </div>
+            <div class="menu-item" data-page="training-center">
+                <i class="fas fa-graduation-cap"></i>
+                <span>Training</span>
+            </div>
             <div class="menu-item" onclick="window.location.href='release-manager.html'" style="border-top: 1px solid #e0e0e0; margin-top: 10px; padding-top: 15px;">
                 <i class="fas fa-rocket"></i>
                 <span>Release Manager</span>
@@ -5740,6 +5744,989 @@
                     </div>
                 </div>
             </div>
+
+            <!-- ============================================================
+                 TRAINING CENTER PAGE
+                 ============================================================ -->
+            <div id="training-center" class="page-content" style="display: none;">
+                <div class="training-page-container">
+
+                    <!-- Training Header -->
+                    <div class="training-header">
+                        <div class="training-header-content">
+                            <div class="training-header-icon">
+                                <i class="fas fa-graduation-cap"></i>
+                            </div>
+                            <div class="training-header-text">
+                                <h1>WMS Training Center</h1>
+                                <p>Step-by-step guides, tutorials, and training material for every feature</p>
+                            </div>
+                            <div class="training-header-stats">
+                                <div class="training-stat">
+                                    <div class="training-stat-number">8</div>
+                                    <div class="training-stat-label">Modules</div>
+                                </div>
+                                <div class="training-stat">
+                                    <div class="training-stat-number">30+</div>
+                                    <div class="training-stat-label">Steps</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Training Module Navigation -->
+                    <div class="training-tabs">
+                        <div class="training-tab active" data-training-tab="getting-started">
+                            <i class="fas fa-play-circle"></i>
+                            <span>Getting Started</span>
+                        </div>
+                        <div class="training-tab" data-training-tab="create-trip">
+                            <i class="fas fa-plus-circle"></i>
+                            <span>Create New Trip</span>
+                        </div>
+                        <div class="training-tab" data-training-tab="trip-details">
+                            <i class="fas fa-info-circle"></i>
+                            <span>Trip Details</span>
+                        </div>
+                        <div class="training-tab" data-training-tab="add-orders">
+                            <i class="fas fa-cart-plus"></i>
+                            <span>Add Orders to Trip</span>
+                        </div>
+                        <div class="training-tab" data-training-tab="auto-pilot">
+                            <i class="fas fa-robot"></i>
+                            <span>Auto Pilot</span>
+                        </div>
+                        <div class="training-tab" data-training-tab="pick-release">
+                            <i class="fas fa-truck-loading"></i>
+                            <span>Pick Release</span>
+                        </div>
+                        <div class="training-tab" data-training-tab="printing">
+                            <i class="fas fa-print"></i>
+                            <span>Printing</span>
+                        </div>
+                        <div class="training-tab" data-training-tab="vehicles-pickers">
+                            <i class="fas fa-users-cog"></i>
+                            <span>Vehicles & Pickers</span>
+                        </div>
+                    </div>
+
+                    <!-- Training Tab Contents -->
+                    <div class="training-tab-contents">
+
+                        <!-- ==========================================
+                             MODULE 1: GETTING STARTED
+                             ========================================== -->
+                        <div id="training-getting-started" class="training-tab-pane active">
+                            <div class="training-section">
+                                <h2><i class="fas fa-play-circle"></i> Getting Started with WMS</h2>
+                                <p class="training-intro">Welcome to the Warehouse Management System. This guide will walk you through the basics of navigating the application, understanding the dashboard, and performing your first operations.</p>
+
+                                <!-- Video placeholder -->
+                                <div class="training-video-container">
+                                    <div class="training-video-placeholder">
+                                        <i class="fas fa-video"></i>
+                                        <h3>Overview Video</h3>
+                                        <p>A walkthrough video of the WMS application will be available here.</p>
+                                        <button class="training-video-btn" disabled>
+                                            <i class="fas fa-play"></i> Video Coming Soon
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Step 1: Login -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">1</div>
+                                        <div>
+                                            <h3>Login to the Application</h3>
+                                            <p>Launch the WMS desktop application. You will be automatically logged in based on your Windows credentials. The application connects to Oracle Fusion Cloud via secure REST APIs.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="login">
+                                            <i class="fas fa-desktop"></i>
+                                            <span>Login Screen</span>
+                                            <small>The application launches with a login screen showing your instance (TEST/PROD)</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-tip">
+                                        <i class="fas fa-lightbulb"></i>
+                                        <div>
+                                            <strong>Tip:</strong> Make sure you select the correct instance (TEST for testing, PROD for live operations) before proceeding.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2: Dashboard -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">2</div>
+                                        <div>
+                                            <h3>Understanding the Dashboard</h3>
+                                            <p>After login, you arrive at the Trip Management screen. This is your main workspace showing all trips, orders, and key performance indicators (KPIs).</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="dashboard">
+                                            <i class="fas fa-tachometer-alt"></i>
+                                            <span>Main Dashboard - Trip Management</span>
+                                            <small>The Trip Management page shows query parameters, trip list grid, and KPI cards at the top</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-callout-grid">
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
+                                                <i class="fas fa-sliders-h"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Query Parameters</strong>
+                                                <p>Filter trips by date, instance, and status. Click the header to expand/collapse.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                                                <i class="fas fa-table"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Trip Grid</strong>
+                                                <p>All trips displayed in a sortable, filterable grid. Click a trip to view details.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                                <i class="fas fa-chart-bar"></i>
+                                            </div>
+                                            <div>
+                                                <strong>KPI Cards</strong>
+                                                <p>Summary stats: total trips, orders, customers, lorries, and weight at a glance.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3: Navigation -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">3</div>
+                                        <div>
+                                            <h3>Navigating the Sidebar Menu</h3>
+                                            <p>The left sidebar contains all the main sections of the application. Click on any menu item to navigate to that section.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="sidebar">
+                                            <i class="fas fa-bars"></i>
+                                            <span>Sidebar Navigation Menu</span>
+                                            <small>Left sidebar with Trip Management, Vehicles, Analytics, Pickers, Printing, and Settings menus</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-menu-list">
+                                        <div class="training-menu-item"><i class="fas fa-truck"></i> <strong>Trip Management</strong> - Create, view, and manage trips</div>
+                                        <div class="training-menu-item"><i class="fas fa-car"></i> <strong>Vehicles Dashboard</strong> - Monitor vehicle fleet status</div>
+                                        <div class="training-menu-item"><i class="fas fa-chart-line"></i> <strong>Analytics</strong> - View charts and performance metrics</div>
+                                        <div class="training-menu-item"><i class="fas fa-users"></i> <strong>Pickers</strong> - Manage warehouse picker assignments</div>
+                                        <div class="training-menu-item"><i class="fas fa-print"></i> <strong>Monitor Printing</strong> - Track print jobs and statuses</div>
+                                        <div class="training-menu-item"><i class="fas fa-robot"></i> <strong>Auto Processing</strong> - Inventory and Sales Order automation</div>
+                                        <div class="training-menu-item"><i class="fas fa-cog"></i> <strong>Settings</strong> - Configure application preferences</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==========================================
+                             MODULE 2: CREATE NEW TRIP
+                             ========================================== -->
+                        <div id="training-create-trip" class="training-tab-pane">
+                            <div class="training-section">
+                                <h2><i class="fas fa-plus-circle"></i> Create a New Trip</h2>
+                                <p class="training-intro">Learn how to create a new trip from start to finish. A trip groups sales orders together for delivery on a specific vehicle on a scheduled date.</p>
+
+                                <div class="training-video-container">
+                                    <div class="training-video-placeholder">
+                                        <i class="fas fa-video"></i>
+                                        <h3>Create Trip - Video Tutorial</h3>
+                                        <p>Watch how to create a new trip step by step.</p>
+                                        <button class="training-video-btn" disabled>
+                                            <i class="fas fa-play"></i> Video Coming Soon
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Step 1: Open Create Trip -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">1</div>
+                                        <div>
+                                            <h3>Open the Create Trip Dialog</h3>
+                                            <p>From the Trip Management page, click the <strong>"Create Trip"</strong> button located in the toolbar above the trip grid.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="create-trip-button">
+                                            <i class="fas fa-mouse-pointer"></i>
+                                            <span>Click "Create Trip" Button</span>
+                                            <small>The Create Trip button is in the toolbar area, usually with a blue/primary color and a "+" icon</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-tip">
+                                        <i class="fas fa-lightbulb"></i>
+                                        <div>
+                                            <strong>Tip:</strong> You can also use the Auto Pilot feature to create trips automatically. See the "Auto Pilot" training module.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2: New Trip Popup -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">2</div>
+                                        <div>
+                                            <h3>Fill in the New Trip Details Popup</h3>
+                                            <p>A popup dialog appears where you enter the trip details. Fill in each required field:</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="new-trip-popup">
+                                            <i class="fas fa-window-restore"></i>
+                                            <span>New Trip Details Popup</span>
+                                            <small>The dialog shows fields for Trip Date, Lorry selection, Instance, and other trip parameters</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-field-table">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Field</th>
+                                                    <th>Description</th>
+                                                    <th>Required</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><strong>Trip Date</strong></td>
+                                                    <td>Select the delivery date for this trip. Defaults to today's date.</td>
+                                                    <td><span class="training-badge training-badge-required">Required</span></td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>Lorry / Vehicle</strong></td>
+                                                    <td>Choose the vehicle for this trip from the dropdown. Shows lorry number and capacity.</td>
+                                                    <td><span class="training-badge training-badge-required">Required</span></td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>Instance</strong></td>
+                                                    <td>Select the Oracle Fusion instance (TEST or PROD).</td>
+                                                    <td><span class="training-badge training-badge-required">Required</span></td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>Priority</strong></td>
+                                                    <td>Set trip priority: High, Medium, or Low.</td>
+                                                    <td><span class="training-badge training-badge-optional">Optional</span></td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3: Submit -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">3</div>
+                                        <div>
+                                            <h3>Submit and Open the Trip</h3>
+                                            <p>Click <strong>"Create Trip"</strong> to submit. The system will create the trip in the database and open a new trip tab showing the trip details with KPI cards. The trip starts with zero orders - you'll add orders in the next step.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="new-trip-created">
+                                            <i class="fas fa-check-circle"></i>
+                                            <span>Trip Created Successfully</span>
+                                            <small>A new tab opens showing the trip with header KPI cards (Trip Date, Lorry, Orders: 0, Volume capacity bar) and an empty orders area with "Add Orders" button</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-tip">
+                                        <i class="fas fa-info-circle"></i>
+                                        <div>
+                                            <strong>What you'll see:</strong> The trip tab shows summary KPI cards at the top (Trip Date, Lorry, Orders, Customers, Quantity, Volume capacity bar, Products, Priority) and a grid area below. For a new trip, the grid shows "No Orders Yet" with an "Add Orders" button.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==========================================
+                             MODULE 3: TRIP DETAILS
+                             ========================================== -->
+                        <div id="training-trip-details" class="training-tab-pane">
+                            <div class="training-section">
+                                <h2><i class="fas fa-info-circle"></i> Trip Details View</h2>
+                                <p class="training-intro">Understand the trip details tab - the KPI header cards, the orders grid, and all available actions for managing a trip.</p>
+
+                                <!-- Step 1: Open Trip Details -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">1</div>
+                                        <div>
+                                            <h3>Opening Trip Details</h3>
+                                            <p>From the Trip Management grid, click on any <strong>Trip ID</strong> link (highlighted in blue) to open the trip details in a new tab.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="trip-grid-click">
+                                            <i class="fas fa-table"></i>
+                                            <span>Click Trip ID in Grid</span>
+                                            <small>The Trip ID column in the grid has clickable links that open a detailed view for each trip</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2: KPI Header Cards -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">2</div>
+                                        <div>
+                                            <h3>Trip Summary KPI Cards</h3>
+                                            <p>The top section of the trip tab displays summary statistics. Click the header to expand/collapse this section.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="trip-kpi-cards">
+                                            <i class="fas fa-chart-pie"></i>
+                                            <span>Trip Summary KPI Cards</span>
+                                            <small>Header section showing Trip Date, Lorry, Total Orders, Customers, Quantity, Volume with capacity progress bar, Products, and Priority</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-kpi-grid">
+                                        <div class="training-kpi-item" style="border-left-color: #6366f1;">
+                                            <i class="fas fa-calendar-alt" style="color: #6366f1;"></i>
+                                            <div><strong>Trip Date</strong><br>The scheduled delivery date</div>
+                                        </div>
+                                        <div class="training-kpi-item" style="border-left-color: #10b981;">
+                                            <i class="fas fa-truck" style="color: #10b981;"></i>
+                                            <div><strong>Lorry</strong><br>Assigned vehicle number</div>
+                                        </div>
+                                        <div class="training-kpi-item" style="border-left-color: #f59e0b;">
+                                            <i class="fas fa-box" style="color: #f59e0b;"></i>
+                                            <div><strong>Orders</strong><br>Total number of sales orders</div>
+                                        </div>
+                                        <div class="training-kpi-item" style="border-left-color: #3b82f6;">
+                                            <i class="fas fa-users" style="color: #3b82f6;"></i>
+                                            <div><strong>Customers</strong><br>Unique customer count</div>
+                                        </div>
+                                        <div class="training-kpi-item" style="border-left-color: #8b5cf6;">
+                                            <i class="fas fa-cubes" style="color: #8b5cf6;"></i>
+                                            <div><strong>Quantity</strong><br>Total item quantity across orders</div>
+                                        </div>
+                                        <div class="training-kpi-item" style="border-left-color: #ec4899;">
+                                            <i class="fas fa-cube" style="color: #ec4899;"></i>
+                                            <div><strong>Volume (m&sup3;)</strong><br>Filled vs capacity with progress bar</div>
+                                        </div>
+                                        <div class="training-kpi-item" style="border-left-color: #14b8a6;">
+                                            <i class="fas fa-boxes" style="color: #14b8a6;"></i>
+                                            <div><strong>Products</strong><br>Unique product count</div>
+                                        </div>
+                                        <div class="training-kpi-item" style="border-left-color: #ef4444;">
+                                            <i class="fas fa-flag" style="color: #ef4444;"></i>
+                                            <div><strong>Priority</strong><br>Trip priority (High/Medium/Low)</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3: Orders Grid -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">3</div>
+                                        <div>
+                                            <h3>Orders Grid & Actions Toolbar</h3>
+                                            <p>Below the KPI cards, you'll find the orders grid listing all sales orders in this trip, along with action buttons.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="trip-orders-grid">
+                                            <i class="fas fa-th-list"></i>
+                                            <span>Orders Grid with Action Buttons</span>
+                                            <small>Grid showing order number, customer, items, status, picker, with buttons: Refresh, Assign Picker, Allocate Lots, Pick Release All, Show Lines, Add Orders</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-actions-list">
+                                        <div class="training-action-item">
+                                            <span class="training-action-badge" style="background: #0ea5e9;"><i class="fas fa-sync-alt"></i> Refresh</span>
+                                            <span>Reload trip data from the server to see latest changes</span>
+                                        </div>
+                                        <div class="training-action-item">
+                                            <span class="training-action-badge" style="background: #6b7280;"><i class="fas fa-user-check"></i> Assign Picker</span>
+                                            <span>Assign a warehouse picker to selected orders</span>
+                                        </div>
+                                        <div class="training-action-item">
+                                            <span class="training-action-badge" style="background: #10b981;"><i class="fas fa-boxes"></i> Allocate Lots</span>
+                                            <span>Allocate inventory lots for Ship-to-Verify orders</span>
+                                        </div>
+                                        <div class="training-action-item">
+                                            <span class="training-action-badge" style="background: #f59e0b;"><i class="fas fa-truck-loading"></i> Pick Release All</span>
+                                            <span>Release all orders in the trip for picking</span>
+                                        </div>
+                                        <div class="training-action-item">
+                                            <span class="training-action-badge" style="background: #8b5cf6;"><i class="fas fa-list-alt"></i> Show Lines</span>
+                                            <span>View detailed order lines for all orders in the trip</span>
+                                        </div>
+                                        <div class="training-action-item">
+                                            <span class="training-action-badge" style="background: #6366f1;"><i class="fas fa-plus"></i> Add Orders</span>
+                                            <span>Open the Add Orders modal to add more orders to this trip</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 4: Grid Features -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">4</div>
+                                        <div>
+                                            <h3>Using the Grid Features</h3>
+                                            <p>The DevExpress grid has powerful built-in features for sorting, filtering, searching, and exporting data.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-callout-grid">
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
+                                                <i class="fas fa-sort"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Sort Columns</strong>
+                                                <p>Click any column header to sort ascending/descending.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                                                <i class="fas fa-filter"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Filter Rows</strong>
+                                                <p>Use the filter row below column headers to filter by specific values.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                                <i class="fas fa-search"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Search Panel</strong>
+                                                <p>Use the search box at the top right of the grid to search across all columns.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                                                <i class="fas fa-check-square"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Select Orders</strong>
+                                                <p>Use checkboxes to select multiple orders for batch actions.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #ec4899, #db2777);">
+                                                <i class="fas fa-file-export"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Export to Excel</strong>
+                                                <p>Click the export button to download grid data as an Excel file.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #14b8a6, #0d9488);">
+                                                <i class="fas fa-columns"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Resize & Reorder</strong>
+                                                <p>Drag column headers to reorder, and drag column edges to resize.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==========================================
+                             MODULE 4: ADD ORDERS TO TRIP
+                             ========================================== -->
+                        <div id="training-add-orders" class="training-tab-pane">
+                            <div class="training-section">
+                                <h2><i class="fas fa-cart-plus"></i> Adding Orders to a Trip</h2>
+                                <p class="training-intro">Learn how to add sales orders to an existing trip. You can select from available unassigned orders using the Add Orders modal, configure which columns to display, and add single or multiple orders.</p>
+
+                                <div class="training-video-container">
+                                    <div class="training-video-placeholder">
+                                        <i class="fas fa-video"></i>
+                                        <h3>Add Orders to Trip - Video Tutorial</h3>
+                                        <p>Watch how to search and add orders to a trip.</p>
+                                        <button class="training-video-btn" disabled>
+                                            <i class="fas fa-play"></i> Video Coming Soon
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Step 1: Open Add Orders -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">1</div>
+                                        <div>
+                                            <h3>Open the Add Orders Modal</h3>
+                                            <p>From within a trip details tab, click the <strong>"Add Orders"</strong> button in the toolbar. This opens a modal overlay showing available orders that haven't been assigned to any trip.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="add-orders-button">
+                                            <i class="fas fa-plus"></i>
+                                            <span>Click "Add Orders" Button</span>
+                                            <small>The "Add Orders" button is in the trip details toolbar, shown in blue/primary color</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2: Select Columns -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">2</div>
+                                        <div>
+                                            <h3>Configure Visible Columns</h3>
+                                            <p>The Add Orders modal allows you to choose which columns to display. Click the <strong>"Columns"</strong> or <strong>column chooser</strong> button to select/deselect columns. Common columns include:</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="column-selector">
+                                            <i class="fas fa-columns"></i>
+                                            <span>Column Selector / Chooser</span>
+                                            <small>A dropdown or panel showing checkboxes for each available column: Order Number, Customer, Ship-To, Items, Weight, Volume, Status, etc.</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-field-table">
+                                        <table>
+                                            <thead>
+                                                <tr>
+                                                    <th>Column</th>
+                                                    <th>Description</th>
+                                                    <th>Useful For</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><strong>ORDER_NUMBER</strong></td>
+                                                    <td>The sales order number from Oracle Fusion</td>
+                                                    <td>Identifying specific orders</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>ACCOUNT_NAME</strong></td>
+                                                    <td>Customer / account name</td>
+                                                    <td>Grouping by customer for delivery routes</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>SHIP_TO_ADDRESS</strong></td>
+                                                    <td>Delivery destination address</td>
+                                                    <td>Planning delivery routes</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>ORDER_VOLUME</strong></td>
+                                                    <td>Volume of the order in m&sup3;</td>
+                                                    <td>Checking if order fits in lorry capacity</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>TOTAL_ITEMS</strong></td>
+                                                    <td>Number of line items in the order</td>
+                                                    <td>Estimating pick time</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><strong>LINE_STATUS</strong></td>
+                                                    <td>Current order status</td>
+                                                    <td>Filtering by readiness</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div class="training-tip">
+                                        <i class="fas fa-lightbulb"></i>
+                                        <div>
+                                            <strong>Tip:</strong> You can drag column headers in the grid to reorder them. Your column preferences may be saved for future sessions.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3: Search & Filter -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">3</div>
+                                        <div>
+                                            <h3>Search and Filter Orders</h3>
+                                            <p>Use the filter row and search panel to find specific orders. You can filter by customer name, order number, address, or any other visible column.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="filter-orders">
+                                            <i class="fas fa-search"></i>
+                                            <span>Filtering Orders in the Add Orders Grid</span>
+                                            <small>Filter row below column headers, and search box at top right, used to narrow down the orders list</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 4: Select & Add -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">4</div>
+                                        <div>
+                                            <h3>Select and Add Orders to the Trip</h3>
+                                            <p>Select one or more orders using the checkboxes, then click <strong>"Add Selected Orders"</strong> to add them to the trip. The system will call the API to assign each selected order to the trip.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="select-add-orders">
+                                            <i class="fas fa-check-double"></i>
+                                            <span>Select Orders and Click "Add Selected"</span>
+                                            <small>Checkboxes selected on multiple rows, with "Add Selected Orders to Trip" button at the bottom of the modal</small>
+                                        </div>
+                                    </div>
+                                    <div class="training-tip">
+                                        <i class="fas fa-info-circle"></i>
+                                        <div>
+                                            <strong>After adding:</strong> The modal closes and you can click <strong>"Refresh"</strong> on the trip details tab to see the newly added orders in the grid. The KPI cards (Orders, Customers, Volume, etc.) will also update.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==========================================
+                             MODULE 5: AUTO PILOT
+                             ========================================== -->
+                        <div id="training-auto-pilot" class="training-tab-pane">
+                            <div class="training-section">
+                                <h2><i class="fas fa-robot"></i> Auto Pilot Mode</h2>
+                                <p class="training-intro">Auto Pilot automates the entire trip creation and order assignment process. It can automatically process inventory transactions, sales orders, create trips, and assign orders based on configured rules.</p>
+
+                                <div class="training-video-container">
+                                    <div class="training-video-placeholder">
+                                        <i class="fas fa-video"></i>
+                                        <h3>Auto Pilot - Video Tutorial</h3>
+                                        <p>See Auto Pilot in action creating trips and assigning orders automatically.</p>
+                                        <button class="training-video-btn" disabled>
+                                            <i class="fas fa-play"></i> Video Coming Soon
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Step 1: What is Auto Pilot -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">1</div>
+                                        <div>
+                                            <h3>What is Auto Pilot?</h3>
+                                            <p>Auto Pilot is an automation feature that runs a sequence of warehouse processes end-to-end without manual intervention. It handles:</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-process-flow">
+                                        <div class="training-process-step">
+                                            <div class="training-process-icon" style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
+                                                <i class="fas fa-warehouse"></i>
+                                            </div>
+                                            <div class="training-process-label">Process Inventory Transactions</div>
+                                            <div class="training-process-desc">Auto-processes pending inventory items</div>
+                                        </div>
+                                        <div class="training-process-arrow"><i class="fas fa-arrow-right"></i></div>
+                                        <div class="training-process-step">
+                                            <div class="training-process-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                                                <i class="fas fa-shopping-cart"></i>
+                                            </div>
+                                            <div class="training-process-label">Process Sales Orders</div>
+                                            <div class="training-process-desc">Auto-processes pending sales orders</div>
+                                        </div>
+                                        <div class="training-process-arrow"><i class="fas fa-arrow-right"></i></div>
+                                        <div class="training-process-step">
+                                            <div class="training-process-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                                <i class="fas fa-truck"></i>
+                                            </div>
+                                            <div class="training-process-label">Create Trips</div>
+                                            <div class="training-process-desc">Creates trips for delivery scheduling</div>
+                                        </div>
+                                        <div class="training-process-arrow"><i class="fas fa-arrow-right"></i></div>
+                                        <div class="training-process-step">
+                                            <div class="training-process-icon" style="background: linear-gradient(135deg, #ec4899, #db2777);">
+                                                <i class="fas fa-clipboard-list"></i>
+                                            </div>
+                                            <div class="training-process-label">Assign Orders</div>
+                                            <div class="training-process-desc">Assigns orders to trips automatically</div>
+                                        </div>
+                                        <div class="training-process-arrow"><i class="fas fa-arrow-right"></i></div>
+                                        <div class="training-process-step">
+                                            <div class="training-process-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+                                                <i class="fas fa-truck-loading"></i>
+                                            </div>
+                                            <div class="training-process-label">Pick Release</div>
+                                            <div class="training-process-desc">Releases orders for warehouse picking</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2: Navigate to Auto Processing -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">2</div>
+                                        <div>
+                                            <h3>Navigate to Auto Processing</h3>
+                                            <p>Click <strong>"Auto Inventory Processing"</strong> or <strong>"Auto Sales Order Processing"</strong> in the sidebar menu to access the automation controls.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="auto-processing-page">
+                                            <i class="fas fa-robot"></i>
+                                            <span>Auto Processing Page</span>
+                                            <small>The auto processing page shows the current status, processing queue, start/stop controls, and processing logs</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3: Start Auto Pilot -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">3</div>
+                                        <div>
+                                            <h3>Start Auto Pilot Processing</h3>
+                                            <p>Click the <strong>"Start"</strong> button to begin automated processing. The system will process items in the queue one by one, showing real-time progress and logs.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-tip">
+                                        <i class="fas fa-exclamation-triangle" style="color: #f59e0b;"></i>
+                                        <div>
+                                            <strong>Important:</strong> Auto Pilot processes real data. Always test in the TEST instance first before running on PROD. Monitor the logs to ensure processing is working correctly.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 4: Monitor Progress -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">4</div>
+                                        <div>
+                                            <h3>Monitor and Review Results</h3>
+                                            <p>Watch the processing logs for success/error messages. Once complete, go back to Trip Management to see the newly created trips and assigned orders.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-callout-grid">
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+                                                <i class="fas fa-check"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Success</strong>
+                                                <p>Green log entries indicate successful processing.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);">
+                                                <i class="fas fa-times"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Errors</strong>
+                                                <p>Red entries show errors. Check the message for details.</p>
+                                            </div>
+                                        </div>
+                                        <div class="training-callout">
+                                            <div class="training-callout-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                                                <i class="fas fa-redo"></i>
+                                            </div>
+                                            <div>
+                                                <strong>Retry</strong>
+                                                <p>Failed items can be retried by restarting the process.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==========================================
+                             MODULE 6: PICK RELEASE
+                             ========================================== -->
+                        <div id="training-pick-release" class="training-tab-pane">
+                            <div class="training-section">
+                                <h2><i class="fas fa-truck-loading"></i> Pick Release Process</h2>
+                                <p class="training-intro">Pick Release sends orders to the warehouse for physical picking. This creates pick tasks that pickers can work on using the Picker View.</p>
+
+                                <!-- Step 1 -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">1</div>
+                                        <div>
+                                            <h3>Select Orders for Pick Release</h3>
+                                            <p>Open a trip details tab and select the orders you want to release using the checkboxes in the grid.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-tip">
+                                        <i class="fas fa-lightbulb"></i>
+                                        <div>
+                                            <strong>Tip:</strong> Use <strong>"Pick Release All"</strong> to release all orders in the trip at once, or select specific orders for partial release.
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2 -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">2</div>
+                                        <div>
+                                            <h3>Assign a Picker (Optional)</h3>
+                                            <p>Before or after pick release, you can assign a picker to the orders. Click <strong>"Assign Picker"</strong> and select a picker from the dropdown.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="assign-picker">
+                                            <i class="fas fa-user-check"></i>
+                                            <span>Assign Picker Dialog</span>
+                                            <small>A dialog showing a picker dropdown and the selected orders. Choose a picker and confirm.</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3 -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">3</div>
+                                        <div>
+                                            <h3>Click Pick Release All</h3>
+                                            <p>Click <strong>"Pick Release All"</strong> in the trip toolbar. The system calls the Oracle Fusion API to create pick tasks for each order. Progress is shown in real-time.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 4 -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">4</div>
+                                        <div>
+                                            <h3>Verify in Picker View</h3>
+                                            <p>After pick release, pickers can open <strong>"Picker View"</strong> from the sidebar to see their assigned pick tasks and start picking items in the warehouse.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==========================================
+                             MODULE 7: PRINTING
+                             ========================================== -->
+                        <div id="training-printing" class="training-tab-pane">
+                            <div class="training-section">
+                                <h2><i class="fas fa-print"></i> Printing & Documents</h2>
+                                <p class="training-intro">The WMS supports printing store transaction documents, delivery notes, and pick lists. Documents can be printed directly from the trip details grid.</p>
+
+                                <!-- Step 1 -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">1</div>
+                                        <div>
+                                            <h3>Print from Trip Details</h3>
+                                            <p>Each order row in the trip details grid has a <strong>print icon</strong> (<i class="fas fa-print" style="color: #8b5cf6;"></i>) in the Actions column. Click it to print the store transaction document for that order.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-screenshot-container">
+                                        <div class="training-screenshot-placeholder" data-screen="print-button">
+                                            <i class="fas fa-print"></i>
+                                            <span>Print Icon in Actions Column</span>
+                                            <small>Each row has a purple print icon that generates and prints the store transaction PDF</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 2 -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">2</div>
+                                        <div>
+                                            <h3>Monitor Print Jobs</h3>
+                                            <p>Navigate to <strong>"Monitor Printing"</strong> in the sidebar to see all print jobs, their statuses, and any errors.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Step 3 -->
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">3</div>
+                                        <div>
+                                            <h3>Configure Printers</h3>
+                                            <p>Go to <strong>"Printer Setups"</strong> to configure available printers, set default printers, and manage print preferences.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ==========================================
+                             MODULE 8: VEHICLES & PICKERS
+                             ========================================== -->
+                        <div id="training-vehicles-pickers" class="training-tab-pane">
+                            <div class="training-section">
+                                <h2><i class="fas fa-users-cog"></i> Managing Vehicles & Pickers</h2>
+                                <p class="training-intro">Learn how to manage your vehicle fleet and warehouse picker team. Vehicles define delivery capacity, and pickers handle order fulfillment in the warehouse.</p>
+
+                                <!-- Vehicles Section -->
+                                <h3 style="font-size: 1.2rem; color: #1e293b; margin: 2rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0;">
+                                    <i class="fas fa-truck" style="color: #10b981;"></i> Vehicles
+                                </h3>
+
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">1</div>
+                                        <div>
+                                            <h3>View Vehicle Dashboard</h3>
+                                            <p>Click <strong>"Vehicles Dashboard"</strong> in the sidebar to see an overview of your entire fleet - availability, capacity utilization, and trip assignments.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">2</div>
+                                        <div>
+                                            <h3>Manage Vehicles</h3>
+                                            <p>Click <strong>"Vehicles"</strong> in the sidebar to add, edit, or remove vehicles. Each vehicle has a lorry number, registration, and volume capacity (m&sup3;).</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Pickers Section -->
+                                <h3 style="font-size: 1.2rem; color: #1e293b; margin: 2rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0;">
+                                    <i class="fas fa-users" style="color: #6366f1;"></i> Pickers
+                                </h3>
+
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">3</div>
+                                        <div>
+                                            <h3>Manage Pickers</h3>
+                                            <p>Click <strong>"Pickers"</strong> in the sidebar to view, add, or edit warehouse pickers. Pickers are assigned to orders within trips.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="training-step">
+                                    <div class="training-step-header">
+                                        <div class="training-step-number">4</div>
+                                        <div>
+                                            <h3>Picker View (Mobile/Tablet)</h3>
+                                            <p>Click <strong>"Picker View"</strong> to open the picker-facing interface. This is designed for warehouse floor use on tablets/mobile devices, showing assigned pick tasks for the logged-in picker.</p>
+                                        </div>
+                                    </div>
+                                    <div class="training-tip">
+                                        <i class="fas fa-mobile-alt"></i>
+                                        <div>
+                                            <strong>Mobile-friendly:</strong> Picker View opens in a separate page optimized for touch screens and smaller devices used on the warehouse floor.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div><!-- end training-tab-contents -->
+                </div><!-- end training-page-container -->
+            </div><!-- end training-center -->
+
         </main>
     </div>
 

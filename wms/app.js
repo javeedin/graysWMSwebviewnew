@@ -2080,6 +2080,23 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
+    // Add click handlers for Training Center tabs
+    document.querySelectorAll('.training-tab').forEach(tab => {
+        tab.addEventListener('click', function() {
+            const tabId = this.getAttribute('data-training-tab');
+            if (!tabId) return;
+
+            document.querySelectorAll('.training-tab').forEach(t => t.classList.remove('active'));
+            this.classList.add('active');
+
+            document.querySelectorAll('.training-tab-pane').forEach(pane => pane.classList.remove('active'));
+            const targetPane = document.getElementById('training-' + tabId);
+            if (targetPane) {
+                targetPane.classList.add('active');
+            }
+        });
+    });
+
     // Fetch Trips button
     document.getElementById('fetch-trips-btn').addEventListener('click', function() {
         console.log('[Fetch Trips] ===== FETCH TRIPS BUTTON CLICKED =====');
