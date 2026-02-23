@@ -4433,7 +4433,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Trip Date</div>
                                 </div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${tripDate}</div>
+                                <div id="kpi-date-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${tripDate}</div>
                             </div>
 
                             <!-- Lorry Number Card -->
@@ -4444,7 +4444,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Lorry</div>
                                 </div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${lorryNumber}</div>
+                                <div id="kpi-lorry-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${lorryNumber}</div>
                             </div>
 
                             <!-- Total Orders Card -->
@@ -4455,7 +4455,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Orders</div>
                                 </div>
-                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalOrders}</div>
+                                <div id="kpi-orders-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalOrders}</div>
                             </div>
 
                             <!-- Customers Card -->
@@ -4466,7 +4466,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Customers</div>
                                 </div>
-                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
+                                <div id="kpi-customers-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
                             </div>
 
                             <!-- Total Quantity Card -->
@@ -4477,7 +4477,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Quantity</div>
                                 </div>
-                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
+                                <div id="kpi-quantity-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
                             </div>
 
                             <!-- Volume Capacity Card -->
@@ -4488,7 +4488,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Volume (m³)</div>
                                 </div>
-                                <div style="margin-left: 2.15rem;">
+                                <div id="kpi-volume-${tabId}" style="margin-left: 2.15rem;">
                                     <div style="display: flex; justify-content: space-between; font-size: 0.7rem; margin-bottom: 0.25rem;">
                                         <span style="color: #64748b;">Filled: <strong style="color: #1e293b;">${totalWeight.toFixed(2)}</strong></span>
                                         <span style="color: #64748b;">Capacity: <strong style="color: #1e293b;">${lorryCapacity.toFixed(2)}</strong></span>
@@ -4511,7 +4511,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Products</div>
                                 </div>
-                                <div style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueProducts}</div>
+                                <div id="kpi-products-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueProducts}</div>
                             </div>
 
                             <!-- Priority Card -->
@@ -4522,7 +4522,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Priority</div>
                                 </div>
-                                <div style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
+                                <div id="kpi-priority-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
                             </div>
                         </div>
                     </div>
@@ -8109,6 +8109,75 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
+    // Update Trip Header KPI cards after refresh
+    window.updateTripHeaderKPIs = function(tripId, tripData) {
+        const tabId = `trip-detail-${tripId}`;
+        console.log('[Refresh Trip] Updating header KPIs for:', tabId);
+
+        const totalOrders = tripData.length;
+        const uniqueCustomers = new Set(tripData.map(t => t.account_name || t.ACCOUNT_NAME || t.CUSTOMER_NAME).filter(x => x)).size;
+        const uniqueProducts = new Set(tripData.map(t => t.PRODUCT_NAME || t.item_name || t.ITEM_NAME).filter(x => x)).size;
+        const totalQuantity = tripData.reduce((sum, t) => sum + (parseFloat(t.QUANTITY || t.quantity || 0)), 0);
+        const totalWeight = tripData.reduce((sum, t) => {
+            let volumeVal = t.order_volume1;
+            if (volumeVal === undefined || volumeVal === null) volumeVal = t.ORDER_VOLUME1;
+            if (volumeVal === undefined || volumeVal === null) volumeVal = t.order_volume;
+            if (volumeVal === undefined || volumeVal === null) volumeVal = t.ORDER_VOLUME ?? t.weight ?? t.WEIGHT;
+            return sum + (parseFloat(volumeVal) || 0);
+        }, 0);
+        const firstRecord = tripData[0];
+        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+        const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '';
+        const lorryNumber = firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
+
+        // Get lorry capacity from data or vehiclesData
+        let lorryCapacity = parseFloat(firstRecord.volume_m3 || firstRecord.VOLUME_M3 || 0);
+        if (lorryCapacity === 0 && lorryNumber && window.vehiclesData && window.vehiclesData.length > 0) {
+            const tripLorryNormalized = lorryNumber.replace(/\s+/g, '').toUpperCase();
+            const matchedVehicle = window.vehiclesData.find(v => (v.lorry_number || '').replace(/\s+/g, '').toUpperCase() === tripLorryNormalized);
+            if (matchedVehicle) lorryCapacity = parseFloat(matchedVehicle.volume_m3 || 0);
+        }
+        const volumeFillPercent = lorryCapacity > 0 ? Math.min((totalWeight / lorryCapacity) * 100, 100) : 0;
+        const availableVolume = lorryCapacity > 0 ? Math.max(lorryCapacity - totalWeight, 0) : 0;
+        const volumeColor = volumeFillPercent >= 90 ? '#ef4444' : volumeFillPercent >= 70 ? '#f59e0b' : '#22c55e';
+
+        // Update each KPI element
+        const el = (id) => document.getElementById(id);
+        if (el(`kpi-date-${tabId}`)) el(`kpi-date-${tabId}`).textContent = tripDate;
+        if (el(`kpi-lorry-${tabId}`)) el(`kpi-lorry-${tabId}`).textContent = lorryNumber;
+        if (el(`kpi-orders-${tabId}`)) el(`kpi-orders-${tabId}`).textContent = totalOrders;
+        if (el(`kpi-customers-${tabId}`)) el(`kpi-customers-${tabId}`).textContent = uniqueCustomers;
+        if (el(`kpi-quantity-${tabId}`)) el(`kpi-quantity-${tabId}`).textContent = totalQuantity.toLocaleString();
+        if (el(`kpi-products-${tabId}`)) el(`kpi-products-${tabId}`).textContent = uniqueProducts;
+
+        // Update priority with color
+        const priorityEl = el(`kpi-priority-${tabId}`);
+        if (priorityEl) {
+            priorityEl.textContent = priority;
+            priorityEl.style.color = priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
+        }
+
+        // Update volume card
+        const volumeEl = el(`kpi-volume-${tabId}`);
+        if (volumeEl) {
+            volumeEl.innerHTML = `
+                <div style="display: flex; justify-content: space-between; font-size: 0.7rem; margin-bottom: 0.25rem;">
+                    <span style="color: #64748b;">Filled: <strong style="color: #1e293b;">${totalWeight.toFixed(2)}</strong></span>
+                    <span style="color: #64748b;">Capacity: <strong style="color: #1e293b;">${lorryCapacity.toFixed(2)}</strong></span>
+                </div>
+                <div style="background: #e2e8f0; border-radius: 4px; height: 8px; overflow: hidden; margin-bottom: 0.25rem;">
+                    <div style="background: ${volumeColor}; height: 100%; width: ${volumeFillPercent.toFixed(1)}%; transition: width 0.3s ease;"></div>
+                </div>
+                <div style="display: flex; justify-content: space-between; font-size: 0.65rem;">
+                    <span style="color: ${volumeColor}; font-weight: 700;">${volumeFillPercent.toFixed(1)}% Full</span>
+                    <span style="color: #22c55e; font-weight: 600;">Avail: ${availableVolume.toFixed(2)} m³</span>
+                </div>
+            `;
+        }
+
+        console.log('[Refresh Trip] Header KPIs updated - Orders:', totalOrders, 'Customers:', uniqueCustomers, 'Volume:', totalWeight.toFixed(2));
+    };
+
     // Refresh Trip Details - calls GET endpoint to reload trip data
     window.refreshTripDetails = function(tripId) {
         console.log('[Refresh Trip] Refreshing trip:', tripId);
@@ -8201,6 +8270,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                         if (orderCountDiv.length > 0) {
                                             orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
                                         }
+
+                                        // Update header KPI cards
+                                        if (typeof window.updateTripHeaderKPIs === 'function') {
+                                            window.updateTripHeaderKPIs(tripId, result.items);
+                                        }
                                     }
                                 } catch (gridError) {
                                     console.log('[Refresh Trip] Grid not initialized, reopening trip tab with fresh data');
@@ -8266,6 +8340,11 @@ document.addEventListener('DOMContentLoaded', function() {
                                     const orderCountDiv = updateGridContainer.closest('.trip-tab-pane').find('.fa-info-circle').parent();
                                     if (orderCountDiv.length > 0) {
                                         orderCountDiv.html(`<i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${result.items.length} orders`);
+                                    }
+
+                                    // Update header KPI cards
+                                    if (typeof window.updateTripHeaderKPIs === 'function') {
+                                        window.updateTripHeaderKPIs(tripId, result.items);
                                     }
                                 }
                             } catch (gridError) {
@@ -14176,7 +14255,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         } catch (e) {
-            console.log('[Action Float] Error getting from DOM grid:', e);
+            // Silently ignore - grid element may exist but not be initialized as dxDataGrid
         }
 
         return selectedOrders;
