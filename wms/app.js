@@ -8517,6 +8517,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </button>
                             </div>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button onclick="toggleStoreTransApiInfo()" style="background: #0ea5e9; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.75rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#0284c7';" onmouseout="this.style.background='#0ea5e9';" title="View API Endpoints">
+                                    <i class="fas fa-plug"></i> API
+                                </button>
                                 <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}', '${tripId}', '${tripDate}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.75rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
                                     <i class="fas fa-print"></i> Print
                                 </button>
@@ -8538,6 +8541,118 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Pick Confirm St:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${pickConfirmSt}</strong></div>
+                        </div>
+
+                        <!-- API Info Panel (Collapsible) -->
+                        <div id="store-trans-api-info" style="display: none; margin-top: 0.5rem; padding: 0.75rem; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd; max-height: 320px; overflow-y: auto;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <h4 style="margin: 0; font-size: 0.8rem; color: #0369a1; font-weight: 700;">
+                                    <i class="fas fa-plug"></i> API Endpoints Used
+                                </h4>
+                                <span style="font-size: 0.65rem; color: #64748b;">9 endpoints</span>
+                            </div>
+
+                            <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.7rem;">
+                                <!-- 1. refreshTransactionDetails -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #10b981;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #10b981; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">GET</span>
+                                        <strong style="color: #1e293b;">Transaction Details</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— refreshTransactionDetails()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/s2vdetails/{orderNumber}</code>
+                                </div>
+
+                                <!-- 2. refreshQOHDetails -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #10b981;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #10b981; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">GET</span>
+                                        <strong style="color: #1e293b;">QOH Details</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— refreshQOHDetails()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number={orderNumber}</code>
+                                </div>
+
+                                <!-- 3. refreshAllocatedLots -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #10b981;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #10b981; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">GET</span>
+                                        <strong style="color: #1e293b;">Allocated Lots</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— refreshAllocatedLots()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number={orderNumber}</code>
+                                </div>
+
+                                <!-- 4. fetchLotDetails -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #f59e0b; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">POST</span>
+                                        <strong style="color: #1e293b;">Fetch Lot Details</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— fetchLotDetails()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/fetchlotdetails</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { p_trx_number, p_instance_name }</div>
+                                </div>
+
+                                <!-- 5. processTransaction -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #f59e0b; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">POST</span>
+                                        <strong style="color: #1e293b;">Process Transaction (S2V)</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— processTransaction()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/processs2v</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { p_trx_number, p_instance_name }</div>
+                                </div>
+
+                                <!-- 6. setData -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #f59e0b; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">POST</span>
+                                        <strong style="color: #1e293b;">Set Data</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— setData() / submitSetData()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../TRIPMANAGEMENT/trip/sets2vdata</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { records: [{ lid, lot_number, lot_expiration_date, picked_qty, ... }] }</div>
+                                </div>
+
+                                <!-- 7. cancelSelectedTransactionLines -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #ef4444;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #ef4444; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">POST</span>
+                                        <strong style="color: #1e293b;">Cancel Transaction Lines</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— cancelSelectedTransactionLines()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../TRIPMANAGEMENT/trip/cancels2vline/{transactionId}</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Cancels selected PENDING lines sequentially</div>
+                                </div>
+
+                                <!-- 8. checkFusionStatus -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #94a3b8;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #94a3b8; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">N/A</span>
+                                        <strong style="color: #1e293b;">Check Fusion Status</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— checkFusionStatus()</span>
+                                    </div>
+                                    <code style="color: #94a3b8; font-size: 0.6rem; font-style: italic;">Not yet implemented — placeholder</code>
+                                </div>
+
+                                <!-- 9. printStoreTransaction -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #8b5cf6;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #8b5cf6; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">SOAP</span>
+                                        <strong style="color: #1e293b;">Print Store Transaction</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— printStoreTransaction()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">C# Handler → Oracle Fusion Cloud SOAP Report</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">S2V/V2S: /Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo<br>Others: /Custom/OQ/GR_SalesOrder_Rep.xdo</div>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px solid #bae6fd; font-size: 0.6rem; color: #64748b;">
+                                <strong>Base URL:</strong> https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/<br>
+                                <strong>Instance:</strong> ${instance} | <strong>All calls routed via:</strong> C# WebView2 sendMessageToCSharp()
+                            </div>
                         </div>
                     </div>
 
@@ -8653,6 +8768,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const modal = document.getElementById('store-transactions-modal');
         if (modal) {
             modal.remove();
+        }
+    };
+
+    window.toggleStoreTransApiInfo = function() {
+        const panel = document.getElementById('store-trans-api-info');
+        if (panel) {
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
         }
     };
 
