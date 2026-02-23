@@ -8613,7 +8613,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <span style="color: #64748b; font-size: 0.6rem;">— setData() / submitSetData()</span>
                                     </div>
                                     <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../TRIPMANAGEMENT/trip/sets2vdata</code>
-                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { records: [{ lid, lot_number, ... }], p_instance_name: "{instance}" }</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { records: [{ lid, picked_qty, p_instance_name, ... }] }</div>
                                 </div>
 
                                 <!-- 7. cancelSelectedTransactionLines -->
@@ -12539,6 +12539,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (lotNumber) record.lot_number = lotNumber;
             if (lotExpDate) record.lot_expiration_date = lotExpDate;
             if (pickedQty) record.picked_qty = parseFloat(pickedQty);
+            record.p_instance_name = currentInstance;
             if (shipConfirmStatus) record.ship_confirm_status = shipConfirmStatus;
             if (pickConfirmStatus) record.pick_confirm_status = pickConfirmStatus;
             if (cancelledStatus) record.cancelled_status = cancelledStatus;
@@ -12546,7 +12547,7 @@ document.addEventListener('DOMContentLoaded', function() {
             records.push(record);
         });
 
-        const payload = { records, p_instance_name: currentInstance };
+        const payload = { records };
 
         console.log('[Set Data] API Payload:', JSON.stringify(payload, null, 2));
 
@@ -12740,6 +12741,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (lotNumber) record.lot_number = lotNumber;
             if (lotExpDate) record.lot_expiration_date = lotExpDate;
             if (pickedQty) record.picked_qty = parseFloat(pickedQty);
+            record.p_instance_name = currentInstance;
             if (shipStatus) record.ship_confirm_status = shipStatus;
             if (pickStatus) record.pick_confirm_status = pickStatus;
             if (cancelStatus) record.cancelled_status = cancelStatus;
@@ -12747,7 +12749,7 @@ document.addEventListener('DOMContentLoaded', function() {
             records.push(record);
         });
 
-        const payload = { records, p_instance_name: currentInstance };
+        const payload = { records };
 
         console.log('[Set Data Grid] API Payload:', JSON.stringify(payload, null, 2));
 
