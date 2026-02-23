@@ -2346,6 +2346,11 @@
                                     <i class="fas fa-play"></i> Start Process
                                 </button>
 
+                                <!-- API Info Button -->
+                                <button onclick="toggleAutoInventoryApiInfo()" style="background: #f1f5f9; border: 1px solid #e2e8f0; padding: 0.65rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; margin-top: 18px; color: #6366f1; transition: all 0.2s;" title="View API endpoints used by this page" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                                    <i class="fas fa-code"></i> API Info
+                                </button>
+
                                 <!-- Selection Buttons -->
                                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 18px; margin-left: 1rem; padding-left: 1rem; border-left: 2px solid #e2e8f0;">
                                     <button onclick="selectAllTrips()" style="background: #f59e0b; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 11px; transition: all 0.2s;" title="Select all trips">
@@ -2422,6 +2427,79 @@
                                 <button onclick="resetTripOrderFontSize()" style="background: #e2e8f0; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; color: #64748b;" title="Reset to default">
                                     Reset
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- API Info Panel (hidden by default) -->
+                    <div id="auto-inventory-api-info" style="display: none; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden; border: 1px solid #e2e8f0;">
+                        <div style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #f8fafc, #f1f5f9); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: #1e293b;">
+                                <i class="fas fa-code" style="color: #6366f1;"></i> API Endpoints Used
+                            </h3>
+                            <button onclick="toggleAutoInventoryApiInfo()" style="background: none; border: none; font-size: 1.25rem; color: #9ca3af; cursor: pointer;">&times;</button>
+                        </div>
+                        <div style="padding: 1.25rem;">
+                            <!-- API 1: Fetch Credentials -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #6366f1;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #10b981; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">GET</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Fetch Fusion Credentials</strong>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trip/fusionuserdetails</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Retrieves Fusion Cloud username/password for authenticated API calls</div>
+                            </div>
+
+                            <!-- API 2: Fetch Transaction Data -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #10b981;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #10b981; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">GET</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Fetch Transactions for Auto Processing</strong>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trips/transactionforautopr?P_FROM_DATE={date}&amp;P_TO_DATE={date}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches pending inventory transactions grouped by trip for the given date range</div>
+                            </div>
+
+                            <!-- API 3: Process S2V Auto -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #f59e0b;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #3b82f6; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">POST</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Process S2V Auto (per LID)</strong>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trip/processs2vauto/{LID}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Processes a single inventory transaction by its LID (Line ID). Called sequentially for each line.</div>
+                            </div>
+
+                            <!-- API 4: Cancel S2V Lot -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #ef4444;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #3b82f6; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">POST</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Cancel S2V Lot (per LID)</strong>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../TRIPMANAGEMENT/trip/cancels2vlot/{LID}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Cancels a specific inventory transaction line by its LID</div>
+                            </div>
+
+                            <!-- API 5: Fusion Cloud - Get Staged Transactions -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #8b5cf6;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #10b981; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">GET</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Fusion Cloud - Get Staged Transactions</strong>
+                                    <span style="background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.6rem; font-weight: 600;">Authenticated</span>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">https://efmh{-test}.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches staged inventory transactions from Oracle Fusion Cloud. Uses Basic Auth with Fusion credentials. URL switches between TEST and PROD based on instance.</div>
+                            </div>
+
+                            <!-- API 6: Fusion Cloud - Delete Staged Transaction -->
+                            <div style="padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #dc2626;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #ef4444; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">DELETE</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Fusion Cloud - Delete Staged Transaction</strong>
+                                    <span style="background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.6rem; font-weight: 600;">Authenticated</span>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">https://efmh{-test}.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/{TransactionInterfaceId}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Deletes a staged transaction from Fusion Cloud after successful processing. Uses Basic Auth.</div>
                             </div>
                         </div>
                     </div>

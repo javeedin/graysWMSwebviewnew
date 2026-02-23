@@ -4,6 +4,14 @@
 //  Automated inventory transaction processing with intelligent retry
 // ============================================================================
 
+// Toggle API Info panel
+window.toggleAutoInventoryApiInfo = function() {
+    const panel = document.getElementById('auto-inventory-api-info');
+    if (panel) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+};
+
 // Global state
 let autoProcessingEnabled = false;
 let autoProcessingInterval = null;
