@@ -589,6 +589,15 @@ window.openAddOrdersModal = function() {
             console.log('[Trip Details] currentTripInstance not set, dropdown value is:', instanceDropdown.value);
         }
 
+        // Display trip ID and instance in modal header for visibility
+        const currentTripId = tripDetailsData?.trip_id || document.getElementById('trip-detail-id')?.textContent || '-';
+        const currentInstance = window.currentTripInstance || instanceDropdown?.value || '-';
+        const tripIdLabel = document.getElementById('add-orders-trip-id');
+        const instanceLabel = document.getElementById('add-orders-instance-label');
+        if (tripIdLabel) tripIdLabel.textContent = currentTripId;
+        if (instanceLabel) instanceLabel.textContent = currentInstance;
+        console.log('[Trip Details] Modal header - Trip ID:', currentTripId, 'Instance:', currentInstance);
+
         // Initialize pending orders grid if not done
         if (!pendingOrdersGrid) {
             console.log('[Trip Details] Initializing pending orders grid...');
@@ -966,13 +975,16 @@ window.addSelectedOrdersToTrip = async function() {
 
     // Get trip ID from various sources
     let tripId = null;
+    console.log('[Trip Details] tripDetailsData:', tripDetailsData);
     if (tripDetailsData && tripDetailsData.trip_id) {
         tripId = tripDetailsData.trip_id;
+        console.log('[Trip Details] Got trip ID from tripDetailsData:', tripId);
     } else {
         // Try to get from DOM
         const tripIdElement = document.getElementById('trip-detail-id');
-        if (tripIdElement && tripIdElement.textContent) {
+        if (tripIdElement && tripIdElement.textContent && tripIdElement.textContent.trim() !== '-') {
             tripId = tripIdElement.textContent.trim();
+            console.log('[Trip Details] Got trip ID from DOM element:', tripId);
         }
     }
 

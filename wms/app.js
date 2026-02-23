@@ -4800,8 +4800,15 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } else {
             // Trip not in currentFullData (e.g., newly created trip)
-            // The instance should already be set in window.currentTripInstance from openTripDetails
+            // Still set the trip details data with the trip ID so addSelectedOrdersToTrip can find it
             console.log('[Trip Management] Trip not in currentFullData, using stored instance:', window.currentTripInstance);
+            if (typeof window.setTripDetailsDataForModal === 'function') {
+                window.setTripDetailsDataForModal({
+                    trip_id: tripId,
+                    instance: window.currentTripInstance || 'PROD'
+                });
+                console.log('[Trip Management] Set tripDetailsData for new trip:', tripId);
+            }
         }
 
         // Open the modal - it will use window.currentTripInstance for the instance
