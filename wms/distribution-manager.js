@@ -285,6 +285,11 @@ if (window.chrome && window.chrome.webview) {
 
         const message = event.data;
 
+        // Skip messages without a type (e.g., API responses handled by pendingRequests)
+        if (!message.type) {
+            return;
+        }
+
         console.log('[Distribution] Message type:', message.type);
 
         switch (message.type) {

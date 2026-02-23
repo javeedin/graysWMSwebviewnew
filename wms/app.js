@@ -8203,10 +8203,19 @@ document.addEventListener('DOMContentLoaded', function() {
                                         }
                                     }
                                 } catch (gridError) {
-                                    console.log('[Refresh Trip] Grid not initialized, reopening trip with fresh data');
-                                    // Grid not initialized - close the tab and reopen with new data
-                                    if (typeof showTripDetails === 'function') {
-                                        showTripDetails(result.items, tripId);
+                                    console.log('[Refresh Trip] Grid not initialized, reopening trip tab with fresh data');
+                                    // Grid not initialized (e.g., new trip with placeholder) - close tab and reopen with data
+                                    const tabId = `trip-detail-${tripId}`;
+                                    const existingTabItem = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
+                                    const existingTabPane = document.getElementById(`trip-${tabId}-tab`);
+                                    if (existingTabItem) existingTabItem.remove();
+                                    if (existingTabPane) existingTabPane.remove();
+
+                                    const firstRecord = result.items[0];
+                                    const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '';
+                                    const lorryNumber = firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
+                                    if (typeof window.openTripDetailsWithData === 'function') {
+                                        window.openTripDetailsWithData(tripId, result.items, tripDate, lorryNumber, false);
                                     }
                                 }
                             }
@@ -8260,10 +8269,19 @@ document.addEventListener('DOMContentLoaded', function() {
                                     }
                                 }
                             } catch (gridError) {
-                                console.log('[Refresh Trip] Grid not initialized, reopening trip with fresh data');
-                                // Grid not initialized - close the tab and reopen with new data
-                                if (typeof showTripDetails === 'function') {
-                                    showTripDetails(result.items, tripId);
+                                console.log('[Refresh Trip] Grid not initialized, reopening trip tab with fresh data');
+                                // Grid not initialized (e.g., new trip with placeholder) - close tab and reopen with data
+                                const tabId = `trip-detail-${tripId}`;
+                                const existingTabItem = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
+                                const existingTabPane = document.getElementById(`trip-${tabId}-tab`);
+                                if (existingTabItem) existingTabItem.remove();
+                                if (existingTabPane) existingTabPane.remove();
+
+                                const firstRecord = result.items[0];
+                                const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '';
+                                const lorryNumber = firstRecord.LORRY_NUMBER || firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
+                                if (typeof window.openTripDetailsWithData === 'function') {
+                                    window.openTripDetailsWithData(tripId, result.items, tripDate, lorryNumber, false);
                                 }
                             }
                         }
