@@ -7609,7 +7609,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         console.log('[Allocate Lots S2V] Store to Van orders found:', s2vOrders.length);
 
-        // Create progress dialog
+        // Create progress dialog - shows orders and waits for confirmation
         const dialogHtml = `
             <div id="s2v-allocate-dialog" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10002; display: flex; align-items: center; justify-content: center;">
                 <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 90%; max-width: 800px; max-height: 80vh; display: flex; flex-direction: column;">
@@ -7617,23 +7617,39 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">
                             <i class="fas fa-boxes" style="color: #10b981;"></i> Allocate Lots for Store to Van Orders
                         </h3>
-                        <button onclick="closeS2VDialog()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; padding: 0; width: 30px; height: 30px;">&times;</button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button onclick="toggleS2VApiInfo()" style="background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 0.75rem; color: #6366f1; cursor: pointer; padding: 0.4rem 0.75rem; border-radius: 6px; font-weight: 600;" title="View API Details">
+                                <i class="fas fa-code"></i> API Info
+                            </button>
+                            <button onclick="closeS2VDialog()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; padding: 0; width: 30px; height: 30px;">&times;</button>
+                        </div>
                     </div>
                     <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                        <!-- API Info Panel (hidden by default) -->
+                        <div id="s2v-api-info" style="display: none; margin-bottom: 1rem; padding: 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                            <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;"><i class="fas fa-code" style="color: #6366f1;"></i> API Details</div>
+                            <div style="font-size: 0.8rem; color: #475569; font-family: monospace; background: #1e293b; color: #e2e8f0; padding: 0.75rem; border-radius: 6px; overflow-x: auto;">
+                                <div style="color: #10b981; margin-bottom: 0.25rem;">Method: POST</div>
+                                <div style="color: #f59e0b; margin-bottom: 0.25rem;">URL: https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails</div>
+                                <div style="color: #94a3b8; margin-bottom: 0.25rem;">Body: { "p_trx_number": "&lt;ORDER_NUMBER&gt;", "p_instance_name": "${s2vOrders[0].INSTANCE || s2vOrders[0].instance || s2vOrders[0].INSTANCE_NAME || s2vOrders[0].instance_name || sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST'}" }</div>
+                                <div style="color: #94a3b8;">Called for each selected S2V order sequentially</div>
+                            </div>
+                        </div>
                         <div style="margin-bottom: 1rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px;">
-                            <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">Processing ${s2vOrders.length} Store to Van Order(s)</div>
-                            <div style="font-size: 0.875rem; color: #047857;">Calling Allocate Lots API for each transaction...</div>
+                            <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">${s2vOrders.length} Store to Van Order(s) Ready</div>
+                            <div style="font-size: 0.875rem; color: #047857;">Review the orders below and click "Start Processing" to allocate lots.</div>
                         </div>
                         <div id="s2v-progress-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
                             ${s2vOrders.map((order, index) => {
                                 const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || 'Unknown';
+                                const instanceName = order.INSTANCE || order.instance || order.INSTANCE_NAME || order.instance_name || sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
                                 return `
                                     <div id="s2v-item-${index}" style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa;">
                                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                            <div style="font-weight: 600; color: #1f2937;">#${index + 1}: ${orderNumber}</div>
+                                            <div style="font-weight: 600; color: #1f2937;">#${index + 1}: ${orderNumber} <span style="font-size: 0.75rem; color: #6b7280; font-weight: 400;">(Instance: ${instanceName})</span></div>
                                             <div id="s2v-status-${index}" style="display: flex; align-items: center; gap: 0.5rem;">
                                                 <i class="fas fa-clock" style="color: #9ca3af;"></i>
-                                                <span style="color: #6b7280; font-size: 0.875rem;">Waiting...</span>
+                                                <span style="color: #6b7280; font-size: 0.875rem;">Pending</span>
                                             </div>
                                         </div>
                                         <div id="s2v-details-${index}" style="font-size: 0.875rem; color: #6b7280;"></div>
@@ -7643,10 +7659,15 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                     </div>
                     <div style="padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
-                        <div id="s2v-summary" style="font-size: 0.875rem; color: #6b7280;">Ready to process...</div>
-                        <button onclick="closeS2VDialog()" class="btn btn-secondary" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
-                            Close
-                        </button>
+                        <div id="s2v-summary" style="font-size: 0.875rem; color: #6b7280;">${s2vOrders.length} order(s) ready to process</div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="closeS2VDialog()" class="btn btn-secondary" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+                                Cancel
+                            </button>
+                            <button id="s2v-start-btn" onclick="startS2VProcessing()" class="btn btn-success" style="font-size: 0.875rem; padding: 0.5rem 1.5rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-play"></i> Start Processing
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -7657,8 +7678,32 @@ document.addEventListener('DOMContentLoaded', function() {
         dialogDiv.innerHTML = dialogHtml;
         document.body.appendChild(dialogDiv);
 
-        // Process each S2V order
-        processS2VOrders(s2vOrders, 0);
+        // Store orders for later processing
+        window._s2vPendingOrders = s2vOrders;
+    };
+
+    // Toggle API Info panel
+    window.toggleS2VApiInfo = function() {
+        const panel = document.getElementById('s2v-api-info');
+        if (panel) {
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+    };
+
+    // Start S2V Processing (called by confirmation button)
+    window.startS2VProcessing = function() {
+        const startBtn = document.getElementById('s2v-start-btn');
+        if (startBtn) {
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            startBtn.style.opacity = '0.7';
+            startBtn.style.cursor = 'not-allowed';
+        }
+
+        const orders = window._s2vPendingOrders;
+        if (orders && orders.length > 0) {
+            processS2VOrders(orders, 0);
+        }
     };
 
     // Close S2V Dialog
@@ -7674,12 +7719,21 @@ document.addEventListener('DOMContentLoaded', function() {
         if (index >= orders.length) {
             // All done
             document.getElementById('s2v-summary').innerHTML = '<span style="color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> All orders processed!</span>';
+            const startBtn = document.getElementById('s2v-start-btn');
+            if (startBtn) {
+                startBtn.innerHTML = '<i class="fas fa-check"></i> Done';
+                startBtn.style.background = '#6b7280';
+            }
+            delete window._s2vPendingOrders;
             return;
         }
 
         const order = orders[index];
         const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || 'Unknown';
-        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+        const instanceName = order.INSTANCE || order.instance || order.INSTANCE_NAME || order.instance_name
+            || sessionStorage.getItem('loggedInInstance')
+            || localStorage.getItem('fusionInstance')
+            || 'TEST';
 
         // Update status to processing
         const statusDiv = document.getElementById(`s2v-status-${index}`);
@@ -7691,12 +7745,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // Prepare POST data
         const postData = {
             p_trx_number: orderNumber,
-            p_instance_name: fusionInstance
+            p_instance_name: instanceName
         };
 
         const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
 
-        console.log(`[Allocate Lots S2V] Processing order ${index + 1}/${orders.length}:`, orderNumber);
+        console.log(`[Allocate Lots S2V] Processing order ${index + 1}/${orders.length}:`, orderNumber, 'Instance:', instanceName);
+        console.log('[Allocate Lots S2V] POST body:', JSON.stringify(postData));
 
         // Call API
         sendMessageToCSharp({
