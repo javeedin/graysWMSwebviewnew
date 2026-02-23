@@ -3095,23 +3095,23 @@ function displayVerifyComparisonPopup(orderNumber, localTransactions, fusionData
 
     closeVerifyLoadingPopup();
 
-    // Match local transactions with Fusion data by LID
+    // Match local transactions with Fusion data by Item Number
     const enhancedTransactions = localTransactions.map(localTxn => {
-        const lid = String(localTxn.lid || '').trim();
-        console.log('[Display Verify] Matching LID:', lid);
+        const itemCode = String(localTxn.item_code || localTxn.ITEM_CODE || localTxn.item || localTxn.ITEM || '').trim();
+        console.log('[Display Verify] Matching Item Number:', itemCode);
         console.log('[Display Verify] Local transaction fields:', Object.keys(localTxn));
 
-        // Find matching Fusion record
+        // Find matching Fusion record by item number
         const fusionMatch = fusionData.find(fusionRecord => {
-            // Try different possible LID field names
-            const fusionLid = String(fusionRecord.LID || fusionRecord.lid || fusionRecord.LOAD_REQUEST_NUMBER || fusionRecord.LOAD_ID || '').trim();
-            return fusionLid === lid;
+            // Try different possible item number field names from Fusion
+            const fusionItem = String(fusionRecord.ITEM_NUMBER || fusionRecord.item_number || fusionRecord.ITEM_CODE || fusionRecord.item_code || fusionRecord.ITEM || fusionRecord.item || fusionRecord.INVENTORY_ITEM_NUMBER || '').trim();
+            return fusionItem === itemCode;
         });
 
         if (fusionMatch) {
-            console.log('[Display Verify] Match found for LID', lid, ':', fusionMatch);
+            console.log('[Display Verify] Match found for Item', itemCode, ':', fusionMatch);
         } else {
-            console.log('[Display Verify] No match for LID', lid);
+            console.log('[Display Verify] No match for Item', itemCode);
         }
 
         return {
