@@ -8560,7 +8560,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <strong style="color: #1e293b;">Transaction Details</strong>
                                         <span style="color: #64748b; font-size: 0.6rem;">— refreshTransactionDetails()</span>
                                     </div>
-                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/s2vdetails/{orderNumber}</code>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/s2vdetails/{orderNumber}?p_instance_name={instance}</code>
                                 </div>
 
                                 <!-- 2. refreshQOHDetails -->
@@ -8570,7 +8570,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <strong style="color: #1e293b;">QOH Details</strong>
                                         <span style="color: #64748b; font-size: 0.6rem;">— refreshQOHDetails()</span>
                                     </div>
-                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number={orderNumber}</code>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number={orderNumber}&p_instance_name={instance}</code>
                                 </div>
 
                                 <!-- 3. refreshAllocatedLots -->
@@ -8580,7 +8580,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <strong style="color: #1e293b;">Allocated Lots</strong>
                                         <span style="color: #64748b; font-size: 0.6rem;">— refreshAllocatedLots()</span>
                                     </div>
-                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number={orderNumber}</code>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number={orderNumber}&p_instance_name={instance}</code>
                                 </div>
 
                                 <!-- 4. fetchLotDetails -->
@@ -8613,7 +8613,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <span style="color: #64748b; font-size: 0.6rem;">— setData() / submitSetData()</span>
                                     </div>
                                     <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../TRIPMANAGEMENT/trip/sets2vdata</code>
-                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { records: [{ lid, lot_number, lot_expiration_date, picked_qty, ... }] }</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { records: [{ lid, lot_number, ... }], p_instance_name: "{instance}" }</div>
                                 </div>
 
                                 <!-- 7. cancelSelectedTransactionLines -->
@@ -8623,7 +8623,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <strong style="color: #1e293b;">Cancel Transaction Lines</strong>
                                         <span style="color: #64748b; font-size: 0.6rem;">— cancelSelectedTransactionLines()</span>
                                     </div>
-                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../TRIPMANAGEMENT/trip/cancels2vline/{transactionId}</code>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../TRIPMANAGEMENT/trip/cancels2vline/{transactionId}?p_instance_name={instance}</code>
                                     <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Cancels selected PENDING lines sequentially</div>
                                 </div>
 
@@ -11209,8 +11209,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
 
-        const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}?p_instance_name=${currentInstance}`;
 
         // Log debug info
         logDebugInfo('Refresh Transaction Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
@@ -11623,9 +11623,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Call Cancel Line API
     function callCancelLineAPI(transactionId) {
         return new Promise((resolve, reject) => {
-            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/${transactionId}`;
+            const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/${transactionId}?p_instance_name=${currentInstance}`;
 
-            console.log('[Store Transactions] Calling cancel API for transaction:', transactionId);
+            console.log('[Store Transactions] Calling cancel API for transaction:', transactionId, 'instance:', currentInstance);
 
             sendMessageToCSharp({
                 action: 'executePost',
@@ -11688,10 +11689,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading allocated lots...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}`;
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}`;
 
         // Log debug info
-        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber }, null, null, 'GET');
+        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -11914,10 +11916,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading QOH details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}`;
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}`;
 
         // Log debug info
-        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber }, null, null, 'GET');
+        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -12520,6 +12523,9 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance name
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+
         // Build records array for the API (always multiple records format)
         const records = [];
 
@@ -12540,7 +12546,7 @@ document.addEventListener('DOMContentLoaded', function() {
             records.push(record);
         });
 
-        const payload = { records };
+        const payload = { records, p_instance_name: currentInstance };
 
         console.log('[Set Data] API Payload:', JSON.stringify(payload, null, 2));
 
@@ -12711,6 +12717,9 @@ document.addEventListener('DOMContentLoaded', function() {
     window.submitSetDataGrid = async function(orderNumber, selectedItems) {
         console.log('[Store Transactions] Submitting grid set data for:', orderNumber);
 
+        // Get instance name
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+
         // Build records array for the API
         const records = [];
 
@@ -12738,7 +12747,7 @@ document.addEventListener('DOMContentLoaded', function() {
             records.push(record);
         });
 
-        const payload = { records };
+        const payload = { records, p_instance_name: currentInstance };
 
         console.log('[Set Data Grid] API Payload:', JSON.stringify(payload, null, 2));
 
