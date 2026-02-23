@@ -307,11 +307,11 @@ function displayGroupedTrips() {
         const distinctOrders = [...new Set(trip.transactions.map(t => t.trx_number))];
         const orderCount = distinctOrders.length;
 
-        // Calculate status counts
-        const successCount = trip.transactions.filter(t => t.transaction_status === 'SUCCESS').length;
-        const failedCount = trip.transactions.filter(t => t.transaction_status === 'FAILED' || t.transaction_status === 'ERROR').length;
-        const processingCount = trip.transactions.filter(t => t.transaction_status === 'PROCESSING').length;
-        const cancelledCount = trip.transactions.filter(t => t.transaction_status === 'CANCELLED').length;
+        // Calculate status counts (case-insensitive)
+        const successCount = trip.transactions.filter(t => (t.transaction_status || '').toUpperCase() === 'SUCCESS').length;
+        const failedCount = trip.transactions.filter(t => { const s = (t.transaction_status || '').toUpperCase(); return s === 'FAILED' || s === 'ERROR'; }).length;
+        const processingCount = trip.transactions.filter(t => (t.transaction_status || '').toUpperCase() === 'PROCESSING').length;
+        const cancelledCount = trip.transactions.filter(t => (t.transaction_status || '').toUpperCase() === 'CANCELLED').length;
         const pendingCount = trip.transactions.length - successCount - failedCount - processingCount - cancelledCount;
 
         // Check if this trip is selected
@@ -462,8 +462,8 @@ function renderTripTransactions(transactions, tripIndex) {
         orderGroups[orderNum].totalQty += trx.picked_qty || 0;
         orderGroups[orderNum].totalLines += 1;
 
-        // Count processed vs not processed
-        if (trx.transaction_status === 'SUCCESS') {
+        // Count processed vs not processed (case-insensitive)
+        if ((trx.transaction_status || '').toUpperCase() === 'SUCCESS') {
             orderGroups[orderNum].processedLines += 1;
         } else {
             orderGroups[orderNum].notProcessedLines += 1;
@@ -489,8 +489,8 @@ function renderTripTransactions(transactions, tripIndex) {
         // - SUCCESS: All items are SUCCESS or CANCELLED (no real pending work)
         // - FAILED: Any item is FAILED or ERROR
         // - PENDING: There are actual pending items
-        const allSuccessOrCancelled = order.items.every(i => i.transaction_status === 'SUCCESS' || i.transaction_status === 'CANCELLED');
-        const hasFailed = order.items.some(i => i.transaction_status === 'FAILED' || i.transaction_status === 'ERROR');
+        const allSuccessOrCancelled = order.items.every(i => { const s = (i.transaction_status || '').toUpperCase(); return s === 'SUCCESS' || s === 'CANCELLED'; });
+        const hasFailed = order.items.some(i => { const s = (i.transaction_status || '').toUpperCase(); return s === 'FAILED' || s === 'ERROR'; });
 
         const orderStatus = hasFailed ? 'FAILED' :
                            allSuccessOrCancelled ? 'SUCCESS' :
@@ -609,14 +609,17 @@ function renderTripTransactions(transactions, tripIndex) {
         `;
 
         order.items.forEach((item, itemIdx) => {
-            const itemStatusColor = item.transaction_status === 'SUCCESS' ? '#10b981' :
-                                   item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR' ? '#ef4444' :
-                                   item.transaction_status === 'PROCESSING' ? '#f59e0b' :
+            // Normalize transaction_status to uppercase for case-insensitive comparison
+            const itemStatus = (item.transaction_status || '').toUpperCase();
+
+            const itemStatusColor = itemStatus === 'SUCCESS' ? '#10b981' :
+                                   itemStatus === 'FAILED' || itemStatus === 'ERROR' ? '#ef4444' :
+                                   itemStatus === 'PROCESSING' ? '#f59e0b' :
                                    '#3b82f6';
 
-            const itemStatusIcon = item.transaction_status === 'SUCCESS' ? 'check-circle' :
-                                  item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR' ? 'times-circle' :
-                                  item.transaction_status === 'PROCESSING' ? 'spinner fa-spin' :
+            const itemStatusIcon = itemStatus === 'SUCCESS' ? 'check-circle' :
+                                  itemStatus === 'FAILED' || itemStatus === 'ERROR' ? 'times-circle' :
+                                  itemStatus === 'PROCESSING' ? 'spinner fa-spin' :
                                   'clock';
 
             html += `
@@ -633,11 +636,11 @@ function renderTripTransactions(transactions, tripIndex) {
                     <td style="padding: 0.6rem 0.75rem; font-size: 11px; color: #475569;">${item.lot_number || 'N/A'}</td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="status-cell-${tripIndex}-${item.originalIndex}">
                         <span style="display: inline-flex; align-items: center; gap: 0.25rem; background: ${itemStatusColor}; color: white; padding: 3px 8px; border-radius: 10px; font-size: 9px; font-weight: 700;">
-                            <i class="fas fa-${itemStatusIcon}"></i> ${item.transaction_status || 'PENDING'}
+                            <i class="fas fa-${itemStatusIcon}"></i> ${itemStatus || 'PENDING'}
                         </span>
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="action-cell-${tripIndex}-${item.originalIndex}">
-                        ${(item.transaction_status === 'FAILED' || item.transaction_status === 'ERROR') ? `
+                        ${(itemStatus === 'FAILED' || itemStatus === 'ERROR') ? `
                             <div style="display: flex; gap: 0.25rem; justify-content: center;">
                                 <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                     <i class="fas fa-play"></i> Process
@@ -646,11 +649,11 @@ function renderTripTransactions(transactions, tripIndex) {
                                     <i class="fas fa-exclamation-circle"></i> Show Errors
                                 </button>
                             </div>
-                        ` : item.transaction_status === 'PROCESSING' ? `
+                        ` : itemStatus === 'PROCESSING' ? `
                             <span style="color: #f59e0b; font-size: 10px;"><i class="fas fa-spinner fa-spin"></i> Processing...</span>
-                        ` : item.transaction_status === 'SUCCESS' ? `
+                        ` : itemStatus === 'SUCCESS' ? `
                             <span style="color: #10b981; font-size: 10px;"><i class="fas fa-check-circle"></i> Completed</span>
-                        ` : (!item.transaction_status || item.transaction_status === 'PENDING') && item.picked_qty && parseFloat(item.picked_qty) > 0 ? `
+                        ` : (!itemStatus || itemStatus === 'PENDING') && item.picked_qty && parseFloat(item.picked_qty) > 0 ? `
                             <button onclick="processSingleLine(${tripIndex}, ${item.originalIndex})" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'">
                                 <i class="fas fa-play"></i> Process
                             </button>
@@ -659,7 +662,7 @@ function renderTripTransactions(transactions, tripIndex) {
                         `}
                     </td>
                     <td style="padding: 0.6rem 0.75rem; text-align: center;" id="cancel-cell-${tripIndex}-${item.originalIndex}">
-                        ${item.transaction_status === 'SUCCESS' ? `
+                        ${itemStatus === 'SUCCESS' ? `
                             <span style="color: #cbd5e1; font-size: 10px;">-</span>
                         ` : `
                             <button onclick="cancelS2VLot(${tripIndex}, ${item.originalIndex}, '${item.lid || ''}')" style="background: #e5e7eb; color: #1f2937; border: 1px solid #d1d5db; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; font-weight: 600; transition: all 0.2s;" onmouseover="this.style.background='#d1d5db'" onmouseout="this.style.background='#e5e7eb'" title="Cancel this line">
@@ -995,10 +998,10 @@ function updateStatistics() {
     autoProcessingStats.totalOrders = distinctOrders.length;
     // Total Lines = all transactions
     autoProcessingStats.totalLines = autoProcessingData.length;
-    autoProcessingStats.success = autoProcessingData.filter(t => t.transaction_status === 'SUCCESS').length;
-    autoProcessingStats.failed = autoProcessingData.filter(t => t.transaction_status === 'FAILED' || t.transaction_status === 'ERROR').length;
-    autoProcessingStats.processing = autoProcessingData.filter(t => t.transaction_status === 'PROCESSING').length;
-    autoProcessingStats.cancelled = autoProcessingData.filter(t => t.transaction_status === 'CANCELLED').length;
+    autoProcessingStats.success = autoProcessingData.filter(t => (t.transaction_status || '').toUpperCase() === 'SUCCESS').length;
+    autoProcessingStats.failed = autoProcessingData.filter(t => { const s = (t.transaction_status || '').toUpperCase(); return s === 'FAILED' || s === 'ERROR'; }).length;
+    autoProcessingStats.processing = autoProcessingData.filter(t => (t.transaction_status || '').toUpperCase() === 'PROCESSING').length;
+    autoProcessingStats.cancelled = autoProcessingData.filter(t => (t.transaction_status || '').toUpperCase() === 'CANCELLED').length;
 
     // Update UI
     document.getElementById('auto-stat-trips').textContent = autoProcessingStats.totalTrips;
