@@ -112,7 +112,8 @@ function initializeAutoProcessing() {
 
 // Fetch Oracle Fusion Cloud credentials from API
 function fetchFusionCloudCredentials() {
-    const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
+    const instance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+    const credentialsUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails?p_instance_name=${instance}`;
 
     console.log('[Auto Processing] Fetching Fusion Cloud credentials...');
     addLogEntry('System', 'Fetching Oracle Fusion Cloud credentials...', 'info');
@@ -173,7 +174,7 @@ function fetchAutoInventoryData() {
         || 'PROD';
 
     // Build API URL
-    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/transactionforautopr?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}`;
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/transactionforautopr?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}&P_INSTANCE_NAME=${instance}`;
 
     console.log('[Auto Processing] Fetching from:', apiUrl);
 
@@ -1641,9 +1642,10 @@ function processTransactionAPI(transaction) {
             return;
         }
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/processs2vauto/${lid}`;
+        const instance = transaction.instance_name || sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/processs2vauto/${lid}?p_instance_name=${instance}`;
 
-        console.log('[Auto Processing] Calling API for LID:', lid, apiUrl);
+        console.log('[Auto Processing] Calling API for LID:', lid, 'Instance:', instance, apiUrl);
 
         // Call API using WebView REST handler
         sendMessageToCSharp({
@@ -1725,11 +1727,12 @@ async function cancelS2VLot(tripIndex, transactionIndex, lid) {
     }
 
     // Build the API URL
-    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vlot/${lid}`;
+    const instance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vlot/${lid}?p_instance_name=${instance}`;
 
     // Log the endpoint being called
     addLogEntry('Cancel', `POST ${apiUrl}`, 'info');
-    console.log('[Cancel] Calling endpoint:', apiUrl);
+    console.log('[Cancel] Calling endpoint:', apiUrl, 'Instance:', instance);
 
     try {
         // Use C# REST handler via WebView2
@@ -2379,10 +2382,11 @@ async function cancelS2VLotFromFlat(flatIndex, lid) {
     const tripIndex = groupedTrips.findIndex(t => t.trip_id === tripId);
 
     // Call the existing cancel function logic
-    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vlot/${lid}`;
+    const instance = item.instance_name || sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vlot/${lid}?p_instance_name=${instance}`;
 
-    console.log('[Cancel Flat] Cancelling LID:', lid, 'API:', apiUrl);
-    addLogEntry('Cancel', `Cancelling LID: ${lid}`, 'info');
+    console.log('[Cancel Flat] Cancelling LID:', lid, 'Instance:', instance, 'API:', apiUrl);
+    addLogEntry('Cancel', `Cancelling LID: ${lid} (Instance: ${instance})`, 'info');
 
     // Show spinner on button
     const row = document.getElementById(`flat-row-${flatIndex}`);
@@ -6202,7 +6206,8 @@ window.startTripMRAInterface = async function() {
 // Fetch Fusion credentials for batch MRA
 async function fetchFusionCredentialsForBatchMRA() {
     return new Promise((resolve, reject) => {
-        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
+        const instance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+        const credentialsUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails?p_instance_name=${instance}`;
 
         console.log('[MRA Batch] Fetching credentials from:', credentialsUrl);
 

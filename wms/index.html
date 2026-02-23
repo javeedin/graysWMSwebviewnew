@@ -2446,7 +2446,7 @@
                                     <span style="background: #10b981; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">GET</span>
                                     <strong style="font-size: 0.8rem; color: #1e293b;">Fetch Fusion Credentials</strong>
                                 </div>
-                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trip/fusionuserdetails</code>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trip/fusionuserdetails?p_instance_name={instance}</code>
                                 <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Retrieves Fusion Cloud username/password for authenticated API calls</div>
                             </div>
 
@@ -2456,7 +2456,7 @@
                                     <span style="background: #10b981; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">GET</span>
                                     <strong style="font-size: 0.8rem; color: #1e293b;">Fetch Transactions for Auto Processing</strong>
                                 </div>
-                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trips/transactionforautopr?P_FROM_DATE={date}&amp;P_TO_DATE={date}</code>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trips/transactionforautopr?P_FROM_DATE={date}&amp;P_TO_DATE={date}&amp;P_INSTANCE_NAME={instance}</code>
                                 <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches pending inventory transactions grouped by trip for the given date range</div>
                             </div>
 
@@ -2466,7 +2466,7 @@
                                     <span style="background: #3b82f6; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">POST</span>
                                     <strong style="font-size: 0.8rem; color: #1e293b;">Process S2V Auto (per LID)</strong>
                                 </div>
-                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trip/processs2vauto/{LID}</code>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trip/processs2vauto/{LID}?p_instance_name={instance}</code>
                                 <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Processes a single inventory transaction by its LID (Line ID). Called sequentially for each line.</div>
                             </div>
 
@@ -2476,7 +2476,7 @@
                                     <span style="background: #3b82f6; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">POST</span>
                                     <strong style="font-size: 0.8rem; color: #1e293b;">Cancel S2V Lot (per LID)</strong>
                                 </div>
-                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../TRIPMANAGEMENT/trip/cancels2vlot/{LID}</code>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../TRIPMANAGEMENT/trip/cancels2vlot/{LID}?p_instance_name={instance}</code>
                                 <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Cancels a specific inventory transaction line by its LID</div>
                             </div>
 
@@ -2488,7 +2488,7 @@
                                     <span style="background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.6rem; font-weight: 600;">Authenticated</span>
                                 </div>
                                 <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">https://efmh{-test}.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer</code>
-                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches staged inventory transactions from Oracle Fusion Cloud. Uses Basic Auth with Fusion credentials. URL switches between TEST and PROD based on instance.</div>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches staged inventory transactions from Oracle Fusion Cloud. Uses Basic Auth. TEST: efmh-test.fa.em3.oraclecloud.com | PROD: efmh.fa.em3.oraclecloud.com</div>
                             </div>
 
                             <!-- API 6: Fusion Cloud - Delete Staged Transaction -->
@@ -2499,7 +2499,7 @@
                                     <span style="background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.6rem; font-weight: 600;">Authenticated</span>
                                 </div>
                                 <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">https://efmh{-test}.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/{TransactionInterfaceId}</code>
-                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Deletes a staged transaction from Fusion Cloud after successful processing. Uses Basic Auth.</div>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Deletes a staged transaction from Fusion Cloud after successful processing. Uses Basic Auth. TEST: efmh-test | PROD: efmh</div>
                             </div>
                         </div>
                     </div>
