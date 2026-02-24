@@ -103,10 +103,12 @@ function fetchAutoSalesOrderData() {
 
     addSOLogEntry('API', `Fetching data from ${fromDate} to ${toDate}...`, 'info');
 
-    // Build API URL
-    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/autosalesorderprocessing?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}`;
+    const instanceName = document.getElementById('current-instance-display')?.textContent?.trim() || localStorage.getItem('fusionInstance');
 
-    console.log('[Auto SO Processing] Fetching from:', apiUrl);
+    // Build API URL
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/autosalesorderprocessing?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}&P_INSTANCE_NAME=${instanceName}`;
+
+    console.log('[Auto SO Processing] Fetching from:', apiUrl, 'Instance:', instanceName);
 
     // Use WebView REST handler
     sendMessageToCSharp({
@@ -3689,6 +3691,72 @@ window.showSOTripMRALog = function(orderIndex) {
     `;
 
     document.body.appendChild(overlay);
+};
+
+// ============================================================================
+// API INFO MODAL
+// ============================================================================
+
+window.showAutoSOApiInfo = function() {
+    const fromDate = document.getElementById('auto-so-from-date')?.value || '';
+    const toDate = document.getElementById('auto-so-to-date')?.value || '';
+    const instanceName = document.getElementById('current-instance-display')?.textContent?.trim() || localStorage.getItem('fusionInstance');
+
+    const fetchUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/autosalesorderprocessing?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}&P_INSTANCE_NAME=${instanceName}`;
+    const pickReleaseUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/{ORDER_NUMBER}?P_INSTANCE_NAME=${instanceName}`;
+    const assignPickerUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/assignpicker`;
+
+    const modalHtml = `
+        <div id="auto-so-api-info-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;">
+            <div style="background: white; width: 90%; max-width: 750px; max-height: 85vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+                <div style="padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+                    <span style="font-weight: 700; color: #1e293b; font-size: 1rem;"><i class="fas fa-code" style="color: #667eea;"></i> API Info — Auto Sales Order Processing</span>
+                    <button onclick="document.getElementById('auto-so-api-info-modal').parentElement.remove()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 18px; cursor: pointer; color: #64748b; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px;">×</button>
+                </div>
+                <div style="padding: 1.5rem; overflow-y: auto; flex: 1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+
+                    <!-- Fetch Data -->
+                    <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                        <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">1. Fetch Sales Order Data</div>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 8px;">${fetchUrl}</code>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 0.75rem;">
+                            <thead><tr style="background: #dbeafe;">
+                                <th style="padding: 5px 8px; text-align: left; border: 1px solid #bfdbfe;">Parameter</th>
+                                <th style="padding: 5px 8px; text-align: left; border: 1px solid #bfdbfe;">Value</th>
+                                <th style="padding: 5px 8px; text-align: left; border: 1px solid #bfdbfe;">Description</th>
+                            </tr></thead>
+                            <tbody>
+                                <tr><td style="padding: 5px 8px; border: 1px solid #bfdbfe;"><code>P_FROM_DATE</code></td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">${fromDate}</td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">Start date filter</td></tr>
+                                <tr style="background: #eff6ff;"><td style="padding: 5px 8px; border: 1px solid #bfdbfe;"><code>P_TO_DATE</code></td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">${toDate}</td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">End date filter</td></tr>
+                                <tr><td style="padding: 5px 8px; border: 1px solid #bfdbfe;"><code>P_INSTANCE_NAME</code></td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">${instanceName}</td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">Fusion instance (PROD / TEST)</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pick Release -->
+                    <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #22c55e;">
+                        <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">2. Pick Release (per order)</div>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 8px;">${pickReleaseUrl}</code>
+                    </div>
+
+                    <!-- Assign Picker -->
+                    <div style="background: #fefce8; padding: 1rem; border-radius: 8px; border-left: 4px solid #eab308;">
+                        <div style="font-weight: 600; color: #854d0e; margin-bottom: 0.5rem;">3. Assign Picker</div>
+                        <span style="background: #fef9c3; color: #854d0e; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 8px;">${assignPickerUrl}</code>
+                        <div style="font-size: 11px; color: #92400e; margin-top: 6px;">Body: <code>{ p_order_number, p_picker_id, p_picker_name, p_instance_name }</code></div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    `;
+
+    const div = document.createElement('div');
+    div.innerHTML = modalHtml;
+    document.body.appendChild(div);
 };
 
 console.log('[Auto SO Processing] Module loaded');
