@@ -54,6 +54,7 @@ function fetchPendingStoreTransactions() {
     const sourceOrg = document.getElementById('pst-source-org')?.value || 'GIC';
     const fromDate = document.getElementById('pst-from-date')?.value;
     const toDate = document.getElementById('pst-to-date')?.value;
+    const instanceName = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'PROD';
 
     if (!fromDate || !toDate) {
         alert('Please select both From Date and To Date');
@@ -64,9 +65,9 @@ function fetchPendingStoreTransactions() {
     const fetchIcon = document.getElementById('pst-fetch-icon');
     if (fetchIcon) fetchIcon.className = 'fas fa-spinner fa-spin';
 
-    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/PendingS2Vtransactions?P_SOURCE_ORG=${sourceOrg}&P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}`;
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/PendingS2Vtransactions?P_SOURCE_ORG=${sourceOrg}&P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}&P_INSTANCE_NAME=${instanceName}`;
 
-    pstLog(`Fetching: ${sourceOrg}, ${fromDate} to ${toDate}`);
+    pstLog(`Fetching: ${sourceOrg}, ${fromDate} to ${toDate}, instance: ${instanceName}`);
 
     // Check if sendMessageToCSharp is available
     if (typeof sendMessageToCSharp !== 'function') {
@@ -991,6 +992,104 @@ function exportPstToExcel() {
         alert('Error exporting to Excel: ' + error.message);
     }
 }
+
+// ============================================================================
+// API INFO MODAL
+// ============================================================================
+
+// Show API info modal for Pending Store Transactions
+window.showPstApiInfo = function() {
+    const sourceOrg = document.getElementById('pst-source-org')?.value || 'GIC';
+    const fromDate = document.getElementById('pst-from-date')?.value || '';
+    const toDate = document.getElementById('pst-to-date')?.value || '';
+    const instanceName = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'PROD';
+
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/PendingS2Vtransactions?P_SOURCE_ORG=${sourceOrg}&P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}&P_INSTANCE_NAME=${instanceName}`;
+
+    const apiInfo = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+            <h4 style="margin: 0 0 1rem 0; color: #333; border-bottom: 2px solid #667eea; padding-bottom: 0.5rem;">
+                <i class="fas fa-code" style="color: #667eea;"></i> API Information - Pending Store Transactions
+            </h4>
+
+            <!-- Fetch Data API -->
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Fetch Pending S2V Transactions</div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Endpoint:</strong>
+                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">
+                        TRIPMANAGEMENT/trip/PendingS2Vtransactions
+                    </code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Method:</strong>
+                    <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                </div>
+                <div>
+                    <strong style="color: #4a5568;">URL (current filters):</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        ${apiUrl}
+                    </code>
+                </div>
+            </div>
+
+            <!-- Parameters Table -->
+            <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; border-left: 4px solid #22c55e;">
+                <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">Query Parameters:</div>
+                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                    <thead>
+                        <tr style="background: #dcfce7;">
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bbf7d0;">Parameter</th>
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bbf7d0;">Value</th>
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bbf7d0;">Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;"><code>P_SOURCE_ORG</code></td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;">${sourceOrg}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;">Source organisation code</td>
+                        </tr>
+                        <tr style="background: #f0fdf4;">
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;"><code>P_FROM_DATE</code></td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;">${fromDate}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;">Start date filter</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;"><code>P_TO_DATE</code></td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;">${toDate}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;">End date filter</td>
+                        </tr>
+                        <tr style="background: #f0fdf4;">
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;"><code>P_INSTANCE_NAME</code></td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;">${instanceName}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0;">Fusion instance (PROD / TEST / DEV)</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    // Create modal
+    const modalHtml = `
+        <div id="pst-api-info-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;">
+            <div style="background: white; width: 90%; max-width: 700px; max-height: 80vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+                <div style="padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+                    <span style="font-weight: 700; color: #1e293b; font-size: 1rem;"><i class="fas fa-code" style="color: #667eea;"></i> API Info</span>
+                    <button onclick="document.getElementById('pst-api-info-modal').parentElement.remove()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 18px; cursor: pointer; color: #64748b; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px;">×</button>
+                </div>
+                <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                    ${apiInfo}
+                </div>
+            </div>
+        </div>
+    `;
+
+    const modalDiv = document.createElement('div');
+    modalDiv.innerHTML = modalHtml;
+    document.body.appendChild(modalDiv);
+};
 
 // Expose functions globally
 window.assignPickerForPst = assignPickerForPst;
