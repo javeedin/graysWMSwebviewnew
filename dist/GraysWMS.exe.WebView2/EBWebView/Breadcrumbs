@@ -1,0 +1,33 @@
+0:00:20 Microsoft.BrowsingDataRemover.BeginClear_SharedDictionary
+0:00:20 Microsoft.BrowsingDataRemover.BeginClear_EmbedderData
+0:00:20 ClearBrowsingData_MaskContainsProtectedWeb
+0:00:20 ClearBrowsingData_MaskContainsExtension
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_Synchronous
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_PrerenderCache
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_PrefetchCache
+0:00:20 Microsoft.DataDeletionHelper.End_Quota
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_EmbedderData
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_PreflightCache
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_SharedDictionary
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_CodeCaches
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_HttpCache
+0:00:20 Microsoft.DataDeletionHelper.End_GpuCache
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_StoragePartition
+0:00:20 Microsoft.BrowsingDataRemover.EndClear_NetworkHistory
+0:00:22 Widget Closed: TooltipAura
+0:00:25 Widget Closed: TooltipAura
+0:00:26 Widget Closed: TooltipAura
+0:00:28 Widget Closed: TooltipAura
+0:00:36 Tab1 StartNav7 #renderer-user #link
+0:00:36 Tab1 FinishNav7
+0:00:39 Tab1 StartNav8 #renderer-script #auto_subframe
+0:00:39 Tab1 FinishNav8
+0:00:39 Tab1 PageLoad
+0:00:39 Tab1 StartNav9 #renderer-script #link
+0:00:39 Tab1 FinishNav9
+0:00:39 Tab1 StartNav10 #renderer-script #link
+0:00:39 Tab1 FinishNav10
+0:00:40 Tab1 PageLoad
+0:00:40 Tab1 StartNav11 #renderer-user #link
+0:00:40 Tab1 FinishNav11
+0:00:46 Microsoft.UnloadController.IsUnclosableApp_IsNotWebApp
