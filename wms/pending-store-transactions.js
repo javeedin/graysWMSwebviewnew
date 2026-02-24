@@ -54,7 +54,7 @@ function fetchPendingStoreTransactions() {
     const sourceOrg = document.getElementById('pst-source-org')?.value || 'GIC';
     const fromDate = document.getElementById('pst-from-date')?.value;
     const toDate = document.getElementById('pst-to-date')?.value;
-    const instanceName = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'PROD';
+    const instanceName = document.getElementById('current-instance-display')?.textContent?.trim() || localStorage.getItem('fusionInstance');
 
     if (!fromDate || !toDate) {
         alert('Please select both From Date and To Date');
@@ -1002,7 +1002,7 @@ window.showPstApiInfo = function() {
     const sourceOrg = document.getElementById('pst-source-org')?.value || 'GIC';
     const fromDate = document.getElementById('pst-from-date')?.value || '';
     const toDate = document.getElementById('pst-to-date')?.value || '';
-    const instanceName = window.currentTripInstance || localStorage.getItem('fusionInstance') || 'PROD';
+    const instanceName = document.getElementById('current-instance-display')?.textContent?.trim() || localStorage.getItem('fusionInstance');
 
     const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/PendingS2Vtransactions?P_SOURCE_ORG=${sourceOrg}&P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}&P_INSTANCE_NAME=${instanceName}`;
 
