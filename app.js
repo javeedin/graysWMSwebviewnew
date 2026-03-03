@@ -2172,8 +2172,15 @@ document.addEventListener('DOMContentLoaded', function() {
             <div style="padding: 1rem;">
                 <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
                     <div>
-                        <h2 style="font-size: 1rem; font-weight: 700; color: var(--gray-900); margin-bottom: 0.3rem;">
+                        <h2 style="font-size: 1rem; font-weight: 700; color: var(--gray-900); margin-bottom: 0.3rem; display: flex; align-items: center; gap: 0.5rem;">
                             <i class="fas fa-route" style="color: var(--primary); font-size: 0.9rem;"></i> Trip: ${tripId}
+                            <button onclick="editTripHeader('${tripId}', '${tripDate}', '${lorryNumber}', '${priority}')"
+                                    style="background: none; border: 1px solid var(--gray-300); border-radius: 6px; cursor: pointer; padding: 0.2rem 0.5rem; color: var(--primary); display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.7rem; transition: all 0.2s;"
+                                    onmouseover="this.style.background='var(--primary)';this.style.color='white';this.style.borderColor='var(--primary)'"
+                                    onmouseout="this.style.background='none';this.style.color='var(--primary)';this.style.borderColor='var(--gray-300)'"
+                                    title="Edit Trip Header">
+                                <i class="fas fa-edit" style="font-size: 0.7rem;"></i> Edit
+                            </button>
                         </h2>
                         <p style="color: var(--gray-600); font-size: 0.75rem;">Complete order information for this trip</p>
                     </div>
@@ -2320,6 +2327,146 @@ document.addEventListener('DOMContentLoaded', function() {
         if (tabItem) tabItem.classList.add('active');
         if (tabPane) tabPane.classList.add('active');
     }
+
+    // ============================================================
+    // EDIT TRIP HEADER
+    // ============================================================
+
+    window.editTripHeader = function(tripId, tripDate, lorryNumber, priority) {
+        console.log('[JS] Opening edit trip header for:', tripId);
+
+        const modal = document.getElementById('edit-trip-header-modal');
+        document.getElementById('edit-trip-id').value = tripId;
+        document.getElementById('edit-trip-date').value = tripDate;
+        document.getElementById('edit-trip-number-display').textContent = tripId;
+        document.getElementById('edit-trip-subtitle').textContent = 'Trip ' + tripId + ' — ' + tripDate;
+        document.getElementById('edit-trip-lorry').value = lorryNumber !== 'N/A' ? lorryNumber : '';
+        document.getElementById('edit-trip-priority').value = priority || 'Medium';
+        document.getElementById('edit-trip-loading-bay').value = '';
+
+        // Try to get loading bay from trip data if available
+        if (currentFullData && currentFullData.length > 0) {
+            const tripRecord = currentFullData.find(t => {
+                const id = (t.trip_id || t.TRIP_ID || '').toString().toLowerCase();
+                return id === tripId.toString().toLowerCase();
+            });
+            if (tripRecord) {
+                const loadingBay = tripRecord.LOADING_BAY || tripRecord.loading_bay || '';
+                document.getElementById('edit-trip-loading-bay').value = loadingBay;
+            }
+        }
+
+        modal.style.display = 'flex';
+    };
+
+    window.closeEditTripHeaderModal = function() {
+        document.getElementById('edit-trip-header-modal').style.display = 'none';
+    };
+
+    window.saveTripHeader = function() {
+        const tripId = document.getElementById('edit-trip-id').value;
+        const tripDate = document.getElementById('edit-trip-date').value;
+        const lorry = document.getElementById('edit-trip-lorry').value.trim();
+        const priority = document.getElementById('edit-trip-priority').value;
+        const loadingBay = document.getElementById('edit-trip-loading-bay').value.trim();
+
+        if (!lorry) {
+            alert('Please enter a lorry number');
+            return;
+        }
+
+        const saveBtn = document.getElementById('save-trip-header-btn');
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;display:inline-block;vertical-align:middle;margin-right:0.3rem;"></span> Saving...';
+
+        const instanceName = document.getElementById('trip-instance-name')
+            ? document.getElementById('trip-instance-name').value
+            : '';
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/UPDATETRIPHEADER';
+        const params = new URLSearchParams({
+            P_TRIP_ID: tripId,
+            P_TRIP_DATE: tripDate,
+            P_LORRY: lorry,
+            P_PRIORITY: priority,
+            P_LOADING_BAY: loadingBay,
+            P_INSTANCE_NAME: instanceName
+        });
+        const fullUrl = baseUrl + '?' + params.toString();
+
+        console.log('[JS] Saving trip header:', { tripId, tripDate, lorry, priority, loadingBay });
+
+        sendMessageToCSharp({
+            action: "executeGet",
+            fullUrl: fullUrl
+        }, function(error, data) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+
+            if (error) {
+                console.error('[JS] Error updating trip header:', error);
+                alert('Error updating trip header: ' + error);
+                return;
+            }
+
+            try {
+                let response = typeof data === 'string' ? JSON.parse(data) : data;
+                console.log('[JS] Trip header update response:', response);
+
+                // Update the KPI cards in the trip detail tab
+                const tabId = 'trip-detail-' + tripId;
+                const tabPane = document.getElementById('trip-' + tabId + '-tab');
+                if (tabPane) {
+                    // Update Lorry Number KPI card
+                    const kpiCards = tabPane.querySelectorAll('div[style*="linear-gradient"]');
+                    kpiCards.forEach(card => {
+                        const label = card.querySelector('div:first-child');
+                        if (label && label.textContent.trim() === 'Lorry Number') {
+                            card.querySelector('div:last-child').textContent = lorry;
+                        }
+                    });
+
+                    // Update Priority KPI card
+                    const whiteCards = tabPane.querySelectorAll('div[style*="background: white"]');
+                    whiteCards.forEach(card => {
+                        const label = card.querySelector('div:first-child');
+                        if (label && label.textContent.trim() === 'Priority') {
+                            const valueDiv = card.querySelector('div:last-child');
+                            valueDiv.textContent = priority;
+                            valueDiv.style.color = priority.toLowerCase().includes('high') ? 'var(--danger)' :
+                                                   priority.toLowerCase().includes('low') ? 'var(--success)' : 'var(--warning)';
+                        }
+                    });
+                }
+
+                // Update local data
+                if (currentFullData) {
+                    currentFullData.forEach(t => {
+                        const id = (t.trip_id || t.TRIP_ID || '').toString().toLowerCase();
+                        if (id === tripId.toString().toLowerCase()) {
+                            t.trip_lorry = lorry;
+                            t.TRIP_LORRY = lorry;
+                            t.TRIP_PRIORITY = priority;
+                            t.trip_priority = priority;
+                            if (loadingBay) {
+                                t.LOADING_BAY = loadingBay;
+                                t.loading_bay = loadingBay;
+                            }
+                        }
+                    });
+                }
+
+                closeEditTripHeaderModal();
+                alert('Trip header updated successfully!');
+
+            } catch (e) {
+                console.error('[JS] Error parsing response:', e);
+                // Still close modal - the save may have worked even if response parsing failed
+                closeEditTripHeaderModal();
+                alert('Trip header update sent. Please refresh to verify changes.');
+            }
+        });
+    };
 
     // Initialize vehicles page
     function initVehiclesPage() {

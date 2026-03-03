@@ -609,6 +609,70 @@
         </main>
     </div>
 
+<!-- Edit Trip Header Modal -->
+<div id="edit-trip-header-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+    <div style="background: white; width: 90%; max-width: 520px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);">
+        <!-- Modal Header -->
+        <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h3 style="margin: 0; font-size: 18px; color: #333;">
+                    <i class="fas fa-edit" style="color: #667eea;"></i> Edit Trip Header
+                </h3>
+                <p id="edit-trip-subtitle" style="margin: 5px 0 0 0; font-size: 13px; color: #666;">Modify trip details</p>
+            </div>
+            <button onclick="closeEditTripHeaderModal()" style="background: none; border: none; font-size: 28px; cursor: pointer; color: #666; padding: 0; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 4px;">
+                &times;
+            </button>
+        </div>
+        <!-- Modal Content -->
+        <div style="padding: 1.5rem;">
+            <input type="hidden" id="edit-trip-id">
+            <input type="hidden" id="edit-trip-date">
+
+            <div style="margin-bottom: 1rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #333; font-size: 13px;">
+                    <i class="fas fa-hashtag" style="font-size: 11px; color: #667eea;"></i> Trip Number
+                </label>
+                <div id="edit-trip-number-display" style="padding: 0.6rem 0.75rem; background: #f7fafc; border-radius: 6px; font-family: 'Courier New', monospace; font-weight: 600; color: #2d3748; border: 1px solid #e2e8f0; font-size: 14px;"></div>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label for="edit-trip-lorry" style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #333; font-size: 13px;">
+                    <i class="fas fa-truck" style="font-size: 11px; color: #10b981;"></i> Lorry
+                </label>
+                <input type="text" id="edit-trip-lorry" class="form-control" placeholder="Enter lorry number" style="width: 100%; padding: 0.6rem 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px; transition: border-color 0.2s;">
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label for="edit-trip-priority" style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #333; font-size: 13px;">
+                    <i class="fas fa-flag" style="font-size: 11px; color: #f59e0b;"></i> Priority
+                </label>
+                <select id="edit-trip-priority" class="form-control" style="width: 100%; padding: 0.6rem 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;">
+                    <option value="High">High</option>
+                    <option value="Medium">Medium</option>
+                    <option value="Low">Low</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom: 1rem;">
+                <label for="edit-trip-loading-bay" style="display: block; font-weight: 600; margin-bottom: 0.4rem; color: #333; font-size: 13px;">
+                    <i class="fas fa-warehouse" style="font-size: 11px; color: #3b82f6;"></i> Loading Bay
+                </label>
+                <input type="text" id="edit-trip-loading-bay" class="form-control" placeholder="Enter loading bay" style="width: 100%; padding: 0.6rem 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px; transition: border-color 0.2s;">
+            </div>
+        </div>
+        <!-- Modal Footer -->
+        <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.75rem;">
+            <button class="btn btn-secondary" onclick="closeEditTripHeaderModal()">
+                <i class="fas fa-times"></i> Cancel
+            </button>
+            <button class="btn btn-primary" id="save-trip-header-btn" onclick="saveTripHeader()">
+                <i class="fas fa-save"></i> Save Changes
+            </button>
+        </div>
+    </div>
+</div>
+
     <script src="app.js"></script>
     <script src="printer-management.js"></script>
     <script src="printer-management-new.js"></script>
