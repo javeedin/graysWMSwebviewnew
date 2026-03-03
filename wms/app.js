@@ -4183,7 +4183,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
 
                         <!-- View Details Button -->
-                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
+                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}', '${trip.LOADING_BAY || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
                             <i class="fas fa-eye" style="font-size: 0.55rem;"></i> View Details
                         </button>
                     </div>
@@ -4199,7 +4199,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Use stored tripMap for better data access
-    window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard) {
+    window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard, loadingBayFromCard) {
         console.log('[JS] Opening trip details for:', tripId);
 
         // Collapse sidebar when opening trip details
@@ -4266,7 +4266,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (result && result.items && result.items.length > 0) {
                         const tripData = result.items;
-                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber, false, loadingBayFromCard);
                     } else {
                         // No orders yet - still open the trip page with empty data
                         console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
@@ -4279,7 +4279,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             TRIP_LORRY: lorryNumber,
                             INSTANCE: instance
                         }];
-                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true);
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true, loadingBayFromCard);
                     }
                 } catch (parseError) {
                     console.error('[JS] Error parsing trip details response:', parseError);
@@ -4299,7 +4299,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (result && result.items && result.items.length > 0) {
                         const tripData = result.items;
-                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber, false, loadingBayFromCard);
                     } else {
                         // No orders yet - still open the trip page with empty data
                         console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
@@ -4312,7 +4312,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             TRIP_LORRY: lorryNumber,
                             INSTANCE: instance
                         }];
-                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true);
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true, loadingBayFromCard);
                     }
                 })
                 .catch(error => {
@@ -4327,7 +4327,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Helper function to open trip details with data
-    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false) {
+    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false, loadingBayFromCard = '') {
         console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId, 'isEmpty:', isEmpty);
 
         // Create unique tab ID
@@ -4400,7 +4400,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const volumeColor = volumeFillPercent >= 90 ? '#ef4444' : volumeFillPercent >= 70 ? '#f59e0b' : '#22c55e';
 
         const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
-        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || '';
+        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || loadingBayFromCard || '';
         const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
 
         // Create tab item
