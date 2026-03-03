@@ -4400,8 +4400,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const volumeColor = volumeFillPercent >= 90 ? '#ef4444' : volumeFillPercent >= 70 ? '#f59e0b' : '#22c55e';
 
         const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || '';
         const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
-        
+
         // Create tab item
         const tabHeader = document.getElementById('trip-tab-header');
         const tabItem = document.createElement('div');
@@ -4486,15 +4487,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div id="kpi-customers-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
                             </div>
 
-                            <!-- Total Quantity Card -->
+                            <!-- Loading Bay Card -->
                             <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(139, 92, 246, 0.1); border-left: 3px solid #8b5cf6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(139, 92, 246, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(139, 92, 246, 0.1)';">
                                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
                                     <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-cubes" style="color: white; font-size: 0.7rem;"></i>
+                                        <i class="fas fa-warehouse" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Quantity</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Loading Bay</div>
                                 </div>
-                                <div id="kpi-quantity-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
+                                <div id="kpi-loading-bay-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${loadingBay || 'N/A'}</div>
                             </div>
 
                             <!-- Volume Capacity Card -->
@@ -4962,38 +4963,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const tabPane = document.getElementById(`trip-${tabId}-tab`);
         if (!tabPane) return;
 
-        // Update Lorry Number and Trip Date KPI cards
-        const kpiCards = tabPane.querySelectorAll('div[style*="linear-gradient"]');
-        kpiCards.forEach(card => {
-            const label = card.querySelector('div[style*="text-transform: uppercase"]');
-            if (!label) return;
-            const labelText = label.textContent.trim().toLowerCase();
-            const valueDiv = card.querySelector('div[style*="font-weight: 700"], div[style*="font-weight: 800"]');
+        // Update KPI cards by ID
+        const el = (id) => tabPane.querySelector(`#${id}`);
+        if (el(`kpi-lorry-${tabId}`)) el(`kpi-lorry-${tabId}`).textContent = lorry;
+        if (el(`kpi-date-${tabId}`)) el(`kpi-date-${tabId}`).textContent = tripDate;
+        if (el(`kpi-loading-bay-${tabId}`)) el(`kpi-loading-bay-${tabId}`).textContent = loadingBay || 'N/A';
 
-            if (labelText === 'lorry number' && valueDiv) {
-                valueDiv.textContent = lorry;
-            } else if (labelText === 'trip date' && valueDiv) {
-                valueDiv.textContent = tripDate;
-            }
-        });
-
-        // Update Priority KPI card
-        const allCards = tabPane.querySelectorAll('div[style*="border-radius: 8px"]');
-        allCards.forEach(card => {
-            const label = card.querySelector('div[style*="text-transform: uppercase"]');
-            if (!label) return;
-            const labelText = label.textContent.trim().toLowerCase();
-
-            if (labelText === 'priority') {
-                const valueDiv = card.querySelector('div[style*="font-weight: 800"]');
-                if (valueDiv) {
-                    valueDiv.textContent = priority;
-                    const color = priority.toLowerCase().includes('high') ? '#ef4444' :
-                                  priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
-                    valueDiv.style.color = color;
-                }
-            }
-        });
+        // Update Priority with color
+        const priorityEl = el(`kpi-priority-${tabId}`);
+        if (priorityEl) {
+            priorityEl.textContent = priority;
+            const color = priority.toLowerCase().includes('high') ? '#ef4444' :
+                          priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
+            priorityEl.style.color = color;
+        }
     }
 
     // Open Add Orders modal for a trip from Trip Management
@@ -8434,7 +8417,8 @@ document.addEventListener('DOMContentLoaded', function() {
         if (el(`kpi-lorry-${tabId}`)) el(`kpi-lorry-${tabId}`).textContent = lorryNumber;
         if (el(`kpi-orders-${tabId}`)) el(`kpi-orders-${tabId}`).textContent = totalOrders;
         if (el(`kpi-customers-${tabId}`)) el(`kpi-customers-${tabId}`).textContent = uniqueCustomers;
-        if (el(`kpi-quantity-${tabId}`)) el(`kpi-quantity-${tabId}`).textContent = totalQuantity.toLocaleString();
+        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || '';
+        if (el(`kpi-loading-bay-${tabId}`)) el(`kpi-loading-bay-${tabId}`).textContent = loadingBay || 'N/A';
         if (el(`kpi-products-${tabId}`)) el(`kpi-products-${tabId}`).textContent = uniqueProducts;
 
         // Update priority with color
