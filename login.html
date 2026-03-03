@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - WMS Application</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .login-container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+            max-width: 450px;
+            width: 100%;
+        }
+
+        .login-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 30px;
+            text-align: center;
+            color: white;
+        }
+
+        .login-header .logo {
+            font-size: 60px;
+            margin-bottom: 15px;
+        }
+
+        .login-header h1 {
+            font-size: 1.8rem;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .login-header p {
+            font-size: 0.95rem;
+            opacity: 0.9;
+        }
+
+        .login-form {
+            padding: 40px 35px;
+        }
+
+        .form-group {
+            margin-bottom: 22px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .form-group label .required {
+            color: #e74c3c;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 14px 16px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            font-family: inherit;
+            background: #fafafa;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
+            background: white;
+        }
+
+        .form-control:hover {
+            border-color: #c0c0c0;
+        }
+
+        select.form-control {
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            background-size: 16px;
+            padding-right: 40px;
+        }
+
+        .password-wrapper {
+            position: relative;
+        }
+
+        .password-toggle {
+            position: absolute;
+            right: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: none;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 5px;
+        }
+
+        .password-toggle:hover {
+            color: #667eea;
+        }
+
+        .alert {
+            padding: 14px 16px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none;
+            font-size: 0.9rem;
+            text-align: center;
+        }
+
+        .alert.show {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .alert-error {
+            background-color: #fee2e2;
+            border: 1px solid #fecaca;
+            color: #dc2626;
+        }
+
+        .alert-success {
+            background-color: #d1fae5;
+            border: 1px solid #a7f3d0;
+            color: #059669;
+        }
+
+        .alert-info {
+            background-color: #dbeafe;
+            border: 1px solid #bfdbfe;
+            color: #2563eb;
+        }
+
+        .btn-login {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn-login:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.5);
+        }
+
+        .btn-login:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .btn-login:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+
+        .spinner.show {
+            display: block;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .footer-text {
+            text-align: center;
+            margin-top: 20px;
+            color: #666;
+            font-size: 0.85rem;
+        }
+
+        .version-info {
+            text-align: center;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+            color: #999;
+            font-size: 0.8rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="login-header">
+            <div class="logo">&#x1F3ED;</div>
+            <h1>WMS Application</h1>
+            <p>Warehouse Management System</p>
+        </div>
+
+        <div class="login-form">
+            <div id="alertBox" class="alert"></div>
+
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="instanceName">
+                        Instance <span class="required">*</span>
+                    </label>
+                    <select id="instanceName" name="instanceName" class="form-control" required>
+                        <option value="PROD">PROD (Production)</option>
+                        <option value="TEST">TEST (Testing)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="username">
+                        Username <span class="required">*</span>
+                    </label>
+                    <input
+                        type="text"
+                        id="username"
+                        name="username"
+                        class="form-control"
+                        placeholder="Enter your username"
+                        required
+                        autocomplete="username"
+                    >
+                </div>
+
+                <div class="form-group">
+                    <label for="password">
+                        Password <span class="required">*</span>
+                    </label>
+                    <div class="password-wrapper">
+                        <input
+                            type="password"
+                            id="password"
+                            name="password"
+                            class="form-control"
+                            placeholder="Enter your password"
+                            required
+                            autocomplete="current-password"
+                        >
+                        <button type="button" class="password-toggle" onclick="togglePassword()">
+                            <span id="toggleIcon">&#x1F441;</span>
+                        </button>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-login" id="loginBtn">
+                    <span id="btnText">Sign In</span>
+                    <div class="spinner" id="spinner"></div>
+                </button>
+            </form>
+
+            <div class="footer-text">
+                Gray's Warehouse Management System
+            </div>
+
+            <div class="version-info">
+                Build v2025.11.28
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Debug logging
+        function log(msg) {
+            console.log('[LOGIN] ' + msg);
+        }
+
+        log('========================================');
+        log('Login page loaded');
+        log('Checking WebView2 availability...');
+
+        // Check if running in WebView2
+        const isWebView2 = !!(window.chrome && window.chrome.webview);
+        log('WebView2 available: ' + isWebView2);
+
+        // Toggle password visibility
+        function togglePassword() {
+            const passwordInput = document.getElementById('password');
+            const toggleIcon = document.getElementById('toggleIcon');
+
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.innerHTML = '&#x1F648;'; // See-no-evil monkey
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.innerHTML = '&#x1F441;'; // Eye
+            }
+        }
+
+        // Show alert message
+        function showAlert(message, type) {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.textContent = message;
+            alertBox.className = 'alert alert-' + type + ' show';
+        }
+
+        // Hide alert
+        function hideAlert() {
+            const alertBox = document.getElementById('alertBox');
+            alertBox.classList.remove('show');
+        }
+
+        // Set loading state
+        function setLoading(loading) {
+            const btn = document.getElementById('loginBtn');
+            const spinner = document.getElementById('spinner');
+            const btnText = document.getElementById('btnText');
+
+            btn.disabled = loading;
+            spinner.classList.toggle('show', loading);
+            btnText.textContent = loading ? 'Signing in...' : 'Sign In';
+        }
+
+        // Instance URLs
+        const instanceUrls = {
+            'PROD': 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT',
+            'TEST': 'https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT'
+        };
+
+        // Handle form submission
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            hideAlert();
+
+            const instanceName = document.getElementById('instanceName').value;
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+
+            // Basic validation
+            if (!username) {
+                showAlert('Please enter your username', 'error');
+                document.getElementById('username').focus();
+                return;
+            }
+
+            if (!password) {
+                showAlert('Please enter your password', 'error');
+                document.getElementById('password').focus();
+                return;
+            }
+
+            setLoading(true);
+            log('Attempting login...');
+            log('Instance: ' + instanceName);
+            log('Username: ' + username);
+
+            try {
+                if (isWebView2) {
+                    // Send login request to C# backend
+                    log('Sending login request to C# backend...');
+
+                    window.chrome.webview.postMessage({
+                        action: 'validateLogin',
+                        requestId: 'login_' + Date.now(),
+                        instanceName: instanceName,
+                        username: username,
+                        password: password
+                    });
+
+                    // C# will handle the response and redirect
+                    showAlert('Validating credentials...', 'info');
+
+                } else {
+                    // Direct API call (for testing outside WebView2)
+                    log('Making direct API call...');
+
+                    const baseUrl = instanceUrls[instanceName];
+                    const loginUrl = baseUrl + '/login?username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password);
+
+                    log('API URL: ' + loginUrl);
+
+                    const response = await fetch(loginUrl, {
+                        method: 'GET',
+                        headers: { 'Accept': 'application/json' }
+                    });
+
+                    log('Response status: ' + response.status);
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        log('Response data: ' + JSON.stringify(data));
+
+                        // Check login response - expecting items array with user data if successful
+                        const items = data.items || [];
+
+                        if (items.length > 0) {
+                            const user = items[0];
+                            log('Login successful! User: ' + JSON.stringify(user));
+                            showAlert('Login successful! Redirecting...', 'success');
+
+                            // Store session data
+                            localStorage.setItem('loggedIn', 'true');
+                            localStorage.setItem('username', username);
+                            localStorage.setItem('instanceName', instanceName);
+                            localStorage.setItem('fusionInstance', instanceName);
+                            localStorage.setItem('loginTime', new Date().toISOString());
+
+                            // Store user details if available
+                            if (user.user_id) localStorage.setItem('userId', user.user_id);
+                            if (user.full_name) localStorage.setItem('fullName', user.full_name);
+                            if (user.email) localStorage.setItem('userEmail', user.email);
+
+                            // Redirect after short delay
+                            setTimeout(function() {
+                                window.location.href = 'wms/index.html';
+                            }, 1000);
+                        } else {
+                            throw new Error('Invalid username or password');
+                        }
+                    } else if (response.status === 401 || response.status === 403) {
+                        throw new Error('Invalid username or password');
+                    } else {
+                        throw new Error('Server error: ' + response.status);
+                    }
+                }
+            } catch (error) {
+                log('Login error: ' + error.message);
+                showAlert(error.message || 'Login failed. Please try again.', 'error');
+                setLoading(false);
+            }
+        });
+
+        // Global function that C# can call directly
+        window.handleLoginResponse = function(success, username, instanceName, error) {
+            log('handleLoginResponse called: success=' + success + ', username=' + username);
+
+            if (success) {
+                log('Login validated by C#!');
+                showAlert('Login successful! Redirecting...', 'success');
+
+                // Store session data
+                localStorage.setItem('loggedIn', 'true');
+                localStorage.setItem('username', username || '');
+                localStorage.setItem('instanceName', instanceName || 'PROD');
+                localStorage.setItem('fusionInstance', instanceName || 'PROD');
+                localStorage.setItem('loginTime', new Date().toISOString());
+
+                // Redirect after delay
+                setTimeout(function() {
+                    window.location.href = 'wms/index.html';
+                }, 1000);
+            } else {
+                log('Login failed: ' + error);
+                showAlert(error || 'Invalid username or password', 'error');
+                setLoading(false);
+            }
+        };
+
+        // Listen for messages from C# backend
+        if (isWebView2) {
+            window.chrome.webview.addEventListener('message', function(event) {
+                const message = event.data;
+                log('Received message from C#: ' + JSON.stringify(message));
+
+                if (message.action === 'loginResponse') {
+                    window.handleLoginResponse(message.success, message.username, message.instanceName, message.error);
+                }
+            });
+        }
+
+        // Load saved instance preference
+        window.addEventListener('DOMContentLoaded', function() {
+            const savedInstance = localStorage.getItem('instanceName');
+            if (savedInstance) {
+                document.getElementById('instanceName').value = savedInstance;
+            }
+
+            // Check if already logged in
+            if (localStorage.getItem('loggedIn') === 'true') {
+                log('Already logged in, redirecting...');
+                window.location.href = 'wms/index.html';
+            }
+        });
+
+        log('Login page initialized');
+        log('========================================');
+    </script>
+</body>
+</html>

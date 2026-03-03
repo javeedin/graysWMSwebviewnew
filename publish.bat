@@ -1,0 +1,60 @@
+@echo off
+REM ============================================
+REM Gray's WMS - Build & Publish Script
+REM Creates a single-file executable with all
+REM web content embedded
+REM ============================================
+
+echo.
+echo ==========================================
+echo Gray's WMS - Build Script v1.2.0
+echo ==========================================
+echo.
+
+REM Set publish output folder
+set OUTPUT_DIR=publish
+set CONFIG=Release
+
+REM Clean previous build
+echo [1/4] Cleaning previous build...
+if exist "%OUTPUT_DIR%" rmdir /s /q "%OUTPUT_DIR%"
+
+REM Restore packages
+echo [2/4] Restoring NuGet packages...
+dotnet restore
+
+REM Build the project
+echo [3/4] Building project...
+dotnet build -c %CONFIG%
+
+REM Publish single-file executable
+echo [4/4] Publishing single-file executable...
+dotnet publish -c %CONFIG% -o "%OUTPUT_DIR%" --self-contained true -r win-x64 -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true -p:EnableCompressionInSingleFile=true
+
+echo.
+echo ==========================================
+echo Build Complete!
+echo ==========================================
+echo.
+echo Output location: %CD%\%OUTPUT_DIR%
+echo.
+
+REM List output files
+echo Files created:
+dir /b "%OUTPUT_DIR%"
+
+echo.
+echo The GraysWMS.exe file is SELF-CONTAINED and includes:
+echo   - .NET 8.0 Runtime (no .NET installation required)
+echo   - All application DLLs
+echo   - All web files (HTML, JS, CSS)
+echo.
+echo Just copy GraysWMS.exe to any Windows 64-bit machine.
+echo.
+echo NOTE: WebView2 Runtime is REQUIRED on target machine.
+echo       Most Windows 10/11 PCs have it pre-installed.
+echo       If not, download from:
+echo       https://developer.microsoft.com/en-us/microsoft-edge/webview2/
+echo.
+
+pause
