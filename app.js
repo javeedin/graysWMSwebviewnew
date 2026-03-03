@@ -2171,11 +2171,16 @@ document.addEventListener('DOMContentLoaded', function() {
         tabPane.innerHTML = `
             <div style="padding: 1rem;">
                 <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 1rem;">
-                    <div>
-                        <h2 style="font-size: 1rem; font-weight: 700; color: var(--gray-900); margin-bottom: 0.3rem;">
-                            <i class="fas fa-route" style="color: var(--primary); font-size: 0.9rem;"></i> Trip: ${tripId}
-                        </h2>
-                        <p style="color: var(--gray-600); font-size: 0.75rem;">Complete order information for this trip</p>
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div>
+                            <h2 style="font-size: 1rem; font-weight: 700; color: var(--gray-900); margin-bottom: 0.3rem;">
+                                <i class="fas fa-route" style="color: var(--primary); font-size: 0.9rem;"></i> Trip: ${tripId}
+                            </h2>
+                            <p style="color: var(--gray-600); font-size: 0.75rem;">Complete order information for this trip</p>
+                        </div>
+                        <button class="btn btn-edit-trip" onclick="openEditTripHeaderModal('${tripId}', '${tabId}')" title="Edit Trip Header" style="font-size: 0.75rem; padding: 0.35rem 0.75rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.15); transition: all 0.2s;">
+                            <i class="fas fa-edit" style="font-size: 0.7rem;"></i> Edit
+                        </button>
                     </div>
                 </div>
                 
@@ -2293,6 +2298,226 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }, 100);
     };
+
+    // ========================================
+    // EDIT TRIP HEADER MODAL
+    // ========================================
+
+    window.openEditTripHeaderModal = function(tripId, tabId) {
+        console.log('[JS] Opening edit trip header modal for:', tripId);
+
+        // Find trip data from currentFullData
+        const tripData = currentFullData.filter(trip => {
+            const id = (trip.trip_id || trip.TRIP_ID || '').toString().toLowerCase();
+            return id === tripId.toString().toLowerCase();
+        });
+
+        if (tripData.length === 0) {
+            alert('No data found for trip: ' + tripId);
+            return;
+        }
+
+        const firstRecord = tripData[0];
+        const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '';
+        const lorryNumber = firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
+        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || '';
+
+        // Remove any existing modal
+        const existingModal = document.getElementById('edit-trip-header-modal');
+        if (existingModal) existingModal.remove();
+
+        // Format date for input field (YYYY-MM-DD)
+        let dateValue = '';
+        if (tripDate) {
+            const parts = tripDate.split('-');
+            if (parts.length === 3) {
+                // Handle DD-MM-YYYY or YYYY-MM-DD
+                if (parts[0].length === 4) {
+                    dateValue = tripDate;
+                } else {
+                    dateValue = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                }
+            }
+        }
+
+        const modalHtml = `
+            <div id="edit-trip-header-modal" class="modal" style="display: flex;">
+                <div class="modal-content" style="max-width: 520px;">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                        <h2 style="font-size: 1.1rem;"><i class="fas fa-edit"></i> Edit Trip Header</h2>
+                        <button class="close-modal" onclick="closeEditTripHeaderModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 1.25rem;">
+                        <div style="background: var(--gray-50); padding: 0.6rem 0.85rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid var(--primary);">
+                            <span style="font-size: 0.75rem; color: var(--gray-500);">Trip ID</span>
+                            <div style="font-size: 0.9rem; font-weight: 700; color: var(--gray-900);">${tripId}</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-trip-lorry"><i class="fas fa-truck" style="font-size: 0.7rem; color: var(--primary);"></i> Lorry Number</label>
+                            <input type="text" id="edit-trip-lorry" class="form-control" value="${lorryNumber}" placeholder="Enter lorry number">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-trip-priority"><i class="fas fa-flag" style="font-size: 0.7rem; color: var(--primary);"></i> Priority</label>
+                            <select id="edit-trip-priority" class="form-control">
+                                <option value="High" ${priority.toLowerCase() === 'high' ? 'selected' : ''}>High</option>
+                                <option value="Medium" ${priority.toLowerCase() === 'medium' ? 'selected' : ''}>Medium</option>
+                                <option value="Low" ${priority.toLowerCase() === 'low' ? 'selected' : ''}>Low</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-trip-loading-bay"><i class="fas fa-warehouse" style="font-size: 0.7rem; color: var(--primary);"></i> Loading Bay</label>
+                            <input type="text" id="edit-trip-loading-bay" class="form-control" value="${loadingBay}" placeholder="Enter loading bay">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="edit-trip-date"><i class="fas fa-calendar-alt" style="font-size: 0.7rem; color: var(--primary);"></i> Trip Date</label>
+                            <input type="date" id="edit-trip-date" class="form-control" value="${dateValue}">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeEditTripHeaderModal()" style="font-size: 0.8rem; padding: 0.5rem 1rem;">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn" id="save-trip-header-btn" onclick="saveTripHeader('${tripId}', '${tabId}')" style="font-size: 0.8rem; padding: 0.5rem 1.25rem; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white;">
+                            <i class="fas fa-save"></i> Save Changes
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Close on backdrop click
+        document.getElementById('edit-trip-header-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeEditTripHeaderModal();
+        });
+    };
+
+    window.closeEditTripHeaderModal = function() {
+        const modal = document.getElementById('edit-trip-header-modal');
+        if (modal) modal.remove();
+    };
+
+    window.saveTripHeader = function(tripId, tabId) {
+        const lorry = document.getElementById('edit-trip-lorry').value.trim();
+        const priority = document.getElementById('edit-trip-priority').value;
+        const loadingBay = document.getElementById('edit-trip-loading-bay').value.trim();
+        const tripDateInput = document.getElementById('edit-trip-date').value;
+
+        if (!lorry) {
+            alert('Lorry Number is required');
+            return;
+        }
+        if (!tripDateInput) {
+            alert('Trip Date is required');
+            return;
+        }
+
+        // Format date to DD-MM-YYYY for API
+        const dateParts = tripDateInput.split('-');
+        const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
+
+        const saveBtn = document.getElementById('save-trip-header-btn');
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Saving...';
+
+        const instanceName = document.getElementById('trip-instance-name')
+            ? document.getElementById('trip-instance-name').value
+            : (document.getElementById('current-instance-display')
+                ? document.getElementById('current-instance-display').textContent.trim()
+                : 'PROD');
+
+        const payload = {
+            P_TRIP_ID: tripId,
+            P_TRIP_LORRY: lorry,
+            P_TRIP_PRIORITY: priority,
+            P_LOADING_BAY: loadingBay,
+            P_TRIP_DATE: formattedDate,
+            P_INSTANCE_NAME: instanceName
+        };
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/UPDATETRIPHEADER';
+
+        console.log('[JS] Saving trip header:', payload);
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: baseUrl,
+            body: JSON.stringify(payload)
+        }, function(error, data) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+
+            if (error) {
+                console.error('[JS] Error saving trip header:', error);
+                alert('Failed to save trip header: ' + error);
+                return;
+            }
+
+            console.log('[JS] Trip header saved successfully:', data);
+
+            // Update local data in currentFullData
+            currentFullData.forEach(trip => {
+                const id = (trip.trip_id || trip.TRIP_ID || '').toString().toLowerCase();
+                if (id === tripId.toString().toLowerCase()) {
+                    if (trip.trip_lorry !== undefined) trip.trip_lorry = lorry;
+                    if (trip.TRIP_LORRY !== undefined) trip.TRIP_LORRY = lorry;
+                    trip.trip_lorry = lorry;
+                    trip.TRIP_LORRY = lorry;
+                    if (trip.TRIP_PRIORITY !== undefined) trip.TRIP_PRIORITY = priority;
+                    if (trip.trip_priority !== undefined) trip.trip_priority = priority;
+                    trip.TRIP_PRIORITY = priority;
+                    trip.LOADING_BAY = loadingBay;
+                    trip.loading_bay = loadingBay;
+                }
+            });
+
+            // Update the KPI cards in the trip detail tab
+            updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay, formattedDate);
+
+            closeEditTripHeaderModal();
+            alert('Trip header updated successfully!');
+        });
+    };
+
+    function updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay, tripDate) {
+        const tabPane = document.getElementById(`trip-${tabId}-tab`);
+        if (!tabPane) return;
+
+        // Update Lorry Number KPI card
+        const kpiCards = tabPane.querySelectorAll('div[style*="linear-gradient"]');
+        kpiCards.forEach(card => {
+            const label = card.querySelector('div[style*="text-transform: uppercase"]');
+            if (!label) return;
+            const labelText = label.textContent.trim().toLowerCase();
+            const valueDiv = card.querySelector('div[style*="font-weight: 700"], div[style*="font-weight: 800"]');
+
+            if (labelText === 'lorry number' && valueDiv) {
+                valueDiv.textContent = lorry;
+            } else if (labelText === 'trip date' && valueDiv) {
+                valueDiv.textContent = tripDate;
+            }
+        });
+
+        // Update Priority KPI card (white background cards)
+        const allCards = tabPane.querySelectorAll('div[style*="border-radius: 8px"]');
+        allCards.forEach(card => {
+            const label = card.querySelector('div[style*="text-transform: uppercase"]');
+            if (!label) return;
+            const labelText = label.textContent.trim().toLowerCase();
+
+            if (labelText === 'priority') {
+                const valueDiv = card.querySelector('div[style*="font-weight: 800"]');
+                if (valueDiv) {
+                    valueDiv.textContent = priority;
+                    const color = priority.toLowerCase().includes('high') ? 'var(--danger)' :
+                                  priority.toLowerCase().includes('low') ? 'var(--success)' : 'var(--warning)';
+                    valueDiv.style.color = color;
+                }
+            }
+        });
+    }
 
     window.closeTripTab = function(tabId, event) {
         event.stopPropagation();
