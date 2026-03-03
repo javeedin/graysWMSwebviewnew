@@ -4183,7 +4183,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
 
                         <!-- View Details Button -->
-                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}', '${trip.LOADING_BAY || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
+                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}', '${trip.LOADING_BAY || ''}', '${trip.PRIORITY || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
                             <i class="fas fa-eye" style="font-size: 0.55rem;"></i> View Details
                         </button>
                     </div>
@@ -4199,7 +4199,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Use stored tripMap for better data access
-    window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard, loadingBayFromCard) {
+    window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard, loadingBayFromCard, priorityFromCard) {
         console.log('[JS] Opening trip details for:', tripId);
 
         // Collapse sidebar when opening trip details
@@ -4266,7 +4266,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (result && result.items && result.items.length > 0) {
                         const tripData = result.items;
-                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber, false, loadingBayFromCard);
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber, false, loadingBayFromCard, priorityFromCard);
                     } else {
                         // No orders yet - still open the trip page with empty data
                         console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
@@ -4279,7 +4279,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             TRIP_LORRY: lorryNumber,
                             INSTANCE: instance
                         }];
-                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true, loadingBayFromCard);
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true, loadingBayFromCard, priorityFromCard);
                     }
                 } catch (parseError) {
                     console.error('[JS] Error parsing trip details response:', parseError);
@@ -4299,7 +4299,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (result && result.items && result.items.length > 0) {
                         const tripData = result.items;
-                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber, false, loadingBayFromCard);
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber, false, loadingBayFromCard, priorityFromCard);
                     } else {
                         // No orders yet - still open the trip page with empty data
                         console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
@@ -4312,7 +4312,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             TRIP_LORRY: lorryNumber,
                             INSTANCE: instance
                         }];
-                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true, loadingBayFromCard);
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true, loadingBayFromCard, priorityFromCard);
                     }
                 })
                 .catch(error => {
@@ -4327,7 +4327,7 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Helper function to open trip details with data
-    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false, loadingBayFromCard = '') {
+    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false, loadingBayFromCard = '', priorityFromCard = '') {
         console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId, 'isEmpty:', isEmpty);
 
         // Create unique tab ID
@@ -4399,7 +4399,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Determine color based on fill percentage
         const volumeColor = volumeFillPercent >= 90 ? '#ef4444' : volumeFillPercent >= 70 ? '#f59e0b' : '#22c55e';
 
-        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || priorityFromCard || '';
         const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || loadingBayFromCard || '';
         const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
 
@@ -4533,14 +4533,14 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
 
                             <!-- Priority Card -->
-                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1); border-left: 3px solid ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(239, 68, 68, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(239, 68, 68, 0.1)';">
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1); border-left: 3px solid #f59e0b; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(239, 68, 68, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(239, 68, 68, 0.1)';">
                                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
-                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, ${priority.toLowerCase().includes('high') ? '#ef4444, #dc2626' : priority.toLowerCase().includes('low') ? '#22c55e, #16a34a' : '#f59e0b, #d97706'}); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
                                         <i class="fas fa-flag" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Priority</div>
                                 </div>
-                                <div id="kpi-priority-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
+                                <div id="kpi-priority-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: #f59e0b; margin-left: 2.15rem;">${priority || 'N/A'}</div>
                             </div>
                         </div>
                     </div>
@@ -4802,8 +4802,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const firstRecord = tripData[0];
         const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '';
         const lorryNumber = firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
-        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
-        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || '';
+        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || '';
+        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || '';
 
         // Remove any existing modal
         const existingModal = document.getElementById('edit-trip-header-modal');
@@ -4839,12 +4839,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             <input type="text" id="edit-trip-lorry" class="form-control" value="${lorryNumber}" placeholder="Enter lorry number">
                         </div>
                         <div class="form-group">
-                            <label for="edit-trip-priority"><i class="fas fa-flag" style="font-size: 0.7rem; color: var(--primary);"></i> Priority</label>
-                            <select id="edit-trip-priority" class="form-control">
-                                <option value="High" ${priority.toLowerCase() === 'high' ? 'selected' : ''}>High</option>
-                                <option value="Medium" ${priority.toLowerCase() === 'medium' ? 'selected' : ''}>Medium</option>
-                                <option value="Low" ${priority.toLowerCase() === 'low' ? 'selected' : ''}>Low</option>
-                            </select>
+                            <label for="edit-trip-priority"><i class="fas fa-flag" style="font-size: 0.7rem; color: var(--primary);"></i> Priority Number</label>
+                            <input type="text" id="edit-trip-priority" class="form-control" value="${priority}" placeholder="Enter priority number">
                         </div>
                         <div class="form-group">
                             <label for="edit-trip-loading-bay"><i class="fas fa-warehouse" style="font-size: 0.7rem; color: var(--primary);"></i> Loading Bay</label>
@@ -4969,13 +4965,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (el(`kpi-date-${tabId}`)) el(`kpi-date-${tabId}`).textContent = tripDate;
         if (el(`kpi-loading-bay-${tabId}`)) el(`kpi-loading-bay-${tabId}`).textContent = loadingBay || 'N/A';
 
-        // Update Priority with color
+        // Update Priority
         const priorityEl = el(`kpi-priority-${tabId}`);
         if (priorityEl) {
-            priorityEl.textContent = priority;
-            const color = priority.toLowerCase().includes('high') ? '#ef4444' :
-                          priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
-            priorityEl.style.color = color;
+            priorityEl.textContent = priority || 'N/A';
         }
     }
 
@@ -8421,11 +8414,10 @@ document.addEventListener('DOMContentLoaded', function() {
         if (el(`kpi-loading-bay-${tabId}`)) el(`kpi-loading-bay-${tabId}`).textContent = loadingBay || 'N/A';
         if (el(`kpi-products-${tabId}`)) el(`kpi-products-${tabId}`).textContent = uniqueProducts;
 
-        // Update priority with color
+        // Update priority
         const priorityEl = el(`kpi-priority-${tabId}`);
         if (priorityEl) {
-            priorityEl.textContent = priority;
-            priorityEl.style.color = priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
+            priorityEl.textContent = priority || 'N/A';
         }
 
         // Update volume card
