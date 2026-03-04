@@ -4905,16 +4905,28 @@ document.addEventListener('DOMContentLoaded', function() {
                 ? document.getElementById('current-instance-display').textContent.trim()
                 : 'PROD');
 
+        // Get current trip status from local data
+        let tripStatus = 'ACTIVE';
+        if (currentFullData && currentFullData.length > 0) {
+            const matchingTrip = currentFullData.find(t => {
+                const id = (t.trip_id || t.TRIP_ID || '').toString().toLowerCase();
+                return id === tripId.toString().toLowerCase();
+            });
+            if (matchingTrip) {
+                tripStatus = matchingTrip.TRIP_STATUS || matchingTrip.trip_status || matchingTrip.LINE_STATUS || 'ACTIVE';
+            }
+        }
+
         const payload = {
-            P_TRIP_ID: tripId,
-            P_TRIP_LORRY: lorry,
-            P_TRIP_PRIORITY: priority,
-            P_LOADING_BAY: loadingBay,
-            P_TRIP_DATE: formattedDate,
-            P_INSTANCE_NAME: instanceName
+            p_trip_id: parseInt(tripId),
+            trip_lorry: lorry,
+            trip_status: tripStatus,
+            trip_loading_bay: loadingBay,
+            trip_priority: parseInt(priority) || 0,
+            trip_instance: instanceName
         };
 
-        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/UPDATETRIPHEADER';
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatetrip';
 
         console.log('[JS] Saving trip header:', payload);
 
@@ -4928,7 +4940,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (error) {
                 console.error('[JS] Error saving trip header:', error);
-                alert('Failed to save trip header: ' + error);
+                showNotification('Failed to update trip: ' + error, 'error');
                 return;
             }
 
@@ -4944,6 +4956,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     trip.trip_priority = priority;
                     trip.LOADING_BAY = loadingBay;
                     trip.loading_bay = loadingBay;
+                    trip.TRIP_LOADING_BAY = loadingBay;
+                    trip.trip_loading_bay = loadingBay;
                 }
             });
 
@@ -4951,7 +4965,7 @@ document.addEventListener('DOMContentLoaded', function() {
             updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay, formattedDate);
 
             closeEditTripHeaderModal();
-            alert('Trip header updated successfully!');
+            showNotification('Trip header updated successfully!', 'success');
         });
     };
 
