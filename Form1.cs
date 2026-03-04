@@ -1195,8 +1195,42 @@ navPanel.Controls.Add(wmsDevButton);
             this.Controls.Add(navPanel);
             this.Controls.Add(titleBarPanel);
 
-            // Create initial tab - load WMS application from wms folder
-            string wmsIndexPath = Path.Combine(Application.StartupPath, "wms", "index.html");
+            // Hide the C# toolbar — navigation is handled inside the HTML page
+            navPanel.Visible = false;
+            titleBarPanel.Visible = false;
+
+            // Smart WMS folder detection:
+            // Priority 1: Dev repo folder (for development)
+            // Priority 2: Fusion distribution folder (for production)
+            string devWmsFolder = @"C:\Users\Javeed Shaik\source\repos\javeedin\graysWMSwebviewnew\wms";
+            string fusionWmsFolder = @"C:\fusion\fusionclientweb\wms";
+            string wmsFolder;
+            string wmsSource;
+
+            if (Directory.Exists(devWmsFolder) && File.Exists(Path.Combine(devWmsFolder, "index.html")))
+            {
+                wmsFolder = devWmsFolder;
+                wmsSource = "DEV (home repo)";
+            }
+            else if (Directory.Exists(fusionWmsFolder) && File.Exists(Path.Combine(fusionWmsFolder, "index.html")))
+            {
+                wmsFolder = fusionWmsFolder;
+                wmsSource = "PROD (fusion)";
+            }
+            else
+            {
+                // Final fallback: build output
+                wmsFolder = Path.Combine(Application.StartupPath, "wms");
+                wmsSource = "BUILD OUTPUT";
+            }
+
+            string wmsIndexPath = Path.Combine(wmsFolder, "index.html");
+            System.Diagnostics.Debug.WriteLine("========================================");
+            System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] Loading from: {wmsSource}");
+            System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] Folder: {wmsFolder}");
+            System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] Index: {wmsIndexPath}");
+            System.Diagnostics.Debug.WriteLine("========================================");
+
             if (File.Exists(wmsIndexPath))
             {
                 string fileUrl = "file:///" + wmsIndexPath.Replace("\\", "/");
@@ -1204,19 +1238,10 @@ navPanel.Controls.Add(wmsDevButton);
             }
             else
             {
-                // Fallback: try root index.html
-                string indexPath = Path.Combine(Application.StartupPath, "index.html");
-                if (File.Exists(indexPath))
-                {
-                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
-                    AddNewTab(fileUrl);
-                }
-                else
-                {
-                    MessageBox.Show($"WMS index.html not found.\n\nSearched:\n{wmsIndexPath}\n{indexPath}\n\nPlease rebuild the project.",
-                        "File Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    AddNewTab("https://www.google.com");
-                }
+                System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] ERROR: index.html not found at {wmsIndexPath}");
+                MessageBox.Show($"WMS index.html not found.\n\nSearched:\n{devWmsFolder}\n{fusionWmsFolder}\n{Path.Combine(Application.StartupPath, "wms")}\n\nPlease check your installation.",
+                    "File Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                AddNewTab("https://www.google.com");
             }
         }
 
