@@ -4855,7 +4855,11 @@ document.addEventListener('DOMContentLoaded', function() {
                             <input type="date" id="edit-trip-date" class="form-control" value="${dateValue}">
                         </div>
                     </div>
+                    <div id="edit-trip-api-debug" style="display:none; margin: 0 1.25rem 0.75rem; padding: 0.75rem; background: #1e1e2e; color: #a6e3a1; border-radius: 8px; font-family: monospace; font-size: 0.7rem; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
                     <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="window.toggleEditTripApiDebug()" style="font-size: 0.8rem; padding: 0.5rem 0.75rem;" title="Show API Debug Info">
+                            <i class="fas fa-code"></i> API
+                        </button>
                         <button class="btn btn-secondary" onclick="closeEditTripHeaderModal()" style="font-size: 0.8rem; padding: 0.5rem 1rem;">
                             <i class="fas fa-times"></i> Cancel
                         </button>
@@ -4873,6 +4877,13 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('edit-trip-header-modal').addEventListener('click', function(e) {
             if (e.target === this) closeEditTripHeaderModal();
         });
+    };
+
+    window.toggleEditTripApiDebug = function() {
+        const panel = document.getElementById('edit-trip-api-debug');
+        if (panel) {
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
     };
 
     window.closeEditTripHeaderModal = function() {
@@ -4922,16 +4933,44 @@ document.addEventListener('DOMContentLoaded', function() {
         };
 
         const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatetrip';
+        const bodyJson = JSON.stringify(payload);
 
-        console.log('[JS] Saving trip header:', payload);
+        console.log('[JS] ====== SAVE TRIP HEADER ======');
+        console.log('[JS] Endpoint:', baseUrl);
+        console.log('[JS] Method: POST');
+        console.log('[JS] Payload:', JSON.stringify(payload, null, 2));
+        console.log('[JS] Raw body:', bodyJson);
+        console.log('[JS] ================================');
+
+        // Write to debug panel in the modal
+        const debugPanel = document.getElementById('edit-trip-api-debug');
+        if (debugPanel) {
+            debugPanel.style.display = 'block';
+            debugPanel.textContent = `POST ${baseUrl}\n\nRequest Body:\n${JSON.stringify(payload, null, 2)}\n\nSending...`;
+        }
 
         sendMessageToCSharp({
             action: 'executePost',
             fullUrl: baseUrl,
-            body: JSON.stringify(payload)
+            body: bodyJson
         }, function(error, data) {
             saveBtn.disabled = false;
             saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+
+            console.log('[JS] ====== SAVE TRIP RESPONSE ======');
+            console.log('[JS] Error:', error);
+            console.log('[JS] Response data:', data);
+            console.log('[JS] Response type:', typeof data);
+            if (data) console.log('[JS] Response JSON:', JSON.stringify(data, null, 2));
+            console.log('[JS] ==================================');
+
+            // Update debug panel with response
+            if (debugPanel) {
+                const responseText = error
+                    ? `ERROR: ${error}`
+                    : `Response:\n${JSON.stringify(data, null, 2)}`;
+                debugPanel.textContent = `POST ${baseUrl}\n\nRequest Body:\n${JSON.stringify(payload, null, 2)}\n\n${responseText}`;
+            }
 
             if (error) {
                 console.error('[JS] Error saving trip header:', error);
