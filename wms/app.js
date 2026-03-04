@@ -4814,10 +4814,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Format date for input field (YYYY-MM-DD)
         let dateValue = '';
         if (tripDate) {
-            const parts = tripDate.split('-');
+            // Strip ISO time portion (e.g. "2026-03-05T00:00:00Z" -> "2026-03-05")
+            const dateOnly = tripDate.includes('T') ? tripDate.split('T')[0] : tripDate;
+            const parts = dateOnly.split('-');
             if (parts.length === 3) {
                 if (parts[0].length === 4) {
-                    dateValue = tripDate;
+                    dateValue = dateOnly;
                 } else {
                     dateValue = `${parts[2]}-${parts[1]}-${parts[0]}`;
                 }
@@ -4882,20 +4884,11 @@ document.addEventListener('DOMContentLoaded', function() {
         const lorry = document.getElementById('edit-trip-lorry').value.trim();
         const priority = document.getElementById('edit-trip-priority').value;
         const loadingBay = document.getElementById('edit-trip-loading-bay').value.trim();
-        const tripDateInput = document.getElementById('edit-trip-date').value;
 
         if (!lorry) {
             alert('Lorry Number is required');
             return;
         }
-        if (!tripDateInput) {
-            alert('Trip Date is required');
-            return;
-        }
-
-        // Format date to DD-MM-YYYY for API
-        const dateParts = tripDateInput.split('-');
-        const formattedDate = `${dateParts[2]}-${dateParts[1]}-${dateParts[0]}`;
 
         const saveBtn = document.getElementById('save-trip-header-btn');
         saveBtn.disabled = true;
@@ -4964,7 +4957,7 @@ document.addEventListener('DOMContentLoaded', function() {
             });
 
             // Update the KPI cards in the trip detail tab
-            updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay, formattedDate);
+            updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay);
 
             closeEditTripHeaderModal();
             showNotification('Trip header updated successfully!', 'success');
