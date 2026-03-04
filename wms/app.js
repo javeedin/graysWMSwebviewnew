@@ -4800,7 +4800,9 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const firstRecord = tripData[0];
-        const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || '';
+        // Read trip date from KPI card since order-level records may not have it
+        const kpiDateEl = document.getElementById(`kpi-date-${tabId}`);
+        const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || (kpiDateEl ? kpiDateEl.textContent.trim() : '') || '';
         const lorryNumber = firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
         const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || '';
         const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || '';
