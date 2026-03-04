@@ -4327,11 +4327,22 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Helper function to open trip details with data
+    // Store trip-level header data keyed by tripId — used by the edit modal
+    if (!window.tripHeaderData) window.tripHeaderData = {};
+
     window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false, loadingBayFromCard = '', priorityFromCard = '') {
         console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId, 'isEmpty:', isEmpty);
 
         // Create unique tab ID
         const tabId = 'trip-detail-' + tripId;
+
+        // Store trip-level header data so the edit modal can always access it
+        window.tripHeaderData[tripId] = {
+            tripDate: tripDate || '',
+            lorryNumber: lorryNumber || '',
+            loadingBay: loadingBayFromCard || '',
+            priority: priorityFromCard || ''
+        };
 
         // Check if tab already exists
         const existingTab = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
@@ -4801,6 +4812,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const firstRecord = tripData[0];
 
+        // Primary source: trip header data stored when the tab was opened
+        const hdr = (window.tripHeaderData && window.tripHeaderData[tripId]) || {};
+
         // Helper: read KPI card text, filtering out "N/A" placeholder
         function readKpi(id) {
             const el = document.getElementById(id);
@@ -4808,16 +4822,13 @@ document.addEventListener('DOMContentLoaded', function() {
             return (text && text !== 'N/A') ? text : '';
         }
 
-        // currentFullData has order-level records — trip-level fields may be missing.
-        // Fall back to reading from KPI card elements which always have the correct values.
-        const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || readKpi(`kpi-date-${tabId}`) || '';
-        const lorryNumber = firstRecord.trip_lorry || firstRecord.TRIP_LORRY || readKpi(`kpi-lorry-${tabId}`) || '';
-        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || readKpi(`kpi-priority-${tabId}`) || '';
-        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || readKpi(`kpi-loading-bay-${tabId}`) || '';
+        // Use stored header data first, then order-level record, then KPI cards
+        const tripDate = hdr.tripDate || firstRecord.TRIP_DATE || firstRecord.trip_date || readKpi(`kpi-date-${tabId}`) || '';
+        const lorryNumber = hdr.lorryNumber || firstRecord.trip_lorry || firstRecord.TRIP_LORRY || readKpi(`kpi-lorry-${tabId}`) || '';
+        const priority = hdr.priority || firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || readKpi(`kpi-priority-${tabId}`) || '';
+        const loadingBay = hdr.loadingBay || firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || readKpi(`kpi-loading-bay-${tabId}`) || '';
 
-        console.log('[JS] Edit modal - firstRecord keys:', Object.keys(firstRecord));
-        console.log('[JS] Edit modal - firstRecord sample:', JSON.stringify(firstRecord, null, 2).substring(0, 500));
-        console.log('[JS] Edit modal - KPI card values: date=', readKpi(`kpi-date-${tabId}`), ', lorry=', readKpi(`kpi-lorry-${tabId}`), ', priority=', readKpi(`kpi-priority-${tabId}`), ', loadingBay=', readKpi(`kpi-loading-bay-${tabId}`));
+        console.log('[JS] Edit modal - stored header:', JSON.stringify(hdr));
         console.log('[JS] Edit modal - FINAL values: lorry=', lorryNumber, ', priority=', priority, ', loadingBay=', loadingBay);
 
         // Remove any existing modal
@@ -4868,17 +4879,21 @@ document.addEventListener('DOMContentLoaded', function() {
                             <input type="date" id="edit-trip-date" class="form-control" value="${dateValue}">
                         </div>
                     </div>
-                    <div id="edit-trip-api-debug" style="display:none; margin: 0 1.25rem 0.75rem; padding: 0.75rem; background: #1e1e2e; color: #a6e3a1; border-radius: 8px; font-family: monospace; font-size: 0.7rem; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="window.toggleEditTripApiDebug()" style="font-size: 0.8rem; padding: 0.5rem 0.75rem;" title="Show API Debug Info">
-                            <i class="fas fa-code"></i> API
-                        </button>
+                    <div class="modal-footer" style="flex-wrap: wrap; gap: 0.5rem;">
                         <button class="btn btn-secondary" onclick="closeEditTripHeaderModal()" style="font-size: 0.8rem; padding: 0.5rem 1rem;">
                             <i class="fas fa-times"></i> Cancel
                         </button>
                         <button class="btn" id="save-trip-header-btn" onclick="saveTripHeader('${tripId}', '${tabId}')" style="font-size: 0.8rem; padding: 0.5rem 1.25rem; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white;">
                             <i class="fas fa-save"></i> Save Changes
                         </button>
+                    </div>
+                    <!-- Collapsible API Debug Section -->
+                    <div style="margin: 0; border-top: 1px solid #e2e8f0;">
+                        <div onclick="window.toggleEditTripApiDebug()" style="padding: 0.5rem 1.25rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; background: #f8fafc; user-select: none;">
+                            <i class="fas fa-chevron-right" id="api-debug-chevron" style="font-size: 0.6rem; color: #94a3b8; transition: transform 0.2s;"></i>
+                            <span style="font-size: 0.7rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">API Debug</span>
+                        </div>
+                        <div id="edit-trip-api-debug" style="display:none; padding: 0.75rem 1.25rem; background: #1e1e2e; color: #a6e3a1; font-family: monospace; font-size: 0.7rem; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
                     </div>
                 </div>
             </div>
@@ -4894,8 +4909,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.toggleEditTripApiDebug = function() {
         const panel = document.getElementById('edit-trip-api-debug');
+        const chevron = document.getElementById('api-debug-chevron');
         if (panel) {
-            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+            const isHidden = panel.style.display === 'none';
+            panel.style.display = isHidden ? 'block' : 'none';
+            if (chevron) chevron.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
         }
     };
 
@@ -4961,10 +4979,12 @@ document.addEventListener('DOMContentLoaded', function() {
         console.log('[JS] Raw body:', bodyJson);
         console.log('[JS] ================================');
 
-        // Write to debug panel in the modal
+        // Auto-expand the debug section and write payload
         const debugPanel = document.getElementById('edit-trip-api-debug');
+        const debugChevron = document.getElementById('api-debug-chevron');
         if (debugPanel) {
             debugPanel.style.display = 'block';
+            if (debugChevron) debugChevron.style.transform = 'rotate(90deg)';
             debugPanel.textContent = `POST ${baseUrl}\n\nRequest Body:\n${JSON.stringify(payload, null, 2)}\n\nSending...`;
         }
 
@@ -5016,6 +5036,16 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // Update the KPI cards in the trip detail tab
             updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay);
+
+            // Sync stored trip header data so next edit modal open has correct values
+            if (window.tripHeaderData) {
+                window.tripHeaderData[tripId] = {
+                    tripDate: document.getElementById('edit-trip-date') ? document.getElementById('edit-trip-date').value : '',
+                    lorryNumber: lorry,
+                    loadingBay: loadingBay,
+                    priority: priority
+                };
+            }
 
             // Don't auto-close — let user inspect the API response
             showNotification('Trip header updated successfully!', 'success');
