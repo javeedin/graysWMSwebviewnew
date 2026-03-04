@@ -4998,8 +4998,15 @@ document.addEventListener('DOMContentLoaded', function() {
             // Update the KPI cards in the trip detail tab
             updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay);
 
-            closeEditTripHeaderModal();
+            // Don't auto-close — let user inspect the API response
             showNotification('Trip header updated successfully!', 'success');
+            saveBtn.innerHTML = '<i class="fas fa-check"></i> Saved! Review response below';
+            saveBtn.style.background = '#16a34a';
+
+            // Update debug panel with success note
+            if (debugPanel) {
+                debugPanel.textContent += '\n\n--- SUCCESS --- Modal kept open for review. Click Cancel or X to close.';
+            }
         });
     };
 
