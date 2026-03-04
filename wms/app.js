@@ -4800,12 +4800,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         const firstRecord = tripData[0];
-        // Read trip date from KPI card since order-level records may not have it
-        const kpiDateEl = document.getElementById(`kpi-date-${tabId}`);
+        // Read from KPI cards as fallback since currentFullData has order-level records
+        // that may not contain trip-level fields (loading bay, priority, status, date)
+        const tabPane = document.getElementById(`trip-${tabId}-tab`);
+        const kpiEl = (id) => tabPane ? tabPane.querySelector(`#${id}`) : null;
+
+        const kpiDateEl = kpiEl(`kpi-date-${tabId}`);
+        const kpiLorryEl = kpiEl(`kpi-lorry-${tabId}`);
+        const kpiPriorityEl = kpiEl(`kpi-priority-${tabId}`);
+        const kpiLoadingBayEl = kpiEl(`kpi-loading-bay-${tabId}`);
+
         const tripDate = firstRecord.TRIP_DATE || firstRecord.trip_date || (kpiDateEl ? kpiDateEl.textContent.trim() : '') || '';
-        const lorryNumber = firstRecord.trip_lorry || firstRecord.TRIP_LORRY || '';
-        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || '';
-        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || '';
+        const lorryNumber = firstRecord.trip_lorry || firstRecord.TRIP_LORRY || (kpiLorryEl ? kpiLorryEl.textContent.trim() : '') || '';
+        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || (kpiPriorityEl ? kpiPriorityEl.textContent.trim() : '') || '';
+        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || (kpiLoadingBayEl ? kpiLoadingBayEl.textContent.trim() : '') || '';
+
+        console.log('[JS] Edit modal - firstRecord keys:', Object.keys(firstRecord));
+        console.log('[JS] Edit modal - values from data: lorry=', firstRecord.trip_lorry || firstRecord.TRIP_LORRY, ', priority=', firstRecord.TRIP_PRIORITY || firstRecord.trip_priority, ', loadingBay=', firstRecord.LOADING_BAY || firstRecord.TRIP_LOADING_BAY);
+        console.log('[JS] Edit modal - values from KPI cards: lorry=', kpiLorryEl?.textContent, ', priority=', kpiPriorityEl?.textContent, ', loadingBay=', kpiLoadingBayEl?.textContent);
+        console.log('[JS] Edit modal - final values: lorry=', lorryNumber, ', priority=', priority, ', loadingBay=', loadingBay);
 
         // Remove any existing modal
         const existingModal = document.getElementById('edit-trip-header-modal');
@@ -4893,8 +4906,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
     window.saveTripHeader = function(tripId, tabId) {
         const lorry = document.getElementById('edit-trip-lorry').value.trim();
-        const priority = document.getElementById('edit-trip-priority').value;
+        const priority = document.getElementById('edit-trip-priority').value.trim();
         const loadingBay = document.getElementById('edit-trip-loading-bay').value.trim();
+
+        console.log('[JS] saveTripHeader - form values: lorry=', lorry, ', priority=', priority, ', loadingBay=', loadingBay);
 
         if (!lorry) {
             alert('Lorry Number is required');
@@ -4911,7 +4926,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 ? document.getElementById('current-instance-display').textContent.trim()
                 : 'PROD');
 
-        // Get current trip status from local data
+        // Get current trip status — try currentFullData first, then trip summary grid
         let tripStatus = 'ACTIVE';
         if (currentFullData && currentFullData.length > 0) {
             const matchingTrip = currentFullData.find(t => {
@@ -4919,9 +4934,18 @@ document.addEventListener('DOMContentLoaded', function() {
                 return id === tripId.toString().toLowerCase();
             });
             if (matchingTrip) {
-                tripStatus = matchingTrip.TRIP_STATUS || matchingTrip.trip_status || matchingTrip.LINE_STATUS || 'ACTIVE';
+                const status = matchingTrip.TRIP_STATUS || matchingTrip.trip_status || matchingTrip.LINE_STATUS || '';
+                if (status && status.trim()) {
+                    tripStatus = status.trim();
+                }
             }
         }
+        // Fallback: check the trip summary grid data
+        if (!tripStatus || tripStatus === 'ACTIVE') {
+            const gridRows = document.querySelectorAll('#trip-grid .dx-data-row, #trip-summary-grid .dx-data-row');
+            console.log('[JS] tripStatus from currentFullData:', tripStatus, '- checking grid as fallback');
+        }
+        console.log('[JS] Final tripStatus:', tripStatus);
 
         const payload = {
             p_trip_id: parseInt(tripId),
