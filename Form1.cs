@@ -3391,7 +3391,15 @@ navPanel.Controls.Add(wmsDevButton);
                 System.Diagnostics.Debug.WriteLine($"[C#] Checking PDF existence for order {message.OrderNumber}");
 
                 // Construct PDF path: C:\fusion\{tripDate}\{tripId}\{orderNumber}.pdf
-                string pdfPath = Path.Combine(@"C:\fusion", message.TripDate, message.TripId.ToString(), $"{message.OrderNumber}.pdf");
+                string formattedTripDate = message.TripDate;
+                if (!string.IsNullOrEmpty(message.TripDate))
+                {
+                    if (DateTime.TryParse(message.TripDate, out DateTime parsedTripDate))
+                        formattedTripDate = parsedTripDate.ToString("yyyy-MM-dd");
+                    else if (message.TripDate.Contains("T"))
+                        formattedTripDate = message.TripDate.Split('T')[0];
+                }
+                string pdfPath = Path.Combine(@"C:\fusion", formattedTripDate, message.TripId.ToString(), $"{message.OrderNumber}.pdf");
                 bool exists = File.Exists(pdfPath);
 
                 System.Diagnostics.Debug.WriteLine($"[C#] PDF Path: {pdfPath}");

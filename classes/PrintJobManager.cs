@@ -703,7 +703,15 @@ namespace WMSApp.PrintManagement
 
                 // ✅ FIX: Construct PDF path directly without needing trip config
                 string basePath = @"C:\fusion";
-                string pdfPath = System.IO.Path.Combine(basePath, tripDate, tripId, $"{orderNumber}.pdf");
+                string formattedDate = tripDate;
+                if (!string.IsNullOrEmpty(tripDate))
+                {
+                    if (DateTime.TryParse(tripDate, out DateTime parsedDate))
+                        formattedDate = parsedDate.ToString("yyyy-MM-dd");
+                    else if (tripDate.Contains("T"))
+                        formattedDate = tripDate.Split('T')[0];
+                }
+                string pdfPath = System.IO.Path.Combine(basePath, formattedDate, tripId, $"{orderNumber}.pdf");
 
                 System.Diagnostics.Debug.WriteLine($"[PrintJobManager] Looking for PDF at: {pdfPath}");
 
