@@ -66,8 +66,8 @@ echo   SUCCESS: %ZIP_NAME% created
 echo   Location: %OUTPUT%
 echo ============================================
 
-REM --- Show zip contents summary ---
-powershell -NoProfile -Command "$z = [System.IO.Compression.ZipFile]::OpenRead('%OUTPUT%'); $dirs = $z.Entries | ForEach-Object { Split-Path $_.FullName -Parent } | Sort-Object -Unique | Where-Object { $_ -ne '' }; Write-Host ''; Write-Host 'Folders in zip:'; $dirs | ForEach-Object { Write-Host ('  ' + $_) }; Write-Host ''; Write-Host ('Total files: ' + $z.Entries.Count); $size = [math]::Round((Get-Item '%OUTPUT%').Length / 1MB, 2); Write-Host ('Zip size: ' + $size + ' MB'); $z.Dispose()"
+REM --- Show zip size ---
+powershell -NoProfile -Command "$size = [math]::Round((Get-Item '%OUTPUT%').Length / 1MB, 2); Write-Host ''; Write-Host ('Zip size: ' + $size + ' MB')"
 
 :cleanup
 REM --- Clean staging ---
