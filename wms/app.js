@@ -8253,7 +8253,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Get tripId and tripDate from parameters first, then fallback to globals (for backward compatibility)
         const tripId = String(tripIdFromRow || window.currentStoreTransTripId || '');
-        const tripDate = String(tripDateFromRow || window.currentStoreTransTripDate || '');
+        let tripDate = String(tripDateFromRow || window.currentStoreTransTripDate || '');
+        // Format tripDate to yyyy-MM-dd (strip ISO timestamp portion)
+        if (tripDate && tripDate.includes('T')) {
+            tripDate = tripDate.split('T')[0];
+        }
 
         console.log('[Print Store Transaction] TripId from row:', tripIdFromRow);
         console.log('[Print Store Transaction] TripId from global:', window.currentStoreTransTripId);

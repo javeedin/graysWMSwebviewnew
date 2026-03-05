@@ -4183,7 +4183,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
 
                         <!-- View Details Button -->
-                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
+                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}', '${trip.LOADING_BAY || ''}', '${trip.PRIORITY || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
                             <i class="fas fa-eye" style="font-size: 0.55rem;"></i> View Details
                         </button>
                     </div>
@@ -4199,7 +4199,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Use stored tripMap for better data access
-    window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard) {
+    window.openTripDetails = function(tripId, tripDate, lorryNumber, instanceFromCard, loadingBayFromCard, priorityFromCard) {
         console.log('[JS] Opening trip details for:', tripId);
 
         // Collapse sidebar when opening trip details
@@ -4266,7 +4266,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (result && result.items && result.items.length > 0) {
                         const tripData = result.items;
-                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber, false, loadingBayFromCard, priorityFromCard);
                     } else {
                         // No orders yet - still open the trip page with empty data
                         console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
@@ -4279,7 +4279,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             TRIP_LORRY: lorryNumber,
                             INSTANCE: instance
                         }];
-                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true);
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true, loadingBayFromCard, priorityFromCard);
                     }
                 } catch (parseError) {
                     console.error('[JS] Error parsing trip details response:', parseError);
@@ -4299,7 +4299,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     if (result && result.items && result.items.length > 0) {
                         const tripData = result.items;
-                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber);
+                        openTripDetailsWithData(tripId, tripData, tripDate, lorryNumber, false, loadingBayFromCard, priorityFromCard);
                     } else {
                         // No orders yet - still open the trip page with empty data
                         console.log('[JS] No orders found for trip:', tripId, '- opening with empty data');
@@ -4312,7 +4312,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             TRIP_LORRY: lorryNumber,
                             INSTANCE: instance
                         }];
-                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true);
+                        openTripDetailsWithData(tripId, emptyTripData, tripDate, lorryNumber, true, loadingBayFromCard, priorityFromCard);
                     }
                 })
                 .catch(error => {
@@ -4327,11 +4327,22 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Helper function to open trip details with data
-    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false) {
+    // Store trip-level header data keyed by tripId — used by the edit modal
+    if (!window.tripHeaderData) window.tripHeaderData = {};
+
+    window.openTripDetailsWithData = function(tripId, tripData, tripDate, lorryNumber, isEmpty = false, loadingBayFromCard = '', priorityFromCard = '') {
         console.log('[JS] Opening trip details with', tripData.length, 'records for trip:', tripId, 'isEmpty:', isEmpty);
 
         // Create unique tab ID
         const tabId = 'trip-detail-' + tripId;
+
+        // Store trip-level header data so the edit modal can always access it
+        window.tripHeaderData[tripId] = {
+            tripDate: tripDate || '',
+            lorryNumber: lorryNumber || '',
+            loadingBay: loadingBayFromCard || '',
+            priority: priorityFromCard || ''
+        };
 
         // Check if tab already exists
         const existingTab = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
@@ -4399,9 +4410,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Determine color based on fill percentage
         const volumeColor = volumeFillPercent >= 90 ? '#ef4444' : volumeFillPercent >= 70 ? '#f59e0b' : '#22c55e';
 
-        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || 'Medium';
+        const priority = firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || priorityFromCard || '';
+        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || loadingBayFromCard || '';
         const instanceName = firstRecord.INSTANCE || firstRecord.instance || window.currentTripInstance || 'PROD';
-        
+
         // Create tab item
         const tabHeader = document.getElementById('trip-tab-header');
         const tabItem = document.createElement('div');
@@ -4486,15 +4498,15 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <div id="kpi-customers-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${uniqueCustomers}</div>
                             </div>
 
-                            <!-- Total Quantity Card -->
+                            <!-- Loading Bay Card -->
                             <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(139, 92, 246, 0.1); border-left: 3px solid #8b5cf6; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(139, 92, 246, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(139, 92, 246, 0.1)';">
                                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
                                     <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #8b5cf6, #7c3aed); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
-                                        <i class="fas fa-cubes" style="color: white; font-size: 0.7rem;"></i>
+                                        <i class="fas fa-warehouse" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
-                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Quantity</div>
+                                    <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Loading Bay</div>
                                 </div>
-                                <div id="kpi-quantity-${tabId}" style="font-size: 1.0rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${totalQuantity.toLocaleString()}</div>
+                                <div id="kpi-loading-bay-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: #1e293b; margin-left: 2.15rem;">${loadingBay || 'N/A'}</div>
                             </div>
 
                             <!-- Volume Capacity Card -->
@@ -4532,14 +4544,14 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
 
                             <!-- Priority Card -->
-                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1); border-left: 3px solid ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(239, 68, 68, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(239, 68, 68, 0.1)';">
+                            <div style="background: white; padding: 0.65rem; border-radius: 8px; box-shadow: 0 1px 3px rgba(239, 68, 68, 0.1); border-left: 3px solid #f59e0b; transition: transform 0.2s ease, box-shadow 0.2s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 2px 6px rgba(239, 68, 68, 0.15)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 1px 3px rgba(239, 68, 68, 0.1)';">
                                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
-                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, ${priority.toLowerCase().includes('high') ? '#ef4444, #dc2626' : priority.toLowerCase().includes('low') ? '#22c55e, #16a34a' : '#f59e0b, #d97706'}); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
+                                    <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #f59e0b, #d97706); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
                                         <i class="fas fa-flag" style="color: white; font-size: 0.7rem;"></i>
                                     </div>
                                     <div style="color: #64748b; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.3px;">Priority</div>
                                 </div>
-                                <div id="kpi-priority-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: ${priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b'}; margin-left: 2.15rem;">${priority}</div>
+                                <div id="kpi-priority-${tabId}" style="font-size: 0.85rem; font-weight: 800; color: #f59e0b; margin-left: 2.15rem;">${priority || 'N/A'}</div>
                             </div>
                         </div>
                     </div>
@@ -4556,6 +4568,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                             <button class="btn btn-info" onclick="refreshTripDetails('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-sync-alt"></i> Refresh
+                            </button>
+                            <button class="btn" onclick="openEditTripHeaderModal('${tripId}', '${tabId}')" title="Edit Trip Header" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">
+                                <i class="fas fa-edit"></i> Edit Trip
                             </button>
                             <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-user-check"></i> Assign Picker
@@ -4780,6 +4795,286 @@ document.addEventListener('DOMContentLoaded', function() {
             activateTripTab('all-trips');
         }
     };
+
+    // === Edit Trip Header Modal ===
+    window.openEditTripHeaderModal = function(tripId, tabId) {
+        console.log('[JS] Opening edit trip header modal for:', tripId);
+
+        const tripData = currentFullData.filter(trip => {
+            const id = (trip.trip_id || trip.TRIP_ID || '').toString().toLowerCase();
+            return id === tripId.toString().toLowerCase();
+        });
+
+        if (tripData.length === 0) {
+            alert('No data found for trip: ' + tripId);
+            return;
+        }
+
+        const firstRecord = tripData[0];
+
+        // Primary source: trip header data stored when the tab was opened
+        const hdr = (window.tripHeaderData && window.tripHeaderData[tripId]) || {};
+
+        // Helper: read KPI card text, filtering out "N/A" placeholder
+        function readKpi(id) {
+            const el = document.getElementById(id);
+            const text = el ? el.textContent.trim() : '';
+            return (text && text !== 'N/A') ? text : '';
+        }
+
+        // Use stored header data first, then order-level record, then KPI cards
+        const tripDate = hdr.tripDate || firstRecord.TRIP_DATE || firstRecord.trip_date || readKpi(`kpi-date-${tabId}`) || '';
+        const lorryNumber = hdr.lorryNumber || firstRecord.trip_lorry || firstRecord.TRIP_LORRY || readKpi(`kpi-lorry-${tabId}`) || '';
+        const priority = hdr.priority || firstRecord.TRIP_PRIORITY || firstRecord.trip_priority || firstRecord.PRIORITY || readKpi(`kpi-priority-${tabId}`) || '';
+        const loadingBay = hdr.loadingBay || firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || readKpi(`kpi-loading-bay-${tabId}`) || '';
+
+        console.log('[JS] Edit modal - stored header:', JSON.stringify(hdr));
+        console.log('[JS] Edit modal - FINAL values: lorry=', lorryNumber, ', priority=', priority, ', loadingBay=', loadingBay);
+
+        // Remove any existing modal
+        const existingModal = document.getElementById('edit-trip-header-modal');
+        if (existingModal) existingModal.remove();
+
+        // Format date for input field (YYYY-MM-DD)
+        let dateValue = '';
+        if (tripDate) {
+            // Strip ISO time portion (e.g. "2026-03-05T00:00:00Z" -> "2026-03-05")
+            const dateOnly = tripDate.includes('T') ? tripDate.split('T')[0] : tripDate;
+            const parts = dateOnly.split('-');
+            if (parts.length === 3) {
+                if (parts[0].length === 4) {
+                    dateValue = dateOnly;
+                } else {
+                    dateValue = `${parts[2]}-${parts[1]}-${parts[0]}`;
+                }
+            }
+        }
+
+        const modalHtml = `
+            <div id="edit-trip-header-modal" class="modal" style="display: flex;">
+                <div class="modal-content" style="max-width: 520px;">
+                    <div class="modal-header" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+                        <h2 style="font-size: 1.1rem;"><i class="fas fa-edit"></i> Edit Trip Header</h2>
+                        <button class="close-modal" onclick="closeEditTripHeaderModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 1.25rem;">
+                        <div style="background: var(--gray-50); padding: 0.6rem 0.85rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid var(--primary);">
+                            <span style="font-size: 0.75rem; color: var(--gray-500);">Trip ID</span>
+                            <div style="font-size: 0.9rem; font-weight: 700; color: var(--gray-900);">${tripId}</div>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-trip-lorry"><i class="fas fa-truck" style="font-size: 0.7rem; color: var(--primary);"></i> Lorry Number</label>
+                            <input type="text" id="edit-trip-lorry" class="form-control" value="${lorryNumber}" placeholder="Enter lorry number">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-trip-priority"><i class="fas fa-flag" style="font-size: 0.7rem; color: var(--primary);"></i> Priority Number</label>
+                            <input type="text" id="edit-trip-priority" class="form-control" value="${priority}" placeholder="Enter priority number">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit-trip-loading-bay"><i class="fas fa-warehouse" style="font-size: 0.7rem; color: var(--primary);"></i> Loading Bay</label>
+                            <input type="text" id="edit-trip-loading-bay" class="form-control" value="${loadingBay}" placeholder="Enter loading bay">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label for="edit-trip-date"><i class="fas fa-calendar-alt" style="font-size: 0.7rem; color: var(--primary);"></i> Trip Date</label>
+                            <input type="date" id="edit-trip-date" class="form-control" value="${dateValue}">
+                        </div>
+                    </div>
+                    <div class="modal-footer" style="flex-wrap: wrap; gap: 0.5rem;">
+                        <button class="btn btn-secondary" onclick="closeEditTripHeaderModal()" style="font-size: 0.8rem; padding: 0.5rem 1rem;">
+                            <i class="fas fa-times"></i> Cancel
+                        </button>
+                        <button class="btn" id="save-trip-header-btn" onclick="saveTripHeader('${tripId}', '${tabId}')" style="font-size: 0.8rem; padding: 0.5rem 1.25rem; background: linear-gradient(135deg, #f59e0b, #d97706); border: none; color: white;">
+                            <i class="fas fa-save"></i> Save Changes
+                        </button>
+                    </div>
+                    <!-- Collapsible API Debug Section -->
+                    <div style="margin: 0; border-top: 1px solid #e2e8f0;">
+                        <div onclick="window.toggleEditTripApiDebug()" style="padding: 0.5rem 1.25rem; cursor: pointer; display: flex; align-items: center; gap: 0.4rem; background: #f8fafc; user-select: none;">
+                            <i class="fas fa-chevron-right" id="api-debug-chevron" style="font-size: 0.6rem; color: #94a3b8; transition: transform 0.2s;"></i>
+                            <span style="font-size: 0.7rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">API Debug</span>
+                        </div>
+                        <div id="edit-trip-api-debug" style="display:none; padding: 0.75rem 1.25rem; background: #1e1e2e; color: #a6e3a1; font-family: monospace; font-size: 0.7rem; max-height: 200px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;"></div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+        // Close on backdrop click
+        document.getElementById('edit-trip-header-modal').addEventListener('click', function(e) {
+            if (e.target === this) closeEditTripHeaderModal();
+        });
+    };
+
+    window.toggleEditTripApiDebug = function() {
+        const panel = document.getElementById('edit-trip-api-debug');
+        const chevron = document.getElementById('api-debug-chevron');
+        if (panel) {
+            const isHidden = panel.style.display === 'none';
+            panel.style.display = isHidden ? 'block' : 'none';
+            if (chevron) chevron.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+        }
+    };
+
+    window.closeEditTripHeaderModal = function() {
+        const modal = document.getElementById('edit-trip-header-modal');
+        if (modal) modal.remove();
+    };
+
+    window.saveTripHeader = function(tripId, tabId) {
+        const lorry = document.getElementById('edit-trip-lorry').value.trim();
+        const priority = document.getElementById('edit-trip-priority').value.trim();
+        const loadingBay = document.getElementById('edit-trip-loading-bay').value.trim();
+
+        console.log('[JS] saveTripHeader - form values: lorry=', lorry, ', priority=', priority, ', loadingBay=', loadingBay);
+
+        if (!lorry) {
+            alert('Lorry Number is required');
+            return;
+        }
+
+        const saveBtn = document.getElementById('save-trip-header-btn');
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = '<span class="spinner" style="width:14px;height:14px;border-width:2px;"></span> Saving...';
+
+        const instanceName = document.getElementById('trip-instance-name')
+            ? document.getElementById('trip-instance-name').value
+            : (document.getElementById('current-instance-display')
+                ? document.getElementById('current-instance-display').textContent.trim()
+                : 'PROD');
+
+        // Get current trip status from order-level data
+        let tripStatus = 'ACTIVE';
+        if (currentFullData && currentFullData.length > 0) {
+            const matchingTrip = currentFullData.find(t => {
+                const id = (t.trip_id || t.TRIP_ID || '').toString().toLowerCase();
+                return id === tripId.toString().toLowerCase();
+            });
+            if (matchingTrip) {
+                const status = (matchingTrip.TRIP_STATUS || matchingTrip.trip_status || matchingTrip.LINE_STATUS || '').trim();
+                if (status) {
+                    tripStatus = status;
+                }
+            }
+        }
+        console.log('[JS] tripStatus resolved to:', tripStatus);
+
+        const payload = {
+            p_trip_id: parseInt(tripId),
+            trip_lorry: lorry,
+            trip_status: tripStatus,
+            trip_loading_bay: loadingBay,
+            trip_priority: parseInt(priority) || 0,
+            trip_instance: instanceName
+        };
+
+        const baseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/updatetrip';
+        const bodyJson = JSON.stringify(payload);
+
+        console.log('[JS] ====== SAVE TRIP HEADER ======');
+        console.log('[JS] Endpoint:', baseUrl);
+        console.log('[JS] Method: POST');
+        console.log('[JS] Payload:', JSON.stringify(payload, null, 2));
+        console.log('[JS] Raw body:', bodyJson);
+        console.log('[JS] ================================');
+
+        // Auto-expand the debug section and write payload
+        const debugPanel = document.getElementById('edit-trip-api-debug');
+        const debugChevron = document.getElementById('api-debug-chevron');
+        if (debugPanel) {
+            debugPanel.style.display = 'block';
+            if (debugChevron) debugChevron.style.transform = 'rotate(90deg)';
+            debugPanel.textContent = `POST ${baseUrl}\n\nRequest Body:\n${JSON.stringify(payload, null, 2)}\n\nSending...`;
+        }
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: baseUrl,
+            body: bodyJson
+        }, function(error, data) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+
+            console.log('[JS] ====== SAVE TRIP RESPONSE ======');
+            console.log('[JS] Error:', error);
+            console.log('[JS] Response data:', data);
+            console.log('[JS] Response type:', typeof data);
+            if (data) console.log('[JS] Response JSON:', JSON.stringify(data, null, 2));
+            console.log('[JS] ==================================');
+
+            // Update debug panel with response
+            if (debugPanel) {
+                const responseText = error
+                    ? `ERROR: ${error}`
+                    : `Response:\n${JSON.stringify(data, null, 2)}`;
+                debugPanel.textContent = `POST ${baseUrl}\n\nRequest Body:\n${JSON.stringify(payload, null, 2)}\n\n${responseText}`;
+            }
+
+            if (error) {
+                console.error('[JS] Error saving trip header:', error);
+                showNotification('Failed to update trip: ' + error, 'error');
+                return;
+            }
+
+            console.log('[JS] Trip header saved successfully:', data);
+
+            // Update local data in currentFullData
+            currentFullData.forEach(trip => {
+                const id = (trip.trip_id || trip.TRIP_ID || '').toString().toLowerCase();
+                if (id === tripId.toString().toLowerCase()) {
+                    trip.trip_lorry = lorry;
+                    trip.TRIP_LORRY = lorry;
+                    trip.TRIP_PRIORITY = priority;
+                    trip.trip_priority = priority;
+                    trip.LOADING_BAY = loadingBay;
+                    trip.loading_bay = loadingBay;
+                    trip.TRIP_LOADING_BAY = loadingBay;
+                    trip.trip_loading_bay = loadingBay;
+                }
+            });
+
+            // Update the KPI cards in the trip detail tab
+            updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay);
+
+            // Sync stored trip header data so next edit modal open has correct values
+            if (window.tripHeaderData) {
+                window.tripHeaderData[tripId] = {
+                    tripDate: document.getElementById('edit-trip-date') ? document.getElementById('edit-trip-date').value : '',
+                    lorryNumber: lorry,
+                    loadingBay: loadingBay,
+                    priority: priority
+                };
+            }
+
+            // Don't auto-close — let user inspect the API response
+            showNotification('Trip header updated successfully!', 'success');
+            saveBtn.innerHTML = '<i class="fas fa-check"></i> Saved! Review response below';
+            saveBtn.style.background = '#16a34a';
+
+            // Update debug panel with success note
+            if (debugPanel) {
+                debugPanel.textContent += '\n\n--- SUCCESS --- Modal kept open for review. Click Cancel or X to close.';
+            }
+        });
+    };
+
+    function updateTripDetailKPIs(tripId, tabId, lorry, priority, loadingBay, tripDate) {
+        const tabPane = document.getElementById(`trip-${tabId}-tab`);
+        if (!tabPane) return;
+
+        // Update KPI cards by ID
+        const el = (id) => tabPane.querySelector(`#${id}`);
+        if (el(`kpi-lorry-${tabId}`)) el(`kpi-lorry-${tabId}`).textContent = lorry;
+        if (el(`kpi-date-${tabId}`)) el(`kpi-date-${tabId}`).textContent = tripDate;
+        if (el(`kpi-loading-bay-${tabId}`)) el(`kpi-loading-bay-${tabId}`).textContent = loadingBay || 'N/A';
+
+        // Update Priority
+        const priorityEl = el(`kpi-priority-${tabId}`);
+        if (priorityEl) {
+            priorityEl.textContent = priority || 'N/A';
+        }
+    }
 
     // Open Add Orders modal for a trip from Trip Management
     window.openAddOrdersModalForTrip = function(tripId) {
@@ -7609,7 +7904,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         console.log('[Allocate Lots S2V] Store to Van orders found:', s2vOrders.length);
 
-        // Create progress dialog
+        // Create progress dialog - shows orders and waits for confirmation
         const dialogHtml = `
             <div id="s2v-allocate-dialog" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 10002; display: flex; align-items: center; justify-content: center;">
                 <div style="background: white; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); width: 90%; max-width: 800px; max-height: 80vh; display: flex; flex-direction: column;">
@@ -7617,23 +7912,39 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h3 style="margin: 0; font-size: 1.25rem; font-weight: 600; color: #1f2937;">
                             <i class="fas fa-boxes" style="color: #10b981;"></i> Allocate Lots for Store to Van Orders
                         </h3>
-                        <button onclick="closeS2VDialog()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; padding: 0; width: 30px; height: 30px;">&times;</button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button onclick="toggleS2VApiInfo()" style="background: #f1f5f9; border: 1px solid #e2e8f0; font-size: 0.75rem; color: #6366f1; cursor: pointer; padding: 0.4rem 0.75rem; border-radius: 6px; font-weight: 600;" title="View API Details">
+                                <i class="fas fa-code"></i> API Info
+                            </button>
+                            <button onclick="closeS2VDialog()" style="background: none; border: none; font-size: 1.5rem; color: #9ca3af; cursor: pointer; padding: 0; width: 30px; height: 30px;">&times;</button>
+                        </div>
                     </div>
                     <div style="padding: 1.5rem; overflow-y: auto; flex: 1;">
+                        <!-- API Info Panel (hidden by default) -->
+                        <div id="s2v-api-info" style="display: none; margin-bottom: 1rem; padding: 1rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;">
+                            <div style="font-weight: 600; color: #1e293b; margin-bottom: 0.5rem;"><i class="fas fa-code" style="color: #6366f1;"></i> API Details</div>
+                            <div style="font-size: 0.8rem; color: #475569; font-family: monospace; background: #1e293b; color: #e2e8f0; padding: 0.75rem; border-radius: 6px; overflow-x: auto;">
+                                <div style="color: #10b981; margin-bottom: 0.25rem;">Method: POST</div>
+                                <div style="color: #f59e0b; margin-bottom: 0.25rem;">URL: https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails</div>
+                                <div style="color: #94a3b8; margin-bottom: 0.25rem;">Body: { "p_trx_number": "&lt;ORDER_NUMBER&gt;", "p_instance_name": "${s2vOrders[0].INSTANCE || s2vOrders[0].instance || s2vOrders[0].INSTANCE_NAME || s2vOrders[0].instance_name || sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST'}" }</div>
+                                <div style="color: #94a3b8;">Called for each selected S2V order sequentially</div>
+                            </div>
+                        </div>
                         <div style="margin-bottom: 1rem; padding: 1rem; background: #f0fdf4; border-left: 4px solid #10b981; border-radius: 4px;">
-                            <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">Processing ${s2vOrders.length} Store to Van Order(s)</div>
-                            <div style="font-size: 0.875rem; color: #047857;">Calling Allocate Lots API for each transaction...</div>
+                            <div style="font-weight: 600; color: #065f46; margin-bottom: 0.25rem;">${s2vOrders.length} Store to Van Order(s) Ready</div>
+                            <div style="font-size: 0.875rem; color: #047857;">Review the orders below and click "Start Processing" to allocate lots.</div>
                         </div>
                         <div id="s2v-progress-list" style="display: flex; flex-direction: column; gap: 0.75rem;">
                             ${s2vOrders.map((order, index) => {
                                 const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || 'Unknown';
+                                const instanceName = order.INSTANCE || order.instance || order.INSTANCE_NAME || order.instance_name || sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
                                 return `
                                     <div id="s2v-item-${index}" style="padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; background: #fafafa;">
                                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                                            <div style="font-weight: 600; color: #1f2937;">#${index + 1}: ${orderNumber}</div>
+                                            <div style="font-weight: 600; color: #1f2937;">#${index + 1}: ${orderNumber} <span style="font-size: 0.75rem; color: #6b7280; font-weight: 400;">(Instance: ${instanceName})</span></div>
                                             <div id="s2v-status-${index}" style="display: flex; align-items: center; gap: 0.5rem;">
                                                 <i class="fas fa-clock" style="color: #9ca3af;"></i>
-                                                <span style="color: #6b7280; font-size: 0.875rem;">Waiting...</span>
+                                                <span style="color: #6b7280; font-size: 0.875rem;">Pending</span>
                                             </div>
                                         </div>
                                         <div id="s2v-details-${index}" style="font-size: 0.875rem; color: #6b7280;"></div>
@@ -7643,10 +7954,15 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                     </div>
                     <div style="padding: 1rem 1.5rem; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; background: #f9fafb;">
-                        <div id="s2v-summary" style="font-size: 0.875rem; color: #6b7280;">Ready to process...</div>
-                        <button onclick="closeS2VDialog()" class="btn btn-secondary" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
-                            Close
-                        </button>
+                        <div id="s2v-summary" style="font-size: 0.875rem; color: #6b7280;">${s2vOrders.length} order(s) ready to process</div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="closeS2VDialog()" class="btn btn-secondary" style="font-size: 0.875rem; padding: 0.5rem 1rem;">
+                                Cancel
+                            </button>
+                            <button id="s2v-start-btn" onclick="startS2VProcessing()" class="btn btn-success" style="font-size: 0.875rem; padding: 0.5rem 1.5rem; background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer;">
+                                <i class="fas fa-play"></i> Start Processing
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -7657,8 +7973,32 @@ document.addEventListener('DOMContentLoaded', function() {
         dialogDiv.innerHTML = dialogHtml;
         document.body.appendChild(dialogDiv);
 
-        // Process each S2V order
-        processS2VOrders(s2vOrders, 0);
+        // Store orders for later processing
+        window._s2vPendingOrders = s2vOrders;
+    };
+
+    // Toggle API Info panel
+    window.toggleS2VApiInfo = function() {
+        const panel = document.getElementById('s2v-api-info');
+        if (panel) {
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        }
+    };
+
+    // Start S2V Processing (called by confirmation button)
+    window.startS2VProcessing = function() {
+        const startBtn = document.getElementById('s2v-start-btn');
+        if (startBtn) {
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            startBtn.style.opacity = '0.7';
+            startBtn.style.cursor = 'not-allowed';
+        }
+
+        const orders = window._s2vPendingOrders;
+        if (orders && orders.length > 0) {
+            processS2VOrders(orders, 0);
+        }
     };
 
     // Close S2V Dialog
@@ -7674,12 +8014,21 @@ document.addEventListener('DOMContentLoaded', function() {
         if (index >= orders.length) {
             // All done
             document.getElementById('s2v-summary').innerHTML = '<span style="color: #10b981; font-weight: 600;"><i class="fas fa-check-circle"></i> All orders processed!</span>';
+            const startBtn = document.getElementById('s2v-start-btn');
+            if (startBtn) {
+                startBtn.innerHTML = '<i class="fas fa-check"></i> Done';
+                startBtn.style.background = '#6b7280';
+            }
+            delete window._s2vPendingOrders;
             return;
         }
 
         const order = orders[index];
         const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number || 'Unknown';
-        const fusionInstance = localStorage.getItem('fusionInstance') || 'TEST';
+        const instanceName = order.INSTANCE || order.instance || order.INSTANCE_NAME || order.instance_name
+            || sessionStorage.getItem('loggedInInstance')
+            || localStorage.getItem('fusionInstance')
+            || 'TEST';
 
         // Update status to processing
         const statusDiv = document.getElementById(`s2v-status-${index}`);
@@ -7691,12 +8040,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // Prepare POST data
         const postData = {
             p_trx_number: orderNumber,
-            p_instance_name: fusionInstance
+            p_instance_name: instanceName
         };
 
         const apiUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails';
 
-        console.log(`[Allocate Lots S2V] Processing order ${index + 1}/${orders.length}:`, orderNumber);
+        console.log(`[Allocate Lots S2V] Processing order ${index + 1}/${orders.length}:`, orderNumber, 'Instance:', instanceName);
+        console.log('[Allocate Lots S2V] POST body:', JSON.stringify(postData));
 
         // Call API
         sendMessageToCSharp({
@@ -7903,7 +8253,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Get tripId and tripDate from parameters first, then fallback to globals (for backward compatibility)
         const tripId = String(tripIdFromRow || window.currentStoreTransTripId || '');
-        const tripDate = String(tripDateFromRow || window.currentStoreTransTripDate || '');
+        let tripDate = String(tripDateFromRow || window.currentStoreTransTripDate || '');
+        // Format tripDate to yyyy-MM-dd (strip ISO timestamp portion)
+        if (tripDate && tripDate.includes('T')) {
+            tripDate = tripDate.split('T')[0];
+        }
 
         console.log('[Print Store Transaction] TripId from row:', tripIdFromRow);
         console.log('[Print Store Transaction] TripId from global:', window.currentStoreTransTripId);
@@ -8164,14 +8518,14 @@ document.addEventListener('DOMContentLoaded', function() {
         if (el(`kpi-lorry-${tabId}`)) el(`kpi-lorry-${tabId}`).textContent = lorryNumber;
         if (el(`kpi-orders-${tabId}`)) el(`kpi-orders-${tabId}`).textContent = totalOrders;
         if (el(`kpi-customers-${tabId}`)) el(`kpi-customers-${tabId}`).textContent = uniqueCustomers;
-        if (el(`kpi-quantity-${tabId}`)) el(`kpi-quantity-${tabId}`).textContent = totalQuantity.toLocaleString();
+        const loadingBay = firstRecord.LOADING_BAY || firstRecord.loading_bay || firstRecord.TRIP_LOADING_BAY || firstRecord.trip_loading_bay || '';
+        if (el(`kpi-loading-bay-${tabId}`)) el(`kpi-loading-bay-${tabId}`).textContent = loadingBay || 'N/A';
         if (el(`kpi-products-${tabId}`)) el(`kpi-products-${tabId}`).textContent = uniqueProducts;
 
-        // Update priority with color
+        // Update priority
         const priorityEl = el(`kpi-priority-${tabId}`);
         if (priorityEl) {
-            priorityEl.textContent = priority;
-            priorityEl.style.color = priority.toLowerCase().includes('high') ? '#ef4444' : priority.toLowerCase().includes('low') ? '#22c55e' : '#f59e0b';
+            priorityEl.textContent = priority || 'N/A';
         }
 
         // Update volume card
@@ -8462,6 +8816,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </button>
                             </div>
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                <button onclick="toggleStoreTransApiInfo()" style="background: #0ea5e9; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.75rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#0284c7';" onmouseout="this.style.background='#0ea5e9';" title="View API Endpoints">
+                                    <i class="fas fa-plug"></i> API
+                                </button>
                                 <button onclick="printStoreTransaction('${orderNumber}', '${instance}', '${orderType}', '${tripId}', '${tripDate}')" style="background: #8b5cf6; border: none; cursor: pointer; color: white; padding: 0.4rem 0.8rem; border-radius: 4px; font-size: 0.75rem; display: flex; align-items: center; gap: 0.3rem; transition: all 0.2s;" onmouseover="this.style.background='#7c3aed';" onmouseout="this.style.background='#8b5cf6';" title="Print Store Transaction">
                                     <i class="fas fa-print"></i> Print
                                 </button>
@@ -8483,6 +8840,118 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Pick Confirm St:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${pickConfirmSt}</strong></div>
+                        </div>
+
+                        <!-- API Info Panel (Collapsible) -->
+                        <div id="store-trans-api-info" style="display: none; margin-top: 0.5rem; padding: 0.75rem; background: #f0f9ff; border-radius: 8px; border: 1px solid #bae6fd; max-height: 320px; overflow-y: auto;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                <h4 style="margin: 0; font-size: 0.8rem; color: #0369a1; font-weight: 700;">
+                                    <i class="fas fa-plug"></i> API Endpoints Used
+                                </h4>
+                                <span style="font-size: 0.65rem; color: #64748b;">9 endpoints</span>
+                            </div>
+
+                            <div style="display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.7rem;">
+                                <!-- 1. refreshTransactionDetails -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #10b981;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #10b981; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">GET</span>
+                                        <strong style="color: #1e293b;">Transaction Details</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— refreshTransactionDetails()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/s2vdetails/{orderNumber}?p_instance_name={instance}</code>
+                                </div>
+
+                                <!-- 2. refreshQOHDetails -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #10b981;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #10b981; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">GET</span>
+                                        <strong style="color: #1e293b;">QOH Details</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— refreshQOHDetails()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number={orderNumber}&p_instance_name={instance}</code>
+                                </div>
+
+                                <!-- 3. refreshAllocatedLots -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #10b981;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #10b981; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">GET</span>
+                                        <strong style="color: #1e293b;">Allocated Lots</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— refreshAllocatedLots()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number={orderNumber}&p_instance_name={instance}</code>
+                                </div>
+
+                                <!-- 4. fetchLotDetails -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #f59e0b; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">POST</span>
+                                        <strong style="color: #1e293b;">Fetch Lot Details</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— fetchLotDetails()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/fetchlotdetails</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { p_trx_number, p_instance_name }</div>
+                                </div>
+
+                                <!-- 5. processTransaction -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #f59e0b; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">POST</span>
+                                        <strong style="color: #1e293b;">Process Transaction (S2V)</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— processTransaction()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../WAREHOUSEMANAGEMENT/trip/processs2v</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { p_trx_number, p_instance_name }</div>
+                                </div>
+
+                                <!-- 6. setData -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #f59e0b; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">POST</span>
+                                        <strong style="color: #1e293b;">Set Data</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— setData() / submitSetData()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../TRIPMANAGEMENT/trip/sets2vdata</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Body: { records: [{ lid, picked_qty, p_instance_name, ... }] }</div>
+                                </div>
+
+                                <!-- 7. cancelSelectedTransactionLines -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #ef4444;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #ef4444; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">POST</span>
+                                        <strong style="color: #1e293b;">Cancel Transaction Lines</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— cancelSelectedTransactionLines()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">.../TRIPMANAGEMENT/trip/cancels2vline/{transactionId}?p_instance_name={instance}</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">Cancels selected PENDING lines sequentially</div>
+                                </div>
+
+                                <!-- 8. checkFusionStatus -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #94a3b8;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #94a3b8; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">N/A</span>
+                                        <strong style="color: #1e293b;">Check Fusion Status</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— checkFusionStatus()</span>
+                                    </div>
+                                    <code style="color: #94a3b8; font-size: 0.6rem; font-style: italic;">Not yet implemented — placeholder</code>
+                                </div>
+
+                                <!-- 9. printStoreTransaction -->
+                                <div style="background: white; padding: 0.5rem; border-radius: 6px; border-left: 3px solid #8b5cf6;">
+                                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.2rem;">
+                                        <span style="background: #8b5cf6; color: white; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.6rem; font-weight: 700;">SOAP</span>
+                                        <strong style="color: #1e293b;">Print Store Transaction</strong>
+                                        <span style="color: #64748b; font-size: 0.6rem;">— printStoreTransaction()</span>
+                                    </div>
+                                    <code style="color: #0369a1; font-size: 0.6rem; word-break: break-all;">C# Handler → Oracle Fusion Cloud SOAP Report</code>
+                                    <div style="color: #64748b; font-size: 0.6rem; margin-top: 0.2rem;">S2V/V2S: /Custom/DEXPRESS/STORETRANSACTIONS/GRAYS_MATERIAL_TRANSACTIONS_BIP.xdo<br>Others: /Custom/OQ/GR_SalesOrder_Rep.xdo</div>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 0.5rem; padding-top: 0.4rem; border-top: 1px solid #bae6fd; font-size: 0.6rem; color: #64748b;">
+                                <strong>Base URL:</strong> https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/<br>
+                                <strong>Instance:</strong> ${instance} | <strong>All calls routed via:</strong> C# WebView2 sendMessageToCSharp()
+                            </div>
                         </div>
                     </div>
 
@@ -8598,6 +9067,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const modal = document.getElementById('store-transactions-modal');
         if (modal) {
             modal.remove();
+        }
+    };
+
+    window.toggleStoreTransApiInfo = function() {
+        const panel = document.getElementById('store-trans-api-info');
+        if (panel) {
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
         }
     };
 
@@ -11032,8 +11508,8 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
 
-        const currentInstance = localStorage.getItem('fusionInstance') || 'PROD';
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}`;
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}?p_instance_name=${currentInstance}`;
 
         // Log debug info
         logDebugInfo('Refresh Transaction Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
@@ -11446,9 +11922,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Call Cancel Line API
     function callCancelLineAPI(transactionId) {
         return new Promise((resolve, reject) => {
-            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/${transactionId}`;
+            const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/cancels2vline/${transactionId}?p_instance_name=${currentInstance}`;
 
-            console.log('[Store Transactions] Calling cancel API for transaction:', transactionId);
+            console.log('[Store Transactions] Calling cancel API for transaction:', transactionId, 'instance:', currentInstance);
 
             sendMessageToCSharp({
                 action: 'executePost',
@@ -11511,10 +11988,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading allocated lots...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}`;
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}`;
 
         // Log debug info
-        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber }, null, null, 'GET');
+        logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -11737,10 +12215,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading indicator
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading QOH details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}`;
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}`;
 
         // Log debug info
-        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber }, null, null, 'GET');
+        logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
 
         sendMessageToCSharp({
             action: 'executeGet',
@@ -12343,6 +12822,9 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Get instance name
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+
         // Build records array for the API (always multiple records format)
         const records = [];
 
@@ -12356,6 +12838,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (lotNumber) record.lot_number = lotNumber;
             if (lotExpDate) record.lot_expiration_date = lotExpDate;
             if (pickedQty) record.picked_qty = parseFloat(pickedQty);
+            record.p_instance_name = currentInstance;
             if (shipConfirmStatus) record.ship_confirm_status = shipConfirmStatus;
             if (pickConfirmStatus) record.pick_confirm_status = pickConfirmStatus;
             if (cancelledStatus) record.cancelled_status = cancelledStatus;
@@ -12534,6 +13017,9 @@ document.addEventListener('DOMContentLoaded', function() {
     window.submitSetDataGrid = async function(orderNumber, selectedItems) {
         console.log('[Store Transactions] Submitting grid set data for:', orderNumber);
 
+        // Get instance name
+        const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
+
         // Build records array for the API
         const records = [];
 
@@ -12554,6 +13040,7 @@ document.addEventListener('DOMContentLoaded', function() {
             if (lotNumber) record.lot_number = lotNumber;
             if (lotExpDate) record.lot_expiration_date = lotExpDate;
             if (pickedQty) record.picked_qty = parseFloat(pickedQty);
+            record.p_instance_name = currentInstance;
             if (shipStatus) record.ship_confirm_status = shipStatus;
             if (pickStatus) record.pick_confirm_status = pickStatus;
             if (cancelStatus) record.cancelled_status = cancelStatus;
