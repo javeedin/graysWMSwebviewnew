@@ -3765,7 +3765,14 @@ navPanel.Controls.Add(wmsDevButton);
                 if (result.Success)
                 {
                     // Save PDF to file
-                    string tripDate = message.TripDate ?? DateTime.Now.ToString("yyyy-MM-dd");
+                    string tripDate = DateTime.Now.ToString("yyyy-MM-dd");
+                    if (!string.IsNullOrEmpty(message.TripDate))
+                    {
+                        if (DateTime.TryParse(message.TripDate, out DateTime parsedDate))
+                            tripDate = parsedDate.ToString("yyyy-MM-dd");
+                        else
+                            tripDate = message.TripDate.Split('T')[0];
+                    }
                     string tripId = message.TripId ?? "manual";
                     string folderPath = Path.Combine(@"C:\fusion", tripDate, tripId);
                     Directory.CreateDirectory(folderPath);
