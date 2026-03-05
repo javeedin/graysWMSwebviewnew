@@ -1231,6 +1231,9 @@ navPanel.Controls.Add(wmsDevButton);
             System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] Index: {wmsIndexPath}");
             System.Diagnostics.Debug.WriteLine("========================================");
 
+            // Show source mode in title bar so user knows where files are loading from
+            this.Text += $" | [{wmsSource}]";
+
             if (File.Exists(wmsIndexPath))
             {
                 string fileUrl = "file:///" + wmsIndexPath.Replace("\\", "/");
