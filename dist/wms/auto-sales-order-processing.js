@@ -103,10 +103,12 @@ function fetchAutoSalesOrderData() {
 
     addSOLogEntry('API', `Fetching data from ${fromDate} to ${toDate}...`, 'info');
 
-    // Build API URL
-    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/autosalesorderprocessing?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}`;
+    const instanceName = document.getElementById('current-instance-display')?.textContent?.trim() || localStorage.getItem('fusionInstance');
 
-    console.log('[Auto SO Processing] Fetching from:', apiUrl);
+    // Build API URL
+    const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/autosalesorderprocessing?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}&P_INSTANCE_NAME=${instanceName}`;
+
+    console.log('[Auto SO Processing] Fetching from:', apiUrl, 'Instance:', instanceName);
 
     // Use WebView REST handler
     sendMessageToCSharp({
@@ -1501,11 +1503,78 @@ function printSOOrder(orderNumber, tripIndex) {
         }
     }
 
-    // Sales Order reports use a different path than Store Transaction reports
-    // The report path will be determined by the order type value
-    const reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+    // Sales Order reports - show report type selection dialog
     const parameterName = 'Order_Number';
-    const reportName = 'Sales Order Report';
+
+    // Show report type selection for Sales Order
+    showSOReportTypeDialog(orderNumber, instance, tripId, tripDate, orderType, parameterName);
+}
+
+// Show report type selection dialog for single order print
+function showSOReportTypeDialog(orderNumber, instance, tripId, tripDate, orderType, parameterName) {
+    // Remove any existing dialog
+    const existingDialog = document.getElementById('so-report-type-dialog');
+    if (existingDialog) existingDialog.remove();
+
+    const dialogDiv = document.createElement('div');
+    dialogDiv.id = 'so-report-type-dialog';
+    dialogDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;';
+    dialogDiv.innerHTML = `
+        <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); min-width: 400px; max-width: 500px;">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 18px; color: #333;">
+                <i class="fas fa-file-alt" style="color: #667eea;"></i> Select Report Type
+            </h3>
+            <div style="font-size: 13px; color: #64748b; margin-bottom: 1.5rem;">
+                Order: <strong>${orderNumber}</strong> | Type: <strong style="color: #10b981;">${orderType}</strong>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;">
+                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: all 0.2s;"
+                       onmouseover="this.style.borderColor='#667eea'; this.style.background='#f8fafc'"
+                       onmouseout="if(!this.querySelector('input').checked){this.style.borderColor='#e2e8f0'; this.style.background='white'}">
+                    <input type="radio" name="so-single-report-type" value="/Custom/OQ/GR_SalesOrder_Rep.xdo" checked
+                           style="width: 18px; height: 18px; accent-color: #667eea;">
+                    <div>
+                        <div style="font-weight: 600; color: #1e293b;">Standard</div>
+                        <div style="font-size: 11px; color: #64748b; font-family: monospace;">/Custom/OQ/GR_SalesOrder_Rep.xdo</div>
+                    </div>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: all 0.2s;"
+                       onmouseover="this.style.borderColor='#667eea'; this.style.background='#f8fafc'"
+                       onmouseout="if(!this.querySelector('input').checked){this.style.borderColor='#e2e8f0'; this.style.background='white'}">
+                    <input type="radio" name="so-single-report-type" value="/shared/Custom/OQ/GR_SalesOrder_Lot_Rep.xdo"
+                           style="width: 18px; height: 18px; accent-color: #667eea;">
+                    <div>
+                        <div style="font-weight: 600; color: #1e293b;">With Lots</div>
+                        <div style="font-size: 11px; color: #64748b; font-family: monospace;">/shared/Custom/OQ/GR_SalesOrder_Lot_Rep.xdo</div>
+                    </div>
+                </label>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button onclick="document.getElementById('so-report-type-dialog').remove()"
+                        style="background: #e2e8f0; color: #475569; border: none; padding: 0.6rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button onclick="confirmSOReportTypeAndPrint('${orderNumber}', '${instance}', '${tripId}', '${tripDate}', '${orderType}', '${parameterName}')"
+                        style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.6rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    <i class="fas fa-print"></i> Print
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(dialogDiv);
+}
+
+// Confirm report type selection and proceed with printing
+window.confirmSOReportTypeAndPrint = function(orderNumber, instance, tripId, tripDate, orderType, parameterName) {
+    const selectedRadio = document.querySelector('input[name="so-single-report-type"]:checked');
+    const reportPath = selectedRadio ? selectedRadio.value : '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+    const reportName = reportPath.includes('Lot') ? 'With Lots - Sales Order Lot Report' : 'Standard - Sales Order Report';
+
+    // Remove dialog
+    const dialog = document.getElementById('so-report-type-dialog');
+    if (dialog) dialog.remove();
+
+    addSOLogEntry('Print', `Selected report: ${reportName} for Order ${orderNumber}`, 'info');
 
     // Show loading indicator
     const loadingDiv = document.createElement('div');
@@ -1673,6 +1742,14 @@ window.openSOTripPrintModal = async function(tripId, tripDate, orderCount, tripI
         console.log('[SO Trip Print] Report:', reportName);
     }
 
+    // Reset report type dropdown to default
+    const reportTypeSelect = document.getElementById('so-trip-print-report-type');
+    if (reportTypeSelect) {
+        reportTypeSelect.value = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+        const pathDisplay = document.getElementById('so-trip-print-report-path-display');
+        if (pathDisplay) pathDisplay.textContent = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+    }
+
     // Store current trip print data
     currentSOTripPrintData = {
         tripId: tripId,
@@ -1757,6 +1834,34 @@ window.closeSOTripPrintModal = function() {
     const modal = document.getElementById('so-trip-print-modal');
     modal.style.display = 'none';
     currentSOTripPrintData = null;
+};
+
+// Handle report type dropdown change
+window.onSOReportTypeChange = function() {
+    const reportTypeSelect = document.getElementById('so-trip-print-report-type');
+    const selectedPath = reportTypeSelect.value;
+    const selectedText = reportTypeSelect.options[reportTypeSelect.selectedIndex].text;
+
+    // Update path display
+    const pathDisplay = document.getElementById('so-trip-print-report-path-display');
+    if (pathDisplay) pathDisplay.textContent = selectedPath;
+
+    // Update report name display in modal header
+    const reportNameEl = document.getElementById('so-trip-print-report-name');
+    if (reportNameEl) reportNameEl.textContent = selectedText;
+
+    // Update stored data
+    if (currentSOTripPrintData) {
+        currentSOTripPrintData.reportPath = selectedPath;
+        currentSOTripPrintData.reportName = selectedText;
+        console.log('[SO Trip Print] Report type changed to:', selectedText, '→', selectedPath);
+    }
+
+    // Update debug display
+    const debugReportPath = document.getElementById('so-debug-report-path');
+    if (debugReportPath) debugReportPath.textContent = selectedPath;
+    const debugReportName = document.getElementById('so-debug-report-name');
+    if (debugReportName) debugReportName.textContent = selectedText;
 };
 
 // Toggle Debug Section
@@ -1960,8 +2065,16 @@ function renderSOTripPrintOrders() {
 window.startSOTripDownload = async function() {
     if (!currentSOTripPrintData) return;
 
+    // Sync report path from dropdown before starting
+    const reportTypeSelect = document.getElementById('so-trip-print-report-type');
+    if (reportTypeSelect) {
+        currentSOTripPrintData.reportPath = reportTypeSelect.value;
+        currentSOTripPrintData.reportName = reportTypeSelect.options[reportTypeSelect.selectedIndex].text;
+        console.log('[SO Trip Print] Using report:', currentSOTripPrintData.reportName, '→', currentSOTripPrintData.reportPath);
+    }
+
     console.log('[SO Trip Print] Starting download for all orders...');
-    addSOLogEntry('Print', `Starting PDF download for ${currentSOTripPrintData.orders.length} orders`, 'info');
+    addSOLogEntry('Print', `Starting PDF download for ${currentSOTripPrintData.orders.length} orders (Report: ${currentSOTripPrintData.reportName})`, 'info');
 
     // Update status
     document.getElementById('so-trip-print-status').textContent = 'Downloading...';
@@ -3689,6 +3802,72 @@ window.showSOTripMRALog = function(orderIndex) {
     `;
 
     document.body.appendChild(overlay);
+};
+
+// ============================================================================
+// API INFO MODAL
+// ============================================================================
+
+window.showAutoSOApiInfo = function() {
+    const fromDate = document.getElementById('auto-so-from-date')?.value || '';
+    const toDate = document.getElementById('auto-so-to-date')?.value || '';
+    const instanceName = document.getElementById('current-instance-display')?.textContent?.trim() || localStorage.getItem('fusionInstance');
+
+    const fetchUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/autosalesorderprocessing?P_FROM_DATE=${fromDate}&P_TO_DATE=${toDate}&P_INSTANCE_NAME=${instanceName}`;
+    const pickReleaseUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/pickrelease/oneorder/{ORDER_NUMBER}?P_INSTANCE_NAME=${instanceName}`;
+    const assignPickerUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/assignpicker`;
+
+    const modalHtml = `
+        <div id="auto-so-api-info-modal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;">
+            <div style="background: white; width: 90%; max-width: 750px; max-height: 85vh; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); display: flex; flex-direction: column;">
+                <div style="padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+                    <span style="font-weight: 700; color: #1e293b; font-size: 1rem;"><i class="fas fa-code" style="color: #667eea;"></i> API Info — Auto Sales Order Processing</span>
+                    <button onclick="document.getElementById('auto-so-api-info-modal').parentElement.remove()" style="background: transparent; border: 1px solid #cbd5e1; font-size: 18px; cursor: pointer; color: #64748b; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 4px;">×</button>
+                </div>
+                <div style="padding: 1.5rem; overflow-y: auto; flex: 1; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+
+                    <!-- Fetch Data -->
+                    <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                        <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">1. Fetch Sales Order Data</div>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 8px;">${fetchUrl}</code>
+                        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 0.75rem;">
+                            <thead><tr style="background: #dbeafe;">
+                                <th style="padding: 5px 8px; text-align: left; border: 1px solid #bfdbfe;">Parameter</th>
+                                <th style="padding: 5px 8px; text-align: left; border: 1px solid #bfdbfe;">Value</th>
+                                <th style="padding: 5px 8px; text-align: left; border: 1px solid #bfdbfe;">Description</th>
+                            </tr></thead>
+                            <tbody>
+                                <tr><td style="padding: 5px 8px; border: 1px solid #bfdbfe;"><code>P_FROM_DATE</code></td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">${fromDate}</td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">Start date filter</td></tr>
+                                <tr style="background: #eff6ff;"><td style="padding: 5px 8px; border: 1px solid #bfdbfe;"><code>P_TO_DATE</code></td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">${toDate}</td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">End date filter</td></tr>
+                                <tr><td style="padding: 5px 8px; border: 1px solid #bfdbfe;"><code>P_INSTANCE_NAME</code></td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">${instanceName}</td><td style="padding: 5px 8px; border: 1px solid #bfdbfe;">Fusion instance (PROD / TEST)</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Pick Release -->
+                    <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #22c55e;">
+                        <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">2. Pick Release (per order)</div>
+                        <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 8px;">${pickReleaseUrl}</code>
+                    </div>
+
+                    <!-- Assign Picker -->
+                    <div style="background: #fefce8; padding: 1rem; border-radius: 8px; border-left: 4px solid #eab308;">
+                        <div style="font-weight: 600; color: #854d0e; margin-bottom: 0.5rem;">3. Assign Picker</div>
+                        <span style="background: #fef9c3; color: #854d0e; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
+                        <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 8px;">${assignPickerUrl}</code>
+                        <div style="font-size: 11px; color: #92400e; margin-top: 6px;">Body: <code>{ p_order_number, p_picker_id, p_picker_name, p_instance_name }</code></div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    `;
+
+    const div = document.createElement('div');
+    div.innerHTML = modalHtml;
+    document.body.appendChild(div);
 };
 
 console.log('[Auto SO Processing] Module loaded');

@@ -1989,6 +1989,20 @@
                 </select>
             </div>
 
+            <!-- Report Type Selection (Sales Order only) -->
+            <div id="so-trip-print-report-type-section" style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-file-alt" style="color: #667eea;"></i> Report Type <span style="color: #dc3545;">*</span>
+                </label>
+                <select id="so-trip-print-report-type" class="form-control" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;" onchange="onSOReportTypeChange()">
+                    <option value="/Custom/OQ/GR_SalesOrder_Rep.xdo" selected>Standard - Sales Order Report</option>
+                    <option value="/shared/Custom/OQ/GR_SalesOrder_Lot_Rep.xdo">With Lots - Sales Order Lot Report</option>
+                </select>
+                <div style="font-size: 11px; color: #64748b; margin-top: 0.35rem;">
+                    <i class="fas fa-info-circle"></i> <span id="so-trip-print-report-path-display">/Custom/OQ/GR_SalesOrder_Rep.xdo</span>
+                </div>
+            </div>
+
             <!-- Orders List -->
             <div style="margin-bottom: 1rem;">
                 <h4 style="font-size: 14px; font-weight: 700; color: #1e293b; margin-bottom: 0.75rem;">Orders in Trip</h4>

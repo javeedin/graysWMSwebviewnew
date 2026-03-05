@@ -1503,11 +1503,78 @@ function printSOOrder(orderNumber, tripIndex) {
         }
     }
 
-    // Sales Order reports use a different path than Store Transaction reports
-    // The report path will be determined by the order type value
-    const reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+    // Sales Order reports - show report type selection dialog
     const parameterName = 'Order_Number';
-    const reportName = 'Sales Order Report';
+
+    // Show report type selection for Sales Order
+    showSOReportTypeDialog(orderNumber, instance, tripId, tripDate, orderType, parameterName);
+}
+
+// Show report type selection dialog for single order print
+function showSOReportTypeDialog(orderNumber, instance, tripId, tripDate, orderType, parameterName) {
+    // Remove any existing dialog
+    const existingDialog = document.getElementById('so-report-type-dialog');
+    if (existingDialog) existingDialog.remove();
+
+    const dialogDiv = document.createElement('div');
+    dialogDiv.id = 'so-report-type-dialog';
+    dialogDiv.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; align-items: center; justify-content: center;';
+    dialogDiv.innerHTML = `
+        <div style="background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); min-width: 400px; max-width: 500px;">
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 18px; color: #333;">
+                <i class="fas fa-file-alt" style="color: #667eea;"></i> Select Report Type
+            </h3>
+            <div style="font-size: 13px; color: #64748b; margin-bottom: 1.5rem;">
+                Order: <strong>${orderNumber}</strong> | Type: <strong style="color: #10b981;">${orderType}</strong>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1.5rem;">
+                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: all 0.2s;"
+                       onmouseover="this.style.borderColor='#667eea'; this.style.background='#f8fafc'"
+                       onmouseout="if(!this.querySelector('input').checked){this.style.borderColor='#e2e8f0'; this.style.background='white'}">
+                    <input type="radio" name="so-single-report-type" value="/Custom/OQ/GR_SalesOrder_Rep.xdo" checked
+                           style="width: 18px; height: 18px; accent-color: #667eea;">
+                    <div>
+                        <div style="font-weight: 600; color: #1e293b;">Standard</div>
+                        <div style="font-size: 11px; color: #64748b; font-family: monospace;">/Custom/OQ/GR_SalesOrder_Rep.xdo</div>
+                    </div>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.75rem; padding: 1rem; border: 2px solid #e2e8f0; border-radius: 8px; cursor: pointer; transition: all 0.2s;"
+                       onmouseover="this.style.borderColor='#667eea'; this.style.background='#f8fafc'"
+                       onmouseout="if(!this.querySelector('input').checked){this.style.borderColor='#e2e8f0'; this.style.background='white'}">
+                    <input type="radio" name="so-single-report-type" value="/shared/Custom/OQ/GR_SalesOrder_Lot_Rep.xdo"
+                           style="width: 18px; height: 18px; accent-color: #667eea;">
+                    <div>
+                        <div style="font-weight: 600; color: #1e293b;">With Lots</div>
+                        <div style="font-size: 11px; color: #64748b; font-family: monospace;">/shared/Custom/OQ/GR_SalesOrder_Lot_Rep.xdo</div>
+                    </div>
+                </label>
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 0.75rem;">
+                <button onclick="document.getElementById('so-report-type-dialog').remove()"
+                        style="background: #e2e8f0; color: #475569; border: none; padding: 0.6rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+                <button onclick="confirmSOReportTypeAndPrint('${orderNumber}', '${instance}', '${tripId}', '${tripDate}', '${orderType}', '${parameterName}')"
+                        style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.6rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                    <i class="fas fa-print"></i> Print
+                </button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(dialogDiv);
+}
+
+// Confirm report type selection and proceed with printing
+window.confirmSOReportTypeAndPrint = function(orderNumber, instance, tripId, tripDate, orderType, parameterName) {
+    const selectedRadio = document.querySelector('input[name="so-single-report-type"]:checked');
+    const reportPath = selectedRadio ? selectedRadio.value : '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+    const reportName = reportPath.includes('Lot') ? 'With Lots - Sales Order Lot Report' : 'Standard - Sales Order Report';
+
+    // Remove dialog
+    const dialog = document.getElementById('so-report-type-dialog');
+    if (dialog) dialog.remove();
+
+    addSOLogEntry('Print', `Selected report: ${reportName} for Order ${orderNumber}`, 'info');
 
     // Show loading indicator
     const loadingDiv = document.createElement('div');
@@ -1675,6 +1742,14 @@ window.openSOTripPrintModal = async function(tripId, tripDate, orderCount, tripI
         console.log('[SO Trip Print] Report:', reportName);
     }
 
+    // Reset report type dropdown to default
+    const reportTypeSelect = document.getElementById('so-trip-print-report-type');
+    if (reportTypeSelect) {
+        reportTypeSelect.value = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+        const pathDisplay = document.getElementById('so-trip-print-report-path-display');
+        if (pathDisplay) pathDisplay.textContent = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+    }
+
     // Store current trip print data
     currentSOTripPrintData = {
         tripId: tripId,
@@ -1759,6 +1834,34 @@ window.closeSOTripPrintModal = function() {
     const modal = document.getElementById('so-trip-print-modal');
     modal.style.display = 'none';
     currentSOTripPrintData = null;
+};
+
+// Handle report type dropdown change
+window.onSOReportTypeChange = function() {
+    const reportTypeSelect = document.getElementById('so-trip-print-report-type');
+    const selectedPath = reportTypeSelect.value;
+    const selectedText = reportTypeSelect.options[reportTypeSelect.selectedIndex].text;
+
+    // Update path display
+    const pathDisplay = document.getElementById('so-trip-print-report-path-display');
+    if (pathDisplay) pathDisplay.textContent = selectedPath;
+
+    // Update report name display in modal header
+    const reportNameEl = document.getElementById('so-trip-print-report-name');
+    if (reportNameEl) reportNameEl.textContent = selectedText;
+
+    // Update stored data
+    if (currentSOTripPrintData) {
+        currentSOTripPrintData.reportPath = selectedPath;
+        currentSOTripPrintData.reportName = selectedText;
+        console.log('[SO Trip Print] Report type changed to:', selectedText, '→', selectedPath);
+    }
+
+    // Update debug display
+    const debugReportPath = document.getElementById('so-debug-report-path');
+    if (debugReportPath) debugReportPath.textContent = selectedPath;
+    const debugReportName = document.getElementById('so-debug-report-name');
+    if (debugReportName) debugReportName.textContent = selectedText;
 };
 
 // Toggle Debug Section
@@ -1962,8 +2065,16 @@ function renderSOTripPrintOrders() {
 window.startSOTripDownload = async function() {
     if (!currentSOTripPrintData) return;
 
+    // Sync report path from dropdown before starting
+    const reportTypeSelect = document.getElementById('so-trip-print-report-type');
+    if (reportTypeSelect) {
+        currentSOTripPrintData.reportPath = reportTypeSelect.value;
+        currentSOTripPrintData.reportName = reportTypeSelect.options[reportTypeSelect.selectedIndex].text;
+        console.log('[SO Trip Print] Using report:', currentSOTripPrintData.reportName, '→', currentSOTripPrintData.reportPath);
+    }
+
     console.log('[SO Trip Print] Starting download for all orders...');
-    addSOLogEntry('Print', `Starting PDF download for ${currentSOTripPrintData.orders.length} orders`, 'info');
+    addSOLogEntry('Print', `Starting PDF download for ${currentSOTripPrintData.orders.length} orders (Report: ${currentSOTripPrintData.reportName})`, 'info');
 
     // Update status
     document.getElementById('so-trip-print-status').textContent = 'Downloading...';

@@ -84,7 +84,10 @@
         <div class="logo">
             <i class="fas fa-warehouse"></i>
             <span>WMS</span>
-<span id="app-version-badge" style="font-size: 9px; background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600;">Loading...</span>
+<span id="app-version-badge" style="font-size: 9px; background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600;">v2.0.0</span>
+            <button onclick="window.location.reload()" title="Refresh Page" style="margin-left: 10px; background: none; border: 1px solid #dee2e6; border-radius: 5px; cursor: pointer; padding: 3px 8px; color: #667eea; font-size: 13px; transition: all 0.2s; display: inline-flex; align-items: center;" onmouseover="this.style.background='#f0f0ff';this.style.borderColor='#667eea'" onmouseout="this.style.background='none';this.style.borderColor='#dee2e6'">
+                <i class="fas fa-sync-alt"></i>
+            </button>
             <span id="current-page-title" style="font-size: 14px; color: #2d3748; margin-left: 20px; font-weight: 700;"></span>
         </div>
         <div class="module-buttons">
@@ -94,15 +97,13 @@
         <!-- Right Side: User Info & Instance Selector -->
         <div style="margin-left: auto; display: flex; align-items: center; gap: 1rem;">
             <!-- User Info Panel with Logout -->
-            <div style="display: flex; align-items: center; gap: 0.75rem; background: #f8f9fa; padding: 0.6rem 1rem; border-radius: 8px; border: 2px solid #dee2e6;">
+            <div style="display: flex; align-items: center; gap: 0.75rem; padding: 0.4rem 0.5rem;">
                 <i class="fas fa-user-circle" style="font-size: 24px; color: #667eea;"></i>
                 <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span id="logged-in-username" style="font-weight: 700; font-size: 13px; color: #2d3748;"></span>
-                        <span style="font-size: 10px; background: #667eea; color: white; padding: 2px 5px; border-radius: 3px; font-weight: 600;" id="current-instance-display-mini"></span>
-                    </div>
+                    <span id="logged-in-username" style="font-weight: 700; font-size: 13px; color: #2d3748;"></span>
                     <span id="login-datetime" style="font-size: 10px; color: #888; margin-top: 1px;">Not logged in</span>
                 </div>
+                <span style="display:none;" id="current-instance-display-mini"></span>
                 <button onclick="handleLogout()" style="background: #dc3545; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 11px; transition: background 0.2s;" onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
                     <i class="fas fa-sign-out-alt"></i> Logout
                 </button>
@@ -130,32 +131,7 @@
         </div>
     </header>
 
-<!-- Fetch and display latest version from GitHub -->
-    <script>
-        (async function() {
-            try {
-                console.log('[Version Badge] Fetching latest version from GitHub API...');
-                const response = await fetch('https://api.github.com/repos/javeedin/graysWMSwebviewnew/releases/latest');
-
-                if (response.ok) {
-                    const release = await response.json();
-                    const version = release.tag_name || 'Unknown';
-                    const badge = document.getElementById('app-version-badge');
-
-                    if (badge) {
-                        badge.textContent = version;
-                        console.log('[Version Badge] Updated to:', version);
-                    }
-                } else {
-                    console.warn('[Version Badge] Failed to fetch version:', response.status);
-                    // Keep "Loading..." if fetch fails
-                }
-            } catch (error) {
-                console.error('[Version Badge] Error fetching version:', error);
-                // Keep "Loading..." if error occurs
-            }
-        })();
-    </script>
+<!-- Version is set statically in the badge above -->
 
     <div class="container">
         <aside class="sidebar" id="sidebar">
@@ -2013,6 +1989,20 @@
                 </select>
             </div>
 
+            <!-- Report Type Selection (Sales Order only) -->
+            <div id="so-trip-print-report-type-section" style="margin-bottom: 1.5rem;">
+                <label style="display: block; font-weight: 600; margin-bottom: 0.5rem; color: #333; font-size: 14px;">
+                    <i class="fas fa-file-alt" style="color: #667eea;"></i> Report Type <span style="color: #dc3545;">*</span>
+                </label>
+                <select id="so-trip-print-report-type" class="form-control" style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 6px; font-size: 14px;" onchange="onSOReportTypeChange()">
+                    <option value="/Custom/OQ/GR_SalesOrder_Rep.xdo" selected>Standard - Sales Order Report</option>
+                    <option value="/shared/Custom/OQ/GR_SalesOrder_Lot_Rep.xdo">With Lots - Sales Order Lot Report</option>
+                </select>
+                <div style="font-size: 11px; color: #64748b; margin-top: 0.35rem;">
+                    <i class="fas fa-info-circle"></i> <span id="so-trip-print-report-path-display">/Custom/OQ/GR_SalesOrder_Rep.xdo</span>
+                </div>
+            </div>
+
             <!-- Orders List -->
             <div style="margin-bottom: 1rem;">
                 <h4 style="font-size: 14px; font-weight: 700; color: #1e293b; margin-bottom: 0.75rem;">Orders in Trip</h4>
@@ -2346,6 +2336,11 @@
                                     <i class="fas fa-play"></i> Start Process
                                 </button>
 
+                                <!-- API Info Button -->
+                                <button onclick="toggleAutoInventoryApiInfo()" style="background: #f1f5f9; border: 1px solid #e2e8f0; padding: 0.65rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; margin-top: 18px; color: #6366f1; transition: all 0.2s;" title="View API endpoints used by this page" onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                                    <i class="fas fa-code"></i> API Info
+                                </button>
+
                                 <!-- Selection Buttons -->
                                 <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 18px; margin-left: 1rem; padding-left: 1rem; border-left: 2px solid #e2e8f0;">
                                     <button onclick="selectAllTrips()" style="background: #f59e0b; color: white; border: none; padding: 0.5rem 0.75rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 11px; transition: all 0.2s;" title="Select all trips">
@@ -2422,6 +2417,79 @@
                                 <button onclick="resetTripOrderFontSize()" style="background: #e2e8f0; border: none; padding: 0.25rem 0.5rem; border-radius: 4px; cursor: pointer; font-size: 9px; font-weight: 600; color: #64748b;" title="Reset to default">
                                     Reset
                                 </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- API Info Panel (hidden by default) -->
+                    <div id="auto-inventory-api-info" style="display: none; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); margin-bottom: 1rem; overflow: hidden; border: 1px solid #e2e8f0;">
+                        <div style="padding: 1rem 1.25rem; background: linear-gradient(135deg, #f8fafc, #f1f5f9); border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center;">
+                            <h3 style="margin: 0; font-size: 1rem; font-weight: 700; color: #1e293b;">
+                                <i class="fas fa-code" style="color: #6366f1;"></i> API Endpoints Used
+                            </h3>
+                            <button onclick="toggleAutoInventoryApiInfo()" style="background: none; border: none; font-size: 1.25rem; color: #9ca3af; cursor: pointer;">&times;</button>
+                        </div>
+                        <div style="padding: 1.25rem;">
+                            <!-- API 1: Fetch Credentials -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #6366f1;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #10b981; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">GET</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Fetch Fusion Credentials</strong>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trip/fusionuserdetails?p_instance_name={instance}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Retrieves Fusion Cloud username/password for authenticated API calls</div>
+                            </div>
+
+                            <!-- API 2: Fetch Transaction Data -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #10b981;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #10b981; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">GET</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Fetch Transactions for Auto Processing</strong>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trips/transactionforautopr?P_FROM_DATE={date}&amp;P_TO_DATE={date}&amp;P_INSTANCE_NAME={instance}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches pending inventory transactions grouped by trip for the given date range</div>
+                            </div>
+
+                            <!-- API 3: Process S2V Auto -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #f59e0b;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #3b82f6; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">POST</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Process S2V Auto (per LID)</strong>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../WAREHOUSEMANAGEMENT/trip/processs2vauto/{LID}?p_instance_name={instance}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Processes a single inventory transaction by its LID (Line ID). Called sequentially for each line.</div>
+                            </div>
+
+                            <!-- API 4: Cancel S2V Lot -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #ef4444;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #3b82f6; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">POST</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Cancel S2V Lot (per LID)</strong>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">.../TRIPMANAGEMENT/trip/cancels2vlot/{LID}?p_instance_name={instance}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Cancels a specific inventory transaction line by its LID</div>
+                            </div>
+
+                            <!-- API 5: Fusion Cloud - Get Staged Transactions -->
+                            <div style="margin-bottom: 1rem; padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #8b5cf6;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #10b981; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">GET</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Fusion Cloud - Get Staged Transactions</strong>
+                                    <span style="background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.6rem; font-weight: 600;">Authenticated</span>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">https://efmh{-test}.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches staged inventory transactions from Oracle Fusion Cloud. Uses Basic Auth. TEST: efmh-test.fa.em3.oraclecloud.com | PROD: efmh.fa.em3.oraclecloud.com</div>
+                            </div>
+
+                            <!-- API 6: Fusion Cloud - Delete Staged Transaction -->
+                            <div style="padding: 0.75rem; background: #fafafa; border-radius: 8px; border-left: 3px solid #dc2626;">
+                                <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                                    <span style="background: #ef4444; color: white; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.65rem; font-weight: 700; font-family: monospace;">DELETE</span>
+                                    <strong style="font-size: 0.8rem; color: #1e293b;">Fusion Cloud - Delete Staged Transaction</strong>
+                                    <span style="background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.6rem; font-weight: 600;">Authenticated</span>
+                                </div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">https://efmh{-test}.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/{TransactionInterfaceId}</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Deletes a staged transaction from Fusion Cloud after successful processing. Uses Basic Auth. TEST: efmh-test | PROD: efmh</div>
                             </div>
                         </div>
                     </div>
@@ -2565,6 +2633,11 @@
                                 <!-- Fetch Button -->
                                 <button id="auto-so-fetch-btn" onclick="fetchAutoSalesOrderData()" style="background: #667eea; color: white; border: none; padding: 0.65rem 1.25rem; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; margin-top: 18px; transition: all 0.2s; box-shadow: 0 2px 4px rgba(102, 126, 234, 0.3);">
                                     <i class="fas fa-sync-alt"></i> Fetch Data
+                                </button>
+
+                                <!-- API Info Button -->
+                                <button onclick="showAutoSOApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px; margin-top: 18px;" title="View API endpoints used by this page">
+                                    <i class="fas fa-code"></i> API
                                 </button>
 
                                 <!-- Start Process Button -->
@@ -2833,6 +2906,17 @@
             <!-- Pending Store Transactions Page -->
             <div id="pending-store-transactions" class="page-content" style="display: none;">
                 <div style="padding: 1rem;">
+                    <!-- Page Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h2 style="margin: 0; font-size: 1.5rem; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-store" style="color: #667eea;"></i>
+                            Pending Store Transactions
+                        </h2>
+                        <button onclick="showPstApiInfo()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 4px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;" title="View API Information">
+                            <i class="fas fa-code"></i> API
+                        </button>
+                    </div>
+
                     <!-- KPI Cards (Small, at top) -->
                     <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
                         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 0.5rem 1rem; border-radius: 6px;">
