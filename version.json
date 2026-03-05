@@ -1,15 +1,15 @@
 {
-    "version":  "1.2.9",
-    "build_date":  "2026-02-23",
+    "version":  "1.2.10",
+    "build_date":  "2026-03-05",
     "files":  {
-                  "index.html":  "2026-02-23T10:56:31Z",
-                  "app.js":  "2026-02-23T10:56:31Z",
-                  "monitor-printing.js":  "2026-02-23T10:56:31Z",
-                  "styles.css":  "2026-02-23T10:56:31Z",
-                  "mra-processor.js":  "2026-02-23T10:56:31Z",
-                  "trip-details.js":  "2026-02-23T10:56:31Z",
-                  "auto-inventory-processing.js":  "2026-02-23T10:56:31Z",
-                  "auto-sales-order-processing.js":  "2026-02-23T10:56:31Z"
+                  "index.html":  "2026-03-05T05:57:58Z",
+                  "app.js":  "2026-03-05T05:57:58Z",
+                  "monitor-printing.js":  "2026-03-05T05:57:58Z",
+                  "styles.css":  "2026-03-05T05:57:58Z",
+                  "mra-processor.js":  "2026-03-05T05:57:58Z",
+                  "trip-details.js":  "2026-03-05T05:57:58Z",
+                  "auto-inventory-processing.js":  "2026-03-05T05:57:58Z",
+                  "auto-sales-order-processing.js":  "2026-03-05T05:57:58Z"
               },
     "changelog":  "Feature: Pick Release All - Smart button handles both S2V (Store to Van) and Sales Orders. S2V uses existing allocateLots logic, Sales Orders call new REST API. Added Assignment Date field to Picker Assignment modal."
 }
