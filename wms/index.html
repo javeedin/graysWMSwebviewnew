@@ -104,6 +104,9 @@
                     <span id="login-datetime" style="font-size: 10px; color: #888; margin-top: 1px;">Not logged in</span>
                 </div>
                 <span style="display:none;" id="current-instance-display-mini"></span>
+                <button onclick="navigateToHome()" title="Go to Home Dashboard" style="background: #667eea; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 11px; transition: background 0.2s; margin-right: 4px;" onmouseover="this.style.background='#5a67d8'" onmouseout="this.style.background='#667eea'">
+                    <i class="fas fa-home"></i> Home
+                </button>
                 <button onclick="handleLogout()" style="background: #dc3545; color: white; border: none; padding: 0.4rem 0.8rem; border-radius: 5px; cursor: pointer; font-weight: 600; font-size: 11px; transition: background 0.2s;" onmouseover="this.style.background='#c82333'" onmouseout="this.style.background='#dc3545'">
                     <i class="fas fa-sign-out-alt"></i> Logout
                 </button>
@@ -7335,6 +7338,11 @@
 
             // Redirect to login page
             window.location.href = '../login.html';
+        };
+
+        window.navigateToHome = function() {
+            console.log('[HOME] Navigating to Home dashboard...');
+            window.location.href = '../Home/index.html';
         };
 
         // Listen for messages from C# WebView2
