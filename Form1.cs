@@ -1199,50 +1199,50 @@ navPanel.Controls.Add(wmsDevButton);
             navPanel.Visible = false;
             titleBarPanel.Visible = false;
 
-            // Smart WMS folder detection:
-            // Priority 1: Dev repo folder (for development)
-            // Priority 2: Fusion distribution folder (for production)
-            string devWmsFolder = @"C:\Users\Javeed Shaik\source\repos\javeedin\graysWMSwebviewnew\wms";
-            string fusionWmsFolder = @"C:\fusion\fusionclientweb\wms";
-            string wmsFolder;
+            // Startup: Navigate to Home dashboard
+            // Priority 1: Dev repo Home folder
+            // Priority 2: Fusion distribution Home folder
+            string devHomeFolder = @"C:\Users\Javeed Shaik\source\repos\javeedin\graysWMSwebviewnew\Home";
+            string fusionHomeFolder = @"C:\fusion\fusionclientweb\Home";
+            string homeFolder;
             string wmsSource;
 
-            if (Directory.Exists(devWmsFolder) && File.Exists(Path.Combine(devWmsFolder, "index.html")))
+            if (Directory.Exists(devHomeFolder) && File.Exists(Path.Combine(devHomeFolder, "index.html")))
             {
-                wmsFolder = devWmsFolder;
+                homeFolder = devHomeFolder;
                 wmsSource = "DEV (home repo)";
             }
-            else if (Directory.Exists(fusionWmsFolder) && File.Exists(Path.Combine(fusionWmsFolder, "index.html")))
+            else if (Directory.Exists(fusionHomeFolder) && File.Exists(Path.Combine(fusionHomeFolder, "index.html")))
             {
-                wmsFolder = fusionWmsFolder;
+                homeFolder = fusionHomeFolder;
                 wmsSource = "PROD (fusion)";
             }
             else
             {
-                // Final fallback: build output
-                wmsFolder = Path.Combine(Application.StartupPath, "wms");
+                // Final fallback: build output Home folder
+                homeFolder = Path.Combine(Application.StartupPath, "Home");
                 wmsSource = "BUILD OUTPUT";
             }
 
-            string wmsIndexPath = Path.Combine(wmsFolder, "index.html");
+            string homeIndexPath = Path.Combine(homeFolder, "index.html");
             System.Diagnostics.Debug.WriteLine("========================================");
-            System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] Loading from: {wmsSource}");
-            System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] Folder: {wmsFolder}");
-            System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] Index: {wmsIndexPath}");
+            System.Diagnostics.Debug.WriteLine($"[STARTUP] Loading Home dashboard from: {wmsSource}");
+            System.Diagnostics.Debug.WriteLine($"[STARTUP] Folder: {homeFolder}");
+            System.Diagnostics.Debug.WriteLine($"[STARTUP] Index: {homeIndexPath}");
             System.Diagnostics.Debug.WriteLine("========================================");
 
             // Show source mode in title bar so user knows where files are loading from
             this.Text += $" | [{wmsSource}]";
 
-            if (File.Exists(wmsIndexPath))
+            if (File.Exists(homeIndexPath))
             {
-                string fileUrl = "file:///" + wmsIndexPath.Replace("\\", "/");
+                string fileUrl = "file:///" + homeIndexPath.Replace("\\", "/");
                 AddNewTab(fileUrl);
             }
             else
             {
-                System.Diagnostics.Debug.WriteLine($"[WMS STARTUP] ERROR: index.html not found at {wmsIndexPath}");
-                MessageBox.Show($"WMS index.html not found.\n\nSearched:\n{devWmsFolder}\n{fusionWmsFolder}\n{Path.Combine(Application.StartupPath, "wms")}\n\nPlease check your installation.",
+                System.Diagnostics.Debug.WriteLine($"[STARTUP] ERROR: Home/index.html not found at {homeIndexPath}");
+                MessageBox.Show($"Home dashboard not found.\n\nSearched:\n{devHomeFolder}\n{fusionHomeFolder}\n{Path.Combine(Application.StartupPath, "Home")}\n\nPlease check your installation.",
                     "File Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 AddNewTab("https://www.google.com");
             }
