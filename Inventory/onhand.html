@@ -1625,52 +1625,82 @@
         });
 
         // ── Query Onhand ─────────────────────────────────────
-        // Note: Oracle Fusion onhand API endpoint to be confirmed — placeholder structure shown
         function queryOnhand() {
-            var tbody = document.getElementById('onhand-tbody');
-            var count = document.getElementById('onhand-count');
-            var orgId   = document.getElementById('onhand-org').value;
-            var subinv  = document.getElementById('onhand-subinv').value;
-            var item    = document.getElementById('onhand-item').value.trim();
-            var desc    = document.getElementById('onhand-desc').value.trim();
+            var tbody    = document.getElementById('onhand-tbody');
+            var count    = document.getElementById('onhand-count');
+            var orgSel   = document.getElementById('onhand-org');
+            var orgId    = orgSel.value;
+            var orgCode  = orgId ? (orgSel.options[orgSel.selectedIndex].dataset.code || '') : '';
+            var subinv   = document.getElementById('onhand-subinv').value;
+            var item     = document.getElementById('onhand-item').value.trim();
 
-            if (!orgId && !item) {
+            if (!orgCode && !item) {
                 tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-circle-info" style="color:#3b82f6;"></i><p>Please select an Organization or enter an Item Number.</p></div></td></tr>';
                 return;
             }
 
-            tbody.innerHTML = '<tr><td colspan="8"><div class="loading-state"><div class="spinner"></div> Querying Fusion Onhand...</div></td></tr>';
+            var allItems = [];
+            var pageSize = 100;
+            var offset   = 0;
+            var pageNum  = 1;
 
-            // Build query string
+            // Build base query parts (OrganizationCode for inventoryOnhandBalances)
             var queryParts = [];
-            if (orgId)   queryParts.push('OrganizationId=' + orgId);
+            if (orgCode) queryParts.push('OrganizationCode=' + encodeURIComponent(orgCode));
             if (subinv)  queryParts.push('SubinventoryCode=' + encodeURIComponent(subinv));
             if (item)    queryParts.push('ItemNumber=' + encodeURIComponent(item));
+            var qPrefix = queryParts.length ? '?q=' + queryParts.join(';') + '&' : '?';
 
-            // Oracle Fusion Onhand Quantities REST resource
-            var url = FUSION_BASE + '/inventoryOnhandQuantities' +
-                (queryParts.length ? '?q=' + queryParts.join(';') : '') + '&limit=200';
+            count.textContent = 'Fetching...';
+            tbody.innerHTML = '<tr><td colspan="8"><div class="loading-state"><div class="spinner"></div>' +
+                '<span id="onhand-pg-txt">Fetching page 1...</span></div></td></tr>';
 
-            _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
-                if (err) {
-                    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">Error: ' + err + '</p></div></td></tr>';
-                    count.textContent = '0 records';
-                    return;
-                }
+            function fetchPage() {
+                var url = FUSION_BASE + '/inventoryOnhandBalances' + qPrefix +
+                    'limit=' + pageSize + '&offset=' + offset;
 
-                var payload = data;
-                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var pgTxt = document.getElementById('onhand-pg-txt');
+                if (pgTxt) pgTxt.textContent = 'Page ' + pageNum + ' — ' + allItems.length + ' records so far...';
 
-                if (payload && payload.ReturnStatus === 'Error') {
-                    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p></div></td></tr>';
-                    count.textContent = '0 records';
-                    return;
-                }
+                _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                    if (err) {
+                        tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">' +
+                            '<i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i>' +
+                            '<p style="color:#f56565;">Error: ' + err + '</p></div></td></tr>';
+                        count.textContent = '0 records';
+                        return;
+                    }
 
-                var items = (payload && payload.items) ? payload.items : [];
-                renderOnhandRows(items);
-                count.textContent = items.length + ' record' + (items.length !== 1 ? 's' : '');
-            });
+                    var payload = data;
+                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+
+                    if (payload && payload.ReturnStatus === 'Error') {
+                        tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state">' +
+                            '<i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i>' +
+                            '<p style="color:#f56565;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p></div></td></tr>';
+                        count.textContent = '0 records';
+                        return;
+                    }
+
+                    var pageItems = (payload && payload.items) ? payload.items : [];
+                    allItems = allItems.concat(pageItems);
+
+                    var hasMore = !!(payload && payload.hasMore);
+                    var pgTxt2  = document.getElementById('onhand-pg-txt');
+
+                    if (hasMore && pageItems.length > 0) {
+                        if (pgTxt2) pgTxt2.textContent = 'Page ' + pageNum + ' — ' + allItems.length + ' records, fetching more...';
+                        offset  += pageSize;
+                        pageNum += 1;
+                        fetchPage();
+                    } else {
+                        renderOnhandRows(allItems);
+                        count.textContent = allItems.length + ' record' + (allItems.length !== 1 ? 's' : '');
+                    }
+                });
+            }
+
+            fetchPage();
         }
 
         function renderOnhandRows(rows) {
