@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Home - Grays WMS</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f7;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.35);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-logo {
+            font-size: 28px;
+        }
+
+        .header-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+
+        .header-subtitle {
+            font-size: 0.75rem;
+            opacity: 0.8;
+            margin-top: 1px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .user-avatar {
+            width: 34px;
+            height: 34px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .user-details {
+            text-align: right;
+        }
+
+        .user-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .user-instance {
+            font-size: 0.72rem;
+            opacity: 0.8;
+        }
+
+        .btn-logout {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white;
+            padding: 7px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            font-family: inherit;
+            transition: background 0.2s;
+        }
+
+        .btn-logout:hover {
+            background: rgba(255,255,255,0.35);
+        }
+
+        /* ── Main Content ── */
+        .main {
+            padding: 40px 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .welcome-section {
+            margin-bottom: 36px;
+        }
+
+        .welcome-section h2 {
+            font-size: 1.6rem;
+            color: #2d3748;
+            font-weight: 700;
+        }
+
+        .welcome-section p {
+            color: #718096;
+            margin-top: 6px;
+            font-size: 0.95rem;
+        }
+
+        /* ── Module Grid ── */
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 22px;
+        }
+
+        .module-card {
+            background: white;
+            border-radius: 16px;
+            padding: 28px 24px;
+            cursor: pointer;
+            text-decoration: none;
+            display: block;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+            border: 2px solid transparent;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .module-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--card-color);
+        }
+
+        .module-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+            border-color: var(--card-color);
+        }
+
+        .module-card.disabled {
+            opacity: 0.55;
+            cursor: default;
+            pointer-events: none;
+        }
+
+        .card-icon {
+            width: 54px;
+            height: 54px;
+            border-radius: 14px;
+            background: var(--card-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 6px;
+        }
+
+        .card-desc {
+            font-size: 0.82rem;
+            color: #718096;
+            line-height: 1.5;
+        }
+
+        .card-badge {
+            display: inline-block;
+            margin-top: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 20px;
+            background: var(--card-bg);
+            color: var(--card-text);
+        }
+
+        /* ── Footer ── */
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: #a0aec0;
+            font-size: 0.8rem;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <span class="header-logo">🏭</span>
+            <div>
+                <div class="header-title">Grays WMS</div>
+                <div class="header-subtitle">Warehouse Management System</div>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="user-info">
+                <div class="user-avatar">👤</div>
+                <div class="user-details">
+                    <div class="user-name" id="displayUsername">User</div>
+                    <div class="user-instance" id="displayInstance">—</div>
+                </div>
+            </div>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+        <div class="welcome-section">
+            <h2>Welcome back, <span id="welcomeName">User</span> 👋</h2>
+            <p>Select a module to get started.</p>
+        </div>
+
+        <div class="modules-grid">
+
+            <!-- WMS -->
+            <a href="../wms/index.html" class="module-card"
+               style="--card-color:#667eea; --card-bg:rgba(102,126,234,0.1); --card-text:#667eea;">
+                <div class="card-icon">📦</div>
+                <div class="card-title">Warehouse Management</div>
+                <div class="card-desc">Trip management, print jobs, printer configuration and monitoring.</div>
+                <span class="card-badge">WMS</span>
+            </a>
+
+            <!-- Order Management -->
+            <a href="../om/index.html" class="module-card"
+               style="--card-color:#48bb78; --card-bg:rgba(72,187,120,0.1); --card-text:#48bb78;">
+                <div class="card-icon">🛒</div>
+                <div class="card-title">Order Management</div>
+                <div class="card-desc">Sales orders, order fulfilment and customer order tracking.</div>
+                <span class="card-badge">OM</span>
+            </a>
+
+            <!-- Accounts Payable -->
+            <a href="../ap/index.html" class="module-card"
+               style="--card-color:#f56565; --card-bg:rgba(245,101,101,0.1); --card-text:#f56565;">
+                <div class="card-icon">💳</div>
+                <div class="card-title">Accounts Payable</div>
+                <div class="card-desc">Supplier invoices, payments and payable transactions.</div>
+                <span class="card-badge">AP</span>
+            </a>
+
+            <!-- Accounts Receivable -->
+            <a href="../ar/index.html" class="module-card"
+               style="--card-color:#ed8936; --card-bg:rgba(237,137,54,0.1); --card-text:#ed8936;">
+                <div class="card-icon">💰</div>
+                <div class="card-title">Accounts Receivable</div>
+                <div class="card-desc">Customer invoices, receipts and receivable transactions.</div>
+                <span class="card-badge">AR</span>
+            </a>
+
+            <!-- General Ledger -->
+            <a href="../gl/index.html" class="module-card"
+               style="--card-color:#9f7aea; --card-bg:rgba(159,122,234,0.1); --card-text:#9f7aea;">
+                <div class="card-icon">📊</div>
+                <div class="card-title">General Ledger</div>
+                <div class="card-desc">Journal entries, account balances and financial reporting.</div>
+                <span class="card-badge">GL</span>
+            </a>
+
+            <!-- Fixed Assets -->
+            <a href="../fa/index.html" class="module-card"
+               style="--card-color:#38b2ac; --card-bg:rgba(56,178,172,0.1); --card-text:#38b2ac;">
+                <div class="card-icon">🏢</div>
+                <div class="card-title">Fixed Assets</div>
+                <div class="card-desc">Asset register, depreciation and asset lifecycle management.</div>
+                <span class="card-badge">FA</span>
+            </a>
+
+            <!-- Cash Management -->
+            <a href="../ca/index.html" class="module-card"
+               style="--card-color:#ecc94b; --card-bg:rgba(236,201,75,0.1); --card-text:#b7791f;">
+                <div class="card-icon">🏦</div>
+                <div class="card-title">Cash Management</div>
+                <div class="card-desc">Bank accounts, reconciliation and cash flow management.</div>
+                <span class="card-badge">CA</span>
+            </a>
+
+            <!-- POS -->
+            <a href="../pos/index.html" class="module-card"
+               style="--card-color:#fc8181; --card-bg:rgba(252,129,129,0.1); --card-text:#c53030;">
+                <div class="card-icon">🖥️</div>
+                <div class="card-title">Point of Sale</div>
+                <div class="card-desc">Retail transactions, receipts and store-level operations.</div>
+                <span class="card-badge">POS</span>
+            </a>
+
+            <!-- Sync -->
+            <a href="../sync/index.html" class="module-card"
+               style="--card-color:#4299e1; --card-bg:rgba(66,153,225,0.1); --card-text:#2b6cb0;">
+                <div class="card-icon">🔄</div>
+                <div class="card-title">Sync</div>
+                <div class="card-desc">Data synchronisation, integrations and system connectivity.</div>
+                <span class="card-badge">SYNC</span>
+            </a>
+
+        </div>
+    </div>
+
+    <div class="footer">
+        Grays WMS &copy; 2026 &mdash; Powered by Oracle Fusion
+    </div>
+
+    <script>
+        // Load user info from localStorage (set by login page)
+        (function () {
+            const username = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
+            const instance = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+
+            document.getElementById('displayUsername').textContent = username;
+            document.getElementById('welcomeName').textContent = username;
+            document.getElementById('displayInstance').textContent = instance ? 'Instance: ' + instance : '';
+        })();
+
+        function logout() {
+            // Clear session data
+            localStorage.removeItem('username');
+            localStorage.removeItem('fusionUsername');
+            localStorage.removeItem('instanceName');
+            localStorage.removeItem('fusionInstance');
+            localStorage.removeItem('isLoggedIn');
+
+            // Notify C# host if available
+            if (window.chrome && window.chrome.webview) {
+                try {
+                    window.chrome.webview.postMessage({ action: 'logout' });
+                } catch (e) { /* not in WebView2 context */ }
+            }
+
+            window.location.href = '../login.html';
+        }
+    </script>
+
+</body>
+</html>

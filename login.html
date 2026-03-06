@@ -456,7 +456,7 @@
 
                             // Redirect after short delay
                             setTimeout(function() {
-                                window.location.href = 'wms/index.html';
+                                window.location.href = 'Home/index.html';
                             }, 1000);
                         } else {
                             throw new Error('Invalid username or password');
@@ -491,7 +491,7 @@
 
                 // Redirect after delay
                 setTimeout(function() {
-                    window.location.href = 'wms/index.html';
+                    window.location.href = 'Home/index.html';
                 }, 1000);
             } else {
                 log('Login failed: ' + error);
@@ -522,7 +522,7 @@
             // Check if already logged in
             if (localStorage.getItem('loggedIn') === 'true') {
                 log('Already logged in, redirecting...');
-                window.location.href = 'wms/index.html';
+                window.location.href = 'Home/index.html';
             }
         });
 
