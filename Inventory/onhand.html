@@ -1932,40 +1932,47 @@
                 '<div class="loading-state"><div class="spinner"></div> Fetching lot details for ' + items.length + ' item(s)...</div>';
             overlay.classList.add('open');
 
-            var results = new Array(items.length);
+            var results   = new Array(items.length);
             var remaining = items.length;
 
             items.forEach(function (item, i) {
-                // Fetch specific item onhand to get the child lots link
-                var q = 'ItemNumber=' + item.ItemNumber +
-                        ';OrganizationCode=' + item.OrganizationCode +
-                        ';SubinventoryCode=' + item.SubinventoryCode;
-                var url = FUSION_BASE + '/inventoryOnhandBalances?q=' + q + '&limit=1';
+                // Build base URL — same query the main grid uses but scoped to this
+                // specific item+org+subinventory. inventoryOnhandBalances is lot-granular,
+                // so every returned row IS a lot line. Page through all of them.
+                var q = 'ItemNumber=' + encodeURIComponent(item.ItemNumber) +
+                        ';OrganizationCode=' + encodeURIComponent(item.OrganizationCode) +
+                        ';SubinventoryCode=' + encodeURIComponent(item.SubinventoryCode);
+                var pageSize  = 500;
+                var allLots   = [];
+                var offset    = 0;
 
-                _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
-                    var payload = data;
-                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
-
-                    var lotsUrl = null;
-                    if (!err && payload && payload.items && payload.items[0]) {
-                        var links = payload.items[0].links || [];
-                        for (var li = 0; li < links.length; li++) {
-                            if (links[li].name === 'lots') { lotsUrl = links[li].href; break; }
-                        }
-                    }
-
-                    if (lotsUrl) {
-                        _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: lotsUrl }, function (lerr, ldata) {
-                            var lp = ldata;
-                            if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch(e){} }
-                            results[i] = { item: item, lots: (!lerr && lp && lp.items) ? lp.items : [], error: lerr || null };
+                function fetchLotsPage() {
+                    var url = FUSION_BASE + '/inventoryOnhandBalances?q=' + q +
+                              '&limit=' + pageSize + '&offset=' + offset;
+                    _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                        if (err) {
+                            results[i] = { item: item, lots: allLots, error: err };
                             if (--remaining === 0) renderItemLots(results);
-                        });
-                    } else {
-                        results[i] = { item: item, lots: [], error: err || 'No lots link in response' };
-                        if (--remaining === 0) renderItemLots(results);
-                    }
-                });
+                            return;
+                        }
+                        var payload = data;
+                        if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+
+                        var page = (payload && payload.items) ? payload.items : [];
+                        allLots = allLots.concat(page);
+
+                        var hasMore = payload && payload.hasMore;
+                        if (hasMore && page.length) {
+                            offset += pageSize;
+                            fetchLotsPage();
+                        } else {
+                            results[i] = { item: item, lots: allLots, error: null };
+                            if (--remaining === 0) renderItemLots(results);
+                        }
+                    });
+                }
+
+                fetchLotsPage();
             });
         }
 
@@ -1988,24 +1995,31 @@
                     lotsHtml = '<p style="color:#718096;padding:8px 0;font-style:italic;"><i class="fa-solid fa-circle-info"></i> No lot records found.</p>';
                 } else {
                     var now = new Date();
+                    // Each 'l' is an inventoryOnhandBalances row — lot fields live here directly.
+                    // Try common field name variations returned by Oracle ORDS.
                     lotsHtml = '<table class="grid-table" style="margin-top:10px;">' +
                         '<thead><tr>' +
-                            '<th>Lot Number</th><th>Onhand Qty</th><th>Expiry Date</th><th>Status</th>' +
+                            '<th>#</th><th>Lot Number</th><th>Qty</th><th>UOM</th><th>Expiry Date</th><th>Status</th>' +
                         '</tr></thead><tbody>' +
-                        lots.map(function (l) {
-                            var lqty    = parseFloat(l.PrimaryQuantity || 0);
-                            var expiry  = l.ExpirationDate || '';
+                        lots.map(function (l, li) {
+                            var lqty   = parseFloat(l.PrimaryQuantity || l.Quantity || 0);
+                            var lotNum = l.LotNumber || l.Lot || l.LOT_NUMBER || '';
+                            var uom    = l.PrimaryUOMCode || l.UOMCode || item.PrimaryUOMCode || '';
+                            var expiry = l.LotExpirationDate || l.ExpirationDate || l.LOT_EXPIRATION_DATE || '';
+                            var status = l.LotStatus || l.MaterialStatus || l.OnhandStatus || '';
                             var expired = expiry && new Date(expiry) < now;
                             var expiryDisplay = expiry
                                 ? (expired
-                                    ? '<span style="color:#f56565;">' + expiry + ' <i class="fa-solid fa-triangle-exclamation"></i></span>'
+                                    ? '<span style="color:#f56565;font-weight:600;">' + expiry + ' <i class="fa-solid fa-triangle-exclamation"></i></span>'
                                     : expiry)
                                 : '<span style="color:#a0aec0;">—</span>';
                             return '<tr>' +
-                                '<td><strong>' + (l.LotNumber || '') + '</strong></td>' +
+                                '<td style="color:#a0aec0;">' + (li + 1) + '</td>' +
+                                '<td><strong>' + (lotNum || '<span style="color:#a0aec0;font-style:italic;">No lot</span>') + '</strong></td>' +
                                 '<td class="qty-badge">' + lqty.toLocaleString() + '</td>' +
+                                '<td>' + uom + '</td>' +
                                 '<td>' + expiryDisplay + '</td>' +
-                                '<td>' + (l.MaterialStatus || '') + '</td>' +
+                                '<td>' + (status || '<span style="color:#a0aec0;">—</span>') + '</td>' +
                                 '</tr>';
                         }).join('') +
                         '</tbody></table>';
@@ -2021,7 +2035,7 @@
                             '<span><i class="fa-solid fa-building"></i> ' + (item.OrganizationCode || '') + '</span>' +
                             '<span><i class="fa-solid fa-warehouse"></i> ' + (item.SubinventoryCode || '') + '</span>' +
                             '<span><i class="fa-solid fa-cubes"></i> Onhand: <strong style="color:#2d3748;">' + qty.toLocaleString() + ' ' + (item.PrimaryUOMCode || '') + '</strong></span>' +
-                            '<span><i class="fa-solid fa-tags"></i> ' + lots.length + ' lot' + (lots.length !== 1 ? 's' : '') + '</span>' +
+                            '<span><i class="fa-solid fa-tags"></i> ' + lots.length + ' lot record' + (lots.length !== 1 ? 's' : '') + '</span>' +
                         '</div>' +
                     '</div>' +
                     '<div style="padding:0 16px 16px;">' + lotsHtml + '</div>' +
