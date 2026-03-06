@@ -725,7 +725,7 @@ try
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
 
                 // Hardcoded path for WMS Dev - always points to local development folder
-                string repoRoot = @"C:\fusion\fusionclientweb";
+                string repoRoot = @"C:\fusion\fusionclientweb\graysWMSwebviewnew";
 
                 // Debug: Show all paths being used
                 System.Diagnostics.Debug.WriteLine($"[DEBUG] ========== WMS DEV PATHS ==========");
@@ -1202,7 +1202,7 @@ navPanel.Controls.Add(wmsDevButton);
             // Startup: Navigate to Home dashboard
             // Priority 1: Dev repo Home folder
             // Priority 2: Fusion distribution Home folder
-            string devHomeFolder = @"C:\fusion\fusionclientweb\Home";
+            string devHomeFolder = @"C:\fusion\fusionclientweb\graysWMSwebviewnew\Home";
             string fusionHomeFolder = @"C:\fusion\fusionclientweb\Home";
             string homeFolder;
             string wmsSource;
@@ -5480,7 +5480,7 @@ navPanel.Controls.Add(wmsDevButton);
             // Try common locations
             string[] possiblePaths = new[]
             {
-                @"C:\fusion\fusionclientweb",
+                @"C:\fusion\fusionclientweb\graysWMSwebviewnew",
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos", "javeedin", "graysWMSwebviewnew"),
                 Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos", "graysWMSwebviewnew"),
                 Path.GetDirectoryName(Application.ExecutablePath)
