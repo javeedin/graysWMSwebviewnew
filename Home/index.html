@@ -7,6 +7,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
             margin: 0;
@@ -140,7 +141,7 @@
             opacity: 0.8;
         }
 
-        .btn-logout {
+        .btn-auth {
             background: rgba(255,255,255,0.2);
             border: 1px solid rgba(255,255,255,0.35);
             color: white;
@@ -150,9 +151,13 @@
             font-size: 0.82rem;
             font-family: inherit;
             transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
         }
 
-        .btn-logout:hover {
+        .btn-auth:hover {
             background: rgba(255,255,255,0.35);
         }
 
@@ -290,7 +295,10 @@
                     <div class="user-instance" id="displayInstance">—</div>
                 </div>
             </div>
-            <button class="btn-logout" onclick="logout()">Logout</button>
+            <button id="authBtn" class="btn-auth" onclick="handleAuthAction()">
+                <i id="authIcon" class="fa-solid fa-right-to-bracket"></i>
+                <span id="authLabel">Login</span>
+            </button>
         </div>
     </div>
 
@@ -392,23 +400,53 @@
     </div>
 
     <script>
-        // Load user info from localStorage (set by login page)
-        (function () {
+        var _isLoggedIn = false;
+
+        // Check login state and update header on page load
+        (function checkLoginState() {
+            const loggedIn = localStorage.getItem('loggedIn') === 'true';
+            _isLoggedIn = loggedIn;
+
             const username = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
             const instance = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
 
-            document.getElementById('displayUsername').textContent = username;
-            document.getElementById('welcomeName').textContent = username;
-            document.getElementById('displayInstance').textContent = instance ? 'Instance: ' + instance : '';
+            if (loggedIn) {
+                // Show user info and logout button
+                document.getElementById('displayUsername').textContent = username;
+                document.getElementById('welcomeName').textContent = username;
+                document.getElementById('displayInstance').textContent = instance ? 'Instance: ' + instance : '';
+
+                document.getElementById('authIcon').className = 'fa-solid fa-right-from-bracket';
+                document.getElementById('authLabel').textContent = 'Logout';
+            } else {
+                // Not logged in — hide user info, show login button
+                document.getElementById('displayUsername').textContent = 'Guest';
+                document.getElementById('welcomeName').textContent = 'Guest';
+                document.getElementById('displayInstance').textContent = 'Not logged in';
+                document.querySelector('.user-avatar').textContent = '🔒';
+
+                document.getElementById('authIcon').className = 'fa-solid fa-right-to-bracket';
+                document.getElementById('authLabel').textContent = 'Login';
+            }
         })();
 
+        function handleAuthAction() {
+            if (_isLoggedIn) {
+                logout();
+            } else {
+                window.location.href = '../login.html';
+            }
+        }
+
         function logout() {
-            // Clear session data
+            // Clear all session data
+            localStorage.removeItem('loggedIn');
             localStorage.removeItem('username');
             localStorage.removeItem('fusionUsername');
             localStorage.removeItem('instanceName');
             localStorage.removeItem('fusionInstance');
-            localStorage.removeItem('isLoggedIn');
+            localStorage.removeItem('loginTime');
+            localStorage.removeItem('password');
 
             // Notify C# host if available
             if (window.chrome && window.chrome.webview) {
