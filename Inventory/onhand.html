@@ -827,6 +827,21 @@
         }
         .global-stat-val { font-size: 1.2rem; font-weight: 700; color: #1d4ed8; }
         .global-stat-lbl { font-size: .7rem; color: #718096; margin-top: 2px; }
+        .global-filter-header {
+            background: #f8fafc; border-bottom: 1px solid #e2e8f0;
+            padding: 12px 16px; display: flex; align-items: center;
+            gap: 16px; flex-wrap: wrap;
+        }
+        .global-filter-header .global-stats-row { margin-bottom: 0; flex: 1; }
+        .global-item-combo { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+        .global-item-combo label { font-size: .8rem; font-weight: 600; color: #4a5568; }
+        .global-item-combo select {
+            padding: 5px 28px 5px 10px; border: 1px solid #c7d2fe; border-radius: 6px;
+            font-size: .82rem; background: #fff; color: #2d3748;
+            min-width: 170px; max-width: 300px; cursor: pointer;
+            appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%234f46e5' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat; background-position: right 8px center;
+        }
         .charts-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -1260,6 +1275,18 @@
 
             <!-- tabs (shown after fetch) -->
             <div id="global-tabs-wrap" style="display:none;">
+
+                <!-- Shared filter header: KPI cards + item combo -->
+                <div class="global-filter-header">
+                    <div class="global-stats-row" id="global-kpi-strip"></div>
+                    <div class="global-item-combo">
+                        <label><i class="fa-solid fa-filter" style="color:#7c3aed;"></i> Item:</label>
+                        <select id="global-item-select" onchange="globalFilterByItem(this.value)">
+                            <option value="">All Items</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="global-tabs">
                     <button class="global-tab active" id="global-tab-grid"   onclick="switchGlobalTab('grid')">
                         <i class="fa-solid fa-table"></i> Grid View
@@ -1271,7 +1298,6 @@
 
                 <!-- Page 1 — Grid -->
                 <div id="global-body-grid" class="global-tab-body active">
-                    <div id="global-grid-stats" class="global-stats-row"></div>
                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
                         <input type="text" id="global-grid-search" placeholder="Filter items…"
                             oninput="filterGlobalGrid(this.value)"
@@ -1298,7 +1324,6 @@
 
                 <!-- Page 2 — Charts -->
                 <div id="global-body-charts" class="global-tab-body">
-                    <div id="global-charts-stats" class="global-stats-row"></div>
                     <div class="charts-grid" id="global-charts-grid">
                         <div class="chart-card">
                             <h4><i class="fa-solid fa-warehouse" style="color:#7c3aed;"></i> Onhand by Subinventory</h4>
@@ -2463,20 +2488,61 @@
             document.getElementById('global-tab-charts').classList.toggle('active', tab === 'charts');
             document.getElementById('global-body-grid').classList.toggle('active',   tab === 'grid');
             document.getElementById('global-body-charts').classList.toggle('active', tab === 'charts');
-            if (tab === 'charts' && _globalAllItems.length && !_globalChartRefs._built) {
-                renderGlobalCharts(_globalAllItems);
+            if (tab === 'charts' && _globalActiveItems.length && !_globalChartRefs._built) {
+                renderGlobalCharts(_globalActiveItems);
                 _globalChartRefs._built = true;
             }
         }
 
         // ── Grid tab ─────────────────────────────────────────────
         var _globalFilteredItems = [];
+        var _globalActiveItems   = [];   // rows after item-combo filter
 
         function renderGlobalGrid(rows) {
+            _globalActiveItems   = rows;
             _globalFilteredItems = rows;
             document.getElementById('global-grid-search').value = '';
+
+            // Populate item combo
+            var seen = {}, items = [];
+            rows.forEach(function (r) {
+                if (r.ItemNumber && !seen[r.ItemNumber]) { seen[r.ItemNumber] = true; items.push(r.ItemNumber); }
+            });
+            items.sort();
+            var sel = document.getElementById('global-item-select');
+            sel.innerHTML = '<option value="">All Items (' + items.length + ')</option>' +
+                items.map(function (i) { return '<option value="' + i + '">' + i + '</option>'; }).join('');
+
             _renderGlobalRows(rows);
-            _renderGlobalStats(rows, 'global-grid-stats');
+            _renderGlobalStats(rows, 'global-kpi-strip');
+        }
+
+        function globalFilterByItem(itemNum) {
+            var filtered = itemNum
+                ? _globalAllItems.filter(function (r) { return r.ItemNumber === itemNum; })
+                : _globalAllItems;
+            _globalActiveItems = filtered;
+            // also respect any existing text search
+            var txt = (document.getElementById('global-grid-search').value || '').toLowerCase();
+            var displayed = txt
+                ? filtered.filter(function (r) {
+                    return ((r.ItemNumber||'') + ' ' + (r.ItemDescription||'') + ' ' + (r.SubinventoryCode||'')).toLowerCase().indexOf(txt) !== -1;
+                  })
+                : filtered;
+            _renderGlobalRows(displayed);
+            _renderGlobalStats(filtered, 'global-kpi-strip');
+            // re-render charts if chart tab is visible
+            if (document.getElementById('global-tab-charts').classList.contains('active')) {
+                Object.keys(_globalChartRefs).forEach(function (k) {
+                    if (k !== '_built' && _globalChartRefs[k]) { _globalChartRefs[k].destroy(); }
+                    if (k !== '_built') delete _globalChartRefs[k];
+                });
+                _globalChartRefs._built = false;
+                renderGlobalCharts(filtered);
+                _globalChartRefs._built = true;
+            } else {
+                _globalChartRefs._built = false;   // force rebuild on next tab switch
+            }
         }
 
         function _renderGlobalRows(rows) {
@@ -2504,10 +2570,10 @@
         function filterGlobalGrid(val) {
             var q = (val || '').toLowerCase();
             var filtered = q
-                ? _globalAllItems.filter(function (r) {
+                ? _globalActiveItems.filter(function (r) {
                     return ((r.ItemNumber||'') + ' ' + (r.ItemDescription||'') + ' ' + (r.SubinventoryCode||'')).toLowerCase().indexOf(q) !== -1;
                   })
-                : _globalAllItems;
+                : _globalActiveItems;
             _renderGlobalRows(filtered);
         }
 
@@ -2533,7 +2599,6 @@
 
         // ── Charts tab ───────────────────────────────────────────
         function renderGlobalCharts(rows) {
-            _renderGlobalStats(rows, 'global-charts-stats');
 
             // Aggregate by subinventory
             var bySubinv = {};
