@@ -1103,10 +1103,6 @@
                     <button class="btn-clear" id="onhand-api-toggle" onclick="toggleOnhandApiUrl()" title="Show API URL" style="padding:7px 10px;">
                         <i class="fa-solid fa-link"></i>
                     </button>
-                    <button class="btn-search" onclick="openGlobalOnhand()" title="All subinventories for selected org"
-                        style="background:linear-gradient(135deg,#7c3aed,#4f46e5);border-color:#4f46e5;margin-left:6px;">
-                        <i class="fa-solid fa-globe"></i> Global Onhand
-                    </button>
                 </div>
                 <div id="onhand-api-url-bar" style="display:none;background:#1a202c;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-family:monospace;font-size:.78rem;color:#81e6d9;word-break:break-all;">
                     <span style="color:#718096;margin-right:6px;"><i class="fa-solid fa-link"></i> API:</span>
@@ -1120,7 +1116,11 @@
                             <input type="text" id="onhand-grid-search" placeholder="Filter results..." oninput="filterOnhandGrid(this.value)"
                                 style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;width:180px;">
                             <button class="btn-search" onclick="drillSelectedItems()" style="padding:6px 12px;font-size:.82rem;background:#3b82f6;">
-                                <i class="fa-solid fa-layer-group"></i> Drill Selected
+                                <i class="fa-solid fa-layer-group"></i> Show Lots
+                            </button>
+                            <button class="btn-search" onclick="openGlobalOnhand()" title="Global onhand across all subinventories for selected items"
+                                style="padding:6px 12px;font-size:.82rem;background:linear-gradient(135deg,#7c3aed,#4f46e5);border-color:#4f46e5;">
+                                <i class="fa-solid fa-globe"></i> Global Onhand
                             </button>
                             <span class="record-count" id="onhand-count">0 records</span>
                         </div>
@@ -2353,18 +2353,35 @@
         var _globalChartRefs = {};   // Chart.js instances (destroy before recreate)
 
         function openGlobalOnhand() {
-            var orgCode = (document.getElementById('onhand-org').value || '').trim();
-            if (!orgCode) {
-                alert('Please select an Organization first.');
+            // Collect selected rows
+            var checked = document.querySelectorAll('.onhand-row-check:checked');
+            if (!checked.length) {
+                alert('Please select at least one item row first.');
                 return;
             }
+            var selectedItems = [];
+            checked.forEach(function (c) { selectedItems.push(_onhandAllItems[parseInt(c.dataset.idx)]); });
+
+            // Deduplicate by ItemNumber+OrgCode (in case same item appears multiple times)
+            var seen = {};
+            var uniqueItems = [];
+            selectedItems.forEach(function (r) {
+                var key = (r.OrganizationCode || '') + '|' + (r.ItemNumber || '');
+                if (!seen[key]) { seen[key] = true; uniqueItems.push(r); }
+            });
+
+            var orgCode = uniqueItems[0].OrganizationCode || '';
+            var subtitle = uniqueItems.length + ' item' + (uniqueItems.length !== 1 ? 's' : '') +
+                           ' — ' + orgCode + ' (all subinventories)';
 
             // Reset UI
             _globalAllItems = [];
-            document.getElementById('global-modal-subtitle').textContent = orgCode;
+            document.getElementById('global-modal-subtitle').textContent = subtitle;
             document.getElementById('global-progress').style.display = 'block';
             document.getElementById('global-tabs-wrap').style.display  = 'none';
-            _setProgBar(0, 'Page 1 — 0 records so far…');
+            document.getElementById('global-prog-title').style.color = '';
+            document.getElementById('global-prog-title').textContent  = 'Fetching onhand data…';
+            _setProgBar(0, 'Starting…');
             document.getElementById('global-overlay').classList.add('open');
 
             // Destroy any previous chart instances
@@ -2372,49 +2389,63 @@
                 if (_globalChartRefs[k]) { _globalChartRefs[k].destroy(); delete _globalChartRefs[k]; }
             });
 
-            var pageSize = 300;
-            var offset   = 0;
-            var pageNum  = 1;
+            // Fetch each selected item across all subinventories in parallel,
+            // paginating each one fully before collecting results.
+            var pageSize  = 300;
+            var collected = new Array(uniqueItems.length);
+            var remaining = uniqueItems.length;
+            var totalSoFar = 0;
 
-            function fetchGlobalPage() {
-                // Org-level query — no SubinventoryCode filter
-                var url = FUSION_BASE + '/inventoryOnhandBalances?q=OrganizationCode=' +
-                          encodeURIComponent(orgCode) + '&limit=' + pageSize + '&offset=' + offset;
+            uniqueItems.forEach(function (item, idx) {
+                var q = 'OrganizationCode=' + encodeURIComponent(item.OrganizationCode) +
+                        ';ItemNumber='       + encodeURIComponent(item.ItemNumber);
+                var itemRows = [];
+                var offset   = 0;
+                var pageNum  = 1;
 
-                _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
-                    if (err) {
-                        _setProgBar(0, 'Error: ' + err);
-                        document.getElementById('global-prog-title').style.color = '#f56565';
-                        document.getElementById('global-prog-title').textContent = 'Fetch error';
-                        return;
-                    }
-                    var payload = data;
-                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                function fetchPage() {
+                    var url = FUSION_BASE + '/inventoryOnhandBalances?q=' + q +
+                              '&limit=' + pageSize + '&offset=' + offset;
+                    _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                        if (err) {
+                            collected[idx] = [];
+                            if (--remaining === 0) finishGlobal();
+                            return;
+                        }
+                        var payload = data;
+                        if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                        var page = (payload && payload.items) ? payload.items : [];
+                        itemRows = itemRows.concat(page);
+                        totalSoFar += page.length;
 
-                    var page = (payload && payload.items) ? payload.items : [];
-                    _globalAllItems = _globalAllItems.concat(page);
+                        var done = uniqueItems.length - remaining;
+                        var pct  = Math.round(((done + (payload && payload.hasMore ? 0.5 : 1)) / uniqueItems.length) * 90);
+                        _setProgBar(pct, 'Item ' + (idx+1) + '/' + uniqueItems.length +
+                                    ' — ' + totalSoFar + ' records so far…');
 
-                    var pct = pageNum <= 10 ? Math.min(90, pageNum * 9) : 90;
-                    _setProgBar(pct, 'Page ' + pageNum + ' — ' + _globalAllItems.length + ' records so far…');
+                        if (payload && payload.hasMore && page.length) {
+                            offset  += pageSize;
+                            pageNum += 1;
+                            fetchPage();
+                        } else {
+                            collected[idx] = itemRows;
+                            if (--remaining === 0) finishGlobal();
+                        }
+                    });
+                }
+                fetchPage();
+            });
 
-                    if (payload && payload.hasMore && page.length) {
-                        offset  += pageSize;
-                        pageNum += 1;
-                        fetchGlobalPage();
-                    } else {
-                        _setProgBar(100, 'Done — ' + _globalAllItems.length + ' records loaded.');
-                        setTimeout(function () {
-                            document.getElementById('global-progress').style.display  = 'none';
-                            document.getElementById('global-tabs-wrap').style.display = 'block';
-                            switchGlobalTab('grid');
-                            renderGlobalGrid(_globalAllItems);
-                            // Charts are rendered on first tab switch to avoid hidden-canvas issues
-                        }, 300);
-                    }
-                });
+            function finishGlobal() {
+                collected.forEach(function (rows) { _globalAllItems = _globalAllItems.concat(rows); });
+                _setProgBar(100, 'Done — ' + _globalAllItems.length + ' records loaded.');
+                setTimeout(function () {
+                    document.getElementById('global-progress').style.display  = 'none';
+                    document.getElementById('global-tabs-wrap').style.display = 'block';
+                    switchGlobalTab('grid');
+                    renderGlobalGrid(_globalAllItems);
+                }, 300);
             }
-
-            fetchGlobalPage();
         }
 
         function _setProgBar(pct, txt) {
