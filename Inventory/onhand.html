@@ -756,6 +756,70 @@
             animation: spin 0.7s linear infinite;
             flex-shrink: 0;
         }
+
+        /* ── Lots popup modal ── */
+        .lots-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.52);
+            z-index: 1100;
+            overflow-y: auto;
+            padding: 32px 16px;
+        }
+        .lots-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+        .lots-modal {
+            background: #fff;
+            border-radius: 14px;
+            width: 100%;
+            max-width: 940px;
+            margin: auto;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.32);
+            display: flex;
+            flex-direction: column;
+        }
+        .lots-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 22px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+            border-radius: 14px 14px 0 0;
+        }
+        .lots-modal-body {
+            padding: 20px 22px;
+            max-height: 72vh;
+            overflow-y: auto;
+        }
+        .lots-modal-close {
+            background: none;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 5px 10px;
+            cursor: pointer;
+            color: #718096;
+            font-size: .9rem;
+        }
+        .lots-modal-close:hover { background: #f56565; color: #fff; border-color: #f56565; }
+
+        /* ── Onhand stats bar ── */
+        .onhand-stats {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 14px;
+        }
+        .onhand-stat {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 8px;
+            padding: 8px 16px;
+            text-align: center;
+            min-width: 100px;
+        }
+        .onhand-stat-val { font-size: 1.25rem; font-weight: 700; color: #059669; }
+        .onhand-stat-lbl { font-size: .72rem; color: #718096; margin-top: 2px; }
     </style>
 </head>
 <body>
@@ -812,7 +876,7 @@
                     <i class="fa-solid fa-chevron-right nav-arrow"></i>
                 </div>
 
-                <div class="nav-item" data-panel="query-onhand" onclick="showPanel('query-onhand', this)">
+                <div class="nav-item" data-panel="query-onhand" onclick="showPanel('query-onhand', this); autoLoadOnhandDropdowns();">
                     <div class="nav-icon">
                         <i class="fa-solid fa-magnifying-glass-chart"></i>
                     </div>
@@ -828,14 +892,6 @@
                     <i class="fa-solid fa-chevron-right nav-arrow"></i>
                 </div>
 
-                <div class="nav-item" id="nav-item-lots" data-panel="item-lots" onclick="showPanel('item-lots', this)" style="display:none;">
-                    <div class="nav-icon">
-                        <i class="fa-solid fa-layer-group"></i>
-                    </div>
-                    <span class="nav-label">Item Lots</span>
-                    <span id="item-lots-badge" style="margin-left:auto;background:#3b82f6;color:#fff;border-radius:10px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
-                    <i class="fa-solid fa-chevron-right nav-arrow"></i>
-                </div>
 
             </nav>
 
@@ -980,6 +1036,7 @@
                             <span class="record-count" id="onhand-count">0 records</span>
                         </div>
                     </div>
+                    <div id="onhand-stats" class="onhand-stats" style="display:none;padding:0 4px;"></div>
                     <div class="table-wrap">
                         <table id="onhand-table">
                             <thead>
@@ -1089,29 +1146,26 @@
                 </div>
             </div>
 
-            <!-- Item Lots Panel -->
-            <div id="panel-item-lots" class="panel">
-                <div class="panel-header">
-                    <div class="panel-title-wrap">
-                        <div class="panel-title-icon">
-                            <i class="fa-solid fa-layer-group"></i>
-                        </div>
-                        <div class="panel-title">
-                            <h2>Item Lots</h2>
-                            <p id="item-lots-subtitle">Lot details for selected items</p>
-                        </div>
-                    </div>
-                    <button class="btn-clear" onclick="showPanel('query-onhand', document.querySelector('[data-panel=query-onhand]'))" style="padding:7px 14px;font-size:.82rem;">
-                        <i class="fa-solid fa-arrow-left"></i> Back to Onhand
-                    </button>
-                </div>
-                <div id="item-lots-content">
-                    <div class="empty-state"><i class="fa-solid fa-layer-group"></i><p>Drill into items from the Query Onhand panel.</p></div>
-                </div>
-            </div>
-
         </div><!-- /content -->
     </div><!-- /app-body -->
+
+    <!-- Lots popup modal -->
+    <div id="lots-overlay" class="lots-overlay" onclick="closeLotsMod(event)">
+        <div class="lots-modal" onclick="event.stopPropagation()">
+            <div class="lots-modal-header">
+                <div>
+                    <strong style="font-size:1rem;"><i class="fa-solid fa-layer-group" style="color:#3b82f6;"></i> Item Lots</strong>
+                    <span id="lots-modal-subtitle" style="margin-left:8px;color:#718096;font-size:.85rem;"></span>
+                </div>
+                <button class="lots-modal-close" onclick="closeLotsMod()">
+                    <i class="fa-solid fa-xmark"></i> Close
+                </button>
+            </div>
+            <div id="lots-modal-body" class="lots-modal-body">
+                <div class="loading-state"><div class="spinner"></div> Loading lots...</div>
+            </div>
+        </div>
+    </div>
 
     <!-- Background fetch status banner -->
     <div id="bg-fetch-banner">
@@ -1753,6 +1807,7 @@
                         fetchPage();
                     } else {
                         renderOnhandRows(allItems);
+                        renderOnhandStats(allItems);
                         count.textContent = allItems.length + ' record' + (allItems.length !== 1 ? 's' : '');
                     }
                 });
@@ -1823,20 +1878,59 @@
             drillItemLots(items);
         }
 
+        // ── Auto-load dropdowns when navigating to Query Onhand ─
+        function autoLoadOnhandDropdowns() {
+            if (_cachedOrgs.length) {
+                populateOrgDropdowns(_cachedOrgs);
+                return;
+            }
+            readCache('organizations', function (err, cached) {
+                if (cached && cached.items && cached.items.length) {
+                    _cachedOrgs = cached.items;
+                    populateOrgDropdowns(_cachedOrgs);
+                }
+            });
+        }
+
+        // ── Onhand stats bar ─────────────────────────────────
+        function renderOnhandStats(rows) {
+            var bar = document.getElementById('onhand-stats');
+            if (!rows || !rows.length) { bar.style.display = 'none'; return; }
+
+            var totalQty   = 0;
+            var uoms       = {};
+            var items      = {};
+            rows.forEach(function (r) {
+                totalQty += parseFloat(r.PrimaryQuantity || 0);
+                if (r.PrimaryUOMCode) uoms[r.PrimaryUOMCode] = true;
+                if (r.ItemNumber)     items[r.ItemNumber]    = true;
+            });
+            var uniqueItems = Object.keys(items).length;
+            var uniqueUOMs  = Object.keys(uoms).length;
+
+            bar.style.display = 'flex';
+            bar.innerHTML =
+                stat(rows.length,    'Total Lines') +
+                stat(uniqueItems,    'Unique Items') +
+                stat(totalQty.toLocaleString(), 'Total Onhand') +
+                stat(uniqueUOMs,     'UOM(s)');
+
+            function stat(val, lbl) {
+                return '<div class="onhand-stat">' +
+                    '<div class="onhand-stat-val">' + val + '</div>' +
+                    '<div class="onhand-stat-lbl">' + lbl + '</div>' +
+                    '</div>';
+            }
+        }
+
         // ── Item Lots Drill ──────────────────────────────────
         function drillItemLots(items) {
-            // Show nav item + switch to panel
-            var navEl = document.getElementById('nav-item-lots');
-            navEl.style.display = '';
-            showPanel('item-lots', navEl);
-
-            var badge = document.getElementById('item-lots-badge');
-            if (badge) badge.textContent = items.length;
-            document.getElementById('item-lots-subtitle').textContent =
+            var overlay = document.getElementById('lots-overlay');
+            document.getElementById('lots-modal-subtitle').textContent =
                 'Lot details for ' + items.length + ' item' + (items.length !== 1 ? 's' : '');
-
-            var content = document.getElementById('item-lots-content');
-            content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Fetching lot details for ' + items.length + ' item(s)...</div>';
+            document.getElementById('lots-modal-body').innerHTML =
+                '<div class="loading-state"><div class="spinner"></div> Fetching lot details for ' + items.length + ' item(s)...</div>';
+            overlay.classList.add('open');
 
             var results = new Array(items.length);
             var remaining = items.length;
@@ -1875,8 +1969,13 @@
             });
         }
 
+        function closeLotsMod(event) {
+            if (event && event.target !== document.getElementById('lots-overlay')) return;
+            document.getElementById('lots-overlay').classList.remove('open');
+        }
+
         function renderItemLots(results) {
-            var content = document.getElementById('item-lots-content');
+            var content = document.getElementById('lots-modal-body');
             content.innerHTML = results.map(function (r) {
                 var item = r.item;
                 var lots  = r.lots || [];
@@ -1942,6 +2041,8 @@
             document.getElementById('onhand-api-url-bar').style.display = 'none';
             document.getElementById('onhand-api-url-txt').textContent = '—';
             document.getElementById('onhand-grid-search').value = '';
+            var statsBar = document.getElementById('onhand-stats');
+            if (statsBar) statsBar.style.display = 'none';
             document.getElementById('onhand-tbody').innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-magnifying-glass-chart"></i><p>Enter search criteria and click Search.</p></div></td></tr>';
         }
 
