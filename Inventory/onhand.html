@@ -552,6 +552,113 @@
             font-size: 0.78rem;
             color: #718096;
         }
+
+        /* ── Progress Steps ── */
+        .progress-wrap {
+            background: white;
+            border-radius: 14px;
+            padding: 28px 32px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+        }
+
+        .progress-title {
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: #4a5568;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 20px;
+        }
+
+        .progress-step {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f4f8;
+            font-size: 0.88rem;
+            color: #a0aec0;
+        }
+
+        .progress-step:last-child { border-bottom: none; }
+
+        .progress-step.done   { color: #2d3748; }
+        .progress-step.active { color: #2d3748; }
+        .progress-step.error  { color: #f56565; }
+
+        .step-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            flex-shrink: 0;
+            background: #f0f4f8;
+            color: #cbd5e0;
+        }
+
+        .progress-step.done  .step-icon { background: rgba(0,184,148,0.12); color: #00b894; }
+        .progress-step.active .step-icon { background: rgba(59,130,246,0.1); color: #3b82f6; }
+        .progress-step.error  .step-icon { background: rgba(245,101,101,0.1); color: #f56565; }
+
+        .step-label { flex: 1; }
+
+        .step-value {
+            font-size: 0.8rem;
+            font-weight: 700;
+            color: #00b894;
+            white-space: nowrap;
+        }
+
+        .progress-step.error .step-value { color: #f56565; }
+
+        /* ── Bar fill ── */
+        .progress-bar-wrap {
+            margin-top: 20px;
+            background: #f0f4f8;
+            border-radius: 99px;
+            height: 6px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00b894, #00d4aa);
+            border-radius: 99px;
+            transition: width 0.4s ease;
+        }
+
+        /* ── Background fetch status banner ── */
+        #bg-fetch-banner {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: #2d3748;
+            color: white;
+            padding: 10px 18px;
+            border-radius: 12px;
+            font-size: 0.82rem;
+            display: none;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+            z-index: 999;
+            max-width: 340px;
+        }
+
+        #bg-fetch-banner.visible { display: flex; }
+
+        .bg-spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            flex-shrink: 0;
+        }
     </style>
 </head>
 <body>
@@ -869,6 +976,12 @@
         </div><!-- /content -->
     </div><!-- /app-body -->
 
+    <!-- Background fetch status banner -->
+    <div id="bg-fetch-banner">
+        <div class="bg-spinner"></div>
+        <span id="bg-fetch-text">Caching subinventories...</span>
+    </div>
+
     <script>
         // ── Config ──────────────────────────────────────────
         var FUSION_BASE = 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05';
@@ -988,39 +1101,103 @@
             });
         }
 
+        // ── Progress Helpers ─────────────────────────────────
+        /**
+         * Renders a step-list progress UI into containerId.
+         * steps: [{ label, status:'pending'|'active'|'done'|'error', value }]
+         * pct: 0-100 for the bar fill
+         */
+        function renderProgress(containerId, steps, pct) {
+            var total = steps.length;
+            var done  = steps.filter(function(s){ return s.status === 'done'; }).length;
+            var barPct = pct != null ? pct : Math.round((done / total) * 100);
+
+            var stepsHtml = steps.map(function (s) {
+                var iconMap = {
+                    pending: '<i class="fa-solid fa-circle" style="font-size:8px;"></i>',
+                    active:  '<div class="spinner" style="width:14px;height:14px;border-width:2px;"></div>',
+                    done:    '<i class="fa-solid fa-check"></i>',
+                    error:   '<i class="fa-solid fa-xmark"></i>'
+                };
+                return '<div class="progress-step ' + s.status + '">' +
+                    '<div class="step-icon">' + (iconMap[s.status] || '') + '</div>' +
+                    '<span class="step-label">' + s.label + '</span>' +
+                    (s.value ? '<span class="step-value">' + s.value + '</span>' : '') +
+                '</div>';
+            }).join('');
+
+            var el = document.getElementById(containerId);
+            if (!el) return;
+            el.innerHTML =
+                '<div class="progress-wrap">' +
+                    '<div class="progress-title">Fetching Data</div>' +
+                    stepsHtml +
+                    '<div class="progress-bar-wrap">' +
+                        '<div class="progress-bar-fill" style="width:' + barPct + '%"></div>' +
+                    '</div>' +
+                '</div>';
+        }
+
         function fetchOrganizationsFromFusion() {
             var content = document.getElementById('org-list-content');
-            content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Fetching from Oracle Fusion...</div>';
+
+            var steps = [
+                { label: 'Connecting to Oracle Fusion', status: 'active' },
+                { label: 'Fetching organizations',      status: 'pending' },
+                { label: 'Saving to local cache',       status: 'pending' },
+                { label: 'Populating dropdowns',        status: 'pending' }
+            ];
+            renderProgress('org-list-content', steps, 5);
 
             var url = FUSION_BASE + '/inventoryOrganizationsLOV?limit=500';
             _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+
                 if (err) {
-                    content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">Error: ' + err + '</p></div>';
+                    steps[0].status = 'error'; steps[0].value = 'Failed';
+                    renderProgress('org-list-content', steps, 0);
+                    document.getElementById('org-list-content').innerHTML +=
+                        '<p style="color:#f56565;padding:16px;font-size:.85rem;">Error: ' + err + '</p>';
                     return;
                 }
 
-                // data may already be parsed or still a string
                 var payload = data;
                 if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
 
-                // Check for error response from Fusion
                 if (payload && payload.ReturnStatus === 'Error') {
-                    content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p></div>';
+                    steps[0].status = 'error'; steps[0].value = 'Fusion error';
+                    renderProgress('org-list-content', steps, 0);
+                    document.getElementById('org-list-content').innerHTML +=
+                        '<p style="color:#f56565;padding:16px;font-size:.85rem;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p>';
                     return;
                 }
 
+                // Step 1 done — fetched
                 var items = (payload && payload.items) ? payload.items : [];
-                _cachedOrgs = items;
+                steps[0].status = 'done';
+                steps[1].status = 'done'; steps[1].value = items.length + ' records fetched';
+                steps[2].status = 'active';
+                renderProgress('org-list-content', steps, 60);
 
-                // Save to local cache
-                writeCache('organizations', items);
-                var now = new Date().toISOString();
+                // Step 2 — save to cache
+                _invSendToCS({ action: 'saveInventoryCache', cacheKey: 'organizations', data: JSON.stringify(items) }, function () {
+                    steps[2].status = 'done'; steps[2].value = items.length + ' records saved';
+                    steps[3].status = 'active';
+                    renderProgress('org-list-content', steps, 85);
 
-                renderOrganizations(items, now, true);
-                populateOrgDropdowns(items);
+                    // Step 3 — populate dropdowns then render cards
+                    _cachedOrgs = items;
+                    populateOrgDropdowns(items);
 
-                // Immediately fetch subinventories for all orgs in background
-                fetchAllSubinventoriesBackground(items);
+                    steps[3].status = 'done'; steps[3].value = 'Done';
+                    renderProgress('org-list-content', steps, 100);
+
+                    // Short pause so user sees 100%, then show cards
+                    setTimeout(function () {
+                        var now = new Date().toISOString();
+                        renderOrganizations(items, now, true);
+                        fetchAllSubinventoriesBackground(items);
+                    }, 500);
+                });
             });
         }
 
@@ -1108,13 +1285,18 @@
         }
 
         function fetchSubinventoriesFromFusion(orgId, cacheKey) {
-            var content = document.getElementById('subinv-list-content');
-            content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Fetching from Oracle Fusion...</div>';
+            var steps = [
+                { label: 'Connecting to Oracle Fusion',   status: 'active' },
+                { label: 'Fetching subinventories',       status: 'pending' },
+                { label: 'Saving to local cache',         status: 'pending' }
+            ];
+            renderProgress('subinv-list-content', steps, 5);
 
             var url = FUSION_BASE + '/subinventories?q=OrganizationId=' + orgId + '&limit=500';
             _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
                 if (err) {
-                    content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">Error: ' + err + '</p></div>';
+                    steps[0].status = 'error'; steps[0].value = 'Failed';
+                    renderProgress('subinv-list-content', steps, 0);
                     return;
                 }
 
@@ -1122,31 +1304,66 @@
                 if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
 
                 if (payload && payload.ReturnStatus === 'Error') {
-                    content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p></div>';
+                    steps[0].status = 'error'; steps[0].value = 'Fusion error';
+                    renderProgress('subinv-list-content', steps, 0);
                     return;
                 }
 
                 var items = (payload && payload.items) ? payload.items : [];
-                writeCache(cacheKey, items);
-                var now = new Date().toISOString();
-                renderSubinventories(items, now, true, orgId);
+                steps[0].status = 'done';
+                steps[1].status = 'done'; steps[1].value = items.length + ' records fetched';
+                steps[2].status = 'active';
+                renderProgress('subinv-list-content', steps, 70);
+
+                _invSendToCS({ action: 'saveInventoryCache', cacheKey: cacheKey, data: JSON.stringify(items) }, function () {
+                    steps[2].status = 'done'; steps[2].value = items.length + ' records saved';
+                    renderProgress('subinv-list-content', steps, 100);
+
+                    setTimeout(function () {
+                        var now = new Date().toISOString();
+                        renderSubinventories(items, now, true, orgId);
+                    }, 500);
+                });
             });
         }
 
         /** Background fetch of subinventories for all orgs right after org load. */
         function fetchAllSubinventoriesBackground(orgs) {
             if (!orgs || !orgs.length) return;
-            console.log('[INV] Background fetching subinventories for', orgs.length, 'orgs...');
+
+            // Only fetch orgs whose cache is stale/missing
+            var toFetch = orgs.filter(function(o) { return o.OrganizationId; });
+            if (!toFetch.length) return;
+
+            var banner    = document.getElementById('bg-fetch-banner');
+            var bannerTxt = document.getElementById('bg-fetch-text');
+            var total = toFetch.length;
+            var done  = 0;
+            var skipped = 0;
+
+            banner.classList.add('visible');
+            bannerTxt.textContent = 'Checking subinventory cache...';
+
             var idx = 0;
             function fetchNext() {
-                if (idx >= orgs.length) { console.log('[INV] Background subinventory fetch complete'); return; }
-                var org = orgs[idx++];
+                if (idx >= toFetch.length) {
+                    bannerTxt.textContent = '\u2713 Subinventory cache ready (' + total + ' orgs)';
+                    banner.querySelector('.bg-spinner').style.display = 'none';
+                    setTimeout(function () { banner.classList.remove('visible'); }, 2500);
+                    console.log('[INV BG] Complete. Fetched:', done, 'Skipped (fresh):', skipped);
+                    return;
+                }
+
+                var org = toFetch[idx++];
                 var cacheKey = 'subinventories_' + org.OrganizationId;
+
                 readCache(cacheKey, function (err, cached) {
                     if (cached && isCacheFresh(cached.fetchedAt)) {
-                        // Already fresh — skip
+                        skipped++;
+                        bannerTxt.textContent = 'Subinventories: ' + (done + skipped) + ' / ' + total + ' orgs \u2014 ' + (idx) + ' checked';
                         fetchNext();
                     } else {
+                        bannerTxt.textContent = 'Fetching: ' + org.OrganizationCode + ' (' + (done + skipped + 1) + ' / ' + total + ')';
                         var url = FUSION_BASE + '/subinventories?q=OrganizationId=' + org.OrganizationId + '&limit=500';
                         _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (e, data) {
                             if (!e && data) {
@@ -1154,7 +1371,9 @@
                                 if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(ex){} }
                                 var items = (payload && payload.items) ? payload.items : [];
                                 writeCache(cacheKey, items);
-                                console.log('[INV BG] Saved subinv for', org.OrganizationCode, '—', items.length, 'records');
+                                done++;
+                                bannerTxt.textContent = 'Saved ' + org.OrganizationCode + ': ' + items.length + ' subinventories (' + (done + skipped) + ' / ' + total + ')';
+                                console.log('[INV BG] Cached subinv for', org.OrganizationCode, '—', items.length, 'records');
                             }
                             fetchNext();
                         });
