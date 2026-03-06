@@ -870,210 +870,524 @@
     </div><!-- /app-body -->
 
     <script>
+        // ── Config ──────────────────────────────────────────
+        var FUSION_BASE = 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05';
+        var CACHE_MAX_AGE_HOURS = 24;   // refresh cache after 24 hours
+
         // ── Init ────────────────────────────────────────────
         (function () {
-            const username = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
-            const instance = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+            var username = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
+            var instance = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
             document.getElementById('displayUsername').textContent = username;
             document.getElementById('displayInstance').textContent = instance ? instance : '';
         })();
 
-        // ── Panel Navigation ────────────────────────────────
+        // ── IPC Bridge ──────────────────────────────────────
+        window._invPendingRequests = {};
+
+        function _invSendToCS(message, callback) {
+            var reqId = 'inv_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            message.requestId = reqId;
+            window._invPendingRequests[reqId] = callback;
+
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(message);
+            } else {
+                // Not in WebView2 — simulate error
+                setTimeout(function () { callback('WebView2 not available', null); }, 0);
+            }
+        }
+
+        // Listen for C# responses and route to pending callbacks
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.addEventListener('message', function (event) {
+                try {
+                    var resp = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                    var reqId = resp.requestId;
+                    if (reqId && window._invPendingRequests[reqId]) {
+                        var cb = window._invPendingRequests[reqId];
+                        delete window._invPendingRequests[reqId];
+                        if (resp.action === 'error') {
+                            cb(resp.message || 'Unknown error', null);
+                        } else {
+                            // data may be a JSON string — parse it
+                            var data = resp.data;
+                            if (typeof data === 'string') {
+                                try { data = JSON.parse(data); } catch (e) {}
+                            }
+                            cb(null, data);
+                        }
+                    }
+                } catch (e) {
+                    console.error('[INV] Message parse error', e);
+                }
+            });
+        }
+
+        // ── Cache Helpers ────────────────────────────────────
+        /**
+         * Read local inventory cache file via C#.
+         * cb(error, { found, fetchedAt, items })
+         */
+        function readCache(cacheKey, cb) {
+            _invSendToCS({ action: 'getInventoryCache', cacheKey: cacheKey }, function (err, result) {
+                if (err || !result || !result.found) return cb(null, null);
+                try {
+                    var wrapper = typeof result.cache === 'string' ? JSON.parse(result.cache) : result.cache;
+                    var items = typeof wrapper.data === 'string' ? JSON.parse(wrapper.data) : wrapper.data;
+                    cb(null, { fetchedAt: wrapper.fetchedAt, items: items });
+                } catch (e) {
+                    cb(null, null);
+                }
+            });
+        }
+
+        /** Write items array to local cache file via C#. */
+        function writeCache(cacheKey, items) {
+            _invSendToCS({ action: 'saveInventoryCache', cacheKey: cacheKey, data: JSON.stringify(items) }, function () {});
+        }
+
+        /** Returns true if fetchedAt ISO string is within CACHE_MAX_AGE_HOURS. */
+        function isCacheFresh(fetchedAt) {
+            if (!fetchedAt) return false;
+            var age = (Date.now() - new Date(fetchedAt).getTime()) / 3600000;
+            return age < CACHE_MAX_AGE_HOURS;
+        }
+
+        function formatFetchedAt(isoStr) {
+            if (!isoStr) return '';
+            var d = new Date(isoStr);
+            return d.toLocaleString();
+        }
+
+        // ── Panel Navigation ─────────────────────────────────
         function showPanel(panelId, navEl) {
-            // Hide all panels
-            document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-            // Deactivate all nav items
-            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-
-            // Show selected panel
-            const panel = document.getElementById('panel-' + panelId);
+            document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+            document.querySelectorAll('.nav-item').forEach(function (n) { n.classList.remove('active'); });
+            var panel = document.getElementById('panel-' + panelId);
             if (panel) panel.classList.add('active');
-
-            // Activate nav item
             if (navEl) navEl.classList.add('active');
         }
 
-        // ── Organization List ───────────────────────────────
-        function loadOrganizations() {
-            const content = document.getElementById('org-list-content');
+        // ── Organization List ────────────────────────────────
+        var _cachedOrgs = [];   // in-memory for dropdowns
+
+        function loadOrganizations(forceRefresh) {
+            var content = document.getElementById('org-list-content');
             content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Loading organizations...</div>';
 
-            // TODO: replace with real APEX API call
-            setTimeout(function () {
-                const orgs = [
-                    { code: 'M1',  name: 'Seattle Manufacturing',    type: 'Manufacturing' },
-                    { code: 'V1',  name: 'Seattle Distribution',     type: 'Distribution' },
-                    { code: 'S1',  name: 'Main Store',               type: 'Retail Store' },
-                    { code: 'AUS', name: 'Australia Operations',      type: 'Distribution' },
-                ];
-                renderOrganizations(orgs);
-                populateOrgDropdowns(orgs);
-            }, 600);
+            readCache('organizations', function (err, cached) {
+                if (!forceRefresh && cached && isCacheFresh(cached.fetchedAt)) {
+                    console.log('[INV] Organizations from cache, fetched at', cached.fetchedAt);
+                    _cachedOrgs = cached.items || [];
+                    renderOrganizations(_cachedOrgs, cached.fetchedAt, false);
+                    populateOrgDropdowns(_cachedOrgs);
+                } else {
+                    fetchOrganizationsFromFusion();
+                }
+            });
         }
 
-        function renderOrganizations(orgs) {
-            const content = document.getElementById('org-list-content');
-            if (!orgs.length) {
+        function fetchOrganizationsFromFusion() {
+            var content = document.getElementById('org-list-content');
+            content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Fetching from Oracle Fusion...</div>';
+
+            var url = FUSION_BASE + '/inventoryOrganizationsLOV?limit=500';
+            _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                if (err) {
+                    content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">Error: ' + err + '</p></div>';
+                    return;
+                }
+
+                // data may already be parsed or still a string
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+
+                // Check for error response from Fusion
+                if (payload && payload.ReturnStatus === 'Error') {
+                    content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p></div>';
+                    return;
+                }
+
+                var items = (payload && payload.items) ? payload.items : [];
+                _cachedOrgs = items;
+
+                // Save to local cache
+                writeCache('organizations', items);
+                var now = new Date().toISOString();
+
+                renderOrganizations(items, now, true);
+                populateOrgDropdowns(items);
+
+                // Immediately fetch subinventories for all orgs in background
+                fetchAllSubinventoriesBackground(items);
+            });
+        }
+
+        function renderOrganizations(orgs, fetchedAt, wasFresh) {
+            var content = document.getElementById('org-list-content');
+            if (!orgs || !orgs.length) {
                 content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-building"></i><p>No organizations found.</p></div>';
                 return;
             }
-            const cards = orgs.map(o => `
-                <div class="list-card" onclick="selectOrg('${o.code}')">
-                    <div class="list-card-code">${o.code}</div>
-                    <div class="list-card-name">${o.name}</div>
-                    <div class="list-card-meta"><i class="fa-solid fa-tag"></i> ${o.type}</div>
-                </div>
-            `).join('');
-            content.innerHTML = '<div class="list-grid">' + cards + '</div>';
+
+            var badge = wasFresh
+                ? '<span style="color:#22c55e;font-size:.75rem;"><i class="fa-solid fa-circle-check"></i> Fetched from Fusion</span>'
+                : '<span style="color:#718096;font-size:.75rem;"><i class="fa-solid fa-database"></i> Cached &mdash; Last fetched: ' + formatFetchedAt(fetchedAt) + '</span>';
+
+            var cards = orgs.map(function (o) {
+                var code = o.OrganizationCode || '';
+                var name = o.OrganizationName || '';
+                var status = o.Status || '';
+                var master = o.MasterOrganizationFlag ? ' &mdash; Master' : '';
+                return '<div class="list-card" onclick="selectOrg(\'' + code + '\', ' + o.OrganizationId + ')">' +
+                    '<div class="list-card-code">' + code + '</div>' +
+                    '<div class="list-card-name">' + name + '</div>' +
+                    '<div class="list-card-meta"><i class="fa-solid fa-circle" style="font-size:.5rem;color:' + (status==='Active'?'#22c55e':'#a0aec0') + '"></i> ' + status + master + '</div>' +
+                    '</div>';
+            }).join('');
+
+            content.innerHTML =
+                '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+                    '<span style="font-size:.82rem;color:#718096;">' + orgs.length + ' organizations</span>' +
+                    '<div style="display:flex;align-items:center;gap:16px;">' + badge +
+                        '<button class="btn-clear" onclick="loadOrganizations(true)" style="padding:5px 12px;font-size:.78rem;"><i class="fa-solid fa-rotate"></i> Refresh</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="list-grid">' + cards + '</div>';
         }
 
         function populateOrgDropdowns(orgs) {
-            const selects = ['subinv-org-filter', 'onhand-org', 'lot-org'];
-            selects.forEach(function (id) {
-                const el = document.getElementById(id);
+            ['subinv-org-filter', 'onhand-org', 'lot-org'].forEach(function (id) {
+                var el = document.getElementById(id);
                 if (!el) return;
-                const first = el.options[0];
+                var firstOpt = el.options[0];
                 el.innerHTML = '';
-                el.appendChild(first);
+                el.appendChild(firstOpt);
                 orgs.forEach(function (o) {
-                    const opt = document.createElement('option');
-                    opt.value = o.code;
-                    opt.textContent = o.code + ' — ' + o.name;
+                    var opt = document.createElement('option');
+                    opt.value = o.OrganizationId;
+                    opt.dataset.code = o.OrganizationCode;
+                    opt.textContent = o.OrganizationCode + ' — ' + o.OrganizationName;
                     el.appendChild(opt);
                 });
             });
         }
 
-        function selectOrg(code) {
+        function selectOrg(code, orgId) {
             showPanel('subinv-list', document.querySelector('[data-panel="subinv-list"]'));
-            document.getElementById('subinv-org-filter').value = code;
+            var select = document.getElementById('subinv-org-filter');
+            // Find option by value (orgId)
+            for (var i = 0; i < select.options.length; i++) {
+                if (select.options[i].value == orgId) { select.selectedIndex = i; break; }
+            }
             loadSubinventories();
         }
 
-        // ── Subinventories ──────────────────────────────────
-        function loadSubinventories() {
-            const orgCode = document.getElementById('subinv-org-filter').value;
-            const content = document.getElementById('subinv-list-content');
-            content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Loading subinventories...</div>';
+        // ── Subinventories ───────────────────────────────────
+        function loadSubinventories(forceRefresh) {
+            var orgId = document.getElementById('subinv-org-filter').value;
+            var content = document.getElementById('subinv-list-content');
 
-            // TODO: replace with real APEX API call
-            setTimeout(function () {
-                const subs = [
-                    { code: 'STORES',  name: 'Main Stores',       org: orgCode || 'M1', type: 'Storable' },
-                    { code: 'WIP',     name: 'Work In Progress',   org: orgCode || 'M1', type: 'Asset' },
-                    { code: 'FG',      name: 'Finished Goods',     org: orgCode || 'M1', type: 'Storable' },
-                    { code: 'RETURNS', name: 'Customer Returns',   org: orgCode || 'M1', type: 'Storable' },
-                ];
-                renderSubinventories(subs);
-            }, 500);
-        }
-
-        function renderSubinventories(subs) {
-            const content = document.getElementById('subinv-list-content');
-            if (!subs.length) {
-                content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-warehouse"></i><p>No subinventories found.</p></div>';
+            if (!orgId) {
+                content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-warehouse"></i><p>Please select an organization first.</p></div>';
                 return;
             }
-            const cards = subs.map(s => `
-                <div class="list-card">
-                    <div class="list-card-code">${s.code}</div>
-                    <div class="list-card-name">${s.name}</div>
-                    <div class="list-card-meta"><i class="fa-solid fa-building"></i> ${s.org} &nbsp;|&nbsp; <i class="fa-solid fa-tag"></i> ${s.type}</div>
-                </div>
-            `).join('');
-            content.innerHTML = '<div class="list-grid">' + cards + '</div>';
+
+            content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Loading subinventories...</div>';
+            var cacheKey = 'subinventories_' + orgId;
+
+            readCache(cacheKey, function (err, cached) {
+                if (!forceRefresh && cached && isCacheFresh(cached.fetchedAt)) {
+                    console.log('[INV] Subinventories from cache for org', orgId);
+                    renderSubinventories(cached.items || [], cached.fetchedAt, false, orgId);
+                } else {
+                    fetchSubinventoriesFromFusion(orgId, cacheKey);
+                }
+            });
         }
 
-        // ── Query Onhand ────────────────────────────────────
-        function queryOnhand() {
-            const tbody = document.getElementById('onhand-tbody');
-            const count = document.getElementById('onhand-count');
-            tbody.innerHTML = '<tr><td colspan="8"><div class="loading-state"><div class="spinner"></div> Searching...</div></td></tr>';
+        function fetchSubinventoriesFromFusion(orgId, cacheKey) {
+            var content = document.getElementById('subinv-list-content');
+            content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Fetching from Oracle Fusion...</div>';
 
-            // TODO: replace with real APEX API call
-            setTimeout(function () {
-                const rows = [
-                    { item: 'AS12345', desc: 'Widget Assembly A',   org: 'M1', sub: 'STORES',  loc: 'A1-01-01', qty: 250,  uom: 'EA', res: 50 },
-                    { item: 'AS12346', desc: 'Widget Assembly B',   org: 'M1', sub: 'FG',      loc: 'B2-02-01', qty: 80,   uom: 'EA', res: 0  },
-                    { item: 'CM99001', desc: 'Component Raw Steel', org: 'M1', sub: 'STORES',  loc: 'C3-01-01', qty: 1200, uom: 'KG', res: 200},
-                    { item: 'FG10001', desc: 'Finished Product X',  org: 'M1', sub: 'FG',      loc: 'D1-01-01', qty: 45,   uom: 'EA', res: 10 },
-                ];
-                renderOnhandRows(rows);
-                count.textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
-            }, 700);
+            var url = FUSION_BASE + '/subinventories?q=OrganizationId=' + orgId + '&limit=500';
+            _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                if (err) {
+                    content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">Error: ' + err + '</p></div>';
+                    return;
+                }
+
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+
+                if (payload && payload.ReturnStatus === 'Error') {
+                    content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p></div>';
+                    return;
+                }
+
+                var items = (payload && payload.items) ? payload.items : [];
+                writeCache(cacheKey, items);
+                var now = new Date().toISOString();
+                renderSubinventories(items, now, true, orgId);
+            });
+        }
+
+        /** Background fetch of subinventories for all orgs right after org load. */
+        function fetchAllSubinventoriesBackground(orgs) {
+            if (!orgs || !orgs.length) return;
+            console.log('[INV] Background fetching subinventories for', orgs.length, 'orgs...');
+            var idx = 0;
+            function fetchNext() {
+                if (idx >= orgs.length) { console.log('[INV] Background subinventory fetch complete'); return; }
+                var org = orgs[idx++];
+                var cacheKey = 'subinventories_' + org.OrganizationId;
+                readCache(cacheKey, function (err, cached) {
+                    if (cached && isCacheFresh(cached.fetchedAt)) {
+                        // Already fresh — skip
+                        fetchNext();
+                    } else {
+                        var url = FUSION_BASE + '/subinventories?q=OrganizationId=' + org.OrganizationId + '&limit=500';
+                        _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (e, data) {
+                            if (!e && data) {
+                                var payload = data;
+                                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(ex){} }
+                                var items = (payload && payload.items) ? payload.items : [];
+                                writeCache(cacheKey, items);
+                                console.log('[INV BG] Saved subinv for', org.OrganizationCode, '—', items.length, 'records');
+                            }
+                            fetchNext();
+                        });
+                    }
+                });
+            }
+            fetchNext();
+        }
+
+        function renderSubinventories(subs, fetchedAt, wasFresh, orgId) {
+            var content = document.getElementById('subinv-list-content');
+            if (!subs || !subs.length) {
+                content.innerHTML = '<div class="empty-state"><i class="fa-solid fa-warehouse"></i><p>No subinventories found for this organization.</p></div>';
+                return;
+            }
+
+            var badge = wasFresh
+                ? '<span style="color:#22c55e;font-size:.75rem;"><i class="fa-solid fa-circle-check"></i> Fetched from Fusion</span>'
+                : '<span style="color:#718096;font-size:.75rem;"><i class="fa-solid fa-database"></i> Cached &mdash; Last fetched: ' + formatFetchedAt(fetchedAt) + '</span>';
+
+            var cards = subs.map(function (s) {
+                var code = s.SecondaryInventoryName || s.SubinventoryCode || '';
+                var desc = s.Description || '';
+                var type = s.AssetInventoryFlag ? 'Asset' : 'Expense';
+                return '<div class="list-card">' +
+                    '<div class="list-card-code">' + code + '</div>' +
+                    '<div class="list-card-name">' + (desc || code) + '</div>' +
+                    '<div class="list-card-meta"><i class="fa-solid fa-tag"></i> ' + type + '</div>' +
+                    '</div>';
+            }).join('');
+
+            // Populate subinv dropdown in Query Onhand for this org
+            var subinvSelect = document.getElementById('onhand-subinv');
+            if (subinvSelect && orgId) {
+                var currentOrgId = document.getElementById('onhand-org').value;
+                if (currentOrgId == orgId) {
+                    subinvSelect.innerHTML = '<option value="">— All —</option>';
+                    subs.forEach(function (s) {
+                        var opt = document.createElement('option');
+                        opt.value = s.SecondaryInventoryName || s.SubinventoryCode || '';
+                        opt.textContent = opt.value;
+                        subinvSelect.appendChild(opt);
+                    });
+                }
+            }
+
+            content.innerHTML =
+                '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">' +
+                    '<span style="font-size:.82rem;color:#718096;">' + subs.length + ' subinventories</span>' +
+                    '<div style="display:flex;align-items:center;gap:16px;">' + badge +
+                        '<button class="btn-clear" onclick="loadSubinventories(true)" style="padding:5px 12px;font-size:.78rem;"><i class="fa-solid fa-rotate"></i> Refresh</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="list-grid">' + cards + '</div>';
+        }
+
+        // Update subinv dropdown when org changes in Query Onhand
+        document.getElementById('onhand-org').addEventListener('change', function () {
+            var orgId = this.value;
+            var subinvSelect = document.getElementById('onhand-subinv');
+            subinvSelect.innerHTML = '<option value="">— All —</option>';
+            if (!orgId) return;
+            var cacheKey = 'subinventories_' + orgId;
+            readCache(cacheKey, function (err, cached) {
+                if (cached && cached.items && cached.items.length) {
+                    cached.items.forEach(function (s) {
+                        var opt = document.createElement('option');
+                        opt.value = s.SecondaryInventoryName || s.SubinventoryCode || '';
+                        opt.textContent = opt.value;
+                        subinvSelect.appendChild(opt);
+                    });
+                }
+            });
+        });
+
+        // ── Query Onhand ─────────────────────────────────────
+        // Note: Oracle Fusion onhand API endpoint to be confirmed — placeholder structure shown
+        function queryOnhand() {
+            var tbody = document.getElementById('onhand-tbody');
+            var count = document.getElementById('onhand-count');
+            var orgId   = document.getElementById('onhand-org').value;
+            var subinv  = document.getElementById('onhand-subinv').value;
+            var item    = document.getElementById('onhand-item').value.trim();
+            var desc    = document.getElementById('onhand-desc').value.trim();
+
+            if (!orgId && !item) {
+                tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-circle-info" style="color:#3b82f6;"></i><p>Please select an Organization or enter an Item Number.</p></div></td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '<tr><td colspan="8"><div class="loading-state"><div class="spinner"></div> Querying Fusion Onhand...</div></td></tr>';
+
+            // Build query string
+            var queryParts = [];
+            if (orgId)   queryParts.push('OrganizationId=' + orgId);
+            if (subinv)  queryParts.push('SubinventoryCode=' + encodeURIComponent(subinv));
+            if (item)    queryParts.push('ItemNumber=' + encodeURIComponent(item));
+
+            // Oracle Fusion Onhand Quantities REST resource
+            var url = FUSION_BASE + '/inventoryOnhandQuantities' +
+                (queryParts.length ? '?q=' + queryParts.join(';') : '') + '&limit=200';
+
+            _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                if (err) {
+                    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">Error: ' + err + '</p></div></td></tr>';
+                    count.textContent = '0 records';
+                    return;
+                }
+
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+
+                if (payload && payload.ReturnStatus === 'Error') {
+                    tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p></div></td></tr>';
+                    count.textContent = '0 records';
+                    return;
+                }
+
+                var items = (payload && payload.items) ? payload.items : [];
+                renderOnhandRows(items);
+                count.textContent = items.length + ' record' + (items.length !== 1 ? 's' : '');
+            });
         }
 
         function renderOnhandRows(rows) {
-            const tbody = document.getElementById('onhand-tbody');
-            if (!rows.length) {
+            var tbody = document.getElementById('onhand-tbody');
+            if (!rows || !rows.length) {
                 tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-magnifying-glass-chart"></i><p>No onhand records found.</p></div></td></tr>';
                 return;
             }
-            tbody.innerHTML = rows.map(r => `
-                <tr>
-                    <td><strong>${r.item}</strong></td>
-                    <td>${r.desc}</td>
-                    <td>${r.org}</td>
-                    <td>${r.sub}</td>
-                    <td>${r.loc}</td>
-                    <td class="qty-badge">${r.qty.toLocaleString()}</td>
-                    <td>${r.uom}</td>
-                    <td style="color:#f59e0b; font-weight:600;">${r.res > 0 ? r.res.toLocaleString() : '—'}</td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = rows.map(function (r) {
+                var qty = parseFloat(r.OnhandQuantity || r.Quantity || 0);
+                var res = parseFloat(r.ReservedQuantity || 0);
+                return '<tr>' +
+                    '<td><strong>' + (r.ItemNumber || '') + '</strong></td>' +
+                    '<td>' + (r.ItemDescription || '') + '</td>' +
+                    '<td>' + (r.OrganizationCode || '') + '</td>' +
+                    '<td>' + (r.SubinventoryCode || '') + '</td>' +
+                    '<td>' + (r.LocatorName || r.Locator || '—') + '</td>' +
+                    '<td class="qty-badge">' + qty.toLocaleString() + '</td>' +
+                    '<td>' + (r.UnitOfMeasure || r.PrimaryUOMCode || '') + '</td>' +
+                    '<td style="color:#f59e0b;font-weight:600;">' + (res > 0 ? res.toLocaleString() : '—') + '</td>' +
+                    '</tr>';
+            }).join('');
         }
 
         function clearOnhandSearch() {
             ['onhand-org','onhand-subinv','onhand-item','onhand-desc'].forEach(function (id) {
-                const el = document.getElementById(id);
+                var el = document.getElementById(id);
                 if (el) el.value = '';
             });
             document.getElementById('onhand-count').textContent = '0 records';
             document.getElementById('onhand-tbody').innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-magnifying-glass-chart"></i><p>Enter search criteria and click Search.</p></div></td></tr>';
         }
 
-        // ── Search Lots ─────────────────────────────────────
+        // ── Search Lots ──────────────────────────────────────
         function searchLots() {
-            const tbody = document.getElementById('lot-tbody');
-            const count = document.getElementById('lot-count');
+            var tbody = document.getElementById('lot-tbody');
+            var count = document.getElementById('lot-count');
+            var lot     = document.getElementById('lot-number').value.trim();
+            var item    = document.getElementById('lot-item').value.trim();
+            var orgId   = document.getElementById('lot-org').value;
+            var expFrom = document.getElementById('lot-expiry-from').value;
+            var expTo   = document.getElementById('lot-expiry-to').value;
+
+            if (!lot && !item && !orgId) {
+                tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-circle-info" style="color:#3b82f6;"></i><p>Please enter a Lot Number, Item or select an Organization.</p></div></td></tr>';
+                return;
+            }
+
             tbody.innerHTML = '<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div> Searching lots...</div></td></tr>';
 
-            // TODO: replace with real APEX API call
-            setTimeout(function () {
-                const rows = [
-                    { lot: 'LOT-2024-001', item: 'AS12345', desc: 'Widget Assembly A', org: 'M1', sub: 'STORES', qty: 100, uom: 'EA', expiry: '2025-12-31', status: 'Active' },
-                    { lot: 'LOT-2024-002', item: 'AS12345', desc: 'Widget Assembly A', org: 'M1', sub: 'STORES', qty: 50,  uom: 'EA', expiry: '2025-06-30', status: 'Active' },
-                    { lot: 'LOT-2023-099', item: 'CM99001', desc: 'Raw Steel',         org: 'M1', sub: 'STORES', qty: 500, uom: 'KG', expiry: '2026-03-01', status: 'Active' },
-                ];
-                renderLotRows(rows);
-                count.textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
-            }, 700);
+            var queryParts = [];
+            if (lot)    queryParts.push('LotNumber=' + encodeURIComponent(lot));
+            if (item)   queryParts.push('ItemNumber=' + encodeURIComponent(item));
+            if (orgId)  queryParts.push('OrganizationId=' + orgId);
+            if (expFrom) queryParts.push('ExpirationDate>=' + expFrom + 'T00:00:00');
+            if (expTo)   queryParts.push('ExpirationDate<=' + expTo + 'T23:59:59');
+
+            // Oracle Fusion Lot Numbers REST resource
+            var url = FUSION_BASE + '/lotNumbers' +
+                (queryParts.length ? '?q=' + queryParts.join(';') : '') + '&limit=200';
+
+            _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                if (err) {
+                    tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">Error: ' + err + '</p></div></td></tr>';
+                    count.textContent = '0 records';
+                    return;
+                }
+
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+
+                if (payload && payload.ReturnStatus === 'Error') {
+                    tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#f56565;"></i><p style="color:#f56565;">' + (payload.ErrorExplanation || 'Fusion API error') + '</p></div></td></tr>';
+                    count.textContent = '0 records';
+                    return;
+                }
+
+                var items = (payload && payload.items) ? payload.items : [];
+                renderLotRows(items);
+                count.textContent = items.length + ' record' + (items.length !== 1 ? 's' : '');
+            });
         }
 
         function renderLotRows(rows) {
-            const tbody = document.getElementById('lot-tbody');
-            if (!rows.length) {
+            var tbody = document.getElementById('lot-tbody');
+            if (!rows || !rows.length) {
                 tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-tags"></i><p>No lots found.</p></div></td></tr>';
                 return;
             }
-            tbody.innerHTML = rows.map(r => `
-                <tr>
-                    <td><span class="lot-chip">${r.lot}</span></td>
-                    <td><strong>${r.item}</strong></td>
-                    <td>${r.desc}</td>
-                    <td>${r.org}</td>
-                    <td>${r.sub}</td>
-                    <td class="qty-badge">${r.qty.toLocaleString()}</td>
-                    <td>${r.uom}</td>
-                    <td>${r.expiry}</td>
-                    <td><span style="color:#22c55e; font-weight:600;">${r.status}</span></td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = rows.map(function (r) {
+                var qty = parseFloat(r.OnhandQuantity || r.Quantity || 0);
+                var expiry = r.ExpirationDate ? r.ExpirationDate.substring(0, 10) : '—';
+                var status = r.Status || r.LotStatus || 'Active';
+                var statusColor = (status === 'Active' || status === 'ACTIVE') ? '#22c55e' : '#a0aec0';
+                return '<tr>' +
+                    '<td><span class="lot-chip">' + (r.LotNumber || '') + '</span></td>' +
+                    '<td><strong>' + (r.ItemNumber || '') + '</strong></td>' +
+                    '<td>' + (r.ItemDescription || '') + '</td>' +
+                    '<td>' + (r.OrganizationCode || '') + '</td>' +
+                    '<td>' + (r.SubinventoryCode || '—') + '</td>' +
+                    '<td class="qty-badge">' + qty.toLocaleString() + '</td>' +
+                    '<td>' + (r.PrimaryUOMCode || r.UnitOfMeasure || '') + '</td>' +
+                    '<td>' + expiry + '</td>' +
+                    '<td><span style="color:' + statusColor + ';font-weight:600;">' + status + '</span></td>' +
+                    '</tr>';
+            }).join('');
         }
 
         function clearLotSearch() {
             ['lot-number','lot-item','lot-org','lot-expiry-from','lot-expiry-to'].forEach(function (id) {
-                const el = document.getElementById(id);
+                var el = document.getElementById(id);
                 if (el) el.value = '';
             });
             document.getElementById('lot-count').textContent = '0 records';

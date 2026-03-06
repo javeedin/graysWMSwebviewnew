@@ -1620,6 +1620,18 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleOracleFusionPatchRequest(wv, messageJson, requestId);
                                     break;
 
+                                case "executeOracleFusionGet":
+                                    await HandleOracleFusionGetRequest(wv, messageJson, requestId);
+                                    break;
+
+                                case "getInventoryCache":
+                                    await HandleGetInventoryCache(wv, messageJson, requestId);
+                                    break;
+
+                                case "saveInventoryCache":
+                                    await HandleSaveInventoryCache(wv, messageJson, requestId);
+                                    break;
+
                                 case "executeDelete":
                                     await HandleRestApiDeleteRequest(wv, messageJson, requestId);
                                     break;
@@ -2353,6 +2365,197 @@ navPanel.Controls.Add(wmsDevButton);
 
                 wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
             }
+        }
+
+        /// <summary>
+        /// Handles Oracle Fusion REST API GET requests with Basic Auth.
+        /// Uses Fusion credentials loaded on startup (_fusionUsername / _fusionPassword).
+        /// Supports optional query limit via limit field (default 500).
+        /// </summary>
+        private async Task HandleOracleFusionGetRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] GET request to: {message.FullUrl}");
+
+                // Ensure Fusion credentials are available
+                if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Credentials missing, attempting re-fetch...");
+                    await FetchFusionCredentialsOnStartup();
+
+                    if (!_fusionCredentialsLoaded)
+                    {
+                        var noCredMsg = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorCode = "FUSION_CRED_MISSING",
+                                ErrorExplanation = "Oracle Fusion credentials not available."
+                            })
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(noCredMsg));
+                        return;
+                    }
+                }
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(120);
+
+                    var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_fusionUsername}:{_fusionPassword}"));
+                    httpClient.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                    httpClient.DefaultRequestHeaders.Accept.Add(
+                        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Sending request with user: {_fusionUsername}");
+                    var response = await httpClient.GetAsync(message.FullUrl);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Status: {(int)response.StatusCode} {response.StatusCode}");
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var httpErrMsg = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = !string.IsNullOrEmpty(responseContent) ? responseContent : JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorCode = $"HTTP_{(int)response.StatusCode}",
+                                ErrorExplanation = $"HTTP Error: {response.StatusCode}"
+                            })
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(httpErrMsg));
+                        return;
+                    }
+
+                    var resultMsg = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(resultMsg));
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Response sent. Length: {responseContent.Length}");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] ========================================");
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Request timed out");
+                var errMsg = new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { ReturnStatus = "Error", ErrorCode = "TIMEOUT", ErrorExplanation = "Request timed out." }) };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errMsg));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET ERROR] {ex.Message}");
+                var errMsg = new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { ReturnStatus = "Error", ErrorCode = "UNKNOWN", ErrorExplanation = ex.Message }) };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errMsg));
+            }
+        }
+
+        /// <summary>
+        /// Reads an inventory cache file from C:\fusion\inventory\{cacheKey}.json.
+        /// Returns { found: bool, fetchedAt: string, data: [...] }
+        /// </summary>
+        private async Task HandleGetInventoryCache(WebView2 wv, string messageJson, string requestId)
+        {
+            await Task.Run(() =>
+            {
+                try
+                {
+                    string cacheKey = "";
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        if (doc.RootElement.TryGetProperty("cacheKey", out var kp)) cacheKey = kp.GetString() ?? "";
+                    }
+
+                    string cacheDir = @"C:\fusion\inventory";
+                    string filePath = System.IO.Path.Combine(cacheDir, cacheKey.Replace("/", "_") + ".json");
+
+                    System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] key={cacheKey} path={filePath}");
+
+                    string resultData;
+                    if (System.IO.File.Exists(filePath))
+                    {
+                        string fileContent = System.IO.File.ReadAllText(filePath);
+                        // Wrap to tell JS it was found
+                        resultData = JsonSerializer.Serialize(new { found = true, cache = fileContent });
+                        System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] Cache hit, size={fileContent.Length}");
+                    }
+                    else
+                    {
+                        resultData = JsonSerializer.Serialize(new { found = false, cache = (string)null });
+                        System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] Cache miss");
+                    }
+
+                    var resultMsg = new { action = "restResponse", requestId = requestId, data = resultData };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(resultMsg));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[INV CACHE GET ERROR] {ex.Message}");
+                    var errData = JsonSerializer.Serialize(new { found = false, cache = (string)null, error = ex.Message });
+                    var errMsg = new { action = "restResponse", requestId = requestId, data = errData };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errMsg));
+                }
+            });
+        }
+
+        /// <summary>
+        /// Writes inventory cache data to C:\fusion\inventory\{cacheKey}.json.
+        /// Payload: { cacheKey: string, data: string (JSON) }
+        /// File format: { fetchedAt: ISO string, data: [...] }
+        /// </summary>
+        private async Task HandleSaveInventoryCache(WebView2 wv, string messageJson, string requestId)
+        {
+            await Task.Run(() =>
+            {
+                try
+                {
+                    string cacheKey = "";
+                    string payload = "";
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        if (doc.RootElement.TryGetProperty("cacheKey", out var kp)) cacheKey = kp.GetString() ?? "";
+                        if (doc.RootElement.TryGetProperty("data", out var dp)) payload = dp.GetString() ?? "";
+                    }
+
+                    string cacheDir = @"C:\fusion\inventory";
+                    System.IO.Directory.CreateDirectory(cacheDir);
+
+                    string filePath = System.IO.Path.Combine(cacheDir, cacheKey.Replace("/", "_") + ".json");
+
+                    // Wrap data with metadata timestamp
+                    string fileContent = JsonSerializer.Serialize(new
+                    {
+                        fetchedAt = DateTime.UtcNow.ToString("o"),
+                        data = payload
+                    });
+
+                    System.IO.File.WriteAllText(filePath, fileContent);
+                    System.Diagnostics.Debug.WriteLine($"[INV CACHE SAVE] Saved key={cacheKey} path={filePath} size={fileContent.Length}");
+
+                    var resultMsg = new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { success = true }) };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(resultMsg));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[INV CACHE SAVE ERROR] {ex.Message}");
+                    var errMsg = new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { success = false, error = ex.Message }) };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errMsg));
+                }
+            });
         }
 
         private async Task HandleRestApiDeleteRequest(WebView2 wv, string messageJson, string requestId)
