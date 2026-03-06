@@ -828,6 +828,15 @@
                     <i class="fa-solid fa-chevron-right nav-arrow"></i>
                 </div>
 
+                <div class="nav-item" id="nav-item-lots" data-panel="item-lots" onclick="showPanel('item-lots', this)" style="display:none;">
+                    <div class="nav-icon">
+                        <i class="fa-solid fa-layer-group"></i>
+                    </div>
+                    <span class="nav-label">Item Lots</span>
+                    <span id="item-lots-badge" style="margin-left:auto;background:#3b82f6;color:#fff;border-radius:10px;padding:1px 7px;font-size:.72rem;font-weight:700;"></span>
+                    <i class="fa-solid fa-chevron-right nav-arrow"></i>
+                </div>
+
             </nav>
 
             <div class="sidebar-footer">
@@ -962,20 +971,27 @@
                 <div class="data-card">
                     <div class="data-card-header">
                         <h3>Onhand Results</h3>
-                        <span class="record-count" id="onhand-count">0 records</span>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <input type="text" id="onhand-grid-search" placeholder="Filter results..." oninput="filterOnhandGrid(this.value)"
+                                style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;width:180px;">
+                            <button class="btn-search" onclick="drillSelectedItems()" style="padding:6px 12px;font-size:.82rem;background:#3b82f6;">
+                                <i class="fa-solid fa-layer-group"></i> Drill Selected
+                            </button>
+                            <span class="record-count" id="onhand-count">0 records</span>
+                        </div>
                     </div>
                     <div class="table-wrap">
-                        <table>
+                        <table id="onhand-table">
                             <thead>
                                 <tr>
+                                    <th style="width:36px;text-align:center;"><input type="checkbox" id="onhand-select-all" onchange="toggleAllOnhandRows(this)" title="Select all"></th>
                                     <th>Item Number</th>
                                     <th>Description</th>
-                                    <th>Organization</th>
+                                    <th>Org</th>
                                     <th>Subinventory</th>
-                                    <th>Locator</th>
-                                    <th>Onhand Qty</th>
                                     <th>UOM</th>
-                                    <th>Reserved Qty</th>
+                                    <th>Onhand Qty</th>
+                                    <th style="width:52px;text-align:center;">Lots</th>
                                 </tr>
                             </thead>
                             <tbody id="onhand-tbody">
@@ -1070,6 +1086,27 @@
                             </tbody>
                         </table>
                     </div>
+                </div>
+            </div>
+
+            <!-- Item Lots Panel -->
+            <div id="panel-item-lots" class="panel">
+                <div class="panel-header">
+                    <div class="panel-title-wrap">
+                        <div class="panel-title-icon">
+                            <i class="fa-solid fa-layer-group"></i>
+                        </div>
+                        <div class="panel-title">
+                            <h2>Item Lots</h2>
+                            <p id="item-lots-subtitle">Lot details for selected items</p>
+                        </div>
+                    </div>
+                    <button class="btn-clear" onclick="showPanel('query-onhand', document.querySelector('[data-panel=query-onhand]'))" style="padding:7px 14px;font-size:.82rem;">
+                        <i class="fa-solid fa-arrow-left"></i> Back to Onhand
+                    </button>
+                </div>
+                <div id="item-lots-content">
+                    <div class="empty-state"><i class="fa-solid fa-layer-group"></i><p>Drill into items from the Query Onhand panel.</p></div>
                 </div>
             </div>
 
@@ -1724,25 +1761,172 @@
             fetchPage();
         }
 
+        var _onhandAllItems = [];   // raw items from last query, keyed by row index
+
         function renderOnhandRows(rows) {
+            _onhandAllItems = rows || [];
+            // Reset select-all checkbox
+            var selAll = document.getElementById('onhand-select-all');
+            if (selAll) selAll.checked = false;
+            // Clear grid search
+            var gs = document.getElementById('onhand-grid-search');
+            if (gs) gs.value = '';
+
             var tbody = document.getElementById('onhand-tbody');
-            if (!rows || !rows.length) {
+            if (!_onhandAllItems.length) {
                 tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-magnifying-glass-chart"></i><p>No onhand records found.</p></div></td></tr>';
                 return;
             }
-            tbody.innerHTML = rows.map(function (r) {
-                var qty = parseFloat(r.OnhandQuantity || r.Quantity || 0);
-                var res = parseFloat(r.ReservedQuantity || 0);
-                return '<tr>' +
+            tbody.innerHTML = _onhandAllItems.map(function (r, idx) {
+                var qty = parseFloat(r.PrimaryQuantity || 0);
+                return '<tr data-search="' + ((r.ItemNumber || '') + ' ' + (r.ItemDescription || '') + ' ' + (r.SubinventoryCode || '')).toLowerCase() + '">' +
+                    '<td style="text-align:center;"><input type="checkbox" class="onhand-row-check" data-idx="' + idx + '"></td>' +
                     '<td><strong>' + (r.ItemNumber || '') + '</strong></td>' +
                     '<td>' + (r.ItemDescription || '') + '</td>' +
                     '<td>' + (r.OrganizationCode || '') + '</td>' +
                     '<td>' + (r.SubinventoryCode || '') + '</td>' +
-                    '<td>' + (r.LocatorName || r.Locator || '—') + '</td>' +
+                    '<td>' + (r.PrimaryUOMCode || '') + '</td>' +
                     '<td class="qty-badge">' + qty.toLocaleString() + '</td>' +
-                    '<td>' + (r.UnitOfMeasure || r.PrimaryUOMCode || '') + '</td>' +
-                    '<td style="color:#f59e0b;font-weight:600;">' + (res > 0 ? res.toLocaleString() : '—') + '</td>' +
+                    '<td style="text-align:center;">' +
+                        '<button onclick="drillItemLots([_onhandAllItems[' + idx + ']])" title="View lots for this item" ' +
+                            'style="background:#3b82f6;color:#fff;border:none;border-radius:5px;padding:4px 8px;cursor:pointer;font-size:.8rem;">' +
+                            '<i class="fa-solid fa-layer-group"></i>' +
+                        '</button>' +
+                    '</td>' +
                     '</tr>';
+            }).join('');
+        }
+
+        function filterOnhandGrid(q) {
+            q = (q || '').toLowerCase();
+            var rows = document.getElementById('onhand-tbody').querySelectorAll('tr[data-search]');
+            rows.forEach(function (tr) {
+                tr.style.display = (!q || tr.dataset.search.includes(q)) ? '' : 'none';
+            });
+        }
+
+        function toggleAllOnhandRows(cb) {
+            document.querySelectorAll('.onhand-row-check').forEach(function (c) {
+                var tr = c.closest('tr');
+                if (!tr || tr.style.display !== 'none') c.checked = cb.checked;
+            });
+        }
+
+        function drillSelectedItems() {
+            var checked = document.querySelectorAll('.onhand-row-check:checked');
+            if (!checked.length) {
+                alert('Please select at least one item row first.');
+                return;
+            }
+            var items = [];
+            checked.forEach(function (c) { items.push(_onhandAllItems[parseInt(c.dataset.idx)]); });
+            drillItemLots(items);
+        }
+
+        // ── Item Lots Drill ──────────────────────────────────
+        function drillItemLots(items) {
+            // Show nav item + switch to panel
+            var navEl = document.getElementById('nav-item-lots');
+            navEl.style.display = '';
+            showPanel('item-lots', navEl);
+
+            var badge = document.getElementById('item-lots-badge');
+            if (badge) badge.textContent = items.length;
+            document.getElementById('item-lots-subtitle').textContent =
+                'Lot details for ' + items.length + ' item' + (items.length !== 1 ? 's' : '');
+
+            var content = document.getElementById('item-lots-content');
+            content.innerHTML = '<div class="loading-state"><div class="spinner"></div> Fetching lot details for ' + items.length + ' item(s)...</div>';
+
+            var results = new Array(items.length);
+            var remaining = items.length;
+
+            items.forEach(function (item, i) {
+                // Fetch specific item onhand to get the child lots link
+                var q = 'ItemNumber=' + item.ItemNumber +
+                        ';OrganizationCode=' + item.OrganizationCode +
+                        ';SubinventoryCode=' + item.SubinventoryCode;
+                var url = FUSION_BASE + '/inventoryOnhandBalances?q=' + q + '&limit=1';
+
+                _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                    var payload = data;
+                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+
+                    var lotsUrl = null;
+                    if (!err && payload && payload.items && payload.items[0]) {
+                        var links = payload.items[0].links || [];
+                        for (var li = 0; li < links.length; li++) {
+                            if (links[li].name === 'lots') { lotsUrl = links[li].href; break; }
+                        }
+                    }
+
+                    if (lotsUrl) {
+                        _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: lotsUrl }, function (lerr, ldata) {
+                            var lp = ldata;
+                            if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch(e){} }
+                            results[i] = { item: item, lots: (!lerr && lp && lp.items) ? lp.items : [], error: lerr || null };
+                            if (--remaining === 0) renderItemLots(results);
+                        });
+                    } else {
+                        results[i] = { item: item, lots: [], error: err || 'No lots link in response' };
+                        if (--remaining === 0) renderItemLots(results);
+                    }
+                });
+            });
+        }
+
+        function renderItemLots(results) {
+            var content = document.getElementById('item-lots-content');
+            content.innerHTML = results.map(function (r) {
+                var item = r.item;
+                var lots  = r.lots || [];
+                var qty   = parseFloat(item.PrimaryQuantity || 0);
+
+                var lotsHtml;
+                if (r.error && !lots.length) {
+                    lotsHtml = '<p style="color:#f56565;padding:8px 0;"><i class="fa-solid fa-triangle-exclamation"></i> ' + r.error + '</p>';
+                } else if (!lots.length) {
+                    lotsHtml = '<p style="color:#718096;padding:8px 0;font-style:italic;"><i class="fa-solid fa-circle-info"></i> No lot records found.</p>';
+                } else {
+                    var now = new Date();
+                    lotsHtml = '<table class="grid-table" style="margin-top:10px;">' +
+                        '<thead><tr>' +
+                            '<th>Lot Number</th><th>Onhand Qty</th><th>Expiry Date</th><th>Status</th>' +
+                        '</tr></thead><tbody>' +
+                        lots.map(function (l) {
+                            var lqty    = parseFloat(l.PrimaryQuantity || 0);
+                            var expiry  = l.ExpirationDate || '';
+                            var expired = expiry && new Date(expiry) < now;
+                            var expiryDisplay = expiry
+                                ? (expired
+                                    ? '<span style="color:#f56565;">' + expiry + ' <i class="fa-solid fa-triangle-exclamation"></i></span>'
+                                    : expiry)
+                                : '<span style="color:#a0aec0;">—</span>';
+                            return '<tr>' +
+                                '<td><strong>' + (l.LotNumber || '') + '</strong></td>' +
+                                '<td class="qty-badge">' + lqty.toLocaleString() + '</td>' +
+                                '<td>' + expiryDisplay + '</td>' +
+                                '<td>' + (l.MaterialStatus || '') + '</td>' +
+                                '</tr>';
+                        }).join('') +
+                        '</tbody></table>';
+                }
+
+                return '<div class="data-card" style="margin-bottom:18px;">' +
+                    '<div class="data-card-header" style="flex-wrap:wrap;gap:8px;">' +
+                        '<div>' +
+                            '<span style="font-size:1rem;font-weight:700;color:#2d3748;">' + (item.ItemNumber || '') + '</span>' +
+                            '<span style="margin-left:10px;color:#718096;font-size:.85rem;">' + (item.ItemDescription || '') + '</span>' +
+                        '</div>' +
+                        '<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;color:#718096;">' +
+                            '<span><i class="fa-solid fa-building"></i> ' + (item.OrganizationCode || '') + '</span>' +
+                            '<span><i class="fa-solid fa-warehouse"></i> ' + (item.SubinventoryCode || '') + '</span>' +
+                            '<span><i class="fa-solid fa-cubes"></i> Onhand: <strong style="color:#2d3748;">' + qty.toLocaleString() + ' ' + (item.PrimaryUOMCode || '') + '</strong></span>' +
+                            '<span><i class="fa-solid fa-tags"></i> ' + lots.length + ' lot' + (lots.length !== 1 ? 's' : '') + '</span>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="padding:0 16px 16px;">' + lotsHtml + '</div>' +
+                '</div>';
             }).join('');
         }
 
@@ -1757,6 +1941,7 @@
             document.getElementById('onhand-count').textContent = '0 records';
             document.getElementById('onhand-api-url-bar').style.display = 'none';
             document.getElementById('onhand-api-url-txt').textContent = '—';
+            document.getElementById('onhand-grid-search').value = '';
             document.getElementById('onhand-tbody').innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-magnifying-glass-chart"></i><p>Enter search criteria and click Search.</p></div></td></tr>';
         }
 
