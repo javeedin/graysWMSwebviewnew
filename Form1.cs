@@ -109,6 +109,27 @@ try
         }
 
         /// <summary>
+        /// Thread-safe wrapper for PostWebMessageAsJson.
+        /// WebView2 COM objects must be called on the UI (STA) thread.
+        /// If called from a background thread, marshals to the UI thread via Invoke.
+        /// </summary>
+        private void PostWebViewMessage(WebView2 wv, string json)
+        {
+            if (wv.InvokeRequired)
+            {
+                wv.Invoke(new Action(() =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(json); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[PostWebViewMessage] Error on invoked thread: {ex.Message}"); }
+                }));
+            }
+            else
+            {
+                wv.CoreWebView2.PostWebMessageAsJson(json);
+            }
+        }
+
+        /// <summary>
         /// Fetches Oracle Fusion credentials from webservice on application startup
         /// URL: /trip/fusionuserdetails returns { items: [{ user_name, passwordd }] }
         /// </summary>
@@ -2402,65 +2423,59 @@ navPanel.Controls.Add(wmsDevButton);
                                 ErrorExplanation = "Oracle Fusion credentials not available."
                             })
                         };
-                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(noCredMsg));
+                        PostWebViewMessage(wv, JsonSerializer.Serialize(noCredMsg));
                         return;
                     }
                 }
 
-                using (var httpClient = new HttpClient())
+                // Do the entire HTTP exchange on a background thread, then marshal the
+                // PostWebMessageAsJson call back to the UI thread via PostWebViewMessage.
+                string resultJson = await Task.Run(async () =>
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(120);
-
-                    var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_fusionUsername}:{_fusionPassword}"));
-                    httpClient.DefaultRequestHeaders.Authorization =
-                        new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
-                    httpClient.DefaultRequestHeaders.Accept.Add(
-                        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
-
-                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Sending request with user: {_fusionUsername}");
-                    var response = await httpClient.GetAsync(message.FullUrl);
-                    string responseContent = await response.Content.ReadAsStringAsync();
-
-                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Status: {(int)response.StatusCode} {response.StatusCode}");
-
-                    if (!response.IsSuccessStatusCode)
+                    using (var httpClient = new HttpClient())
                     {
-                        var httpErrMsg = new
+                        httpClient.Timeout = TimeSpan.FromSeconds(120);
+
+                        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_fusionUsername}:{_fusionPassword}"));
+                        httpClient.DefaultRequestHeaders.Authorization =
+                            new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                        httpClient.DefaultRequestHeaders.Accept.Add(
+                            new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Sending request with user: {_fusionUsername}");
+                        var response = await httpClient.GetAsync(message.FullUrl).ConfigureAwait(false);
+                        string responseContent = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Status: {(int)response.StatusCode} {response.StatusCode}");
+
+                        if (!response.IsSuccessStatusCode)
                         {
-                            action = "restResponse",
-                            requestId = requestId,
-                            data = !string.IsNullOrEmpty(responseContent) ? responseContent : JsonSerializer.Serialize(new {
+                            var errData = !string.IsNullOrEmpty(responseContent) ? responseContent : JsonSerializer.Serialize(new {
                                 ReturnStatus = "Error",
                                 ErrorCode = $"HTTP_{(int)response.StatusCode}",
                                 ErrorExplanation = $"HTTP Error: {response.StatusCode}"
-                            })
-                        };
-                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(httpErrMsg));
-                        return;
-                    }
+                            });
+                            return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = errData });
+                        }
 
-                    var resultMsg = new
-                    {
-                        action = "restResponse",
-                        requestId = requestId,
-                        data = responseContent
-                    };
-                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(resultMsg));
-                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Response sent. Length: {responseContent.Length}");
-                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] ========================================");
-                }
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Response length: {responseContent.Length}");
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] ========================================");
+                        return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = responseContent });
+                    }
+                }).ConfigureAwait(false);
+
+                // Back on UI thread (via PostWebViewMessage InvokeRequired check)
+                PostWebViewMessage(wv, resultJson);
             }
             catch (TaskCanceledException)
             {
                 System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Request timed out");
-                var errMsg = new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { ReturnStatus = "Error", ErrorCode = "TIMEOUT", ErrorExplanation = "Request timed out." }) };
-                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errMsg));
+                PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { ReturnStatus = "Error", ErrorCode = "TIMEOUT", ErrorExplanation = "Request timed out." }) }));
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET ERROR] {ex.Message}");
-                var errMsg = new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { ReturnStatus = "Error", ErrorCode = "UNKNOWN", ErrorExplanation = ex.Message }) };
-                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errMsg));
+                PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { ReturnStatus = "Error", ErrorCode = "UNKNOWN", ErrorExplanation = ex.Message }) }));
             }
         }
 
@@ -2504,8 +2519,7 @@ navPanel.Controls.Add(wmsDevButton);
                 }
             });
 
-            // PostWebMessageAsJson must be called on the UI thread — we are back on it after await
-            wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+            PostWebViewMessage(wv, resultJson);
         }
 
         /// <summary>
@@ -2550,8 +2564,7 @@ navPanel.Controls.Add(wmsDevButton);
                 }
             });
 
-            // PostWebMessageAsJson must be called on the UI thread — we are back on it after await
-            wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+            PostWebViewMessage(wv, resultJson);
         }
 
         private async Task HandleRestApiDeleteRequest(WebView2 wv, string messageJson, string requestId)
