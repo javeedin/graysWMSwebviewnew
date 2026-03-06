@@ -8,6 +8,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -757,6 +758,90 @@
             flex-shrink: 0;
         }
 
+        /* ── Global Onhand modal ── */
+        .global-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 1200;
+            overflow-y: auto;
+            padding: 24px 12px;
+        }
+        .global-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+        .global-modal {
+            background: #fff;
+            border-radius: 14px;
+            width: 100%;
+            max-width: 1100px;
+            margin: auto;
+            box-shadow: 0 24px 64px rgba(0,0,0,0.32);
+            display: flex;
+            flex-direction: column;
+            min-height: 400px;
+        }
+        .global-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+            border-radius: 14px 14px 0 0;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .global-tabs {
+            display: flex;
+            gap: 4px;
+            border-bottom: 1px solid #e2e8f0;
+            padding: 0 20px;
+            background: #fff;
+        }
+        .global-tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: .875rem;
+            font-weight: 600;
+            color: #718096;
+            border: none;
+            background: none;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -1px;
+        }
+        .global-tab.active { color: #3b82f6; border-bottom-color: #3b82f6; }
+        .global-tab-body { display: none; padding: 20px; }
+        .global-tab-body.active { display: block; }
+        .global-progress-wrap { padding: 28px 20px; text-align: center; }
+        .global-progress-bar-bg {
+            height: 8px; background: #e2e8f0; border-radius: 4px; margin: 12px 0;
+        }
+        .global-progress-bar { height: 8px; background: #3b82f6; border-radius: 4px; transition: width .3s; width: 0%; }
+        .global-progress-txt { font-size: .82rem; color: #718096; margin-top: 4px; }
+        .global-stats-row {
+            display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px;
+        }
+        .global-stat {
+            background: #eff6ff; border: 1px solid #bfdbfe;
+            border-radius: 8px; padding: 8px 16px; text-align: center; min-width: 110px;
+        }
+        .global-stat-val { font-size: 1.2rem; font-weight: 700; color: #1d4ed8; }
+        .global-stat-lbl { font-size: .7rem; color: #718096; margin-top: 2px; }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .chart-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 16px;
+        }
+        .chart-card h4 { font-size: .85rem; color: #4a5568; margin-bottom: 12px; font-weight: 600; }
+        .chart-card canvas { max-height: 280px; }
+        @media(max-width:700px){ .charts-grid { grid-template-columns: 1fr; } }
+
         /* ── Lots popup modal ── */
         .lots-overlay {
             display: none;
@@ -1018,6 +1103,10 @@
                     <button class="btn-clear" id="onhand-api-toggle" onclick="toggleOnhandApiUrl()" title="Show API URL" style="padding:7px 10px;">
                         <i class="fa-solid fa-link"></i>
                     </button>
+                    <button class="btn-search" onclick="openGlobalOnhand()" title="All subinventories for selected org"
+                        style="background:linear-gradient(135deg,#7c3aed,#4f46e5);border-color:#4f46e5;margin-left:6px;">
+                        <i class="fa-solid fa-globe"></i> Global Onhand
+                    </button>
                 </div>
                 <div id="onhand-api-url-bar" style="display:none;background:#1a202c;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-family:monospace;font-size:.78rem;color:#81e6d9;word-break:break-all;">
                     <span style="color:#718096;margin-right:6px;"><i class="fa-solid fa-link"></i> API:</span>
@@ -1148,6 +1237,90 @@
 
         </div><!-- /content -->
     </div><!-- /app-body -->
+
+    <!-- Global Onhand modal -->
+    <div id="global-overlay" class="global-overlay" onclick="closeGlobalMod(event)">
+        <div class="global-modal" onclick="event.stopPropagation()">
+            <div class="global-modal-header">
+                <div>
+                    <strong style="font-size:1rem;"><i class="fa-solid fa-globe" style="color:#4f46e5;"></i> Global Onhand</strong>
+                    <span id="global-modal-subtitle" style="margin-left:8px;color:#718096;font-size:.85rem;"></span>
+                </div>
+                <button class="lots-modal-close" onclick="closeGlobalMod()">
+                    <i class="fa-solid fa-xmark"></i> Close
+                </button>
+            </div>
+
+            <!-- progress (shown while fetching) -->
+            <div id="global-progress" class="global-progress-wrap" style="display:none;">
+                <div style="font-size:.9rem;font-weight:600;color:#2d3748;" id="global-prog-title">Fetching onhand data…</div>
+                <div class="global-progress-bar-bg"><div class="global-progress-bar" id="global-prog-bar"></div></div>
+                <div class="global-progress-txt" id="global-prog-txt">Page 1 — 0 records so far…</div>
+            </div>
+
+            <!-- tabs (shown after fetch) -->
+            <div id="global-tabs-wrap" style="display:none;">
+                <div class="global-tabs">
+                    <button class="global-tab active" id="global-tab-grid"   onclick="switchGlobalTab('grid')">
+                        <i class="fa-solid fa-table"></i> Grid View
+                    </button>
+                    <button class="global-tab"        id="global-tab-charts" onclick="switchGlobalTab('charts')">
+                        <i class="fa-solid fa-chart-pie"></i> Charts
+                    </button>
+                </div>
+
+                <!-- Page 1 — Grid -->
+                <div id="global-body-grid" class="global-tab-body active">
+                    <div id="global-grid-stats" class="global-stats-row"></div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                        <input type="text" id="global-grid-search" placeholder="Filter items…"
+                            oninput="filterGlobalGrid(this.value)"
+                            style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;flex:1;max-width:260px;">
+                        <span id="global-grid-count" class="record-count" style="margin-left:auto;"></span>
+                    </div>
+                    <div style="overflow-x:auto;max-height:62vh;overflow-y:auto;">
+                        <table id="global-grid-table" class="grid-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Item Number</th>
+                                    <th>Description</th>
+                                    <th>Org</th>
+                                    <th>Subinventory</th>
+                                    <th>UOM</th>
+                                    <th>Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody id="global-grid-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Page 2 — Charts -->
+                <div id="global-body-charts" class="global-tab-body">
+                    <div id="global-charts-stats" class="global-stats-row"></div>
+                    <div class="charts-grid" id="global-charts-grid">
+                        <div class="chart-card">
+                            <h4><i class="fa-solid fa-warehouse" style="color:#7c3aed;"></i> Onhand by Subinventory</h4>
+                            <canvas id="chart-by-subinv"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h4><i class="fa-solid fa-box" style="color:#0891b2;"></i> Top 15 Items by Quantity</h4>
+                            <canvas id="chart-top-items"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h4><i class="fa-solid fa-circle-dot" style="color:#059669;"></i> Quantity Distribution (Subinventory %)</h4>
+                            <canvas id="chart-subinv-pie"></canvas>
+                        </div>
+                        <div class="chart-card">
+                            <h4><i class="fa-solid fa-layer-group" style="color:#dc2626;"></i> Item Count per Subinventory</h4>
+                            <canvas id="chart-item-count"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Lots popup modal -->
     <div id="lots-overlay" class="lots-overlay" onclick="closeLotsMod(event)">
@@ -1744,7 +1917,7 @@
             }
 
             var allItems = [];
-            var pageSize = 100;
+            var pageSize = 300;
             var offset   = 0;
             var pageNum  = 1;
 
@@ -2171,6 +2344,235 @@
             });
             document.getElementById('lot-count').textContent = '0 records';
             document.getElementById('lot-tbody').innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-tags"></i><p>Enter a lot number or item and click Search.</p></div></td></tr>';
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // GLOBAL ONHAND
+        // ════════════════════════════════════════════════════════════
+        var _globalAllItems  = [];   // all fetched rows
+        var _globalChartRefs = {};   // Chart.js instances (destroy before recreate)
+
+        function openGlobalOnhand() {
+            var orgCode = (document.getElementById('onhand-org').value || '').trim();
+            if (!orgCode) {
+                alert('Please select an Organization first.');
+                return;
+            }
+
+            // Reset UI
+            _globalAllItems = [];
+            document.getElementById('global-modal-subtitle').textContent = orgCode;
+            document.getElementById('global-progress').style.display = 'block';
+            document.getElementById('global-tabs-wrap').style.display  = 'none';
+            _setProgBar(0, 'Page 1 — 0 records so far…');
+            document.getElementById('global-overlay').classList.add('open');
+
+            // Destroy any previous chart instances
+            Object.keys(_globalChartRefs).forEach(function (k) {
+                if (_globalChartRefs[k]) { _globalChartRefs[k].destroy(); delete _globalChartRefs[k]; }
+            });
+
+            var pageSize = 300;
+            var offset   = 0;
+            var pageNum  = 1;
+
+            function fetchGlobalPage() {
+                // Org-level query — no SubinventoryCode filter
+                var url = FUSION_BASE + '/inventoryOnhandBalances?q=OrganizationCode=' +
+                          encodeURIComponent(orgCode) + '&limit=' + pageSize + '&offset=' + offset;
+
+                _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                    if (err) {
+                        _setProgBar(0, 'Error: ' + err);
+                        document.getElementById('global-prog-title').style.color = '#f56565';
+                        document.getElementById('global-prog-title').textContent = 'Fetch error';
+                        return;
+                    }
+                    var payload = data;
+                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+
+                    var page = (payload && payload.items) ? payload.items : [];
+                    _globalAllItems = _globalAllItems.concat(page);
+
+                    var pct = pageNum <= 10 ? Math.min(90, pageNum * 9) : 90;
+                    _setProgBar(pct, 'Page ' + pageNum + ' — ' + _globalAllItems.length + ' records so far…');
+
+                    if (payload && payload.hasMore && page.length) {
+                        offset  += pageSize;
+                        pageNum += 1;
+                        fetchGlobalPage();
+                    } else {
+                        _setProgBar(100, 'Done — ' + _globalAllItems.length + ' records loaded.');
+                        setTimeout(function () {
+                            document.getElementById('global-progress').style.display  = 'none';
+                            document.getElementById('global-tabs-wrap').style.display = 'block';
+                            switchGlobalTab('grid');
+                            renderGlobalGrid(_globalAllItems);
+                            // Charts are rendered on first tab switch to avoid hidden-canvas issues
+                        }, 300);
+                    }
+                });
+            }
+
+            fetchGlobalPage();
+        }
+
+        function _setProgBar(pct, txt) {
+            document.getElementById('global-prog-bar').style.width = pct + '%';
+            document.getElementById('global-prog-txt').textContent = txt;
+        }
+
+        function closeGlobalMod(event) {
+            if (event && event.target !== document.getElementById('global-overlay')) return;
+            document.getElementById('global-overlay').classList.remove('open');
+        }
+
+        function switchGlobalTab(tab) {
+            document.getElementById('global-tab-grid').classList.toggle('active',   tab === 'grid');
+            document.getElementById('global-tab-charts').classList.toggle('active', tab === 'charts');
+            document.getElementById('global-body-grid').classList.toggle('active',   tab === 'grid');
+            document.getElementById('global-body-charts').classList.toggle('active', tab === 'charts');
+            if (tab === 'charts' && _globalAllItems.length && !_globalChartRefs._built) {
+                renderGlobalCharts(_globalAllItems);
+                _globalChartRefs._built = true;
+            }
+        }
+
+        // ── Grid tab ─────────────────────────────────────────────
+        var _globalFilteredItems = [];
+
+        function renderGlobalGrid(rows) {
+            _globalFilteredItems = rows;
+            document.getElementById('global-grid-search').value = '';
+            _renderGlobalRows(rows);
+            _renderGlobalStats(rows, 'global-grid-stats');
+        }
+
+        function _renderGlobalRows(rows) {
+            document.getElementById('global-grid-count').textContent =
+                rows.length + ' record' + (rows.length !== 1 ? 's' : '');
+            var tbody = document.getElementById('global-grid-tbody');
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="7"><div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No records found.</p></div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(function (r, idx) {
+                var qty = parseFloat(r.PrimaryQuantity || 0);
+                return '<tr data-search="' + ((r.ItemNumber||'') + ' ' + (r.ItemDescription||'') + ' ' + (r.SubinventoryCode||'')).toLowerCase() + '">' +
+                    '<td style="color:#a0aec0;">' + (idx+1) + '</td>' +
+                    '<td><strong>' + (r.ItemNumber || '') + '</strong></td>' +
+                    '<td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.ItemDescription||'') + '">' + (r.ItemDescription || '') + '</td>' +
+                    '<td>' + (r.OrganizationCode || '') + '</td>' +
+                    '<td>' + (r.SubinventoryCode || '') + '</td>' +
+                    '<td>' + (r.PrimaryUOMCode || '') + '</td>' +
+                    '<td class="qty-badge">' + qty.toLocaleString() + '</td>' +
+                    '</tr>';
+            }).join('');
+        }
+
+        function filterGlobalGrid(val) {
+            var q = (val || '').toLowerCase();
+            var filtered = q
+                ? _globalAllItems.filter(function (r) {
+                    return ((r.ItemNumber||'') + ' ' + (r.ItemDescription||'') + ' ' + (r.SubinventoryCode||'')).toLowerCase().indexOf(q) !== -1;
+                  })
+                : _globalAllItems;
+            _renderGlobalRows(filtered);
+        }
+
+        function _renderGlobalStats(rows, containerId) {
+            var el = document.getElementById(containerId);
+            if (!el) return;
+            var totalQty = 0, items = {}, subinvs = {};
+            rows.forEach(function (r) {
+                totalQty += parseFloat(r.PrimaryQuantity || 0);
+                if (r.ItemNumber)      items[r.ItemNumber]       = true;
+                if (r.SubinventoryCode) subinvs[r.SubinventoryCode] = true;
+            });
+            function s(val, lbl) {
+                return '<div class="global-stat"><div class="global-stat-val">' + val +
+                       '</div><div class="global-stat-lbl">' + lbl + '</div></div>';
+            }
+            el.innerHTML =
+                s(rows.length, 'Total Lines') +
+                s(Object.keys(items).length, 'Unique Items') +
+                s(totalQty.toLocaleString(), 'Total Onhand') +
+                s(Object.keys(subinvs).length, 'Subinventories');
+        }
+
+        // ── Charts tab ───────────────────────────────────────────
+        function renderGlobalCharts(rows) {
+            _renderGlobalStats(rows, 'global-charts-stats');
+
+            // Aggregate by subinventory
+            var bySubinv = {};
+            var itemQty  = {};
+            var subinvItemCount = {};
+
+            rows.forEach(function (r) {
+                var sub = r.SubinventoryCode || 'Unknown';
+                var qty = parseFloat(r.PrimaryQuantity || 0);
+                bySubinv[sub] = (bySubinv[sub] || 0) + qty;
+                if (r.ItemNumber) {
+                    itemQty[r.ItemNumber] = (itemQty[r.ItemNumber] || 0) + qty;
+                    if (!subinvItemCount[sub]) subinvItemCount[sub] = {};
+                    subinvItemCount[sub][r.ItemNumber] = true;
+                }
+            });
+
+            var subinvLabels = Object.keys(bySubinv).sort(function (a, b) { return bySubinv[b] - bySubinv[a]; });
+            var subinvQtys   = subinvLabels.map(function (k) { return bySubinv[k]; });
+            var subinvCounts = subinvLabels.map(function (k) { return Object.keys(subinvItemCount[k] || {}).length; });
+
+            var itemEntries = Object.keys(itemQty).map(function (k) { return { item: k, qty: itemQty[k] }; });
+            itemEntries.sort(function (a, b) { return b.qty - a.qty; });
+            var top15 = itemEntries.slice(0, 15);
+
+            var palette = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899',
+                           '#06b6d4','#84cc16','#f97316','#6366f1','#14b8a6','#e11d48',
+                           '#0ea5e9','#a3e635','#fb923c'];
+
+            // Chart 1 — bar: Onhand qty by subinventory
+            _makeChart('chart-by-subinv', 'bar', subinvLabels, [{
+                label: 'Onhand Qty',
+                data: subinvQtys,
+                backgroundColor: palette.slice(0, subinvLabels.length)
+            }], { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
+
+            // Chart 2 — horizontal bar: top 15 items
+            _makeChart('chart-top-items', 'bar', top15.map(function(e){return e.item;}), [{
+                label: 'Total Qty',
+                data: top15.map(function(e){return e.qty;}),
+                backgroundColor: '#3b82f6'
+            }], { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
+
+            // Chart 3 — doughnut: qty share by subinventory
+            _makeChart('chart-subinv-pie', 'doughnut', subinvLabels, [{
+                data: subinvQtys,
+                backgroundColor: palette
+            }], { plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } } });
+
+            // Chart 4 — bar: item count per subinventory
+            _makeChart('chart-item-count', 'bar', subinvLabels, [{
+                label: 'Item Count',
+                data: subinvCounts,
+                backgroundColor: '#8b5cf6'
+            }], { scales: { y: { beginAtZero: true } } });
+        }
+
+        function _makeChart(canvasId, type, labels, datasets, extraOpts) {
+            if (_globalChartRefs[canvasId]) { _globalChartRefs[canvasId].destroy(); }
+            var ctx = document.getElementById(canvasId);
+            if (!ctx) return;
+            var opts = Object.assign({
+                responsive: true,
+                plugins: { legend: { display: type !== 'bar' } }
+            }, extraOpts || {});
+            _globalChartRefs[canvasId] = new Chart(ctx, {
+                type: type,
+                data: { labels: labels, datasets: datasets },
+                options: opts
+            });
         }
     </script>
 
