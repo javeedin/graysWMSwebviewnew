@@ -2,7 +2,7 @@
 REM ============================================================
 REM  package-release.bat
 REM  Creates a single zip: fusionclientweb.zip
-REM  Extract to C:\fusion\ and it creates:
+REM  Extract INTO C:\fusion\fusionclientweb\ and it creates:
 REM    C:\fusion\fusionclientweb\graysWMSwebviewnew\
 REM       Home\         (Home dashboard)
 REM       wms\          (web frontend files)
@@ -15,7 +15,7 @@ setlocal enabledelayedexpansion
 
 set "SCRIPT_DIR=%~dp0"
 set "STAGE_DIR=%TEMP%\fusionclientweb-stage"
-set "APP_DIR=%STAGE_DIR%\fusionclientweb\graysWMSwebviewnew"
+set "APP_DIR=%STAGE_DIR%\graysWMSwebviewnew"
 set "ZIP_NAME=fusionclientweb.zip"
 set "OUTPUT=%SCRIPT_DIR%%ZIP_NAME%"
 
@@ -23,8 +23,9 @@ echo ============================================
 echo   Gray's WMS - Package Release
 echo ============================================
 echo.
-echo   Zip structure after extract to C:\fusion\:
-echo   C:\fusion\fusionclientweb\graysWMSwebviewnew\
+echo   Zip contains: graysWMSwebviewnew\ at root
+echo   Extract INTO: C:\fusion\fusionclientweb\
+echo   Result: C:\fusion\fusionclientweb\graysWMSwebviewnew\
 echo.
 
 REM --- Clean previous staging ---
@@ -108,7 +109,7 @@ if exist "%OUTPUT%" (
 REM --- Create zip using PowerShell ---
 echo.
 echo Creating %ZIP_NAME%...
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGE_DIR%\fusionclientweb' -DestinationPath '%OUTPUT%' -CompressionLevel Optimal"
+powershell -NoProfile -Command "Compress-Archive -Path '%STAGE_DIR%\graysWMSwebviewnew' -DestinationPath '%OUTPUT%' -CompressionLevel Optimal"
 if errorlevel 1 (
     echo ERROR: Failed to create zip file
     goto :error
@@ -122,9 +123,9 @@ echo ============================================
 echo.
 echo   Instructions for deployment:
 echo   1. Copy fusionclientweb.zip to target PC
-echo   2. Place zip in C:\fusion\
-echo   3. Extract here - creates:
-echo      C:\fusion\fusionclientweb\graysWMSwebviewnew\
+echo   2. Open C:\fusion\fusionclientweb\ (create it if needed)
+echo   3. Extract zip HERE - creates graysWMSwebviewnew\ inside
+echo      Result: C:\fusion\fusionclientweb\graysWMSwebviewnew\
 echo   4. Run: C:\fusion\fusionclientweb\graysWMSwebviewnew\dist\WMSApp.exe
 echo.
 
