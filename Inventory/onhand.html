@@ -1936,43 +1936,72 @@
             var remaining = items.length;
 
             items.forEach(function (item, i) {
-                // Build base URL — same query the main grid uses but scoped to this
-                // specific item+org+subinventory. inventoryOnhandBalances is lot-granular,
-                // so every returned row IS a lot line. Page through all of them.
                 var q = 'ItemNumber=' + encodeURIComponent(item.ItemNumber) +
                         ';OrganizationCode=' + encodeURIComponent(item.OrganizationCode) +
                         ';SubinventoryCode=' + encodeURIComponent(item.SubinventoryCode);
-                var pageSize  = 500;
-                var allLots   = [];
-                var offset    = 0;
+                var pageSize   = 500;
+                var offset     = 0;
+                var parentRows = [];
 
-                function fetchLotsPage() {
+                // ── Step 1: page through all parent onhand rows ──────────
+                function fetchParentPage() {
                     var url = FUSION_BASE + '/inventoryOnhandBalances?q=' + q +
                               '&limit=' + pageSize + '&offset=' + offset;
                     _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
-                        if (err) {
-                            results[i] = { item: item, lots: allLots, error: err };
-                            if (--remaining === 0) renderItemLots(results);
-                            return;
-                        }
+                        if (err) { finishItem([], err); return; }
                         var payload = data;
                         if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
-
                         var page = (payload && payload.items) ? payload.items : [];
-                        allLots = allLots.concat(page);
-
-                        var hasMore = payload && payload.hasMore;
-                        if (hasMore && page.length) {
+                        parentRows = parentRows.concat(page);
+                        if (payload && payload.hasMore && page.length) {
                             offset += pageSize;
-                            fetchLotsPage();
+                            fetchParentPage();
                         } else {
-                            results[i] = { item: item, lots: allLots, error: null };
-                            if (--remaining === 0) renderItemLots(results);
+                            enrichWithLots(parentRows);
                         }
                     });
                 }
 
-                fetchLotsPage();
+                // ── Step 2: follow each row's 'lots' child link ──────────
+                // The child resource contains LotNumber, ExpirationDate, LotStatus
+                function enrichWithLots(rows) {
+                    if (!rows.length) { finishItem(rows, null); return; }
+                    var enriched = new Array(rows.length);
+                    var pending  = rows.length;
+
+                    rows.forEach(function (row, ri) {
+                        var lotsHref = null;
+                        (row.links || []).forEach(function (lnk) {
+                            if (lnk.name === 'lots') lotsHref = lnk.href;
+                        });
+
+                        if (!lotsHref) {
+                            enriched[ri] = row;
+                            if (--pending === 0) finishItem(enriched, null);
+                            return;
+                        }
+
+                        _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: lotsHref }, function (lerr, ldata) {
+                            var lp = ldata;
+                            if (typeof lp === 'string') { try { lp = JSON.parse(lp); } catch(e){} }
+                            var lotRec = (!lerr && lp && lp.items && lp.items[0]) ? lp.items[0] : {};
+                            // Merge lot-specific fields onto the parent row
+                            enriched[ri] = Object.assign({}, row, {
+                                LotNumber:      lotRec.LotNumber      || row.LotNumber      || '',
+                                ExpirationDate: lotRec.ExpirationDate || lotRec.LotExpirationDate || row.ExpirationDate || '',
+                                LotStatus:      lotRec.LotStatus      || lotRec.MaterialStatus    || row.MaterialStatus  || ''
+                            });
+                            if (--pending === 0) finishItem(enriched, null);
+                        });
+                    });
+                }
+
+                function finishItem(lots, err) {
+                    results[i] = { item: item, lots: lots, error: err };
+                    if (--remaining === 0) renderItemLots(results);
+                }
+
+                fetchParentPage();
             });
         }
 
