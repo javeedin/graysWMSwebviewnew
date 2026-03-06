@@ -2470,7 +2470,7 @@ navPanel.Controls.Add(wmsDevButton);
         /// </summary>
         private async Task HandleGetInventoryCache(WebView2 wv, string messageJson, string requestId)
         {
-            await Task.Run(() =>
+            string resultJson = await Task.Run(() =>
             {
                 try
                 {
@@ -2485,31 +2485,27 @@ navPanel.Controls.Add(wmsDevButton);
 
                     System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] key={cacheKey} path={filePath}");
 
-                    string resultData;
                     if (System.IO.File.Exists(filePath))
                     {
                         string fileContent = System.IO.File.ReadAllText(filePath);
-                        // Wrap to tell JS it was found
-                        resultData = JsonSerializer.Serialize(new { found = true, cache = fileContent });
                         System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] Cache hit, size={fileContent.Length}");
+                        return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { found = true, cache = fileContent }) });
                     }
                     else
                     {
-                        resultData = JsonSerializer.Serialize(new { found = false, cache = (string)null });
                         System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] Cache miss");
+                        return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { found = false, cache = (string)null }) });
                     }
-
-                    var resultMsg = new { action = "restResponse", requestId = requestId, data = resultData };
-                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(resultMsg));
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[INV CACHE GET ERROR] {ex.Message}");
-                    var errData = JsonSerializer.Serialize(new { found = false, cache = (string)null, error = ex.Message });
-                    var errMsg = new { action = "restResponse", requestId = requestId, data = errData };
-                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errMsg));
+                    return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { found = false, cache = (string)null, error = ex.Message }) });
                 }
             });
+
+            // PostWebMessageAsJson must be called on the UI thread — we are back on it after await
+            wv.CoreWebView2.PostWebMessageAsJson(resultJson);
         }
 
         /// <summary>
@@ -2519,7 +2515,7 @@ navPanel.Controls.Add(wmsDevButton);
         /// </summary>
         private async Task HandleSaveInventoryCache(WebView2 wv, string messageJson, string requestId)
         {
-            await Task.Run(() =>
+            string resultJson = await Task.Run(() =>
             {
                 try
                 {
@@ -2536,7 +2532,6 @@ navPanel.Controls.Add(wmsDevButton);
 
                     string filePath = System.IO.Path.Combine(cacheDir, cacheKey.Replace("/", "_") + ".json");
 
-                    // Wrap data with metadata timestamp
                     string fileContent = JsonSerializer.Serialize(new
                     {
                         fetchedAt = DateTime.UtcNow.ToString("o"),
@@ -2546,16 +2541,17 @@ navPanel.Controls.Add(wmsDevButton);
                     System.IO.File.WriteAllText(filePath, fileContent);
                     System.Diagnostics.Debug.WriteLine($"[INV CACHE SAVE] Saved key={cacheKey} path={filePath} size={fileContent.Length}");
 
-                    var resultMsg = new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { success = true }) };
-                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(resultMsg));
+                    return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { success = true }) });
                 }
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine($"[INV CACHE SAVE ERROR] {ex.Message}");
-                    var errMsg = new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { success = false, error = ex.Message }) };
-                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errMsg));
+                    return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { success = false, error = ex.Message }) });
                 }
             });
+
+            // PostWebMessageAsJson must be called on the UI thread — we are back on it after await
+            wv.CoreWebView2.PostWebMessageAsJson(resultJson);
         }
 
         private async Task HandleRestApiDeleteRequest(WebView2 wv, string messageJson, string requestId)
