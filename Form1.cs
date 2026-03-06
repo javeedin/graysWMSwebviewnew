@@ -204,11 +204,11 @@ try
         }
 
         // Fixed installation path for web files
-        private const string INSTALL_PATH = @"C:\fusion\fusionclientweb";
+        private const string INSTALL_PATH = @"C:\fusion\fusionclientweb\graysWMSwebviewnew";
 
         /// <summary>
         /// Gets the base path for web files (wms, gl, sync, etc.)
-        /// Supports development mode and installed mode at C:\fusion\fusionclientweb
+        /// Supports development mode and installed mode at C:\fusion\fusionclientweb\graysWMSwebviewnew
         /// </summary>
         private string GetWebFilesBasePath()
         {
@@ -221,14 +221,22 @@ try
                 return devPath;
             }
 
-            // PRIORITY 2: Check if files are installed at fixed location
+            // PRIORITY 2: Check parent directory (when running from dist\ subfolder inside graysWMSwebviewnew)
+            string parentPath = Path.GetFullPath(Path.Combine(Application.StartupPath, ".."));
+            if (Directory.Exists(Path.Combine(parentPath, "wms")))
+            {
+                System.Diagnostics.Debug.WriteLine($"[Path] Using parent path (dist subfolder): {parentPath}");
+                return parentPath;
+            }
+
+            // PRIORITY 3: Check if files are installed at fixed location
             if (Directory.Exists(Path.Combine(INSTALL_PATH, "wms")))
             {
                 System.Diagnostics.Debug.WriteLine($"[Path] Using installed path: {INSTALL_PATH}");
                 return INSTALL_PATH;
             }
 
-            // Check if files are in AppContext.BaseDirectory (single-file extracted to temp)
+            // PRIORITY 4: Check if files are in AppContext.BaseDirectory (single-file extracted to temp)
             string basePath = AppContext.BaseDirectory;
             if (Directory.Exists(Path.Combine(basePath, "wms")))
             {
@@ -259,7 +267,7 @@ try
                 }
 
                 // Folders to copy
-                string[] folders = { "wms", "gl", "sync", "ar", "ap", "om", "fa", "ca", "pos" };
+                string[] folders = { "wms", "Home", "ap", "ar", "ca", "fa", "gl", "om", "pos", "sync" };
 
                 foreach (string folder in folders)
                 {
@@ -274,7 +282,7 @@ try
                 }
 
                 // Copy root files (index.html, app.js, etc.)
-                string[] rootFiles = { "index.html", "app.js", "config.js", "styles.css", "printer-management-new.js", "monitor-printing.js" };
+                string[] rootFiles = { "index.html", "login.html", "app.js", "config.js", "styles.css", "printer-management-new.js", "monitor-printing.js", "api-log.js" };
                 foreach (string file in rootFiles)
                 {
                     string sourceFile = Path.Combine(sourcePath, file);
