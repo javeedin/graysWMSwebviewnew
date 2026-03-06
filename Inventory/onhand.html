@@ -929,24 +929,20 @@
 
                 <div class="filter-bar">
                     <div class="filter-group">
-                        <label>Organization</label>
+                        <label>Organization <span style="color:#f56565;">*</span></label>
                         <select id="onhand-org">
                             <option value="">— Select —</option>
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label>Subinventory</label>
+                        <label>Subinventory <span style="color:#f56565;">*</span></label>
                         <select id="onhand-subinv">
-                            <option value="">— All —</option>
+                            <option value="">— Select —</option>
                         </select>
                     </div>
                     <div class="filter-group">
                         <label>Item Number</label>
                         <input type="text" id="onhand-item" placeholder="e.g. AS12345">
-                    </div>
-                    <div class="filter-group">
-                        <label>Item Description</label>
-                        <input type="text" id="onhand-desc" placeholder="Search description...">
                     </div>
                     <button class="btn-search" onclick="queryOnhand()">
                         <i class="fa-solid fa-magnifying-glass"></i> Search
@@ -954,6 +950,13 @@
                     <button class="btn-clear" onclick="clearOnhandSearch()">
                         <i class="fa-solid fa-xmark"></i> Clear
                     </button>
+                    <button class="btn-clear" id="onhand-api-toggle" onclick="toggleOnhandApiUrl()" title="Show API URL" style="padding:7px 10px;">
+                        <i class="fa-solid fa-link"></i>
+                    </button>
+                </div>
+                <div id="onhand-api-url-bar" style="display:none;background:#1a202c;border-radius:6px;padding:8px 12px;margin-bottom:12px;font-family:monospace;font-size:.78rem;color:#81e6d9;word-break:break-all;">
+                    <span style="color:#718096;margin-right:6px;"><i class="fa-solid fa-link"></i> API:</span>
+                    <span id="onhand-api-url-txt">—</span>
                 </div>
 
                 <div class="data-card">
@@ -1609,7 +1612,7 @@
         document.getElementById('onhand-org').addEventListener('change', function () {
             var orgId = this.value;
             var subinvSelect = document.getElementById('onhand-subinv');
-            subinvSelect.innerHTML = '<option value="">— All —</option>';
+            subinvSelect.innerHTML = '<option value="">— Select —</option>';
             if (!orgId) return;
             var cacheKey = 'subinventories_' + orgId;
             readCache(cacheKey, function (err, cached) {
@@ -1624,6 +1627,11 @@
             });
         });
 
+        function toggleOnhandApiUrl() {
+            var bar = document.getElementById('onhand-api-url-bar');
+            bar.style.display = (bar.style.display === 'none') ? 'block' : 'none';
+        }
+
         // ── Query Onhand ─────────────────────────────────────
         function queryOnhand() {
             var tbody    = document.getElementById('onhand-tbody');
@@ -1634,8 +1642,13 @@
             var subinv   = document.getElementById('onhand-subinv').value;
             var item     = document.getElementById('onhand-item').value.trim();
 
-            if (!orgCode && !item) {
-                tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-circle-info" style="color:#3b82f6;"></i><p>Please select an Organization or enter an Item Number.</p></div></td></tr>';
+            // Org + Subinventory are mandatory
+            if (!orgCode) {
+                tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-circle-info" style="color:#f59e0b;"></i><p>Please select an <strong>Organization</strong>.</p></div></td></tr>';
+                return;
+            }
+            if (!subinv) {
+                tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-circle-info" style="color:#f59e0b;"></i><p>Please select a <strong>Subinventory</strong>.</p></div></td></tr>';
                 return;
             }
 
@@ -1644,20 +1657,28 @@
             var offset   = 0;
             var pageNum  = 1;
 
-            // Build base query parts (OrganizationCode for inventoryOnhandBalances)
-            var queryParts = [];
-            if (orgCode) queryParts.push('OrganizationCode=' + encodeURIComponent(orgCode));
-            if (subinv)  queryParts.push('SubinventoryCode=' + encodeURIComponent(subinv));
-            if (item)    queryParts.push('ItemNumber=' + encodeURIComponent(item));
-            var qPrefix = queryParts.length ? '?q=' + queryParts.join(';') + '&' : '?';
+            // Build Oracle Fusion q-filter — raw semicolon-separated (not double-encoded)
+            // Format: ?q=OrganizationCode=GIC;SubinventoryCode=DUTY PAID
+            var qParts = [];
+            qParts.push('OrganizationCode=' + orgCode);
+            qParts.push('SubinventoryCode=' + subinv);
+            if (item) qParts.push('ItemNumber=' + item);
+            var qStr = qParts.join(';');
+
+            // Show API URL bar and update it for page 1
+            var apiUrlEl = document.getElementById('onhand-api-url-txt');
+            var apiUrlBar = document.getElementById('onhand-api-url-bar');
+            apiUrlBar.style.display = 'block';
 
             count.textContent = 'Fetching...';
             tbody.innerHTML = '<tr><td colspan="8"><div class="loading-state"><div class="spinner"></div>' +
                 '<span id="onhand-pg-txt">Fetching page 1...</span></div></td></tr>';
 
             function fetchPage() {
-                var url = FUSION_BASE + '/inventoryOnhandBalances' + qPrefix +
-                    'limit=' + pageSize + '&offset=' + offset;
+                var url = FUSION_BASE + '/inventoryOnhandBalances?q=' + qStr +
+                    '&limit=' + pageSize + '&offset=' + offset;
+
+                if (apiUrlEl) apiUrlEl.textContent = url;
 
                 var pgTxt = document.getElementById('onhand-pg-txt');
                 if (pgTxt) pgTxt.textContent = 'Page ' + pageNum + ' — ' + allItems.length + ' records so far...';
@@ -1726,11 +1747,16 @@
         }
 
         function clearOnhandSearch() {
-            ['onhand-org','onhand-subinv','onhand-item','onhand-desc'].forEach(function (id) {
+            ['onhand-org','onhand-item'].forEach(function (id) {
                 var el = document.getElementById(id);
                 if (el) el.value = '';
             });
+            // Reset subinventory back to placeholder
+            var subinvSel = document.getElementById('onhand-subinv');
+            if (subinvSel) { subinvSel.innerHTML = '<option value="">— Select —</option>'; }
             document.getElementById('onhand-count').textContent = '0 records';
+            document.getElementById('onhand-api-url-bar').style.display = 'none';
+            document.getElementById('onhand-api-url-txt').textContent = '—';
             document.getElementById('onhand-tbody').innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-magnifying-glass-chart"></i><p>Enter search criteria and click Search.</p></div></td></tr>';
         }
 
