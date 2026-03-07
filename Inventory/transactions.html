@@ -450,11 +450,12 @@
                                         <th>Action</th>
                                         <th>Qty</th>
                                         <th>UOM</th>
+                                        <th>Source Ref</th>
                                         <th>Reference</th>
                                     </tr>
                                 </thead>
                                 <tbody id="txn-tbody">
-                                    <tr><td colspan="15">
+                                    <tr><td colspan="16">
                                         <div class="empty-state">
                                             <i class="fa-solid fa-arrows-rotate"></i>
                                             <p>Set filters and click Search.</p>
@@ -945,7 +946,7 @@
                         bar.innerHTML = '<span style="color:#e53e3e;font-size:.82rem;"><i class="fa-solid fa-triangle-exclamation"></i> ' + err + '</span>';
                     } else {
                         document.getElementById('txn-tbody').innerHTML =
-                            '<tr><td colspan="15"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                            '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
                         document.getElementById('txn-count').textContent = 'Error';
                     }
                     return;
@@ -1055,7 +1056,7 @@
             if (on) {
                 document.getElementById('txn-next-bar').style.display = 'none';
                 document.getElementById('txn-tbody').innerHTML =
-                    '<tr><td colspan="15"><div class="loading-state"><div class="spinner"></div> Searching transactions…</div></td></tr>';
+                    '<tr><td colspan="16"><div class="loading-state"><div class="spinner"></div> Searching transactions…</div></td></tr>';
                 document.getElementById('txn-count').textContent = 'Loading…';
                 document.getElementById('txn-kpi').innerHTML = '';
             }
@@ -1080,6 +1081,7 @@
                 '<td style="font-size:.76rem;">' + (r.TransactionAction||'') + '</td>' +
                 '<td class="' + qtyClass + ' qty-badge">' + qty.toLocaleString() + '</td>' +
                 '<td>' + (r.PrimaryUOMCode||r.UOMName||'') + '</td>' +
+                '<td style="font-size:.78rem;color:#059669;">' + (r.SourceReference||'—') + '</td>' +
                 '<td style="font-size:.78rem;color:#718096;">' + (r.Reference||'—') + '</td>' +
                 '</tr>';
         }
@@ -1089,7 +1091,7 @@
             document.getElementById('txn-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
             var tbody = document.getElementById('txn-tbody');
             if (!rows.length) {
-                tbody.innerHTML = '<tr><td colspan="15"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No transactions found.</p></div></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No transactions found.</p></div></td></tr>';
             } else {
                 tbody.innerHTML = rows.map(_txnRow).join('');
             }
@@ -1098,7 +1100,7 @@
         function filterTxnGrid(val) {
             var q = (val||'').toLowerCase();
             var rows = q ? _txnAllRows.filter(function(r) {
-                return ((r.Item||'')+(r.ItemDescription||'')+(r.TransactionType||'')+(r.SubinventoryCode||'')+(r.Reference||'')+(r.TransactionAction||'')+(r.TransferOrganizationCode||'')+(r.TransferSubinventory||'')+(r.Shipment||'')).toLowerCase().indexOf(q) !== -1;
+                return ((r.Item||'')+(r.ItemDescription||'')+(r.TransactionType||'')+(r.SubinventoryCode||'')+(r.Reference||'')+(r.TransactionAction||'')+(r.TransferOrganizationCode||'')+(r.TransferSubinventory||'')+(r.Shipment||'')+(r.SourceReference||'')).toLowerCase().indexOf(q) !== -1;
             }) : _txnAllRows;
             _renderTxnRows(rows, false);
         }
@@ -1271,7 +1273,7 @@
             _txnChartsBuilt = false;
             document.getElementById('txn-next-bar').style.display = 'none';
             document.getElementById('txn-analytics-filter-bar').style.display = 'none';
-            document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="15"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>Set filters and click Search.</p></div></td></tr>';
+            document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>Set filters and click Search.</p></div></td></tr>';
             document.getElementById('txn-count').textContent = '0 records';
             document.getElementById('txn-kpi').innerHTML = '';
         }
