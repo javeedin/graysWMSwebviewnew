@@ -255,6 +255,130 @@
         .cache-badge { font-size: .72rem; padding: 3px 10px; border-radius: 10px; font-weight: 600; }
         .cache-hit  { background: #dcfce7; color: #166534; }
         .cache-miss { background: #fef9c3; color: #854d0e; }
+
+        /* ── Source Ref drill-down link ── */
+        .src-ref-link {
+            color: #059669; font-weight: 600; text-decoration: none; cursor: pointer;
+            border-bottom: 1px dashed #059669; transition: color .15s;
+            font-size: .78rem;
+        }
+        .src-ref-link:hover { color: #047857; border-bottom-color: #047857; }
+
+        /* ══════════════════════════════════════════════
+           Sales Order Details Modal
+        ══════════════════════════════════════════════ */
+        .so-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(15,23,42,.55);
+            z-index: 9000; align-items: center; justify-content: center;
+            backdrop-filter: blur(3px);
+        }
+        .so-overlay.open { display: flex; }
+
+        .so-modal {
+            background: #fff; border-radius: 16px; width: 92vw; max-width: 1100px;
+            max-height: 90vh; display: flex; flex-direction: column;
+            box-shadow: 0 24px 64px rgba(0,0,0,.22);
+            animation: soSlideIn .22s ease;
+        }
+        @keyframes soSlideIn {
+            from { opacity: 0; transform: translateY(-18px) scale(.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Modal header bar */
+        .so-modal-header {
+            background: linear-gradient(135deg, #0f766e 0%, #134e4a 100%);
+            color: white; padding: 16px 22px;
+            border-radius: 16px 16px 0 0;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .so-modal-title { display: flex; align-items: center; gap: 12px; }
+        .so-modal-icon {
+            width: 40px; height: 40px; background: rgba(255,255,255,.18);
+            border-radius: 10px; display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+        }
+        .so-modal-title h2 { font-size: 1.05rem; font-weight: 700; }
+        .so-modal-title p  { font-size: .78rem; opacity: .75; margin-top: 1px; }
+        .so-close-btn {
+            background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25);
+            color: white; width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+            font-size: .9rem; display: flex; align-items: center; justify-content: center;
+            transition: background .15s; flex-shrink: 0;
+        }
+        .so-close-btn:hover { background: rgba(255,255,255,.28); }
+
+        /* Modal body */
+        .so-modal-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+        /* Order header card */
+        .so-header-card {
+            background: #f0fdf9; border: 1px solid #99f6e4;
+            border-radius: 12px; padding: 16px 20px;
+        }
+        .so-header-card-title {
+            font-size: .7rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .6px; color: #0d9488; margin-bottom: 12px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .so-fields-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;
+        }
+        .so-field { display: flex; flex-direction: column; gap: 2px; }
+        .so-field-label {
+            font-size: .68rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .4px; color: #718096;
+        }
+        .so-field-value { font-size: .88rem; font-weight: 600; color: #1a202c; }
+        .so-field-value.muted { font-weight: 400; color: #4a5568; }
+
+        /* Status badges */
+        .so-status {
+            display: inline-block; padding: 2px 10px; border-radius: 12px;
+            font-size: .73rem; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
+        }
+        .so-status-open     { background: #dcfce7; color: #166534; }
+        .so-status-closed   { background: #f1f5f9; color: #475569; }
+        .so-status-canceled { background: #fee2e2; color: #991b1b; }
+        .so-status-processing { background: #dbeafe; color: #1d4ed8; }
+        .so-status-other    { background: #fef9c3; color: #854d0e; }
+
+        /* Lines section */
+        .so-lines-card {
+            background: white; border: 1px solid #e2e8f0;
+            border-radius: 12px; overflow: hidden; flex: 1;
+        }
+        .so-lines-header {
+            padding: 12px 18px; border-bottom: 1px solid #f0f4f8;
+            display: flex; align-items: center; justify-content: space-between;
+            background: #f8fafc;
+        }
+        .so-lines-header h3 { font-size: .88rem; font-weight: 700; color: #2d3748; display: flex; align-items: center; gap: 7px; }
+        .so-lines-count { font-size: .72rem; background: #e2e8f0; color: #4a5568; padding: 2px 9px; border-radius: 10px; font-weight: 600; }
+        .so-lines-wrap { overflow-x: auto; }
+        .so-lines-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+        .so-lines-table thead th {
+            background: #f8fafc; padding: 9px 12px; text-align: left;
+            font-size: .69rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .5px; color: #718096; border-bottom: 1px solid #e2e8f0;
+            white-space: nowrap;
+        }
+        .so-lines-table tbody tr { border-bottom: 1px solid #f7f8fa; transition: background .12s; }
+        .so-lines-table tbody tr:hover { background: rgba(13,148,136,.04); }
+        .so-lines-table tbody td { padding: 9px 12px; color: #4a5568; vertical-align: middle; }
+        .so-lines-table tbody td.price { text-align: right; font-weight: 600; color: #0d9488; }
+        .so-lines-table tbody td.qty   { text-align: right; font-weight: 700; color: #d97706; }
+
+        /* Loading / error states inside modal */
+        .so-loading {
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; padding: 48px; color: #718096; font-size: .9rem;
+        }
+        .so-error {
+            padding: 32px; text-align: center; color: #e53e3e; font-size: .88rem;
+        }
+        .so-error i { font-size: 2rem; margin-bottom: 10px; display: block; color: #feb2b2; }
     </style>
 </head>
 <body>
@@ -1062,10 +1186,22 @@
             }
         }
 
+        function _txnIsSalesOrder(txnType) {
+            return txnType && txnType.toLowerCase().indexOf('sales order') !== -1;
+        }
+
         function _txnRow(r, i) {
             var date = r.TransactionDate ? r.TransactionDate.slice(0,10) : '—';
             var qty  = parseFloat(r.Quantity || r.TransactionQuantity || 0);
             var qtyClass = qty < 0 ? 'qty-neg' : qty > 0 ? 'qty-pos' : '';
+            var srcRef = r.SourceReference || '—';
+            var srcRefHtml;
+            if (_txnIsSalesOrder(r.TransactionType) && srcRef !== '—') {
+                srcRefHtml = '<a class="src-ref-link" title="Open Sales Order ' + srcRef + '" ' +
+                    'onclick="openSalesOrderDetails(\'' + srcRef.replace(/'/g, "\\'") + '\')">' + srcRef + '</a>';
+            } else {
+                srcRefHtml = '<span style="font-size:.78rem;color:#059669;">' + srcRef + '</span>';
+            }
             return '<tr>' +
                 '<td style="color:#a0aec0;">' + (i+1) + '</td>' +
                 '<td style="font-size:.78rem;color:#a0aec0;">' + (r.TransactionId||'') + '</td>' +
@@ -1081,7 +1217,7 @@
                 '<td style="font-size:.76rem;">' + (r.TransactionAction||'') + '</td>' +
                 '<td class="' + qtyClass + ' qty-badge">' + qty.toLocaleString() + '</td>' +
                 '<td>' + (r.PrimaryUOMCode||r.UOMName||'') + '</td>' +
-                '<td style="font-size:.78rem;color:#059669;">' + (r.SourceReference||'—') + '</td>' +
+                '<td>' + srcRefHtml + '</td>' +
                 '<td style="font-size:.78rem;color:#718096;">' + (r.Reference||'—') + '</td>' +
                 '</tr>';
         }
@@ -1277,6 +1413,243 @@
             document.getElementById('txn-count').textContent = '0 records';
             document.getElementById('txn-kpi').innerHTML = '';
         }
+        // ════════════════════════════════════════════════════════════
+        // SALES ORDER DETAILS MODAL
+        // ════════════════════════════════════════════════════════════
+
+        function _soStatusClass(code) {
+            if (!code) return 'so-status-other';
+            var c = code.toUpperCase();
+            if (c === 'OPEN')       return 'so-status-open';
+            if (c === 'CLOSED')     return 'so-status-closed';
+            if (c === 'CANCELED')   return 'so-status-canceled';
+            if (c === 'PROCESSING') return 'so-status-processing';
+            return 'so-status-other';
+        }
+
+        function _soFmt(val, fallback) {
+            return (val !== null && val !== undefined && val !== '') ? val : (fallback || '—');
+        }
+
+        function _soFmtDate(val) {
+            if (!val) return '—';
+            return val.slice(0, 10);
+        }
+
+        function _soFmtCurrency(val, currency) {
+            if (val === null || val === undefined || val === '') return '—';
+            var n = parseFloat(val);
+            if (isNaN(n)) return val;
+            return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+                   (currency ? ' ' + currency : '');
+        }
+
+        function openSalesOrderDetails(sourceRef) {
+            if (!sourceRef || sourceRef === '—') return;
+
+            var overlay = document.getElementById('so-details-overlay');
+            var titleEl = document.getElementById('so-modal-order-num');
+            var bodyEl  = document.getElementById('so-modal-body');
+
+            titleEl.textContent = sourceRef;
+            bodyEl.innerHTML = '<div class="so-loading"><div class="spinner"></div>Loading Sales Order details…</div>';
+            overlay.classList.add('open');
+
+            var url = FUSION_BASE + '/salesOrdersForOrderHub?q=SourceTransactionNumber=' + encodeURIComponent(sourceRef);
+
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (err) {
+                    bodyEl.innerHTML = '<div class="so-error"><i class="fa-solid fa-circle-exclamation"></i>Failed to load Sales Order: ' + err + '</div>';
+                    return;
+                }
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var items = payload && payload.items ? payload.items : [];
+                if (!items.length) {
+                    bodyEl.innerHTML = '<div class="so-error"><i class="fa-solid fa-magnifying-glass"></i>No Sales Order found for: <strong>' + sourceRef + '</strong></div>';
+                    return;
+                }
+                var order = items[0];
+                _soRenderHeader(order, bodyEl);
+
+                // Find lines child href
+                var linesHref = null;
+                if (order.links) {
+                    order.links.forEach(function(l) {
+                        if (l.name === 'lines' && l.rel === 'child') linesHref = l.href;
+                    });
+                }
+                if (linesHref) {
+                    _soFetchLines(linesHref, bodyEl);
+                } else {
+                    var linesDiv = document.createElement('div');
+                    linesDiv.className = 'so-lines-card';
+                    linesDiv.innerHTML = '<div class="so-lines-header"><h3><i class="fa-solid fa-list-ul" style="color:#0d9488;"></i>Order Lines</h3></div>' +
+                        '<div class="so-loading"><div class="spinner"></div>Loading lines…</div>';
+                    bodyEl.appendChild(linesDiv);
+                    var linesUrl = FUSION_BASE + '/salesOrdersForOrderHub/' +
+                        encodeURIComponent(order.SourceTransactionSystem + ':' + sourceRef) + '/child/lines';
+                    _soFetchLinesUrl(linesUrl, linesDiv);
+                }
+            });
+        }
+
+        function _soRenderHeader(order, bodyEl) {
+            bodyEl.innerHTML = '';
+
+            var statusCode   = order.StatusCode || '';
+            var statusLabel  = order.Status || statusCode || '—';
+            var buName       = _soFmt(order.BusinessUnitName);
+            var orderNum     = _soFmt(order.OrderNumber);
+            var txnDate      = _soFmtDate(order.TransactionOn);
+            var customer     = _soFmt(order.BuyingPartyName);
+            var custNo       = _soFmt(order.BuyingPartyNumber);
+            var custPO       = _soFmt(order.CustomerPONumber);
+            var txnType      = _soFmt(order.TransactionTypeCode);
+            var currency     = _soFmt(order.TransactionalCurrencyName);
+            var submittedBy  = _soFmt(order.SubmittedBy);
+            var onHold       = order.OnHoldFlag ? '<span class="so-status so-status-canceled">On Hold</span>' : '';
+
+            var html =
+                '<div class="so-header-card">' +
+                    '<div class="so-header-card-title"><i class="fa-solid fa-file-invoice"></i> Order Header</div>' +
+                    '<div class="so-fields-grid">' +
+                        '<div class="so-field"><div class="so-field-label">Business Unit</div><div class="so-field-value">' + buName + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Order Number</div><div class="so-field-value" style="color:#0d9488;">' + orderNum + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Transaction Date</div><div class="so-field-value muted">' + txnDate + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Customer</div><div class="so-field-value">' + customer + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Customer No.</div><div class="so-field-value muted">' + custNo + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Customer PO</div><div class="so-field-value">' + custPO + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Order Type</div><div class="so-field-value muted">' + txnType + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Currency</div><div class="so-field-value muted">' + currency + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Status</div><div class="so-field-value">' +
+                            '<span class="so-status ' + _soStatusClass(statusCode) + '">' + statusLabel + '</span>' +
+                            (onHold ? ' ' + onHold : '') +
+                        '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Submitted By</div><div class="so-field-value muted">' + submittedBy + '</div></div>' +
+                    '</div>' +
+                '</div>';
+
+            bodyEl.insertAdjacentHTML('beforeend', html);
+        }
+
+        function _soFetchLines(linesHref, bodyEl) {
+            var linesDiv = document.createElement('div');
+            linesDiv.className = 'so-lines-card';
+            linesDiv.innerHTML =
+                '<div class="so-lines-header"><h3><i class="fa-solid fa-list-ul" style="color:#0d9488;"></i>Order Lines</h3></div>' +
+                '<div class="so-loading"><div class="spinner"></div>Loading lines…</div>';
+            bodyEl.appendChild(linesDiv);
+            _soFetchLinesUrl(linesHref, linesDiv);
+        }
+
+        function _soFetchLinesUrl(url, linesDiv) {
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (err) {
+                    linesDiv.querySelector('.so-loading').outerHTML =
+                        '<div class="so-error"><i class="fa-solid fa-circle-exclamation"></i>Failed to load lines: ' + err + '</div>';
+                    return;
+                }
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var lines = payload && payload.items ? payload.items : [];
+                _soRenderLines(lines, linesDiv);
+            });
+        }
+
+        function _soRenderLines(lines, linesDiv) {
+            var countHtml = '<span class="so-lines-count">' + lines.length + ' line' + (lines.length !== 1 ? 's' : '') + '</span>';
+
+            var tableHtml =
+                '<div class="so-lines-header">' +
+                    '<h3><i class="fa-solid fa-list-ul" style="color:#0d9488;"></i>Order Lines</h3>' +
+                    countHtml +
+                '</div>' +
+                '<div class="so-lines-wrap">' +
+                    '<table class="so-lines-table">' +
+                        '<thead><tr>' +
+                            '<th>#</th>' +
+                            '<th>Product Number</th>' +
+                            '<th>Description</th>' +
+                            '<th>Org</th>' +
+                            '<th>Ordered Qty</th>' +
+                            '<th>UOM</th>' +
+                            '<th>Unit List Price</th>' +
+                            '<th>Unit Selling Price</th>' +
+                            '<th>Status</th>' +
+                        '</tr></thead>' +
+                        '<tbody>';
+
+            if (!lines.length) {
+                tableHtml += '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No lines found.</p></div></td></tr>';
+            } else {
+                lines.forEach(function(l) {
+                    var sno       = _soFmt(l.SourceTransactionLineId);
+                    var prodNum   = _soFmt(l.ProductNumber);
+                    var prodDesc  = _soFmt(l.ProductDescription);
+                    var org       = _soFmt(l.InventoryOrganizationCode);
+                    var qty       = (l.OrderedQuantity !== null && l.OrderedQuantity !== undefined) ? parseFloat(l.OrderedQuantity).toLocaleString() : '—';
+                    var uom       = _soFmt(l.OrderedUOMCode || l.UOMCode);
+                    var listPrice = _soFmtCurrency(l.UnitListPrice);
+                    var sellPrice = _soFmtCurrency(l.UnitSellingPrice);
+                    var statusCode= l.StatusCode || '';
+                    var statusLbl = l.Status || statusCode || '—';
+                    tableHtml +=
+                        '<tr>' +
+                        '<td style="color:#a0aec0;font-size:.78rem;">' + sno + '</td>' +
+                        '<td><strong style="color:#0d9488;">' + prodNum + '</strong></td>' +
+                        '<td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + prodDesc + '">' + prodDesc + '</td>' +
+                        '<td><span style="font-size:.76rem;background:#f0fdf9;color:#0d9488;padding:2px 7px;border-radius:8px;font-weight:600;">' + org + '</span></td>' +
+                        '<td class="qty">' + qty + '</td>' +
+                        '<td style="font-size:.78rem;color:#718096;">' + uom + '</td>' +
+                        '<td class="price">' + listPrice + '</td>' +
+                        '<td class="price" style="color:#d97706;">' + sellPrice + '</td>' +
+                        '<td><span class="so-status ' + _soStatusClass(statusCode) + '">' + statusLbl + '</span></td>' +
+                        '</tr>';
+                });
+            }
+
+            tableHtml += '</tbody></table></div>';
+            linesDiv.innerHTML = tableHtml;
+        }
+
+        function closeSoModal() {
+            document.getElementById('so-details-overlay').classList.remove('open');
+        }
+
+        // Close on overlay click
+        document.getElementById('so-details-overlay').addEventListener('click', function(e) {
+            if (e.target === this) closeSoModal();
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeSoModal();
+        });
+
     </script>
+
+    <!-- ══════════════════════════════════════════════
+         Sales Order Details Modal
+    ══════════════════════════════════════════════ -->
+    <div id="so-details-overlay" class="so-overlay">
+        <div class="so-modal">
+            <div class="so-modal-header">
+                <div class="so-modal-title">
+                    <div class="so-modal-icon"><i class="fa-solid fa-cart-shopping"></i></div>
+                    <div>
+                        <h2>Sales Order Details</h2>
+                        <p>Source Reference: <span id="so-modal-order-num">—</span></p>
+                    </div>
+                </div>
+                <button class="so-close-btn" onclick="closeSoModal()" title="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="so-modal-body" id="so-modal-body">
+                <div class="so-loading"><div class="spinner"></div>Loading…</div>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
