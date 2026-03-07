@@ -463,8 +463,8 @@
                                 </tbody>
                             </table>
                         </div>
-                        <!-- Load Next bar -->
-                        <div id="txn-next-bar" style="display:none;padding:12px 18px;border-top:1px solid #f0f4f8;align-items:center;justify-content:center;gap:12px;background:#fafbff;flex-shrink:0;">
+                        <!-- Load Next floating FAB -->
+                        <div id="txn-next-bar" style="display:none;position:fixed;bottom:28px;right:28px;z-index:9999;flex-direction:column;align-items:flex-end;gap:6px;">
                         </div>
                     </div>
 
@@ -978,9 +978,14 @@
             if (hasMore) {
                 bar.style.display = 'flex';
                 bar.innerHTML =
-                    '<button onclick="_txnLoadNext()" style="padding:7px 18px;background:#4f46e5;color:white;border:none;border-radius:8px;cursor:pointer;font-size:.84rem;font-weight:600;font-family:inherit;display:flex;align-items:center;gap:8px;">' +
-                    '<i class="fa-solid fa-angles-down"></i> Load Next ' + _txnPageSize + ' Records</button>' +
-                    '<span style="font-size:.8rem;color:#718096;">' + _txnAllRows.length + ' loaded so far — more available</span>';
+                    '<span style="background:rgba(79,70,229,.12);color:#4f46e5;font-size:.72rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;">' +
+                        _txnAllRows.length + ' loaded — more available' +
+                    '</span>' +
+                    '<button onclick="_txnLoadNext()" title="Load next ' + _txnPageSize + ' records" ' +
+                        'style="width:52px;height:52px;border-radius:50%;background:#4f46e5;color:white;border:none;cursor:pointer;font-size:1.25rem;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(79,70,229,.45);transition:transform .15s;"' +
+                        ' onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' +
+                        '<i class="fa-solid fa-angles-down"></i>' +
+                    '</button>';
             } else {
                 bar.style.display = 'none';
             }
@@ -1025,7 +1030,9 @@
             _txnCancelled = false;
             _txnPageNum++;
             var bar = document.getElementById('txn-next-bar');
-            bar.innerHTML = '<div class="loading-state" style="padding:8px 0;"><div class="spinner"></div> Loading page ' + _txnPageNum + '…</div>';
+            bar.innerHTML =
+                '<span style="background:rgba(79,70,229,.12);color:#4f46e5;font-size:.72rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;">Loading…</span>' +
+                '<div style="width:52px;height:52px;border-radius:50%;background:#4f46e5;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(79,70,229,.45);"><div class="spinner" style="width:22px;height:22px;border-color:rgba(255,255,255,.3);border-top-color:white;"></div></div>';
             _setTxnLoading(true);
             _txnDoFetch();
         }
@@ -1035,7 +1042,7 @@
             _setTxnLoading(false);
             var bar = document.getElementById('txn-next-bar');
             bar.style.display = 'flex';
-            bar.innerHTML = '<span style="font-size:.82rem;color:#718096;"><i class="fa-solid fa-circle-stop" style="color:#dc2626;"></i> Cancelled — showing ' + _txnAllRows.length + ' records loaded so far</span>';
+            bar.innerHTML = '<span style="background:#fee2e2;color:#dc2626;font-size:.72rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;"><i class="fa-solid fa-circle-stop"></i> Cancelled — ' + _txnAllRows.length + ' loaded</span>';
             if (_txnAllRows.length) _txnFinalizePage(false);
         }
 
