@@ -244,6 +244,13 @@
         .placeholder-panel i { font-size: 3rem; }
         .placeholder-panel h3 { font-size: 1.1rem; color: #718096; }
         .placeholder-panel p { font-size: .85rem; }
+        .placeholder-panel .cs-home-btn {
+            margin-top: 8px; display: inline-flex; align-items: center; gap: 8px;
+            padding: 9px 20px; background: #f59e0b; color: white;
+            border-radius: 8px; font-size: .85rem; font-weight: 600;
+            text-decoration: none; transition: background .15s;
+        }
+        .placeholder-panel .cs-home-btn:hover { background: #d97706; }
 
         /* ── KPI stats strip ── */
         .kpi-strip { display: flex; gap: 10px; flex-wrap: wrap; flex-shrink: 0; padding: 0 18px 14px; }
@@ -677,6 +684,9 @@
                         <i class="fa-solid fa-chart-line"></i>
                         <h3>Coming Soon</h3>
                         <p>Stock Movement Report will be available in the next release.</p>
+                        <a class="cs-home-btn" href="index.html">
+                            <i class="fa-solid fa-arrow-left"></i> Back to Inventory Home
+                        </a>
                     </div>
                 </div>
             </div>
@@ -752,6 +762,9 @@
                         <i class="fa-solid fa-bookmark"></i>
                         <h3>Coming Soon</h3>
                         <p>Inventory Reservations will be available in the next release.</p>
+                        <a class="cs-home-btn" href="index.html">
+                            <i class="fa-solid fa-arrow-left"></i> Back to Inventory Home
+                        </a>
                     </div>
                 </div>
             </div>
@@ -1419,6 +1432,11 @@
             document.getElementById('txn-count').textContent = '0 records';
             document.getElementById('txn-kpi').innerHTML = '';
         }
+        // ── Auto-load transaction types in background on page load ──
+        document.addEventListener('DOMContentLoaded', function() {
+            autoLoadTxnTypes();
+        });
+
         // ════════════════════════════════════════════════════════════
         // SALES ORDER DETAILS MODAL
         // ════════════════════════════════════════════════════════════
