@@ -835,13 +835,36 @@
         .global-filter-header .global-stats-row { margin-bottom: 0; flex: 1; }
         .global-item-combo { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
         .global-item-combo label { font-size: .8rem; font-weight: 600; color: #4a5568; }
-        .global-item-combo select {
-            padding: 5px 28px 5px 10px; border: 1px solid #c7d2fe; border-radius: 6px;
-            font-size: .82rem; background: #fff; color: #2d3748;
-            min-width: 170px; max-width: 300px; cursor: pointer;
-            appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%234f46e5' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
-            background-repeat: no-repeat; background-position: right 8px center;
+        .global-item-ac-wrap { position: relative; display: flex; align-items: center; }
+        .global-item-ac-icon { position: absolute; left: 9px; color: #a0aec0; font-size: .78rem; pointer-events: none; }
+        .global-item-ac-input {
+            padding: 6px 28px 6px 28px; border: 1px solid #c7d2fe; border-radius: 6px;
+            font-size: .82rem; background: #fff; color: #2d3748; width: 260px; outline: none;
         }
+        .global-item-ac-input:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,.15); }
+        .global-item-ac-clear {
+            position: absolute; right: 7px; background: none; border: none; cursor: pointer;
+            color: #a0aec0; font-size: .75rem; padding: 2px; line-height: 1;
+        }
+        .global-item-ac-clear:hover { color: #e53e3e; }
+        .global-item-ac-drop {
+            position: absolute; top: calc(100% + 4px); left: 0; min-width: 100%; max-width: 380px;
+            background: #fff; border: 1px solid #c7d2fe; border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,.13); z-index: 9999;
+            max-height: 280px; overflow-y: auto; display: none;
+        }
+        .global-ac-all {
+            padding: 8px 12px; font-size: .8rem; color: #7c3aed; cursor: pointer;
+            font-weight: 600; border-bottom: 1px solid #ede9fe;
+        }
+        .global-ac-all:hover, .global-ac-all.ac-active { background: #f5f3ff; }
+        .global-ac-row {
+            padding: 7px 12px; cursor: pointer; border-bottom: 1px solid #f0f4ff;
+        }
+        .global-ac-row:last-child { border-bottom: none; }
+        .global-ac-row:hover, .global-ac-row.ac-active { background: #ede9fe; }
+        .global-ac-num  { font-size: .8rem; font-weight: 700; color: #4f46e5; }
+        .global-ac-desc { font-size: .73rem; color: #718096; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 340px; }
         .charts-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -1281,9 +1304,20 @@
                     <div class="global-stats-row" id="global-kpi-strip"></div>
                     <div class="global-item-combo">
                         <label><i class="fa-solid fa-filter" style="color:#7c3aed;"></i> Item:</label>
-                        <select id="global-item-select" onchange="globalFilterByItem(this.value)">
-                            <option value="">All Items</option>
-                        </select>
+                        <div class="global-item-ac-wrap">
+                            <i class="fa-solid fa-magnifying-glass global-item-ac-icon"></i>
+                            <input id="global-item-ac" type="text" class="global-item-ac-input"
+                                placeholder="Search item or description…"
+                                oninput="_globalAcShow(this.value)"
+                                onkeydown="_globalAcKey(event)"
+                                onfocus="_globalAcShow(this.value)"
+                                autocomplete="off">
+                            <button id="global-item-ac-clear" class="global-item-ac-clear"
+                                onclick="_globalAcClear()" style="display:none;" title="Clear filter">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                            <div id="global-item-ac-drop" class="global-item-ac-drop"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -2408,6 +2442,11 @@
             document.getElementById('global-prog-title').textContent  = 'Fetching onhand data…';
             _setProgBar(0, 'Starting…');
             document.getElementById('global-overlay').classList.add('open');
+            // reset autocomplete
+            var _acInp = document.getElementById('global-item-ac');
+            if (_acInp) _acInp.value = '';
+            var _acClr = document.getElementById('global-item-ac-clear');
+            if (_acClr) _acClr.style.display = 'none';
 
             // Destroy any previous chart instances
             Object.keys(_globalChartRefs).forEach(function (k) {
@@ -2496,22 +2535,31 @@
 
         // ── Grid tab ─────────────────────────────────────────────
         var _globalFilteredItems = [];
-        var _globalActiveItems   = [];   // rows after item-combo filter
+        var _globalActiveItems   = [];   // rows after item autocomplete filter
+        var _globalItemList      = [];   // [{itemNumber, description}] unique, sorted
+        var _globalAcCursor      = -1;  // keyboard highlight index in dropdown
 
         function renderGlobalGrid(rows) {
             _globalActiveItems   = rows;
             _globalFilteredItems = rows;
             document.getElementById('global-grid-search').value = '';
 
-            // Populate item combo
-            var seen = {}, items = [];
+            // Build unique item list for autocomplete
+            var seen = {};
+            _globalItemList = [];
             rows.forEach(function (r) {
-                if (r.ItemNumber && !seen[r.ItemNumber]) { seen[r.ItemNumber] = true; items.push(r.ItemNumber); }
+                if (r.ItemNumber && !seen[r.ItemNumber]) {
+                    seen[r.ItemNumber] = true;
+                    _globalItemList.push({ itemNumber: r.ItemNumber, description: r.ItemDescription || '' });
+                }
             });
-            items.sort();
-            var sel = document.getElementById('global-item-select');
-            sel.innerHTML = '<option value="">All Items (' + items.length + ')</option>' +
-                items.map(function (i) { return '<option value="' + i + '">' + i + '</option>'; }).join('');
+            _globalItemList.sort(function (a, b) { return a.itemNumber.localeCompare(b.itemNumber); });
+
+            // Reset autocomplete input
+            var inp = document.getElementById('global-item-ac');
+            if (inp) { inp.value = ''; inp.placeholder = 'Search item or description… (' + _globalItemList.length + ')'; }
+            document.getElementById('global-item-ac-clear').style.display = 'none';
+            document.getElementById('global-item-ac-drop').style.display  = 'none';
 
             _renderGlobalRows(rows);
             _renderGlobalStats(rows, 'global-kpi-strip');
@@ -2522,7 +2570,6 @@
                 ? _globalAllItems.filter(function (r) { return r.ItemNumber === itemNum; })
                 : _globalAllItems;
             _globalActiveItems = filtered;
-            // also respect any existing text search
             var txt = (document.getElementById('global-grid-search').value || '').toLowerCase();
             var displayed = txt
                 ? filtered.filter(function (r) {
@@ -2541,9 +2588,104 @@
                 renderGlobalCharts(filtered);
                 _globalChartRefs._built = true;
             } else {
-                _globalChartRefs._built = false;   // force rebuild on next tab switch
+                _globalChartRefs._built = false;
             }
         }
+
+        // ── Item autocomplete handlers ─────────────────────────
+        function _globalAcShow(val) {
+            var q   = (val || '').toLowerCase().trim();
+            var drop = document.getElementById('global-item-ac-drop');
+            var clearBtn = document.getElementById('global-item-ac-clear');
+            clearBtn.style.display = val ? 'block' : 'none';
+            _globalAcCursor = -1;
+
+            var matches = q
+                ? _globalItemList.filter(function (it) {
+                    return it.itemNumber.toLowerCase().indexOf(q) !== -1 ||
+                           it.description.toLowerCase().indexOf(q) !== -1;
+                  })
+                : _globalItemList;
+
+            var html = '<div class="global-ac-all" onclick="_globalAcSelect(\'\')">All Items (' + _globalItemList.length + ')</div>';
+            html += matches.map(function (it) {
+                var hl = function(str) {
+                    if (!q) return str;
+                    var idx = str.toLowerCase().indexOf(q);
+                    if (idx === -1) return str;
+                    return str.slice(0, idx) + '<mark style="background:#ddd6fe;border-radius:2px;padding:0 1px;">' +
+                           str.slice(idx, idx + q.length) + '</mark>' + str.slice(idx + q.length);
+                };
+                return '<div class="global-ac-row" onclick="_globalAcSelect(\'' + it.itemNumber.replace(/'/g, "\\'") + '\')">' +
+                    '<div class="global-ac-num">'  + hl(it.itemNumber)   + '</div>' +
+                    '<div class="global-ac-desc">' + hl(it.description)  + '</div>' +
+                    '</div>';
+            }).join('');
+
+            if (!matches.length && q) {
+                html += '<div style="padding:10px 12px;font-size:.8rem;color:#a0aec0;text-align:center;">No items match</div>';
+            }
+
+            drop.innerHTML = html;
+            drop.style.display = 'block';
+        }
+
+        function _globalAcSelect(itemNumber) {
+            var inp = document.getElementById('global-item-ac');
+            if (itemNumber) {
+                var it = _globalItemList.find(function (x) { return x.itemNumber === itemNumber; });
+                inp.value = itemNumber + (it && it.description ? ' — ' + it.description : '');
+                document.getElementById('global-item-ac-clear').style.display = 'block';
+            } else {
+                inp.value = '';
+                document.getElementById('global-item-ac-clear').style.display = 'none';
+            }
+            document.getElementById('global-item-ac-drop').style.display = 'none';
+            _globalAcCursor = -1;
+            globalFilterByItem(itemNumber);
+        }
+
+        function _globalAcClear() {
+            document.getElementById('global-item-ac').value = '';
+            document.getElementById('global-item-ac-clear').style.display = 'none';
+            document.getElementById('global-item-ac-drop').style.display  = 'none';
+            globalFilterByItem('');
+        }
+
+        function _globalAcKey(e) {
+            var drop = document.getElementById('global-item-ac-drop');
+            if (drop.style.display === 'none') {
+                if (e.key === 'ArrowDown' || e.key === 'Enter') _globalAcShow(document.getElementById('global-item-ac').value);
+                return;
+            }
+            var rows = drop.querySelectorAll('.global-ac-row, .global-ac-all');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                _globalAcCursor = Math.min(_globalAcCursor + 1, rows.length - 1);
+                rows.forEach(function (r, i) { r.classList.toggle('ac-active', i === _globalAcCursor); });
+                if (rows[_globalAcCursor]) rows[_globalAcCursor].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                _globalAcCursor = Math.max(_globalAcCursor - 1, 0);
+                rows.forEach(function (r, i) { r.classList.toggle('ac-active', i === _globalAcCursor); });
+                if (rows[_globalAcCursor]) rows[_globalAcCursor].scrollIntoView({ block: 'nearest' });
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (_globalAcCursor >= 0 && rows[_globalAcCursor]) rows[_globalAcCursor].click();
+            } else if (e.key === 'Escape') {
+                drop.style.display = 'none';
+                _globalAcCursor = -1;
+            }
+        }
+
+        // Close dropdown on outside click
+        document.addEventListener('click', function (e) {
+            var wrap = document.querySelector('.global-item-ac-wrap');
+            if (wrap && !wrap.contains(e.target)) {
+                var drop = document.getElementById('global-item-ac-drop');
+                if (drop) drop.style.display = 'none';
+            }
+        });
 
         function _renderGlobalRows(rows) {
             document.getElementById('global-grid-count').textContent =
