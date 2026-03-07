@@ -2964,36 +2964,55 @@
             if (item) q += ';ItemNumber='  + encodeURIComponent(item);
             if (lot)  q += ';LotNumber='   + encodeURIComponent(lot);
 
-            var url = FUSION_BASE + '/inventoryItemLots?q=' + q + '&limit=500';
+            var expFrom = document.getElementById('ilot-exp-from').value;
+            var expTo   = document.getElementById('ilot-exp-to').value;
 
             document.getElementById('ilot-tbody').innerHTML =
                 '<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div> Loading lots…</div></td></tr>';
             document.getElementById('ilot-count').textContent = 'Loading…';
 
-            _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
-                if (err) {
-                    document.getElementById('ilot-tbody').innerHTML =
-                        '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
-                    document.getElementById('ilot-count').textContent = 'Error';
-                    return;
-                }
-                var payload = data;
-                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
-                _ilotAllRows = (payload && payload.items) ? payload.items : [];
+            _ilotAllRows = [];
+            var pageSize = 300;
+            var offset   = 0;
+            var pageNum  = 1;
 
-                // Client-side expiry filter
-                var expFrom = document.getElementById('ilot-exp-from').value;
-                var expTo   = document.getElementById('ilot-exp-to').value;
-                if (expFrom || expTo) {
-                    _ilotAllRows = _ilotAllRows.filter(function(r) {
-                        var d = r.ExpirationDate ? r.ExpirationDate.slice(0,10) : '';
-                        if (expFrom && d < expFrom) return false;
-                        if (expTo   && d > expTo)   return false;
-                        return true;
-                    });
-                }
-                _ilotRender(_ilotAllRows, true);
-            });
+            function fetchIlotPage() {
+                var url = FUSION_BASE + '/inventoryItemLots?q=' + q + '&limit=' + pageSize + '&offset=' + offset;
+                _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                    if (err) {
+                        document.getElementById('ilot-tbody').innerHTML =
+                            '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                        document.getElementById('ilot-count').textContent = 'Error';
+                        return;
+                    }
+                    var payload = data;
+                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                    var page = (payload && payload.items) ? payload.items : [];
+                    _ilotAllRows = _ilotAllRows.concat(page);
+
+                    document.getElementById('ilot-count').textContent =
+                        'Page ' + pageNum + ' — ' + _ilotAllRows.length + ' records…';
+
+                    if (payload && payload.hasMore && page.length) {
+                        offset  += pageSize;
+                        pageNum += 1;
+                        fetchIlotPage();
+                    } else {
+                        // Client-side expiry filter
+                        if (expFrom || expTo) {
+                            _ilotAllRows = _ilotAllRows.filter(function(r) {
+                                var d = r.ExpirationDate ? r.ExpirationDate.slice(0,10) : '';
+                                if (expFrom && d < expFrom) return false;
+                                if (expTo   && d > expTo)   return false;
+                                return true;
+                            });
+                        }
+                        _ilotRender(_ilotAllRows, true);
+                    }
+                });
+            }
+
+            fetchIlotPage();
         }
 
         function filterItemLots(val) {

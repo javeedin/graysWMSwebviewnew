@@ -891,32 +891,54 @@
             if (item)     qParts.push('Item=' + encodeURIComponent(item));
             if (txnType)  qParts.push('TransactionTypeId=' + encodeURIComponent(txnType));
             if (dateFrom) qParts.push('TransactionDate>=' + dateFrom);
-            if (dateTo)   qParts.push('TransactionDate<=' + dateTo);
             if (ref)      qParts.push('Reference=' + encodeURIComponent(ref));
 
-            var url = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';') + '&limit=500';
-            document.getElementById('txn-api-url-txt').textContent = url;
+            var baseUrl = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';');
+            document.getElementById('txn-api-url-txt').textContent = baseUrl + '&limit=250&offset=0';
 
             _setTxnLoading(true);
             _txnChartsBuilt = false;
+            _txnAllRows = [];
 
-            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
-                _setTxnLoading(false);
-                if (err) {
-                    document.getElementById('txn-tbody').innerHTML =
-                        '<tr><td colspan="12"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
-                    document.getElementById('txn-count').textContent = 'Error';
-                    return;
-                }
-                var payload = data;
-                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
-                _txnAllRows = (payload && payload.items) ? payload.items : [];
-                _renderTxnRows(_txnAllRows, true);
-                _renderTxnKpi(_txnAllRows);
-                if (document.getElementById('txn-tab-analytics').classList.contains('active')) {
-                    _buildTxnCharts(_txnAllRows);
-                }
-            });
+            var pageSize = 250;
+            var offset   = 0;
+            var pageNum  = 1;
+
+            function fetchTxnPage() {
+                var url = baseUrl + '&limit=' + pageSize + '&offset=' + offset;
+                _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                    if (err) {
+                        _setTxnLoading(false);
+                        document.getElementById('txn-tbody').innerHTML =
+                            '<tr><td colspan="12"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                        document.getElementById('txn-count').textContent = 'Error';
+                        return;
+                    }
+                    var payload = data;
+                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                    var page = (payload && payload.items) ? payload.items : [];
+                    _txnAllRows = _txnAllRows.concat(page);
+
+                    document.getElementById('txn-count').textContent =
+                        'Page ' + pageNum + ' — ' + _txnAllRows.length + ' records…';
+
+                    if (payload && payload.hasMore && page.length) {
+                        offset  += pageSize;
+                        pageNum += 1;
+                        fetchTxnPage();
+                    } else {
+                        _setTxnLoading(false);
+                        _renderTxnRows(_txnAllRows, true);
+                        _renderTxnKpi(_txnAllRows);
+                        if (document.getElementById('txn-tab-analytics').classList.contains('active')) {
+                            _buildTxnCharts(_txnAllRows);
+                            _txnChartsBuilt = true;
+                        }
+                    }
+                });
+            }
+
+            fetchTxnPage();
         }
 
         function _setTxnLoading(on) {
