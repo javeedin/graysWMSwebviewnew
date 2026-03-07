@@ -22,18 +22,61 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="config.js"></script>
 </head>
+<style>
+    /* ── WMS header override — match Inventory onhand style ── */
+    header.header {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+        color: white !important;
+        padding: 0 24px !important;
+        gap: 0 !important;
+        box-shadow: 0 2px 12px rgba(99,102,241,0.35) !important;
+        justify-content: space-between !important;
+        height: 60px !important;
+    }
+    .wms-header-left { display: flex; align-items: center; gap: 14px; }
+    .wms-header-right { display: flex; align-items: center; gap: 16px; }
+    header.header .hamburger {
+        background: rgba(255,255,255,0.15) !important;
+        border: 1px solid rgba(255,255,255,0.3) !important;
+        color: white !important;
+        width: 34px; height: 34px; border-radius: 8px;
+        font-size: .9rem; padding: 0;
+        display: flex; align-items: center; justify-content: center;
+    }
+    header.header .hamburger:hover { background: rgba(255,255,255,0.28) !important; }
+    .wms-breadcrumb { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+    .wms-breadcrumb a { color: rgba(255,255,255,.75); text-decoration: none; transition: color .15s; }
+    .wms-breadcrumb a:hover { color: white; }
+    .wms-breadcrumb .sep { color: rgba(255,255,255,.45); font-size: .75rem; }
+    .wms-breadcrumb .current { font-weight: 600; color: white; }
+    .wms-user-info { display: flex; align-items: center; gap: 7px; font-size: .85rem; color: white; }
+    .wms-user-avatar {
+        width: 30px; height: 30px; background: rgba(255,255,255,.25);
+        border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px;
+    }
+    .wms-user-name { font-weight: 600; }
+    .wms-user-instance { font-size: .7rem; opacity: .8; }
+</style>
 <body>
     <header class="header">
-        <button class="hamburger" id="hamburger">
-            <i class="fas fa-bars"></i>
-        </button>
-        <div class="logo">
-            <i class="fas fa-warehouse"></i>
-            <span>WMS</span>
+        <div class="wms-header-left">
+            <button class="hamburger" id="hamburger" title="Toggle sidebar">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="wms-breadcrumb">
+                <a href="Home/index.html"><i class="fa-solid fa-house"></i></a>
+                <span class="sep"><i class="fa-solid fa-chevron-right"></i></span>
+                <span class="current">Warehouse Management</span>
+            </div>
         </div>
-        <div class="user-info">
-            <i class="fas fa-user-circle"></i>
-            <span>Admin</span>
+        <div class="wms-header-right">
+            <div class="wms-user-info">
+                <div class="wms-user-avatar">👤</div>
+                <div>
+                    <div class="wms-user-name" id="wmsDisplayUsername">User</div>
+                    <div class="wms-user-instance" id="wmsDisplayInstance"></div>
+                </div>
+            </div>
         </div>
     </header>
     
@@ -685,5 +728,15 @@
     <script src="printer-management-new.js"></script>
     <script src="monitor-printing.js"></script>
     <script src="api-log.js"></script>
+    <script>
+        (function () {
+            var u = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
+            var i = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+            var el = document.getElementById('wmsDisplayUsername');
+            var ei = document.getElementById('wmsDisplayInstance');
+            if (el) el.textContent = u;
+            if (ei) ei.textContent = i;
+        })();
+    </script>
 </body>
 </html>
