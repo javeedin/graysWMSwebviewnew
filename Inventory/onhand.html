@@ -222,6 +222,23 @@
 
         .sidebar-footer a:hover { color: #00b894; }
 
+        /* ── Collapsible Sidebar ── */
+        .sidebar { transition: width 0.22s ease; }
+        .sidebar.collapsed { width: 60px; overflow: hidden; }
+        .sidebar.collapsed .sb-label,
+        .sidebar.collapsed .nav-label,
+        .sidebar.collapsed .nav-arrow,
+        .sidebar.collapsed .sidebar-footer { display: none; }
+        .sidebar.collapsed .sidebar-header { padding: 14px 0; justify-content: center; }
+        .sidebar.collapsed .nav-item { padding: 12px 0; justify-content: center; gap: 0; }
+        .sidebar.collapsed .nav-icon { margin: 0; }
+        .sidebar-toggle {
+            background: none; border: none; cursor: pointer; color: #a0aec0;
+            font-size: 0.75rem; padding: 4px 6px; border-radius: 4px;
+            transition: color 0.15s, background 0.15s; flex-shrink: 0;
+        }
+        .sidebar-toggle:hover { color: #00b894; background: rgba(0,184,148,0.08); }
+
         /* ── Main Content ── */
         .content {
             flex: 1;
@@ -977,8 +994,11 @@
 
         <!-- Sidebar -->
         <div class="sidebar">
-            <div class="sidebar-header">
-                <h3>Onhand Menu</h3>
+            <div class="sidebar-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <h3 class="sb-label">Onhand Menu</h3>
+                <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+                    <i class="fa-solid fa-chevron-left" id="sidebar-toggle-icon"></i>
+                </button>
             </div>
 
             <nav class="sidebar-nav">
@@ -1015,6 +1035,13 @@
                     <i class="fa-solid fa-chevron-right nav-arrow"></i>
                 </div>
 
+                <div class="nav-item" data-panel="item-lots" onclick="showPanel('item-lots', this)">
+                    <div class="nav-icon">
+                        <i class="fa-solid fa-cube"></i>
+                    </div>
+                    <span class="nav-label">Inventory Item Lots</span>
+                    <i class="fa-solid fa-chevron-right nav-arrow"></i>
+                </div>
 
             </nav>
 
@@ -1267,6 +1294,89 @@
                                         </div>
                                     </td>
                                 </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Inventory Item Lots panel ── -->
+            <div id="panel-item-lots" class="panel">
+                <div class="panel-header">
+                    <div class="panel-title-wrap">
+                        <div class="panel-title-icon" style="background:rgba(79,70,229,0.1);">
+                            <i class="fa-solid fa-cube" style="color:#4f46e5;"></i>
+                        </div>
+                        <div class="panel-title">
+                            <h2>Inventory Item Lots</h2>
+                            <p>Query lot-controlled items across organizations</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label>Organization</label>
+                        <select id="ilot-org">
+                            <option value="">— Select Org —</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Item Number</label>
+                        <input type="text" id="ilot-item" placeholder="e.g. GFI081065065I">
+                    </div>
+                    <div class="filter-group">
+                        <label>Lot Number</label>
+                        <input type="text" id="ilot-lot" placeholder="e.g. L1">
+                    </div>
+                    <div class="filter-group">
+                        <label>Expiry From</label>
+                        <input type="date" id="ilot-exp-from">
+                    </div>
+                    <div class="filter-group">
+                        <label>Expiry To</label>
+                        <input type="date" id="ilot-exp-to">
+                    </div>
+                    <button class="btn-search" onclick="queryItemLots()">
+                        <i class="fa-solid fa-magnifying-glass"></i> Search
+                    </button>
+                    <button class="btn-clear" onclick="clearItemLots()">
+                        <i class="fa-solid fa-xmark"></i> Clear
+                    </button>
+                </div>
+
+                <div class="data-card">
+                    <div class="data-card-header">
+                        <h3>Item Lots</h3>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <input type="text" id="ilot-grid-search" placeholder="Filter results…"
+                                oninput="filterItemLots(this.value)"
+                                style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;width:180px;">
+                            <span class="record-count" id="ilot-count">0 records</span>
+                        </div>
+                    </div>
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Org</th>
+                                    <th>Item Number</th>
+                                    <th>Description</th>
+                                    <th>Lot Number</th>
+                                    <th>Status</th>
+                                    <th>Active</th>
+                                    <th>Origination Date</th>
+                                    <th>Expiration Date</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ilot-tbody">
+                                <tr><td colspan="9">
+                                    <div class="empty-state">
+                                        <i class="fa-solid fa-cube"></i>
+                                        <p>Select an organization and click Search.</p>
+                                    </div>
+                                </td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -1695,7 +1805,7 @@
         }
 
         function populateOrgDropdowns(orgs) {
-            ['subinv-org-filter', 'onhand-org', 'lot-org'].forEach(function (id) {
+            ['subinv-org-filter', 'onhand-org', 'lot-org', 'ilot-org'].forEach(function (id) {
                 var el = document.getElementById(id);
                 if (!el) return;
                 var firstOpt = el.options[0];
@@ -2796,6 +2906,113 @@
                 data: subinvCounts,
                 backgroundColor: '#8b5cf6'
             }], { scales: { y: { beginAtZero: true } } });
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // SIDEBAR COLLAPSE
+        // ════════════════════════════════════════════════════════════
+        function toggleSidebar() {
+            var sb = document.querySelector('.sidebar');
+            sb.classList.toggle('collapsed');
+            document.getElementById('sidebar-toggle-icon').className =
+                sb.classList.contains('collapsed') ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-left';
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // INVENTORY ITEM LOTS
+        // ════════════════════════════════════════════════════════════
+        var _ilotAllRows = [];
+
+        function _ilotRow(r, i) {
+            var origDate  = r.OriginationDate ? r.OriginationDate.slice(0,10) : '—';
+            var expDate   = r.ExpirationDate  ? r.ExpirationDate.slice(0,10)  : '—';
+            var isExpired = r.ExpirationDate && new Date(r.ExpirationDate) < new Date();
+            var status    = r.StatusCode || '—';
+            return '<tr>' +
+                '<td style="color:#a0aec0;">' + (i+1) + '</td>' +
+                '<td>' + (r.OrganizationCode||'') + '</td>' +
+                '<td><strong>' + (r.ItemNumber||'') + '</strong></td>' +
+                '<td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.ItemDescription||'') + '">' + (r.ItemDescription||'') + '</td>' +
+                '<td><span class="lot-chip">' + (r.LotNumber||'') + '</span></td>' +
+                '<td><span style="font-weight:600;font-size:.78rem;color:' + (status==='Active'?'#00b894':'#e53e3e') + ';">' + status + '</span></td>' +
+                '<td style="font-size:.8rem;">' + (r.ActiveLot||'—') + '</td>' +
+                '<td>' + origDate + '</td>' +
+                '<td style="' + (isExpired?'color:#e53e3e;font-weight:600;':'') + '">' + expDate + '</td>' +
+                '</tr>';
+        }
+
+        function _ilotRender(rows, resetSearch) {
+            if (resetSearch) document.getElementById('ilot-grid-search').value = '';
+            document.getElementById('ilot-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
+            var tbody = document.getElementById('ilot-tbody');
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>No lot records found.</p></div></td></tr>';
+            } else {
+                tbody.innerHTML = rows.map(_ilotRow).join('');
+            }
+        }
+
+        function queryItemLots() {
+            var sel  = document.getElementById('ilot-org');
+            var orgCode = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.code || sel.value : '';
+            var item = (document.getElementById('ilot-item').value || '').trim();
+            var lot  = (document.getElementById('ilot-lot').value || '').trim();
+
+            if (!orgCode) { alert('Please select an Organization.'); return; }
+
+            var q = 'OrganizationCode=' + encodeURIComponent(orgCode);
+            if (item) q += ';ItemNumber='  + encodeURIComponent(item);
+            if (lot)  q += ';LotNumber='   + encodeURIComponent(lot);
+
+            var url = FUSION_BASE + '/inventoryItemLots?q=' + q + '&limit=500';
+
+            document.getElementById('ilot-tbody').innerHTML =
+                '<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div> Loading lots…</div></td></tr>';
+            document.getElementById('ilot-count').textContent = 'Loading…';
+
+            _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (err) {
+                    document.getElementById('ilot-tbody').innerHTML =
+                        '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                    document.getElementById('ilot-count').textContent = 'Error';
+                    return;
+                }
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                _ilotAllRows = (payload && payload.items) ? payload.items : [];
+
+                // Client-side expiry filter
+                var expFrom = document.getElementById('ilot-exp-from').value;
+                var expTo   = document.getElementById('ilot-exp-to').value;
+                if (expFrom || expTo) {
+                    _ilotAllRows = _ilotAllRows.filter(function(r) {
+                        var d = r.ExpirationDate ? r.ExpirationDate.slice(0,10) : '';
+                        if (expFrom && d < expFrom) return false;
+                        if (expTo   && d > expTo)   return false;
+                        return true;
+                    });
+                }
+                _ilotRender(_ilotAllRows, true);
+            });
+        }
+
+        function filterItemLots(val) {
+            var q = (val || '').toLowerCase();
+            var rows = q ? _ilotAllRows.filter(function(r) {
+                return ((r.ItemNumber||'')+(r.ItemDescription||'')+(r.LotNumber||'')+(r.OrganizationCode||'')).toLowerCase().indexOf(q) !== -1;
+            }) : _ilotAllRows;
+            document.getElementById('ilot-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
+            document.getElementById('ilot-tbody').innerHTML = rows.length
+                ? rows.map(_ilotRow).join('')
+                : '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>No records match.</p></div></td></tr>';
+        }
+
+        function clearItemLots() {
+            ['ilot-org','ilot-item','ilot-lot','ilot-exp-from','ilot-exp-to'].forEach(function(id){
+                var el = document.getElementById(id); if (el) el.value = '';
+            });
+            _ilotAllRows = [];
+            _ilotRender([], true);
         }
 
         function _makeChart(canvasId, type, labels, datasets, extraOpts) {
