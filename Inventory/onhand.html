@@ -1373,11 +1373,14 @@
                         <label>Expiry Date To</label>
                         <input type="date" id="ilot-exp-to">
                     </div>
-                    <button class="btn-search" onclick="queryItemLots()">
+                    <button class="btn-search" id="ilot-search-btn" onclick="queryItemLots()">
                         <i class="fa-solid fa-magnifying-glass"></i> Search
                     </button>
                     <button class="btn-clear" onclick="clearItemLots()">
                         <i class="fa-solid fa-xmark"></i> Clear
+                    </button>
+                    <button id="ilot-cancel-btn" onclick="cancelItemLots()" style="display:none;padding:8px 14px;background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;cursor:pointer;font-size:.84rem;font-weight:600;font-family:inherit;display:none;align-items:center;gap:6px;">
+                        <i class="fa-solid fa-stop"></i> Cancel
                     </button>
                 </div>
 
@@ -1439,8 +1442,8 @@
                     </div>
 
                     <!-- Grid tab -->
-                    <div id="ilot-body-grid" class="ilot-tab-body ilot-tab-active">
-                        <div class="table-wrap">
+                    <div id="ilot-body-grid" class="ilot-tab-body ilot-tab-active" style="flex-direction:column;">
+                        <div class="table-wrap" style="flex:1;">
                             <table>
                                 <thead>
                                     <tr>
@@ -1464,6 +1467,9 @@
                                     </td></tr>
                                 </tbody>
                             </table>
+                        </div>
+                        <!-- Load Next bar -->
+                        <div id="ilot-next-bar" style="display:none;padding:12px 18px;border-top:1px solid #f0f4f8;display:none;align-items:center;justify-content:center;gap:12px;background:#fafbff;flex-shrink:0;">
                         </div>
                     </div>
 
@@ -3033,12 +3039,20 @@
         // ════════════════════════════════════════════════════════════
         // INVENTORY ITEM LOTS
         // ════════════════════════════════════════════════════════════
-        var _ilotAllRows    = [];    // raw fetched rows (+ computed _days field)
+        var _ilotAllRows    = [];    // all fetched rows so far (+ computed _days)
         var _ilotActiveRows = [];    // after days-range filter
         var _ilotChartRefs  = {};
         var _ilotChartsBuilt = false;
-        var _ilotDaysFrom   = null;  // current days filter (null = no filter)
+        var _ilotDaysFrom   = null;
         var _ilotDaysTo     = null;
+        var _ilotCancelled  = false; // abort flag
+        var _ilotLoading    = false;
+        var _ilotPageSize   = 500;
+        var _ilotOffset     = 0;
+        var _ilotPageNum    = 1;
+        var _ilotCurrentQ   = '';
+        var _ilotExpFrom    = '';
+        var _ilotExpTo      = '';
 
         // ── Helpers ──────────────────────────────────────────────
         function _ilotCalcDays(r) {
@@ -3284,77 +3298,157 @@
             _ilotChartRefs[id] = new Chart(ctx, { type: type, data: { labels: labels, datasets: datasets }, options: opts });
         }
 
-        // ── Fetch (paginated) ─────────────────────────────────────
+        // ── Loading state helpers ─────────────────────────────────
+        function _ilotSetLoading(on) {
+            _ilotLoading = on;
+            var cancelBtn  = document.getElementById('ilot-cancel-btn');
+            var searchBtn  = document.getElementById('ilot-search-btn');
+            cancelBtn.style.display = on ? 'inline-flex' : 'none';
+            searchBtn.disabled = on;
+        }
+
+        // ── Finalize a completed page (apply filters + show/hide next bar) ──
+        function _ilotFinalizePage(hasMore) {
+            // Compute _days only for newly added rows (those still missing it)
+            _ilotAllRows.forEach(function(r) {
+                if (r._days === undefined) r._days = _ilotCalcDays(r);
+            });
+
+            // Date filter from the API filter bar
+            var base = _ilotAllRows;
+            if (_ilotExpFrom || _ilotExpTo) {
+                base = _ilotAllRows.filter(function(r) {
+                    var d = r.ExpirationDate ? r.ExpirationDate.slice(0,10) : '';
+                    if (_ilotExpFrom && d < _ilotExpFrom) return false;
+                    if (_ilotExpTo   && d > _ilotExpTo)   return false;
+                    return true;
+                });
+            }
+
+            _ilotActiveRows = base.slice();
+            document.getElementById('ilot-controls').style.display = 'flex';
+
+            // Load Next bar
+            var bar = document.getElementById('ilot-next-bar');
+            if (hasMore) {
+                bar.style.display = 'flex';
+                bar.innerHTML =
+                    '<button onclick="_ilotLoadNext()" style="padding:7px 18px;background:#4f46e5;color:white;border:none;border-radius:8px;cursor:pointer;font-size:.84rem;font-weight:600;font-family:inherit;display:flex;align-items:center;gap:8px;">' +
+                    '<i class="fa-solid fa-angles-down"></i> Load Next ' + _ilotPageSize + ' Records</button>' +
+                    '<span style="font-size:.8rem;color:#718096;">' + _ilotAllRows.length + ' loaded so far — more available</span>';
+            } else {
+                bar.style.display = 'none';
+            }
+
+            _ilotApplyFilters(true);
+        }
+
+        // ── Core page fetch ───────────────────────────────────────
+        function _ilotDoFetch() {
+            var url = FUSION_BASE + '/inventoryItemLots?q=' + _ilotCurrentQ +
+                      '&limit=' + _ilotPageSize + '&offset=' + _ilotOffset;
+
+            document.getElementById('ilot-count').textContent = 'Loading page ' + _ilotPageNum + '…';
+
+            _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (_ilotCancelled) {
+                    // Stop — show whatever is already in _ilotAllRows
+                    _ilotSetLoading(false);
+                    _ilotFinalizePage(false);  // no "Load Next" when cancelled
+                    return;
+                }
+
+                _ilotSetLoading(false);
+
+                if (err) {
+                    if (_ilotAllRows.length) {
+                        // Show what we have + error notice
+                        _ilotFinalizePage(false);
+                        var bar = document.getElementById('ilot-next-bar');
+                        bar.style.display = 'flex';
+                        bar.innerHTML = '<span style="color:#e53e3e;font-size:.82rem;"><i class="fa-solid fa-triangle-exclamation"></i> ' + err + '</span>';
+                    } else {
+                        document.getElementById('ilot-tbody').innerHTML =
+                            '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                        document.getElementById('ilot-count').textContent = 'Error';
+                    }
+                    return;
+                }
+
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var page = (payload && payload.items) ? payload.items : [];
+                _ilotAllRows = _ilotAllRows.concat(page);
+                _ilotOffset += _ilotPageSize;
+
+                var hasMore = !!(payload && payload.hasMore && page.length);
+                _ilotFinalizePage(hasMore);
+            });
+        }
+
+        // ── Public: start a new search ────────────────────────────
         function queryItemLots() {
-            var sel  = document.getElementById('ilot-org');
+            var sel = document.getElementById('ilot-org');
             var orgCode = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.code || sel.value : '';
             var item = (document.getElementById('ilot-item').value || '').trim();
             var lot  = (document.getElementById('ilot-lot').value || '').trim();
 
             if (!orgCode) { alert('Please select an Organization.'); return; }
 
-            var q = 'OrganizationCode=' + encodeURIComponent(orgCode);
-            if (item) q += ';ItemNumber='  + encodeURIComponent(item);
-            if (lot)  q += ';LotNumber='   + encodeURIComponent(lot);
+            _ilotCurrentQ  = 'OrganizationCode=' + encodeURIComponent(orgCode);
+            if (item) _ilotCurrentQ += ';ItemNumber=' + encodeURIComponent(item);
+            if (lot)  _ilotCurrentQ += ';LotNumber='  + encodeURIComponent(lot);
 
-            var expFrom = document.getElementById('ilot-exp-from').value;
-            var expTo   = document.getElementById('ilot-exp-to').value;
+            _ilotExpFrom   = document.getElementById('ilot-exp-from').value;
+            _ilotExpTo     = document.getElementById('ilot-exp-to').value;
+            _ilotOffset    = 0;
+            _ilotPageNum   = 1;
+            _ilotAllRows   = [];
+            _ilotActiveRows = [];
+            _ilotCancelled = false;
+            _ilotChartsBuilt = false;
+            _ilotDaysFrom  = null;
+            _ilotDaysTo    = null;
 
+            document.getElementById('ilot-controls').style.display = 'none';
+            document.getElementById('ilot-next-bar').style.display = 'none';
             document.getElementById('ilot-tbody').innerHTML =
                 '<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div> Loading lots…</div></td></tr>';
-            document.getElementById('ilot-count').textContent = 'Loading…';
-            document.getElementById('ilot-controls').style.display = 'none';
-
-            _ilotAllRows = []; _ilotActiveRows = [];
-            _ilotDaysFrom = null; _ilotDaysTo = null;
-            _ilotChartsBuilt = false;
+            document.getElementById('ilot-kpi-strip').innerHTML = '';
             document.querySelectorAll('.ilot-preset').forEach(function(b){ b.classList.remove('ilot-preset-active'); });
             document.querySelector('.ilot-preset[data-preset="all"]').classList.add('ilot-preset-active');
 
-            var pageSize = 300, offset = 0, pageNum = 1;
-
-            function fetchIlotPage() {
-                var url = FUSION_BASE + '/inventoryItemLots?q=' + q + '&limit=' + pageSize + '&offset=' + offset;
-                _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
-                    if (err) {
-                        document.getElementById('ilot-tbody').innerHTML =
-                            '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
-                        document.getElementById('ilot-count').textContent = 'Error';
-                        return;
-                    }
-                    var payload = data;
-                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
-                    var page = (payload && payload.items) ? payload.items : [];
-                    _ilotAllRows = _ilotAllRows.concat(page);
-                    document.getElementById('ilot-count').textContent = 'Page ' + pageNum + ' — ' + _ilotAllRows.length + ' records…';
-
-                    if (payload && payload.hasMore && page.length) {
-                        offset += pageSize; pageNum++;
-                        fetchIlotPage();
-                    } else {
-                        // Compute _days for each row
-                        _ilotAllRows.forEach(function(r) { r._days = _ilotCalcDays(r); });
-
-                        // Date filter (from API filter-bar)
-                        if (expFrom || expTo) {
-                            _ilotAllRows = _ilotAllRows.filter(function(r) {
-                                var d = r.ExpirationDate ? r.ExpirationDate.slice(0,10) : '';
-                                if (expFrom && d < expFrom) return false;
-                                if (expTo   && d > expTo)   return false;
-                                return true;
-                            });
-                        }
-
-                        _ilotActiveRows = _ilotAllRows.slice();
-                        document.getElementById('ilot-controls').style.display = 'flex';
-                        _ilotApplyFilters(true);
-                    }
-                });
-            }
-            fetchIlotPage();
+            _ilotSetLoading(true);
+            _ilotDoFetch();
         }
 
+        // ── Public: load next 500 ─────────────────────────────────
+        function _ilotLoadNext() {
+            _ilotCancelled = false;
+            _ilotPageNum++;
+            var bar = document.getElementById('ilot-next-bar');
+            bar.innerHTML = '<div class="loading-state" style="padding:8px 0;"><div class="spinner"></div> Loading page ' + _ilotPageNum + '…</div>';
+            _ilotSetLoading(true);
+            _ilotDoFetch();
+        }
+
+        // ── Public: cancel in-flight fetch ────────────────────────
+        function cancelItemLots() {
+            _ilotCancelled = true;
+            // _ilotDoFetch callback will call _ilotFinalizePage(false) when it lands
+            // Update UI immediately so user sees feedback
+            document.getElementById('ilot-cancel-btn').style.display = 'none';
+            document.getElementById('ilot-search-btn').disabled = false;
+            var bar = document.getElementById('ilot-next-bar');
+            bar.style.display = 'flex';
+            bar.innerHTML = '<span style="font-size:.82rem;color:#718096;"><i class="fa-solid fa-circle-stop" style="color:#dc2626;"></i> Cancelled — showing ' + _ilotAllRows.length + ' records loaded so far</span>';
+            if (_ilotAllRows.length) _ilotFinalizePage(false);
+        }
+
+        // ── Public: clear everything ──────────────────────────────
         function clearItemLots() {
+            _ilotCancelled = true;  // stop any in-flight fetch
+            _ilotSetLoading(false);
             ['ilot-org','ilot-item','ilot-lot','ilot-exp-from','ilot-exp-to','ilot-days-from','ilot-days-to'].forEach(function(id){
                 var el = document.getElementById(id); if (el) el.value = '';
             });
@@ -3362,9 +3456,11 @@
             _ilotDaysFrom = null; _ilotDaysTo = null;
             _ilotChartsBuilt = false;
             document.getElementById('ilot-controls').style.display = 'none';
+            document.getElementById('ilot-next-bar').style.display  = 'none';
             document.getElementById('ilot-count').textContent = '0 records';
-            document.getElementById('ilot-tbody').innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>Select an organization and click Search.</p></div></td></tr>';
             document.getElementById('ilot-kpi-strip').innerHTML = '';
+            document.getElementById('ilot-tbody').innerHTML =
+                '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>Select an organization and click Search.</p></div></td></tr>';
         }
 
         function _makeChart(canvasId, type, labels, datasets, extraOpts) {
