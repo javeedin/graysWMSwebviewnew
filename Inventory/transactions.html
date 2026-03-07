@@ -384,18 +384,21 @@
                         <input type="date" id="txn-date-from">
                     </div>
                     <div class="filter-group">
-                        <label>Date To</label>
-                        <input type="date" id="txn-date-to">
+                        <label>Shipment</label>
+                        <input type="text" id="txn-shipment" placeholder="e.g. VVFL36542">
                     </div>
                     <div class="filter-group">
                         <label>Reference</label>
                         <input type="text" id="txn-ref" placeholder="e.g. GIC130">
                     </div>
-                    <button class="btn-search" onclick="queryTransactions()">
+                    <button class="btn-search" id="txn-search-btn" onclick="queryTransactions()">
                         <i class="fa-solid fa-magnifying-glass"></i> Search
                     </button>
                     <button class="btn-clear" onclick="clearTxnSearch()">
                         <i class="fa-solid fa-xmark"></i> Clear
+                    </button>
+                    <button id="txn-cancel-btn" onclick="cancelTxnSearch()" style="display:none;padding:8px 14px;background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;cursor:pointer;font-size:.84rem;font-weight:600;font-family:inherit;align-items:center;gap:6px;">
+                        <i class="fa-solid fa-stop"></i> Cancel
                     </button>
                     <button class="btn-clear" id="txn-api-toggle" onclick="toggleTxnApiBar()" title="Show API URL" style="padding:7px 10px;">
                         <i class="fa-solid fa-link"></i>
@@ -440,6 +443,9 @@
                                         <th>Description</th>
                                         <th>Org</th>
                                         <th>Subinventory</th>
+                                        <th>Transfer Org</th>
+                                        <th>Transfer Subinv</th>
+                                        <th>Shipment</th>
                                         <th>Type</th>
                                         <th>Action</th>
                                         <th>Qty</th>
@@ -448,7 +454,7 @@
                                     </tr>
                                 </thead>
                                 <tbody id="txn-tbody">
-                                    <tr><td colspan="12">
+                                    <tr><td colspan="15">
                                         <div class="empty-state">
                                             <i class="fa-solid fa-arrows-rotate"></i>
                                             <p>Set filters and click Search.</p>
@@ -457,10 +463,48 @@
                                 </tbody>
                             </table>
                         </div>
+                        <!-- Load Next bar -->
+                        <div id="txn-next-bar" style="display:none;padding:12px 18px;border-top:1px solid #f0f4f8;align-items:center;justify-content:center;gap:12px;background:#fafbff;flex-shrink:0;">
+                        </div>
                     </div>
 
                     <!-- Analytics tab -->
-                    <div id="txn-body-analytics" class="tab-body">
+                    <div id="txn-body-analytics" class="tab-body" style="flex-direction:column;overflow-y:auto;">
+                        <!-- Analytics filter strip -->
+                        <div id="txn-analytics-filter-bar" style="display:none;padding:10px 16px;background:#f8f9ff;border-bottom:1px solid #e8eaf6;flex-shrink:0;flex-wrap:wrap;align-items:flex-end;gap:10px;">
+                            <span style="font-size:.76rem;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;align-self:center;">
+                                <i class="fa-solid fa-filter" style="color:#4f46e5;"></i> Filter Charts:
+                            </span>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Date From</label>
+                                <input type="date" id="an-date-from" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;">
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Date To</label>
+                                <input type="date" id="an-date-to" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;">
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Transaction Type</label>
+                                <select id="an-txn-type" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;">
+                                    <option value="">— All —</option>
+                                </select>
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Subinventory</label>
+                                <input type="text" id="an-subinv" placeholder="e.g. VVFL" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;width:110px;">
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Item</label>
+                                <input type="text" id="an-item" placeholder="Item number" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;width:130px;">
+                            </div>
+                            <button onclick="_applyTxnAnalyticsFilter()" style="padding:6px 14px;background:#4f46e5;color:white;border:none;border-radius:7px;cursor:pointer;font-size:.82rem;font-weight:600;font-family:inherit;align-self:flex-end;">
+                                <i class="fa-solid fa-chart-bar"></i> Apply
+                            </button>
+                            <button onclick="_resetTxnAnalyticsFilter()" style="padding:6px 12px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:7px;cursor:pointer;font-size:.82rem;font-family:inherit;align-self:flex-end;">
+                                <i class="fa-solid fa-rotate-left"></i> Reset
+                            </button>
+                            <span id="an-filter-badge" style="font-size:.78rem;color:#4f46e5;font-weight:600;align-self:center;"></span>
+                        </div>
                         <div class="analytics-grid" id="txn-analytics-grid">
                             <div class="chart-card">
                                 <h4><i class="fa-solid fa-calendar-days" style="color:#f59e0b;"></i> Transactions by Date</h4>
@@ -868,10 +912,78 @@
         var _txnAllRows      = [];
         var _txnChartRefs    = {};
         var _txnChartsBuilt  = false;
+        var _txnCancelled    = false;
+        var _txnLoading      = false;
+        var _txnPageSize     = 500;
+        var _txnOffset       = 0;
+        var _txnPageNum      = 1;
+        var _txnBaseUrl      = '';
 
         function toggleTxnApiBar() {
             var bar = document.getElementById('txn-api-bar');
             bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // ── Core page fetch ───────────────────────────────────────
+        function _txnDoFetch() {
+            var url = _txnBaseUrl + '&limit=' + _txnPageSize + '&offset=' + _txnOffset;
+            document.getElementById('txn-count').textContent = 'Loading page ' + _txnPageNum + '…';
+
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (_txnCancelled) {
+                    _setTxnLoading(false);
+                    _txnFinalizePage(false);
+                    return;
+                }
+                _setTxnLoading(false);
+
+                if (err) {
+                    if (_txnAllRows.length) {
+                        _txnFinalizePage(false);
+                        var bar = document.getElementById('txn-next-bar');
+                        bar.style.display = 'flex';
+                        bar.innerHTML = '<span style="color:#e53e3e;font-size:.82rem;"><i class="fa-solid fa-triangle-exclamation"></i> ' + err + '</span>';
+                    } else {
+                        document.getElementById('txn-tbody').innerHTML =
+                            '<tr><td colspan="15"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                        document.getElementById('txn-count').textContent = 'Error';
+                    }
+                    return;
+                }
+
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var page = (payload && payload.items) ? payload.items : [];
+                _txnAllRows = _txnAllRows.concat(page);
+                _txnOffset += _txnPageSize;
+
+                var hasMore = !!(payload && payload.hasMore && page.length);
+                _txnFinalizePage(hasMore);
+            });
+        }
+
+        function _txnFinalizePage(hasMore) {
+            _renderTxnRows(_txnAllRows, true);
+            _renderTxnKpi(_txnAllRows);
+
+            // Update analytics type dropdown with current data
+            _populateAnTxnTypeDropdown();
+
+            if (document.getElementById('txn-tab-analytics').classList.contains('active')) {
+                _buildTxnCharts(_txnAllRows);
+                _txnChartsBuilt = true;
+            }
+
+            var bar = document.getElementById('txn-next-bar');
+            if (hasMore) {
+                bar.style.display = 'flex';
+                bar.innerHTML =
+                    '<button onclick="_txnLoadNext()" style="padding:7px 18px;background:#4f46e5;color:white;border:none;border-radius:8px;cursor:pointer;font-size:.84rem;font-weight:600;font-family:inherit;display:flex;align-items:center;gap:8px;">' +
+                    '<i class="fa-solid fa-angles-down"></i> Load Next ' + _txnPageSize + ' Records</button>' +
+                    '<span style="font-size:.8rem;color:#718096;">' + _txnAllRows.length + ' loaded so far — more available</span>';
+            } else {
+                bar.style.display = 'none';
+            }
         }
 
         function queryTransactions() {
@@ -881,7 +993,7 @@
             var txnType = document.getElementById('txn-type').value;
             var item    = (document.getElementById('txn-item').value || '').trim();
             var dateFrom= document.getElementById('txn-date-from').value;
-            var dateTo  = document.getElementById('txn-date-to').value;
+            var shipment= (document.getElementById('txn-shipment').value || '').trim();
             var ref     = (document.getElementById('txn-ref').value || '').trim();
 
             if (!orgCode) { alert('Please select an Organization.'); return; }
@@ -891,60 +1003,52 @@
             if (item)     qParts.push('Item=' + encodeURIComponent(item));
             if (txnType)  qParts.push('TransactionTypeId=' + encodeURIComponent(txnType));
             if (dateFrom) qParts.push('TransactionDate>=' + dateFrom);
+            if (shipment) qParts.push('Shipment=' + encodeURIComponent(shipment));
             if (ref)      qParts.push('Reference=' + encodeURIComponent(ref));
 
-            var baseUrl = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';');
-            document.getElementById('txn-api-url-txt').textContent = baseUrl + '&limit=250&offset=0';
+            _txnBaseUrl  = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';');
+            _txnOffset   = 0;
+            _txnPageNum  = 1;
+            _txnCancelled = false;
+            _txnAllRows  = [];
+            _txnChartsBuilt = false;
+
+            document.getElementById('txn-api-url-txt').textContent = _txnBaseUrl + '&limit=' + _txnPageSize + '&offset=0';
+            document.getElementById('txn-next-bar').style.display  = 'none';
+            document.getElementById('txn-analytics-filter-bar').style.display = 'none';
 
             _setTxnLoading(true);
-            _txnChartsBuilt = false;
-            _txnAllRows = [];
+            _txnDoFetch();
+        }
 
-            var pageSize = 250;
-            var offset   = 0;
-            var pageNum  = 1;
+        function _txnLoadNext() {
+            _txnCancelled = false;
+            _txnPageNum++;
+            var bar = document.getElementById('txn-next-bar');
+            bar.innerHTML = '<div class="loading-state" style="padding:8px 0;"><div class="spinner"></div> Loading page ' + _txnPageNum + '…</div>';
+            _setTxnLoading(true);
+            _txnDoFetch();
+        }
 
-            function fetchTxnPage() {
-                var url = baseUrl + '&limit=' + pageSize + '&offset=' + offset;
-                _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
-                    if (err) {
-                        _setTxnLoading(false);
-                        document.getElementById('txn-tbody').innerHTML =
-                            '<tr><td colspan="12"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
-                        document.getElementById('txn-count').textContent = 'Error';
-                        return;
-                    }
-                    var payload = data;
-                    if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
-                    var page = (payload && payload.items) ? payload.items : [];
-                    _txnAllRows = _txnAllRows.concat(page);
-
-                    document.getElementById('txn-count').textContent =
-                        'Page ' + pageNum + ' — ' + _txnAllRows.length + ' records…';
-
-                    if (payload && payload.hasMore && page.length) {
-                        offset  += pageSize;
-                        pageNum += 1;
-                        fetchTxnPage();
-                    } else {
-                        _setTxnLoading(false);
-                        _renderTxnRows(_txnAllRows, true);
-                        _renderTxnKpi(_txnAllRows);
-                        if (document.getElementById('txn-tab-analytics').classList.contains('active')) {
-                            _buildTxnCharts(_txnAllRows);
-                            _txnChartsBuilt = true;
-                        }
-                    }
-                });
-            }
-
-            fetchTxnPage();
+        function cancelTxnSearch() {
+            _txnCancelled = true;
+            _setTxnLoading(false);
+            var bar = document.getElementById('txn-next-bar');
+            bar.style.display = 'flex';
+            bar.innerHTML = '<span style="font-size:.82rem;color:#718096;"><i class="fa-solid fa-circle-stop" style="color:#dc2626;"></i> Cancelled — showing ' + _txnAllRows.length + ' records loaded so far</span>';
+            if (_txnAllRows.length) _txnFinalizePage(false);
         }
 
         function _setTxnLoading(on) {
+            _txnLoading = on;
+            var cancelBtn = document.getElementById('txn-cancel-btn');
+            var searchBtn = document.getElementById('txn-search-btn');
+            cancelBtn.style.display = on ? 'inline-flex' : 'none';
+            searchBtn.disabled = on;
             if (on) {
+                document.getElementById('txn-next-bar').style.display = 'none';
                 document.getElementById('txn-tbody').innerHTML =
-                    '<tr><td colspan="12"><div class="loading-state"><div class="spinner"></div> Searching transactions…</div></td></tr>';
+                    '<tr><td colspan="15"><div class="loading-state"><div class="spinner"></div> Searching transactions…</div></td></tr>';
                 document.getElementById('txn-count').textContent = 'Loading…';
                 document.getElementById('txn-kpi').innerHTML = '';
             }
@@ -962,6 +1066,9 @@
                 '<td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.ItemDescription||'') + '">' + (r.ItemDescription||'') + '</td>' +
                 '<td>' + (r.Organization||'') + '</td>' +
                 '<td>' + (r.SubinventoryCode||'') + '</td>' +
+                '<td style="font-size:.78rem;color:#4f46e5;">' + (r.TransferOrganizationCode||'—') + '</td>' +
+                '<td style="font-size:.78rem;color:#0369a1;">' + (r.TransferSubinventory||'—') + '</td>' +
+                '<td style="font-size:.78rem;color:#0369a1;">' + (r.Shipment||'—') + '</td>' +
                 '<td style="font-size:.78rem;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.TransactionType||'') + '">' + (r.TransactionType||'') + '</td>' +
                 '<td style="font-size:.76rem;">' + (r.TransactionAction||'') + '</td>' +
                 '<td class="' + qtyClass + ' qty-badge">' + qty.toLocaleString() + '</td>' +
@@ -975,7 +1082,7 @@
             document.getElementById('txn-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
             var tbody = document.getElementById('txn-tbody');
             if (!rows.length) {
-                tbody.innerHTML = '<tr><td colspan="12"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No transactions found.</p></div></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="15"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No transactions found.</p></div></td></tr>';
             } else {
                 tbody.innerHTML = rows.map(_txnRow).join('');
             }
@@ -984,7 +1091,7 @@
         function filterTxnGrid(val) {
             var q = (val||'').toLowerCase();
             var rows = q ? _txnAllRows.filter(function(r) {
-                return ((r.Item||'')+(r.ItemDescription||'')+(r.TransactionType||'')+(r.SubinventoryCode||'')+(r.Reference||'')+(r.TransactionAction||'')).toLowerCase().indexOf(q) !== -1;
+                return ((r.Item||'')+(r.ItemDescription||'')+(r.TransactionType||'')+(r.SubinventoryCode||'')+(r.Reference||'')+(r.TransactionAction||'')+(r.TransferOrganizationCode||'')+(r.TransferSubinventory||'')+(r.Shipment||'')).toLowerCase().indexOf(q) !== -1;
             }) : _txnAllRows;
             _renderTxnRows(rows, false);
         }
@@ -1008,6 +1115,57 @@
                 k(Math.abs(totalQty).toLocaleString(), 'Total Qty');
         }
 
+        // ── Analytics filter ──────────────────────────────────────
+        function _populateAnTxnTypeDropdown() {
+            var sel = document.getElementById('an-txn-type');
+            if (!sel) return;
+            var current = sel.value;
+            var types = {};
+            _txnAllRows.forEach(function(r){ if (r.TransactionType) types[r.TransactionType] = true; });
+            sel.innerHTML = '<option value="">— All —</option>' +
+                Object.keys(types).sort().map(function(t){
+                    return '<option value="' + t + '"' + (t === current ? ' selected' : '') + '>' + t + '</option>';
+                }).join('');
+        }
+
+        function _applyTxnAnalyticsFilter() {
+            if (!_txnAllRows.length) return;
+            var dFrom = document.getElementById('an-date-from').value;
+            var dTo   = document.getElementById('an-date-to').value;
+            var type  = document.getElementById('an-txn-type').value;
+            var subinv= (document.getElementById('an-subinv').value||'').trim().toLowerCase();
+            var item  = (document.getElementById('an-item').value||'').trim().toLowerCase();
+
+            var rows = _txnAllRows.filter(function(r) {
+                var d = r.TransactionDate ? r.TransactionDate.slice(0,10) : '';
+                if (dFrom && d < dFrom) return false;
+                if (dTo   && d > dTo)   return false;
+                if (type  && r.TransactionType !== type) return false;
+                if (subinv && (r.SubinventoryCode||'').toLowerCase().indexOf(subinv) === -1) return false;
+                if (item  && (r.Item||'').toLowerCase().indexOf(item) === -1) return false;
+                return true;
+            });
+
+            var active = [];
+            if (dFrom) active.push('From ' + dFrom);
+            if (dTo)   active.push('To ' + dTo);
+            if (type)  active.push(type);
+            if (subinv) active.push('Subinv: ' + subinv.toUpperCase());
+            if (item)  active.push('Item: ' + item.toUpperCase());
+            document.getElementById('an-filter-badge').textContent = active.length ? '(' + rows.length + ' rows matched)' : '';
+
+            _buildTxnCharts(rows);
+        }
+
+        function _resetTxnAnalyticsFilter() {
+            ['an-date-from','an-date-to','an-subinv','an-item'].forEach(function(id){
+                document.getElementById(id).value = '';
+            });
+            document.getElementById('an-txn-type').value = '';
+            document.getElementById('an-filter-badge').textContent = '';
+            _buildTxnCharts(_txnAllRows);
+        }
+
         // ── Analytics tab ──────────────────────────────────────
         function switchTxnTab(tab) {
             document.getElementById('txn-tab-grid').classList.toggle('active', tab === 'grid');
@@ -1018,9 +1176,12 @@
                 if (!_txnAllRows.length) {
                     document.getElementById('txn-analytics-grid').style.display = 'none';
                     document.getElementById('txn-analytics-empty').style.display = 'flex';
+                    document.getElementById('txn-analytics-filter-bar').style.display = 'none';
                 } else {
                     document.getElementById('txn-analytics-grid').style.display = '';
                     document.getElementById('txn-analytics-empty').style.display = 'none';
+                    document.getElementById('txn-analytics-filter-bar').style.display = 'flex';
+                    _populateAnTxnTypeDropdown();
                     if (!_txnChartsBuilt) {
                         _buildTxnCharts(_txnAllRows);
                         _txnChartsBuilt = true;
@@ -1094,12 +1255,16 @@
         }
 
         function clearTxnSearch() {
-            ['txn-org','txn-subinv','txn-type','txn-item','txn-date-from','txn-date-to','txn-ref','txn-grid-search'].forEach(function(id){
+            _txnCancelled = true;  // stop any in-flight fetch
+            _setTxnLoading(false);
+            ['txn-org','txn-subinv','txn-type','txn-item','txn-date-from','txn-shipment','txn-ref','txn-grid-search'].forEach(function(id){
                 var el = document.getElementById(id); if (el) el.value = '';
             });
             _txnAllRows = [];
             _txnChartsBuilt = false;
-            document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="12"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>Set filters and click Search.</p></div></td></tr>';
+            document.getElementById('txn-next-bar').style.display = 'none';
+            document.getElementById('txn-analytics-filter-bar').style.display = 'none';
+            document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="15"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>Set filters and click Search.</p></div></td></tr>';
             document.getElementById('txn-count').textContent = '0 records';
             document.getElementById('txn-kpi').innerHTML = '';
         }
