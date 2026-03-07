@@ -515,6 +515,10 @@
                         <label>Reference</label>
                         <input type="text" id="txn-ref" placeholder="e.g. GIC130">
                     </div>
+                    <div class="filter-group">
+                        <label>Source Reference <i class="fa-solid fa-circle-info" style="color:#059669;font-size:.7rem;cursor:help;" title="Sales Order Number"></i></label>
+                        <input type="text" id="txn-source-ref" placeholder="e.g. 70419000000" title="Sales Order Number">
+                    </div>
                     <button class="btn-search" id="txn-search-btn" onclick="queryTransactions()">
                         <i class="fa-solid fa-magnifying-glass"></i> Search
                     </button>
@@ -569,12 +573,12 @@
                                         <th>Subinventory</th>
                                         <th>Transfer Org</th>
                                         <th>Transfer Subinv</th>
-                                        <th>Shipment</th>
+                                        <th title="S2V Reference Number" style="cursor:help;">Shipment <i class="fa-solid fa-circle-info" style="color:#a0aec0;font-size:.62rem;"></i></th>
                                         <th>Type</th>
                                         <th>Action</th>
                                         <th>Qty</th>
                                         <th>UOM</th>
-                                        <th>Source Ref</th>
+                                        <th title="Sales Order Number" style="cursor:help;">Source Ref <i class="fa-solid fa-circle-info" style="color:#059669;font-size:.62rem;"></i></th>
                                         <th>Reference</th>
                                     </tr>
                                 </thead>
@@ -1123,8 +1127,9 @@
             var txnType = document.getElementById('txn-type').value;
             var item    = (document.getElementById('txn-item').value || '').trim();
             var dateFrom= document.getElementById('txn-date-from').value;
-            var shipment= (document.getElementById('txn-shipment').value || '').trim();
-            var ref     = (document.getElementById('txn-ref').value || '').trim();
+            var shipment = (document.getElementById('txn-shipment').value || '').trim();
+            var ref      = (document.getElementById('txn-ref').value || '').trim();
+            var srcRef   = (document.getElementById('txn-source-ref').value || '').trim();
 
             if (!orgCode) { alert('Please select an Organization.'); return; }
 
@@ -1135,6 +1140,7 @@
             if (dateFrom) qParts.push('TransactionDate>=' + dateFrom);
             if (shipment) qParts.push('Shipment=' + encodeURIComponent(shipment));
             if (ref)      qParts.push('Reference=' + encodeURIComponent(ref));
+            if (srcRef)   qParts.push('SourceReference=' + encodeURIComponent(srcRef));
 
             _txnBaseUrl  = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';');
             _txnOffset   = 0;
@@ -1402,7 +1408,7 @@
         function clearTxnSearch() {
             _txnCancelled = true;  // stop any in-flight fetch
             _setTxnLoading(false);
-            ['txn-org','txn-subinv','txn-type','txn-item','txn-date-from','txn-shipment','txn-ref','txn-grid-search'].forEach(function(id){
+            ['txn-org','txn-subinv','txn-type','txn-item','txn-date-from','txn-shipment','txn-ref','txn-source-ref','txn-grid-search'].forEach(function(id){
                 var el = document.getElementById(id); if (el) el.value = '';
             });
             _txnAllRows = [];
