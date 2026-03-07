@@ -497,6 +497,43 @@
             font-weight: 600;
         }
 
+        /* ── Item Lots — days-to-expiry badges ── */
+        .days-badge { display:inline-block; padding:2px 9px; border-radius:10px; font-size:.74rem; font-weight:700; white-space:nowrap; }
+        .days-expired  { background:#fee2e2; color:#dc2626; }
+        .days-critical { background:#ffedd5; color:#c2410c; }
+        .days-warning  { background:#fef9c3; color:#854d0e; }
+        .days-caution  { background:#fef3c7; color:#92400e; }
+        .days-ok       { background:#dcfce7; color:#166534; }
+        .days-good     { background:#f0fdf4; color:#15803d; }
+        .days-none     { background:#f0f4f8; color:#a0aec0; }
+
+        /* ── Item Lots — KPI strip ── */
+        .ilot-kpi-strip { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:4px; }
+        .ilot-kpi { border-radius:8px; padding:7px 14px; text-align:center; min-width:95px; border:1px solid; }
+        .ilot-kpi-val { font-size:1.05rem; font-weight:700; }
+        .ilot-kpi-lbl { font-size:.66rem; margin-top:1px; }
+
+        /* ── Item Lots — quick preset buttons ── */
+        .ilot-preset {
+            padding:4px 12px; border-radius:14px; border:1px solid #e2e8f0; cursor:pointer;
+            font-size:.76rem; font-weight:600; background:#f8fafc; color:#718096;
+            font-family:inherit; transition:all .15s;
+        }
+        .ilot-preset:hover { border-color:#4f46e5; color:#4f46e5; background:#ede9fe; }
+        .ilot-preset.ilot-preset-active { background:#4f46e5; color:white; border-color:#4f46e5; }
+
+        /* ── Item Lots — tab bar ── */
+        .ilot-tab-bar { display:flex; border-bottom:1px solid #f0f4f8; }
+        .ilot-tab {
+            padding:10px 18px; background:none; border:none; border-bottom:2px solid transparent;
+            cursor:pointer; font-size:.84rem; font-weight:600; color:#718096; font-family:inherit;
+            display:flex; align-items:center; gap:6px; transition:all .15s;
+        }
+        .ilot-tab:hover { color:#4f46e5; }
+        .ilot-tab.ilot-tab-active { color:#4f46e5; border-bottom-color:#4f46e5; }
+        .ilot-tab-body { display:none; flex:1; overflow:auto; flex-direction:column; }
+        .ilot-tab-body.ilot-tab-active { display:flex; }
+
         /* ── Empty State ── */
         .empty-state {
             text-align: center;
@@ -1309,17 +1346,16 @@
                         </div>
                         <div class="panel-title">
                             <h2>Inventory Item Lots</h2>
-                            <p>Query lot-controlled items across organizations</p>
+                            <p>Query lot-controlled items — track expiry days and risk</p>
                         </div>
                     </div>
                 </div>
 
+                <!-- API query filters -->
                 <div class="filter-bar">
                     <div class="filter-group">
                         <label>Organization</label>
-                        <select id="ilot-org">
-                            <option value="">— Select Org —</option>
-                        </select>
+                        <select id="ilot-org"><option value="">— Select Org —</option></select>
                     </div>
                     <div class="filter-group">
                         <label>Item Number</label>
@@ -1330,11 +1366,11 @@
                         <input type="text" id="ilot-lot" placeholder="e.g. L1">
                     </div>
                     <div class="filter-group">
-                        <label>Expiry From</label>
+                        <label>Expiry Date From</label>
                         <input type="date" id="ilot-exp-from">
                     </div>
                     <div class="filter-group">
-                        <label>Expiry To</label>
+                        <label>Expiry Date To</label>
                         <input type="date" id="ilot-exp-to">
                     </div>
                     <button class="btn-search" onclick="queryItemLots()">
@@ -1345,41 +1381,117 @@
                     </button>
                 </div>
 
-                <div class="data-card">
-                    <div class="data-card-header">
-                        <h3>Item Lots</h3>
-                        <div style="display:flex;align-items:center;gap:8px;">
+                <!-- KPI + days filter strip (shown after data loads) -->
+                <div id="ilot-controls" style="display:none;flex-direction:column;gap:10px;">
+
+                    <!-- KPI cards -->
+                    <div class="ilot-kpi-strip" id="ilot-kpi-strip"></div>
+
+                    <!-- Days filter: quick presets + custom range -->
+                    <div style="background:white;border-radius:10px;padding:12px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;box-shadow:0 1px 4px rgba(0,0,0,.05);">
+                        <span style="font-size:.76rem;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;">
+                            <i class="fa-solid fa-clock" style="color:#4f46e5;"></i> Filter by Days to Expiry:
+                        </span>
+                        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+                            <button class="ilot-preset ilot-preset-active" data-preset="all"      onclick="ilotPreset('all',this)">All Lots</button>
+                            <button class="ilot-preset"                    data-preset="expired"   onclick="ilotPreset('expired',this)">Expired</button>
+                            <button class="ilot-preset"                    data-preset="today"     onclick="ilotPreset('today',this)">Expires Today</button>
+                            <button class="ilot-preset"                    data-preset="7"         onclick="ilotPreset('7',this)">≤ 7 Days</button>
+                            <button class="ilot-preset"                    data-preset="30"        onclick="ilotPreset('30',this)">≤ 30 Days</button>
+                            <button class="ilot-preset"                    data-preset="90"        onclick="ilotPreset('90',this)">≤ 90 Days</button>
+                            <button class="ilot-preset"                    data-preset="180"       onclick="ilotPreset('180',this)">≤ 180 Days</button>
+                            <button class="ilot-preset"                    data-preset="nexp"      onclick="ilotPreset('nexp',this)">No Expiry</button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:6px;margin-left:auto;flex-wrap:wrap;">
+                            <span style="font-size:.74rem;color:#a0aec0;white-space:nowrap;">Custom range:</span>
+                            <input type="number" id="ilot-days-from" placeholder="From day" title="e.g. 0 = today, -30 = expired 30d ago"
+                                style="width:90px;padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.8rem;">
+                            <span style="color:#cbd5e0;">→</span>
+                            <input type="number" id="ilot-days-to" placeholder="To day" title="e.g. 30 = expiring within 30 days"
+                                style="width:90px;padding:4px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.8rem;">
+                            <button onclick="ilotApplyCustomDays()"
+                                style="padding:4px 12px;background:#4f46e5;color:white;border:none;border-radius:6px;cursor:pointer;font-size:.76rem;font-weight:600;font-family:inherit;">
+                                Apply
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results card with Grid / Charts tabs -->
+                <div class="data-card" style="flex:1;">
+
+                    <!-- Tab bar + grid search + count all in one row -->
+                    <div style="display:flex;align-items:center;justify-content:space-between;padding:0 4px 0 0;border-bottom:1px solid #f0f4f8;">
+                        <div class="ilot-tab-bar" style="border-bottom:none;">
+                            <button class="ilot-tab ilot-tab-active" id="ilot-tab-grid"   onclick="switchIlotTab('grid')">
+                                <i class="fa-solid fa-table"></i> Grid
+                            </button>
+                            <button class="ilot-tab"                 id="ilot-tab-charts" onclick="switchIlotTab('charts')">
+                                <i class="fa-solid fa-chart-bar"></i> Charts
+                            </button>
+                        </div>
+                        <div style="display:flex;align-items:center;gap:8px;padding:8px 12px;">
                             <input type="text" id="ilot-grid-search" placeholder="Filter results…"
                                 oninput="filterItemLots(this.value)"
                                 style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;width:180px;">
                             <span class="record-count" id="ilot-count">0 records</span>
                         </div>
                     </div>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Org</th>
-                                    <th>Item Number</th>
-                                    <th>Description</th>
-                                    <th>Lot Number</th>
-                                    <th>Status</th>
-                                    <th>Active</th>
-                                    <th>Origination Date</th>
-                                    <th>Expiration Date</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ilot-tbody">
-                                <tr><td colspan="9">
-                                    <div class="empty-state">
-                                        <i class="fa-solid fa-cube"></i>
-                                        <p>Select an organization and click Search.</p>
-                                    </div>
-                                </td></tr>
-                            </tbody>
-                        </table>
+
+                    <!-- Grid tab -->
+                    <div id="ilot-body-grid" class="ilot-tab-body ilot-tab-active">
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Org</th>
+                                        <th>Item Number</th>
+                                        <th>Description</th>
+                                        <th>Lot</th>
+                                        <th>Status</th>
+                                        <th>Origination Date</th>
+                                        <th>Expiration Date</th>
+                                        <th>Days to Expiry</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="ilot-tbody">
+                                    <tr><td colspan="9">
+                                        <div class="empty-state">
+                                            <i class="fa-solid fa-cube"></i>
+                                            <p>Select an organization and click Search.</p>
+                                        </div>
+                                    </td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
+
+                    <!-- Charts tab -->
+                    <div id="ilot-body-charts" class="ilot-tab-body" style="overflow-y:auto;">
+                        <div class="charts-grid" id="ilot-charts-grid" style="padding:16px;">
+                            <div class="chart-card">
+                                <h4><i class="fa-solid fa-bars" style="color:#4f46e5;"></i> Expiry Distribution</h4>
+                                <canvas id="ilot-chart-dist"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4><i class="fa-solid fa-triangle-exclamation" style="color:#dc2626;"></i> Top 15 Expiring Soonest</h4>
+                                <canvas id="ilot-chart-soonest"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4><i class="fa-solid fa-calendar-days" style="color:#0891b2;"></i> Lots Expiring by Month (next 12)</h4>
+                                <canvas id="ilot-chart-bymonth"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4><i class="fa-solid fa-circle-half-stroke" style="color:#059669;"></i> Lot Status Breakdown</h4>
+                                <canvas id="ilot-chart-status"></canvas>
+                            </div>
+                        </div>
+                        <div id="ilot-charts-empty" style="display:none;flex:1;align-items:center;justify-content:center;">
+                            <div class="empty-state"><i class="fa-solid fa-chart-bar"></i><p>Run a search first to see charts.</p></div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -2921,37 +3033,258 @@
         // ════════════════════════════════════════════════════════════
         // INVENTORY ITEM LOTS
         // ════════════════════════════════════════════════════════════
-        var _ilotAllRows = [];
+        var _ilotAllRows    = [];    // raw fetched rows (+ computed _days field)
+        var _ilotActiveRows = [];    // after days-range filter
+        var _ilotChartRefs  = {};
+        var _ilotChartsBuilt = false;
+        var _ilotDaysFrom   = null;  // current days filter (null = no filter)
+        var _ilotDaysTo     = null;
+
+        // ── Helpers ──────────────────────────────────────────────
+        function _ilotCalcDays(r) {
+            if (!r.ExpirationDate) return null;
+            var today = new Date(); today.setHours(0,0,0,0);
+            var exp   = new Date(r.ExpirationDate); exp.setHours(0,0,0,0);
+            return Math.ceil((exp - today) / 86400000);
+        }
+
+        function _ilotDaysBadge(days) {
+            if (days === null) return '<span class="days-badge days-none">No Expiry</span>';
+            if (days < 0)    return '<span class="days-badge days-expired">Expired ' + Math.abs(days) + 'd ago</span>';
+            if (days === 0)  return '<span class="days-badge days-critical">Expires Today</span>';
+            if (days <= 7)   return '<span class="days-badge days-critical">' + days + ' days</span>';
+            if (days <= 30)  return '<span class="days-badge days-warning">'  + days + ' days</span>';
+            if (days <= 90)  return '<span class="days-badge days-caution">'  + days + ' days</span>';
+            if (days <= 365) return '<span class="days-badge days-ok">'       + days + ' days</span>';
+            return '<span class="days-badge days-good">' + days + ' days</span>';
+        }
 
         function _ilotRow(r, i) {
-            var origDate  = r.OriginationDate ? r.OriginationDate.slice(0,10) : '—';
-            var expDate   = r.ExpirationDate  ? r.ExpirationDate.slice(0,10)  : '—';
-            var isExpired = r.ExpirationDate && new Date(r.ExpirationDate) < new Date();
-            var status    = r.StatusCode || '—';
+            var origDate = r.OriginationDate ? r.OriginationDate.slice(0,10) : '—';
+            var expDate  = r.ExpirationDate  ? r.ExpirationDate.slice(0,10)  : '—';
+            var days     = r._days;
+            var status   = r.StatusCode || '—';
+            var expStyle = (days !== null && days < 0) ? 'color:#dc2626;font-weight:600;' : '';
             return '<tr>' +
                 '<td style="color:#a0aec0;">' + (i+1) + '</td>' +
                 '<td>' + (r.OrganizationCode||'') + '</td>' +
                 '<td><strong>' + (r.ItemNumber||'') + '</strong></td>' +
-                '<td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.ItemDescription||'') + '">' + (r.ItemDescription||'') + '</td>' +
+                '<td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.ItemDescription||'') + '">' + (r.ItemDescription||'') + '</td>' +
                 '<td><span class="lot-chip">' + (r.LotNumber||'') + '</span></td>' +
                 '<td><span style="font-weight:600;font-size:.78rem;color:' + (status==='Active'?'#00b894':'#e53e3e') + ';">' + status + '</span></td>' +
-                '<td style="font-size:.8rem;">' + (r.ActiveLot||'—') + '</td>' +
                 '<td>' + origDate + '</td>' +
-                '<td style="' + (isExpired?'color:#e53e3e;font-weight:600;':'') + '">' + expDate + '</td>' +
+                '<td style="' + expStyle + '">' + expDate + '</td>' +
+                '<td>' + _ilotDaysBadge(days) + '</td>' +
                 '</tr>';
         }
 
-        function _ilotRender(rows, resetSearch) {
-            if (resetSearch) document.getElementById('ilot-grid-search').value = '';
-            document.getElementById('ilot-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
+        // ── KPI strip ─────────────────────────────────────────────
+        function _ilotRenderKpi(rows) {
+            var total = rows.length;
+            var expired = 0, today = 0, within7 = 0, within30 = 0, within90 = 0, noExp = 0;
+            rows.forEach(function(r) {
+                var d = r._days;
+                if (d === null)   { noExp++; return; }
+                if (d < 0)        expired++;
+                if (d === 0)      today++;
+                if (d >= 0 && d <= 7)   within7++;
+                if (d >= 0 && d <= 30)  within30++;
+                if (d >= 0 && d <= 90)  within90++;
+            });
+            function k(val, lbl, bg, fg, bc) {
+                return '<div class="ilot-kpi" style="background:' + bg + ';color:' + fg + ';border-color:' + bc + ';">' +
+                    '<div class="ilot-kpi-val">' + val + '</div>' +
+                    '<div class="ilot-kpi-lbl">' + lbl + '</div></div>';
+            }
+            document.getElementById('ilot-kpi-strip').innerHTML =
+                k(total,    'Total Lots',      '#f0f4f8','#4a5568','#e2e8f0') +
+                k(expired,  'Expired',         '#fee2e2','#dc2626','#fecaca') +
+                k(today,    'Expires Today',   '#ffedd5','#c2410c','#fed7aa') +
+                k(within7,  'Within 7 Days',   '#ffedd5','#c2410c','#fed7aa') +
+                k(within30, 'Within 30 Days',  '#fef9c3','#854d0e','#fef08a') +
+                k(within90, 'Within 90 Days',  '#fef3c7','#92400e','#fde68a') +
+                k(noExp,    'No Expiry',        '#f0f4f8','#718096','#e2e8f0');
+        }
+
+        // ── Apply filters & re-render ─────────────────────────────
+        function _ilotApplyFilters(resetSearch) {
+            // Days range filter
+            var rows = _ilotAllRows.filter(function(r) {
+                var d = r._days;
+                if (_ilotDaysFrom !== null && (d === null || d < _ilotDaysFrom)) return false;
+                if (_ilotDaysTo   !== null && (d === null || d > _ilotDaysTo))   return false;
+                return true;
+            });
+            _ilotActiveRows = rows;
+
+            // Text search filter on top
+            var q = (document.getElementById('ilot-grid-search').value || '').toLowerCase();
+            if (resetSearch) { q = ''; document.getElementById('ilot-grid-search').value = ''; }
+            var displayed = q ? rows.filter(function(r) {
+                return ((r.ItemNumber||'')+(r.ItemDescription||'')+(r.LotNumber||'')+(r.OrganizationCode||'')).toLowerCase().indexOf(q) !== -1;
+            }) : rows;
+
+            document.getElementById('ilot-count').textContent = displayed.length + ' record' + (displayed.length !== 1 ? 's' : '');
             var tbody = document.getElementById('ilot-tbody');
-            if (!rows.length) {
-                tbody.innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>No lot records found.</p></div></td></tr>';
+            tbody.innerHTML = displayed.length
+                ? displayed.map(_ilotRow).join('')
+                : '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>No records match.</p></div></td></tr>';
+
+            _ilotRenderKpi(_ilotActiveRows);
+
+            // Rebuild charts if visible
+            if (document.getElementById('ilot-tab-charts').classList.contains('ilot-tab-active')) {
+                _ilotBuildCharts(_ilotActiveRows);
             } else {
-                tbody.innerHTML = rows.map(_ilotRow).join('');
+                _ilotChartsBuilt = false;
             }
         }
 
+        // ── Days preset buttons ───────────────────────────────────
+        function ilotPreset(preset, btn) {
+            document.querySelectorAll('.ilot-preset').forEach(function(b){ b.classList.remove('ilot-preset-active'); });
+            btn.classList.add('ilot-preset-active');
+            document.getElementById('ilot-days-from').value = '';
+            document.getElementById('ilot-days-to').value   = '';
+
+            if (preset === 'all')     { _ilotDaysFrom = null; _ilotDaysTo = null; }
+            else if (preset === 'expired') { _ilotDaysFrom = null; _ilotDaysTo = -1; }
+            else if (preset === 'today')   { _ilotDaysFrom = 0;    _ilotDaysTo = 0; }
+            else if (preset === 'nexp')    { _ilotDaysFrom = null; _ilotDaysTo = null;
+                // special: filter rows where _days === null
+                _ilotActiveRows = _ilotAllRows.filter(function(r){ return r._days === null; });
+                document.getElementById('ilot-count').textContent = _ilotActiveRows.length + ' records';
+                document.getElementById('ilot-tbody').innerHTML = _ilotActiveRows.length
+                    ? _ilotActiveRows.map(_ilotRow).join('')
+                    : '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>No lots without expiry.</p></div></td></tr>';
+                _ilotRenderKpi(_ilotActiveRows);
+                if (document.getElementById('ilot-tab-charts').classList.contains('ilot-tab-active')) _ilotBuildCharts(_ilotActiveRows);
+                else _ilotChartsBuilt = false;
+                return;
+            }
+            else { _ilotDaysFrom = 0; _ilotDaysTo = parseInt(preset); }
+
+            _ilotApplyFilters(false);
+        }
+
+        function ilotApplyCustomDays() {
+            var f = document.getElementById('ilot-days-from').value;
+            var t = document.getElementById('ilot-days-to').value;
+            _ilotDaysFrom = f !== '' ? parseInt(f) : null;
+            _ilotDaysTo   = t !== '' ? parseInt(t) : null;
+            document.querySelectorAll('.ilot-preset').forEach(function(b){ b.classList.remove('ilot-preset-active'); });
+            _ilotApplyFilters(false);
+        }
+
+        // ── Text search (stacks on top of days filter) ────────────
+        function filterItemLots(val) {
+            var q = (val || '').toLowerCase();
+            var rows = q ? _ilotActiveRows.filter(function(r) {
+                return ((r.ItemNumber||'')+(r.ItemDescription||'')+(r.LotNumber||'')+(r.OrganizationCode||'')).toLowerCase().indexOf(q) !== -1;
+            }) : _ilotActiveRows;
+            document.getElementById('ilot-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
+            document.getElementById('ilot-tbody').innerHTML = rows.length
+                ? rows.map(_ilotRow).join('')
+                : '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>No records match.</p></div></td></tr>';
+        }
+
+        // ── Tabs ─────────────────────────────────────────────────
+        function switchIlotTab(tab) {
+            document.getElementById('ilot-tab-grid').classList.toggle('ilot-tab-active',   tab === 'grid');
+            document.getElementById('ilot-tab-charts').classList.toggle('ilot-tab-active', tab === 'charts');
+            document.getElementById('ilot-body-grid').classList.toggle('ilot-tab-active',   tab === 'grid');
+            document.getElementById('ilot-body-charts').classList.toggle('ilot-tab-active', tab === 'charts');
+            if (tab === 'charts') {
+                if (!_ilotActiveRows.length) {
+                    document.getElementById('ilot-charts-grid').style.display  = 'none';
+                    document.getElementById('ilot-charts-empty').style.display = 'flex';
+                } else {
+                    document.getElementById('ilot-charts-grid').style.display  = '';
+                    document.getElementById('ilot-charts-empty').style.display = 'none';
+                    if (!_ilotChartsBuilt) { _ilotBuildCharts(_ilotActiveRows); _ilotChartsBuilt = true; }
+                }
+            }
+        }
+
+        // ── Charts ───────────────────────────────────────────────
+        function _ilotBuildCharts(rows) {
+            Object.keys(_ilotChartRefs).forEach(function(k){
+                if (_ilotChartRefs[k]) { _ilotChartRefs[k].destroy(); delete _ilotChartRefs[k]; }
+            });
+
+            // Chart 1 — Expiry distribution buckets
+            var buckets = { 'Expired': 0, 'Today': 0, '1–7 Days': 0, '8–30 Days': 0,
+                            '31–90 Days': 0, '91–180 Days': 0, '181–365 Days': 0, '> 365 Days': 0, 'No Expiry': 0 };
+            rows.forEach(function(r) {
+                var d = r._days;
+                if (d === null)       buckets['No Expiry']++;
+                else if (d < 0)       buckets['Expired']++;
+                else if (d === 0)     buckets['Today']++;
+                else if (d <= 7)      buckets['1–7 Days']++;
+                else if (d <= 30)     buckets['8–30 Days']++;
+                else if (d <= 90)     buckets['31–90 Days']++;
+                else if (d <= 180)    buckets['91–180 Days']++;
+                else if (d <= 365)    buckets['181–365 Days']++;
+                else                  buckets['> 365 Days']++;
+            });
+            var bLabels = Object.keys(buckets);
+            var bColors = ['#dc2626','#f97316','#f97316','#f59e0b','#eab308','#84cc16','#22c55e','#10b981','#a0aec0'];
+            _ilotMakeChart('ilot-chart-dist', 'bar', bLabels, [{
+                label: 'Lots', data: bLabels.map(function(l){return buckets[l];}), backgroundColor: bColors
+            }], { scales: { y: { beginAtZero: true } } });
+
+            // Chart 2 — Top 15 expiring soonest (days >= 0, sorted ascending)
+            var soonest = rows.filter(function(r){ return r._days !== null && r._days >= 0; })
+                .sort(function(a,b){ return a._days - b._days; }).slice(0,15);
+            _ilotMakeChart('ilot-chart-soonest', 'bar',
+                soonest.map(function(r){ return (r.ItemNumber||'') + ' / ' + (r.LotNumber||''); }),
+                [{ label: 'Days to Expiry', data: soonest.map(function(r){ return r._days; }),
+                   backgroundColor: soonest.map(function(r){
+                       return r._days <= 7 ? '#dc2626' : r._days <= 30 ? '#f59e0b' : r._days <= 90 ? '#eab308' : '#22c55e';
+                   }) }],
+                { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
+
+            // Chart 3 — Lots expiring by month (next 12 months)
+            var today = new Date(); today.setHours(0,0,0,0);
+            var monthBuckets = {};
+            for (var m = 0; m < 12; m++) {
+                var d2 = new Date(today.getFullYear(), today.getMonth() + m, 1);
+                var key = d2.toLocaleString('default', { month: 'short', year: '2-digit' });
+                monthBuckets[key] = 0;
+            }
+            rows.forEach(function(r) {
+                if (!r.ExpirationDate || r._days === null || r._days < 0) return;
+                var exp = new Date(r.ExpirationDate);
+                var key = exp.toLocaleString('default', { month: 'short', year: '2-digit' });
+                if (monthBuckets.hasOwnProperty(key)) monthBuckets[key]++;
+            });
+            _ilotMakeChart('ilot-chart-bymonth', 'bar', Object.keys(monthBuckets), [{
+                label: 'Lots Expiring', data: Object.values(monthBuckets), backgroundColor: '#818cf8',
+                borderColor: '#4f46e5', borderWidth: 1
+            }], { scales: { y: { beginAtZero: true } } });
+
+            // Chart 4 — Status breakdown (doughnut)
+            var statusMap = {};
+            rows.forEach(function(r) {
+                var s = r.StatusCode || 'Unknown';
+                statusMap[s] = (statusMap[s] || 0) + 1;
+            });
+            var palette = ['#22c55e','#ef4444','#f59e0b','#818cf8','#a0aec0'];
+            _ilotMakeChart('ilot-chart-status', 'doughnut', Object.keys(statusMap),
+                [{ data: Object.values(statusMap), backgroundColor: palette }],
+                { plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } } });
+
+            _ilotChartsBuilt = true;
+        }
+
+        function _ilotMakeChart(id, type, labels, datasets, extraOpts) {
+            var ctx = document.getElementById(id); if (!ctx) return;
+            if (_ilotChartRefs[id]) { _ilotChartRefs[id].destroy(); }
+            var opts = Object.assign({ responsive: true, plugins: { legend: { display: type !== 'bar' } } }, extraOpts||{});
+            _ilotChartRefs[id] = new Chart(ctx, { type: type, data: { labels: labels, datasets: datasets }, options: opts });
+        }
+
+        // ── Fetch (paginated) ─────────────────────────────────────
         function queryItemLots() {
             var sel  = document.getElementById('ilot-org');
             var orgCode = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.code || sel.value : '';
@@ -2970,11 +3303,15 @@
             document.getElementById('ilot-tbody').innerHTML =
                 '<tr><td colspan="9"><div class="loading-state"><div class="spinner"></div> Loading lots…</div></td></tr>';
             document.getElementById('ilot-count').textContent = 'Loading…';
+            document.getElementById('ilot-controls').style.display = 'none';
 
-            _ilotAllRows = [];
-            var pageSize = 300;
-            var offset   = 0;
-            var pageNum  = 1;
+            _ilotAllRows = []; _ilotActiveRows = [];
+            _ilotDaysFrom = null; _ilotDaysTo = null;
+            _ilotChartsBuilt = false;
+            document.querySelectorAll('.ilot-preset').forEach(function(b){ b.classList.remove('ilot-preset-active'); });
+            document.querySelector('.ilot-preset[data-preset="all"]').classList.add('ilot-preset-active');
+
+            var pageSize = 300, offset = 0, pageNum = 1;
 
             function fetchIlotPage() {
                 var url = FUSION_BASE + '/inventoryItemLots?q=' + q + '&limit=' + pageSize + '&offset=' + offset;
@@ -2989,16 +3326,16 @@
                     if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
                     var page = (payload && payload.items) ? payload.items : [];
                     _ilotAllRows = _ilotAllRows.concat(page);
-
-                    document.getElementById('ilot-count').textContent =
-                        'Page ' + pageNum + ' — ' + _ilotAllRows.length + ' records…';
+                    document.getElementById('ilot-count').textContent = 'Page ' + pageNum + ' — ' + _ilotAllRows.length + ' records…';
 
                     if (payload && payload.hasMore && page.length) {
-                        offset  += pageSize;
-                        pageNum += 1;
+                        offset += pageSize; pageNum++;
                         fetchIlotPage();
                     } else {
-                        // Client-side expiry filter
+                        // Compute _days for each row
+                        _ilotAllRows.forEach(function(r) { r._days = _ilotCalcDays(r); });
+
+                        // Date filter (from API filter-bar)
                         if (expFrom || expTo) {
                             _ilotAllRows = _ilotAllRows.filter(function(r) {
                                 var d = r.ExpirationDate ? r.ExpirationDate.slice(0,10) : '';
@@ -3007,31 +3344,27 @@
                                 return true;
                             });
                         }
-                        _ilotRender(_ilotAllRows, true);
+
+                        _ilotActiveRows = _ilotAllRows.slice();
+                        document.getElementById('ilot-controls').style.display = 'flex';
+                        _ilotApplyFilters(true);
                     }
                 });
             }
-
             fetchIlotPage();
         }
 
-        function filterItemLots(val) {
-            var q = (val || '').toLowerCase();
-            var rows = q ? _ilotAllRows.filter(function(r) {
-                return ((r.ItemNumber||'')+(r.ItemDescription||'')+(r.LotNumber||'')+(r.OrganizationCode||'')).toLowerCase().indexOf(q) !== -1;
-            }) : _ilotAllRows;
-            document.getElementById('ilot-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
-            document.getElementById('ilot-tbody').innerHTML = rows.length
-                ? rows.map(_ilotRow).join('')
-                : '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>No records match.</p></div></td></tr>';
-        }
-
         function clearItemLots() {
-            ['ilot-org','ilot-item','ilot-lot','ilot-exp-from','ilot-exp-to'].forEach(function(id){
+            ['ilot-org','ilot-item','ilot-lot','ilot-exp-from','ilot-exp-to','ilot-days-from','ilot-days-to'].forEach(function(id){
                 var el = document.getElementById(id); if (el) el.value = '';
             });
-            _ilotAllRows = [];
-            _ilotRender([], true);
+            _ilotAllRows = []; _ilotActiveRows = [];
+            _ilotDaysFrom = null; _ilotDaysTo = null;
+            _ilotChartsBuilt = false;
+            document.getElementById('ilot-controls').style.display = 'none';
+            document.getElementById('ilot-count').textContent = '0 records';
+            document.getElementById('ilot-tbody').innerHTML = '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-cube"></i><p>Select an organization and click Search.</p></div></td></tr>';
+            document.getElementById('ilot-kpi-strip').innerHTML = '';
         }
 
         function _makeChart(canvasId, type, labels, datasets, extraOpts) {
