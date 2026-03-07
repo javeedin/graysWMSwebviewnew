@@ -890,11 +890,11 @@
             if (subinv)   qParts.push('SubinventoryCode=' + encodeURIComponent(subinv));
             if (item)     qParts.push('Item=' + encodeURIComponent(item));
             if (txnType)  qParts.push('TransactionTypeId=' + encodeURIComponent(txnType));
-            if (dateFrom) qParts.push('TransactionDate>="' + dateFrom + 'T00:00:00+00:00"');
-            if (dateTo)   qParts.push('TransactionDate<="' + dateTo   + 'T23:59:59+00:00"');
+            if (dateFrom) qParts.push('TransactionDate>="' + dateFrom + 'T00:00:00.000+00:00"');
+            if (dateTo)   qParts.push('TransactionDate<="' + dateTo   + 'T23:59:59.999+00:00"');
             if (ref)      qParts.push('Reference=' + encodeURIComponent(ref));
 
-            var url = FUSION_BASE + '/inventoryTransactions?q=' + qParts.join(';') + '&limit=500';
+            var url = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';') + '&limit=500';
             document.getElementById('txn-api-url-txt').textContent = url;
 
             _setTxnLoading(true);
