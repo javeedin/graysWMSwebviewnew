@@ -1034,7 +1034,8 @@
             var sel = document.getElementById('txn-subinv');
             sel.innerHTML = '<option value="">— All —</option>' +
                 items.map(function(s) {
-                    return '<option value="' + s.SubinventoryCode + '">' + s.SubinventoryCode + '</option>';
+                    var code = s.SecondaryInventoryName || s.SubinventoryCode || '';
+                    return '<option value="' + code + '">' + code + '</option>';
                 }).join('');
         }
 
