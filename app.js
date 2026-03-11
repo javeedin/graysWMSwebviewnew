@@ -2107,62 +2107,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }, 100);
     }
 
-    // Remove a single order line from a trip via REST API
-    window.removeTripLine = function(orderNumber, tripId, tabId) {
-        if (!orderNumber) {
-            alert('Order number not found for this row.');
-            return;
-        }
-
-        if (!confirm(`Remove order ${orderNumber} from this trip?\n\nThis action cannot be undone.`)) {
-            return;
-        }
-
-        const instanceName = currentParams.instance || 'TEST';
-        const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/deletetripline?P_ORDER_NUMBER=${encodeURIComponent(orderNumber)}&P_INSTANCE_NAME=${encodeURIComponent(instanceName)}`;
-
-        sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(error, data) {
-            if (error) {
-                alert('Failed to remove order: ' + error);
-                return;
-            }
-
-            try {
-                const result = typeof data === 'string' ? JSON.parse(data) : data;
-                if (result && result.status === 'error') {
-                    alert('Error: ' + (result.message || 'Unknown error'));
-                    return;
-                }
-            } catch (e) { /* non-JSON response treated as success */ }
-
-            // Remove matching rows from global data
-            currentFullData = currentFullData.filter(row => {
-                const rowOrder = (row.ORDER_NUMBER || row.order_number || '').toString();
-                return rowOrder !== orderNumber.toString();
-            });
-            window.currentFullData = currentFullData;
-
-            // Re-filter for this trip and refresh grid
-            const newTripData = currentFullData.filter(trip => {
-                const id1 = (trip.trip_id || '').toString().toLowerCase();
-                const id2 = (trip.TRIP_ID || '').toString().toLowerCase();
-                return id1 === tripId.toLowerCase() || id2 === tripId.toLowerCase();
-            });
-
-            const gridInstance = $(`#grid-${tabId}`).dxDataGrid('instance');
-            if (gridInstance) {
-                gridInstance.option('dataSource', newTripData);
-            }
-
-            // Show success toast
-            const toast = document.createElement('div');
-            toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#10b981;color:white;padding:10px 18px;border-radius:8px;font-size:0.8rem;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
-            toast.textContent = `Order ${orderNumber} removed from trip successfully`;
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 3500);
-        });
-    };
-
     // Use stored tripMap for better data access
     window.openTripDetails = function(tripId, tripDate, lorryNumber) {
         console.log('[JS] Opening trip details for:', tripId);
@@ -2325,42 +2269,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 return col;
             });
-
-            // Prepend the Remove action column
-            columns.unshift({
-                caption: 'Action',
-                width: 90,
-                fixed: true,
-                fixedPosition: 'left',
-                allowFiltering: false,
-                allowSorting: false,
-                allowResizing: false,
-                allowReordering: false,
-                cellTemplate: (container, options) => {
-                    const orderNumber = (options.data.ORDER_NUMBER || options.data.order_number || '').toString();
-                    $('<button>')
-                        .css({
-                            background: '#ef4444',
-                            color: 'white',
-                            border: 'none',
-                            padding: '3px 8px',
-                            borderRadius: '4px',
-                            cursor: 'pointer',
-                            fontSize: '0.7rem',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            whiteSpace: 'nowrap'
-                        })
-                        .html('<i class="fas fa-trash-alt"></i> Remove')
-                        .on('click', function(e) {
-                            e.stopPropagation();
-                            window.removeTripLine(orderNumber, tripId, tabId);
-                        })
-                        .appendTo(container);
-                }
-            });
-
+            
             gridContainer.dxDataGrid({
                 dataSource: tripData,
                 columns: columns,
