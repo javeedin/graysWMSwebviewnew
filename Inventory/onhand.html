@@ -1192,9 +1192,21 @@
                             <option value="">— Select —</option>
                         </select>
                     </div>
-                    <div class="filter-group">
-                        <label>Item Number</label>
-                        <input type="text" id="onhand-item" placeholder="e.g. AS12345">
+                    <div class="filter-group" style="min-width:260px;flex:1;">
+                        <label>Item Search <span style="color:#718096;font-weight:400;font-size:.75rem;">(type to search, select multiple)</span></label>
+                        <div style="position:relative;">
+                            <input type="text" id="onhand-item-search" placeholder="Type item no. or description…"
+                                oninput="_onhandItemAcSearch(this.value)"
+                                onkeydown="_onhandItemAcKey(event)"
+                                autocomplete="off"
+                                style="width:100%;padding:7px 32px 7px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;">
+                            <span id="onhand-item-search-spin" style="display:none;position:absolute;right:8px;top:50%;transform:translateY(-50%);color:#7c3aed;">
+                                <i class="fa-solid fa-spinner fa-spin" style="font-size:.8rem;"></i>
+                            </span>
+                            <div id="onhand-item-ac-drop" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #e2e8f0;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.12);max-height:260px;overflow-y:auto;z-index:9000;margin-top:2px;"></div>
+                        </div>
+                        <!-- Selected item chips -->
+                        <div id="onhand-item-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;min-height:0;"></div>
                     </div>
                     <button class="btn-search" onclick="queryOnhand()">
                         <i class="fa-solid fa-magnifying-glass"></i> Search
@@ -2186,6 +2198,120 @@
             bar.style.display = (bar.style.display === 'none') ? 'block' : 'none';
         }
 
+        // ── Multi-item picker for Onhand search ──────────────────
+        var _onhandSelectedItems = [];   // [{item_number, description}, ...]
+        var _onhandAcTimer       = null;
+        var _onhandAcActive      = -1;
+
+        var ONHAND_ITEM_SEARCH_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/queryfusionitems';
+
+        function _onhandItemAcSearch(val) {
+            clearTimeout(_onhandAcTimer);
+            var drop = document.getElementById('onhand-item-ac-drop');
+            val = (val || '').trim();
+            if (val.length < 2) { drop.style.display = 'none'; _onhandAcActive = -1; return; }
+            _onhandAcTimer = setTimeout(function () {
+                var spin = document.getElementById('onhand-item-search-spin');
+                if (spin) spin.style.display = 'inline-block';
+                var url = ONHAND_ITEM_SEARCH_URL + '?P_ITEM_DESC=' + encodeURIComponent(val);
+                _invSendToCS({ action: 'executeGet', fullUrl: url }, function (err, data) {
+                    if (spin) spin.style.display = 'none';
+                    var items = [];
+                    if (!err && data) {
+                        var payload = typeof data === 'string' ? JSON.parse(data) : data;
+                        items = Array.isArray(payload) ? payload : (payload.items || payload.rows || []);
+                    }
+                    _onhandRenderAcDrop(items);
+                });
+            }, 320);
+        }
+
+        function _onhandRenderAcDrop(items) {
+            var drop = document.getElementById('onhand-item-ac-drop');
+            _onhandAcActive = -1;
+            if (!items.length) {
+                drop.style.display = 'none';
+                return;
+            }
+            drop.innerHTML = items.map(function (it, idx) {
+                var num  = it.item_number || '';
+                var desc = it.description || '';
+                var alreadySelected = _onhandSelectedItems.some(function (s) { return s.item_number === num; });
+                return '<div data-idx="' + idx + '" data-num="' + num + '" data-desc="' + desc.replace(/"/g,'&quot;') + '"' +
+                    ' onclick="_onhandAcSelect(this)"' +
+                    ' style="padding:8px 12px;cursor:pointer;font-size:.82rem;display:flex;justify-content:space-between;align-items:center;' +
+                        (alreadySelected ? 'background:#f0fdf4;color:#16a34a;' : '') + '"' +
+                    ' onmouseover="this.style.background=this.style.background||\'#f7f7fd\'"' +
+                    ' onmouseout="this.style.background=' + (alreadySelected ? "'#f0fdf4'" : "''") + '">' +
+                    '<div>' +
+                        '<div style="font-weight:600;color:#2d3748;">' + num + (alreadySelected ? ' <i class="fa-solid fa-check" style="color:#16a34a;font-size:.7rem;"></i>' : '') + '</div>' +
+                        '<div style="color:#718096;font-size:.75rem;">' + desc + '</div>' +
+                    '</div>' +
+                    '</div>';
+            }).join('<div style="height:1px;background:#f0f0f0;margin:0 8px;"></div>');
+            drop.style.display = 'block';
+            drop._items = items;
+        }
+
+        function _onhandAcSelect(el) {
+            var num  = el.dataset.num;
+            var desc = el.dataset.desc;
+            if (!_onhandSelectedItems.some(function (s) { return s.item_number === num; })) {
+                _onhandSelectedItems.push({ item_number: num, description: desc });
+                _onhandRenderChips();
+            }
+            document.getElementById('onhand-item-search').value = '';
+            document.getElementById('onhand-item-ac-drop').style.display = 'none';
+            _onhandAcActive = -1;
+        }
+
+        function _onhandItemAcKey(e) {
+            var drop = document.getElementById('onhand-item-ac-drop');
+            var rows = drop.querySelectorAll('[data-idx]');
+            if (e.key === 'ArrowDown') {
+                _onhandAcActive = Math.min(_onhandAcActive + 1, rows.length - 1);
+                rows.forEach(function (r, i) { r.style.background = i === _onhandAcActive ? '#eef2ff' : ''; });
+                e.preventDefault();
+            } else if (e.key === 'ArrowUp') {
+                _onhandAcActive = Math.max(_onhandAcActive - 1, 0);
+                rows.forEach(function (r, i) { r.style.background = i === _onhandAcActive ? '#eef2ff' : ''; });
+                e.preventDefault();
+            } else if (e.key === 'Enter' && _onhandAcActive >= 0 && rows[_onhandAcActive]) {
+                _onhandAcSelect(rows[_onhandAcActive]);
+                e.preventDefault();
+            } else if (e.key === 'Escape') {
+                drop.style.display = 'none';
+                _onhandAcActive = -1;
+            }
+        }
+
+        function _onhandRenderChips() {
+            var wrap = document.getElementById('onhand-item-chips');
+            if (!_onhandSelectedItems.length) { wrap.innerHTML = ''; return; }
+            wrap.innerHTML = _onhandSelectedItems.map(function (it, i) {
+                return '<span style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;">' +
+                    it.item_number +
+                    '<button onclick="_onhandRemoveChip(' + i + ')" style="background:none;border:none;cursor:pointer;color:#6366f1;padding:0;line-height:1;font-size:.75rem;" title="Remove">' +
+                        '<i class="fa-solid fa-xmark"></i>' +
+                    '</button>' +
+                '</span>';
+            }).join('');
+        }
+
+        function _onhandRemoveChip(idx) {
+            _onhandSelectedItems.splice(idx, 1);
+            _onhandRenderChips();
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function (e) {
+            var drop = document.getElementById('onhand-item-ac-drop');
+            var inp  = document.getElementById('onhand-item-search');
+            if (drop && inp && !inp.contains(e.target) && !drop.contains(e.target)) {
+                drop.style.display = 'none';
+            }
+        });
+
         // ── Onhand pagination state ───────────────────────────────
         var _onhandAllRaw    = [];   // all raw API rows fetched so far
         var _onhandCurrentQ  = '';
@@ -2278,12 +2404,10 @@
 
         // ── Query Onhand ─────────────────────────────────────
         function queryOnhand() {
-            var tbody    = document.getElementById('onhand-tbody');
-            var orgSel   = document.getElementById('onhand-org');
-            var orgId    = orgSel.value;
-            var orgCode  = orgId ? (orgSel.options[orgSel.selectedIndex].dataset.code || '') : '';
-            var subinv   = document.getElementById('onhand-subinv').value;
-            var item     = document.getElementById('onhand-item').value.trim();
+            var tbody   = document.getElementById('onhand-tbody');
+            var orgSel  = document.getElementById('onhand-org');
+            var orgCode = orgSel.value ? (orgSel.options[orgSel.selectedIndex].dataset.code || '') : '';
+            var subinv  = document.getElementById('onhand-subinv').value;
 
             if (!orgCode) {
                 tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-circle-info" style="color:#f59e0b;"></i><p>Please select an <strong>Organization</strong>.</p></div></td></tr>';
@@ -2294,25 +2418,83 @@
                 return;
             }
 
-            // Reset state for new search
-            _onhandAllRaw   = [];
-            _onhandOffset   = 0;
-            _onhandHasMore  = false;
+            // Reset pagination state
+            _onhandAllRaw  = [];
+            _onhandOffset  = 0;
+            _onhandHasMore = false;
             document.getElementById('onhand-next-bar').style.display = 'none';
-
-            var qParts = [];
-            qParts.push('OrganizationCode=' + orgCode);
-            qParts.push('SubinventoryCode=' + subinv);
-            if (item) qParts.push('ItemNumber=' + item);
-            _onhandCurrentQ = qParts.join(';');
-
             document.getElementById('onhand-api-url-bar').style.display = 'block';
 
-            document.getElementById('onhand-count').textContent = 'Fetching...';
-            tbody.innerHTML = '<tr><td colspan="8"><div class="loading-state"><div class="spinner"></div>' +
-                '<span>Fetching first ' + _onhandPageSize + ' records…</span></div></td></tr>';
+            if (_onhandSelectedItems.length > 0) {
+                // ── Multi-item mode: fetch all records for each item sequentially ──
+                var baseQParts = ['OrganizationCode=' + orgCode, 'SubinventoryCode=' + subinv];
+                var itemNumbers = _onhandSelectedItems.map(function (s) { return s.item_number; });
+                var totalItems  = itemNumbers.length;
+                var doneItems   = 0;
 
-            _onhandDoFetch();
+                tbody.innerHTML = '<tr><td colspan="8"><div class="loading-state"><div class="spinner"></div>' +
+                    '<span id="onhand-pg-txt">Fetching item 1 of ' + totalItems + '…</span></div></td></tr>';
+                document.getElementById('onhand-count').textContent = 'Fetching…';
+
+                function fetchItemAllPages(itemNumber, offset, onDone) {
+                    var q   = baseQParts.concat(['ItemNumber=' + itemNumber]).join(';');
+                    var url = FUSION_BASE + '/inventoryOnhandBalances?q=' + q +
+                              '&limit=' + _onhandPageSize + '&offset=' + offset;
+
+                    document.getElementById('onhand-api-url-txt').textContent = url;
+
+                    _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                        if (err) { onDone(err); return; }
+                        var payload = data;
+                        if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                        var pageItems = (payload && payload.items) ? payload.items : [];
+                        _onhandAllRaw = _onhandAllRaw.concat(pageItems);
+
+                        var pgTxt = document.getElementById('onhand-pg-txt');
+                        if (pgTxt) pgTxt.textContent = 'Item ' + (doneItems + 1) + '/' + totalItems +
+                            ' (' + itemNumber + ') — ' + _onhandAllRaw.length + ' records so far…';
+
+                        if (payload && payload.hasMore && pageItems.length) {
+                            fetchItemAllPages(itemNumber, offset + _onhandPageSize, onDone);
+                        } else {
+                            onDone(null);
+                        }
+                    });
+                }
+
+                function fetchNextItem() {
+                    if (doneItems >= totalItems) {
+                        // All items done — render with no FAB (we fetched everything)
+                        _onhandFinalizePage(false);
+                        return;
+                    }
+                    var itemNumber = itemNumbers[doneItems];
+                    var pgTxt = document.getElementById('onhand-pg-txt');
+                    if (pgTxt) pgTxt.textContent = 'Fetching item ' + (doneItems + 1) + ' of ' + totalItems + ': ' + itemNumber + '…';
+
+                    fetchItemAllPages(itemNumber, 0, function (err) {
+                        if (err) {
+                            // Show error but continue with already-fetched data
+                            console.warn('[Onhand] Error fetching item ' + itemNumber + ':', err);
+                        }
+                        doneItems++;
+                        fetchNextItem();
+                    });
+                }
+
+                fetchNextItem();
+
+            } else {
+                // ── Single-page mode (no item filter): fetch 500, show FAB for more ──
+                var qParts = ['OrganizationCode=' + orgCode, 'SubinventoryCode=' + subinv];
+                _onhandCurrentQ = qParts.join(';');
+
+                document.getElementById('onhand-count').textContent = 'Fetching...';
+                tbody.innerHTML = '<tr><td colspan="8"><div class="loading-state"><div class="spinner"></div>' +
+                    '<span>Fetching first ' + _onhandPageSize + ' records…</span></div></td></tr>';
+
+                _onhandDoFetch();
+            }
         }
 
         var _onhandAllItems = [];   // grouped items from last query, keyed by row index
@@ -2590,17 +2772,21 @@
         }
 
         function clearOnhandSearch() {
-            ['onhand-org','onhand-item'].forEach(function (id) {
-                var el = document.getElementById(id);
-                if (el) el.value = '';
-            });
-            // Reset subinventory back to placeholder
+            var orgSel = document.getElementById('onhand-org');
+            if (orgSel) orgSel.value = '';
             var subinvSel = document.getElementById('onhand-subinv');
-            if (subinvSel) { subinvSel.innerHTML = '<option value="">— Select —</option>'; }
+            if (subinvSel) subinvSel.innerHTML = '<option value="">— Select —</option>';
+            var itemSearch = document.getElementById('onhand-item-search');
+            if (itemSearch) itemSearch.value = '';
+            var acDrop = document.getElementById('onhand-item-ac-drop');
+            if (acDrop) acDrop.style.display = 'none';
+            _onhandSelectedItems = [];
+            _onhandRenderChips();
             document.getElementById('onhand-count').textContent = '0 records';
             document.getElementById('onhand-api-url-bar').style.display = 'none';
             document.getElementById('onhand-api-url-txt').textContent = '—';
             document.getElementById('onhand-grid-search').value = '';
+            document.getElementById('onhand-next-bar').style.display = 'none';
             var statsBar = document.getElementById('onhand-stats');
             if (statsBar) statsBar.style.display = 'none';
             document.getElementById('onhand-tbody').innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fa-solid fa-magnifying-glass-chart"></i><p>Enter search criteria and click Search.</p></div></td></tr>';
