@@ -1284,8 +1284,11 @@
                         <input type="text" id="lot-number" placeholder="Enter lot number...">
                     </div>
                     <div class="filter-group">
-                        <label>Item Number</label>
-                        <input type="text" id="lot-item" placeholder="e.g. AS12345">
+                        <label>Item</label>
+                        <button onclick="openItemPickerModal(_searchLotSelectedItems, function(s){_searchLotSelectedItems=s;_searchLotRenderChips();}, false)" style="display:flex;align-items:center;gap:7px;padding:7px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;cursor:pointer;color:#4f46e5;font-weight:600;" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='#e2e8f0'">
+                            <i class="fa-solid fa-cubes"></i> Select Item…
+                        </button>
+                        <div id="lot-item-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;"></div>
                     </div>
                     <div class="filter-group">
                         <label>Organization</label>
@@ -1365,8 +1368,11 @@
                         <select id="ilot-org"><option value="">— Select Org —</option></select>
                     </div>
                     <div class="filter-group">
-                        <label>Item Number</label>
-                        <input type="text" id="ilot-item" placeholder="e.g. GFI081065065I">
+                        <label>Item</label>
+                        <button onclick="openItemPickerModal(_ilotSelectedItems, function(s){_ilotSelectedItems=s;_ilotRenderChips();}, false)" style="display:flex;align-items:center;gap:7px;padding:7px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;cursor:pointer;color:#4f46e5;font-weight:600;" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='#e2e8f0'">
+                            <i class="fa-solid fa-cubes"></i> Select Item…
+                        </button>
+                        <div id="ilot-item-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;"></div>
                     </div>
                     <div class="filter-group">
                         <label>Lot Number</label>
@@ -2236,22 +2242,27 @@
             bar.style.display = (bar.style.display === 'none') ? 'block' : 'none';
         }
 
-        // ── Item Picker Modal ─────────────────────────────────────
+        // ── Shared Item Picker Modal ──────────────────────────────
         var _onhandSelectedItems  = [];   // [{item_number, description}, ...]
-        var _itemPickerPending    = [];   // temp selections inside the modal
+        var _searchLotSelectedItems = []; // Search Lots — single-item selection
+        var _ilotSelectedItems    = [];   // Item Lots   — single-item selection
+        var _itemPickerPending    = [];   // temp selections inside modal
+        var _itemPickerConfirmCb  = null; // callback(selectedItems) on confirm
+        var _itemPickerMulti      = true; // true = multi-select, false = single
         var _itemPickerSearchTimer = null;
 
         var ONHAND_ITEM_SEARCH_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/queryfusionitems';
 
-        function openItemPickerModal() {
-            // Clone current selection into temp pending so user can add/remove freely
-            _itemPickerPending = _onhandSelectedItems.map(function (x) { return Object.assign({}, x); });
+        // openItemPickerModal(currentItems, confirmCallback, allowMulti)
+        function openItemPickerModal(currentItems, confirmCb, allowMulti) {
+            _itemPickerPending   = (currentItems || []).map(function (x) { return Object.assign({}, x); });
+            _itemPickerConfirmCb = confirmCb || null;
+            _itemPickerMulti     = (allowMulti !== false);
             document.getElementById('item-picker-search-inp').value = '';
             _itemPickerRenderList([]);
             _itemPickerUpdateSelCount();
             document.getElementById('item-picker-footer-txt').textContent = '';
-            var ov = document.getElementById('item-picker-overlay');
-            ov.style.display = 'flex';
+            document.getElementById('item-picker-overlay').style.display = 'flex';
             setTimeout(function () { document.getElementById('item-picker-search-inp').focus(); }, 80);
         }
 
@@ -2309,11 +2320,11 @@
                 return;
             }
             list.innerHTML = items.map(function (it) {
-                var num  = it.item_number  || '';
-                var desc = it.description  || '';
-                var uom  = it.primary_uom_code || '';
+                var num   = it.item_number  || '';
+                var desc  = it.description  || '';
+                var uom   = it.primary_uom_code || '';
                 var brand = it.brand || '';
-                var sel  = _itemPickerPending.some(function (s) { return s.item_number === num; });
+                var sel   = _itemPickerPending.some(function (s) { return s.item_number === num; });
                 return '<div data-num="' + num + '" data-desc="' + desc.replace(/"/g, '&quot;') + '"' +
                     ' onclick="_itemPickerToggle(this)"' +
                     ' style="display:flex;align-items:center;gap:12px;padding:11px 18px;cursor:pointer;border-bottom:1px solid #f4f4f4;' +
@@ -2327,7 +2338,7 @@
                     '<div style="flex:1;min-width:0;">' +
                         '<div style="font-weight:700;font-size:.88rem;color:#1e1b4b;">' + num + '</div>' +
                         '<div style="font-size:.78rem;color:#718096;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + desc + '</div>' +
-                        (brand || uom ? '<div style="font-size:.72rem;color:#a0aec0;margin-top:2px;">' + (brand ? brand : '') + (brand && uom ? ' · ' : '') + (uom ? uom : '') + '</div>' : '') +
+                        (brand || uom ? '<div style="font-size:.72rem;color:#a0aec0;margin-top:2px;">' + (brand || '') + (brand && uom ? ' · ' : '') + (uom || '') + '</div>' : '') +
                     '</div>' +
                 '</div>';
             }).join('');
@@ -2341,16 +2352,31 @@
                 _itemPickerPending.splice(idx, 1);
                 el.dataset.sel = '';
                 el.style.background = '';
-                el.querySelector('div').style.border    = '2px solid #d1d5db';
+                el.querySelector('div').style.border     = '2px solid #d1d5db';
                 el.querySelector('div').style.background = '#fff';
                 el.querySelector('div').innerHTML = '';
             } else {
+                if (!_itemPickerMulti) _itemPickerPending = []; // single-select: clear first
                 _itemPickerPending.push({ item_number: num, description: desc });
                 el.dataset.sel = '1';
                 el.style.background = '#eef2ff';
-                el.querySelector('div').style.border    = '2px solid #4f46e5';
+                el.querySelector('div').style.border     = '2px solid #4f46e5';
                 el.querySelector('div').style.background = '#4f46e5';
                 el.querySelector('div').innerHTML = '<i class="fa-solid fa-check" style="color:#fff;font-size:.7rem;"></i>';
+                // single-select: re-render so other rows clear their highlight
+                if (!_itemPickerMulti) {
+                    var searchInp = document.getElementById('item-picker-search-inp').value;
+                    // Re-render current list keeping only new selection
+                    document.querySelectorAll('#item-picker-list [data-num]').forEach(function (row) {
+                        var isSel = row.dataset.num === num;
+                        row.dataset.sel = isSel ? '1' : '';
+                        row.style.background = isSel ? '#eef2ff' : '';
+                        var box = row.querySelector('div');
+                        box.style.border     = isSel ? '2px solid #4f46e5' : '2px solid #d1d5db';
+                        box.style.background = isSel ? '#4f46e5' : '#fff';
+                        box.innerHTML = isSel ? '<i class="fa-solid fa-check" style="color:#fff;font-size:.7rem;"></i>' : '';
+                    });
+                }
             }
             _itemPickerUpdateSelCount();
         }
@@ -2367,27 +2393,35 @@
         }
 
         function _itemPickerConfirm() {
-            _onhandSelectedItems = _itemPickerPending.slice();
-            _onhandRenderChips();
+            var selected = _itemPickerPending.slice();
             closeItemPickerModal();
+            if (typeof _itemPickerConfirmCb === 'function') {
+                _itemPickerConfirmCb(selected);
+            }
         }
 
-        function _onhandRenderChips() {
-            var wrap = document.getElementById('onhand-item-chips');
-            if (!_onhandSelectedItems.length) { wrap.innerHTML = ''; return; }
-            wrap.innerHTML = _onhandSelectedItems.map(function (it, i) {
+        // ── Chip renderers ────────────────────────────────────────
+        function _onhandRenderChips() { _renderItemChips('onhand-item-chips', _onhandSelectedItems, '_onhandRemoveChip'); }
+        function _onhandRemoveChip(i) { _onhandSelectedItems.splice(i,1); _onhandRenderChips(); }
+
+        function _searchLotRenderChips() { _renderItemChips('lot-item-chips', _searchLotSelectedItems, '_searchLotRemoveChip'); }
+        function _searchLotRemoveChip(i) { _searchLotSelectedItems.splice(i,1); _searchLotRenderChips(); }
+
+        function _ilotRenderChips() { _renderItemChips('ilot-item-chips', _ilotSelectedItems, '_ilotRemoveChip'); }
+        function _ilotRemoveChip(i) { _ilotSelectedItems.splice(i,1); _ilotRenderChips(); }
+
+        function _renderItemChips(wrapId, items, removeFnName) {
+            var wrap = document.getElementById(wrapId);
+            if (!wrap) return;
+            if (!items.length) { wrap.innerHTML = ''; return; }
+            wrap.innerHTML = items.map(function (it, i) {
                 return '<span style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;">' +
                     it.item_number +
-                    '<button onclick="_onhandRemoveChip(' + i + ')" style="background:none;border:none;cursor:pointer;color:#6366f1;padding:0;line-height:1;font-size:.75rem;" title="Remove">' +
+                    '<button onclick="' + removeFnName + '(' + i + ')" style="background:none;border:none;cursor:pointer;color:#6366f1;padding:0;line-height:1;font-size:.75rem;" title="Remove">' +
                         '<i class="fa-solid fa-xmark"></i>' +
                     '</button>' +
                 '</span>';
             }).join('');
-        }
-
-        function _onhandRemoveChip(idx) {
-            _onhandSelectedItems.splice(idx, 1);
-            _onhandRenderChips();
         }
 
         // ── Onhand pagination state ───────────────────────────────
@@ -2872,7 +2906,7 @@
             var tbody = document.getElementById('lot-tbody');
             var count = document.getElementById('lot-count');
             var lot     = document.getElementById('lot-number').value.trim();
-            var item    = document.getElementById('lot-item').value.trim();
+            var item    = _searchLotSelectedItems.length ? _searchLotSelectedItems[0].item_number : '';
             var orgId   = document.getElementById('lot-org').value;
             var expFrom = document.getElementById('lot-expiry-from').value;
             var expTo   = document.getElementById('lot-expiry-to').value;
@@ -2943,7 +2977,9 @@
         }
 
         function clearLotSearch() {
-            ['lot-number','lot-item','lot-org','lot-expiry-from','lot-expiry-to'].forEach(function (id) {
+            _searchLotSelectedItems = [];
+            _searchLotRenderChips();
+            ['lot-number','lot-org','lot-expiry-from','lot-expiry-to'].forEach(function (id) {
                 var el = document.getElementById(id);
                 if (el) el.value = '';
             });
@@ -3713,7 +3749,7 @@
         function queryItemLots() {
             var sel = document.getElementById('ilot-org');
             var orgCode = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.code || sel.value : '';
-            var item = (document.getElementById('ilot-item').value || '').trim();
+            var item = _ilotSelectedItems.length ? _ilotSelectedItems[0].item_number : '';
             var lot  = (document.getElementById('ilot-lot').value || '').trim();
 
             if (!orgCode) { alert('Please select an Organization.'); return; }
@@ -3774,7 +3810,9 @@
         function clearItemLots() {
             _ilotCancelled = true;  // stop any in-flight fetch
             _ilotSetLoading(false);
-            ['ilot-org','ilot-item','ilot-lot','ilot-exp-from','ilot-exp-to','ilot-days-from','ilot-days-to'].forEach(function(id){
+            _ilotSelectedItems = [];
+            _ilotRenderChips();
+            ['ilot-org','ilot-lot','ilot-exp-from','ilot-exp-to','ilot-days-from','ilot-days-to'].forEach(function(id){
                 var el = document.getElementById(id); if (el) el.value = '';
             });
             _ilotAllRows = []; _ilotActiveRows = [];

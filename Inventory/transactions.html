@@ -507,8 +507,11 @@
                         </select>
                     </div>
                     <div class="filter-group">
-                        <label>Item Number</label>
-                        <input type="text" id="txn-item" placeholder="e.g. EFI182098002W">
+                        <label>Item</label>
+                        <button onclick="openTxnItemPickerModal()" style="display:flex;align-items:center;gap:7px;padding:7px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;cursor:pointer;color:#4f46e5;font-weight:600;" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='#e2e8f0'">
+                            <i class="fa-solid fa-cubes"></i> Select Item…
+                        </button>
+                        <div id="txn-item-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;"></div>
                     </div>
                     <div class="filter-group">
                         <label>Date From</label>
@@ -822,6 +825,142 @@
                 } catch(e) { console.error('[TXN] Message parse error', e); }
             });
         }
+
+        // ════════════════════════════════════════════════════════════
+        // ITEM PICKER MODAL
+        // ════════════════════════════════════════════════════════════
+        var _txnSelectedItems     = [];
+        var _txnPickerPending     = [];
+        var _txnPickerSearchTimer = null;
+        var TXN_ITEM_SEARCH_URL   = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/queryfusionitems';
+
+        function openTxnItemPickerModal() {
+            _txnPickerPending = _txnSelectedItems.map(function (x) { return Object.assign({}, x); });
+            document.getElementById('txn-item-picker-inp').value = '';
+            _txnPickerRenderList([]);
+            _txnPickerUpdateCount();
+            document.getElementById('txn-item-picker-footer-txt').textContent = '';
+            document.getElementById('txn-item-picker-overlay').style.display = 'flex';
+            setTimeout(function () { document.getElementById('txn-item-picker-inp').focus(); }, 80);
+        }
+
+        function closeTxnItemPickerModal() {
+            document.getElementById('txn-item-picker-overlay').style.display = 'none';
+        }
+
+        function _txnItemPickerOverlayClick(e) {
+            if (e.target === document.getElementById('txn-item-picker-overlay')) closeTxnItemPickerModal();
+        }
+
+        function _txnItemPickerSearch(val) {
+            clearTimeout(_txnPickerSearchTimer);
+            val = (val || '').trim();
+            if (val.length < 2) { _txnPickerRenderList([]); document.getElementById('txn-item-picker-footer-txt').textContent = ''; return; }
+            _txnPickerSearchTimer = setTimeout(function () { _txnItemPickerDoSearch(); }, 350);
+        }
+
+        function _txnItemPickerDoSearch() {
+            var val = (document.getElementById('txn-item-picker-inp').value || '').trim();
+            if (!val) return;
+            var list = document.getElementById('txn-item-picker-list');
+            var spin = document.getElementById('txn-item-picker-spin');
+            spin.style.display = 'inline-block';
+            list.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:160px;color:#a0aec0;font-size:.85rem;"><i class="fa-solid fa-spinner fa-spin" style="margin-right:8px;"></i> Searching…</div>';
+            document.getElementById('txn-item-picker-footer-txt').textContent = '';
+            var url = TXN_ITEM_SEARCH_URL + '?P_ITEM_DESC=' + encodeURIComponent(val);
+            _txnSendToCS({ action: 'executeGet', fullUrl: url }, function (err, data) {
+                spin.style.display = 'none';
+                if (err) { list.innerHTML = '<div style="padding:20px;color:#e53e3e;font-size:.85rem;"><i class="fa-solid fa-triangle-exclamation"></i> ' + err + '</div>'; return; }
+                var payload = typeof data === 'string' ? JSON.parse(data) : data;
+                var items   = Array.isArray(payload) ? payload : (payload.items || payload.rows || []);
+                _txnPickerRenderList(items);
+                document.getElementById('txn-item-picker-footer-txt').textContent = items.length + ' result' + (items.length !== 1 ? 's' : '') + ' found';
+            });
+        }
+
+        function _txnItemPickerKey(e) {
+            if (e.key === 'Enter') { _txnItemPickerDoSearch(); e.preventDefault(); }
+            if (e.key === 'Escape') closeTxnItemPickerModal();
+        }
+
+        function _txnPickerRenderList(items) {
+            var list = document.getElementById('txn-item-picker-list');
+            if (!items.length) {
+                list.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:180px;color:#a0aec0;font-size:.9rem;"><div style="text-align:center;"><i class="fa-solid fa-magnifying-glass" style="font-size:2rem;margin-bottom:10px;display:block;"></i>Type to search items</div></div>';
+                return;
+            }
+            list.innerHTML = items.map(function (it) {
+                var num   = it.item_number  || '';
+                var desc  = it.description  || '';
+                var uom   = it.primary_uom_code || '';
+                var brand = it.brand || '';
+                var sel   = _txnPickerPending.some(function (s) { return s.item_number === num; });
+                return '<div data-num="' + num + '" data-desc="' + desc.replace(/"/g,'&quot;') + '"' +
+                    ' onclick="_txnPickerToggle(this)"' +
+                    ' style="display:flex;align-items:center;gap:12px;padding:11px 18px;cursor:pointer;border-bottom:1px solid #f4f4f4;' + (sel ? 'background:#eef2ff;' : '') + '"' +
+                    ' onmouseover="if(!this.dataset.sel)this.style.background=\'#f8f9ff\'"' +
+                    ' onmouseout="if(!this.dataset.sel)this.style.background=\'\'"' +
+                    ' data-sel="' + (sel ? '1' : '') + '">' +
+                    '<div style="width:22px;height:22px;border-radius:6px;border:2px solid ' + (sel ? '#4f46e5' : '#d1d5db') + ';background:' + (sel ? '#4f46e5' : '#fff') + ';display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:all .15s;">' +
+                        (sel ? '<i class="fa-solid fa-check" style="color:#fff;font-size:.7rem;"></i>' : '') +
+                    '</div>' +
+                    '<div style="flex:1;min-width:0;">' +
+                        '<div style="font-weight:700;font-size:.88rem;color:#1e1b4b;">' + num + '</div>' +
+                        '<div style="font-size:.78rem;color:#718096;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + desc + '</div>' +
+                        (brand || uom ? '<div style="font-size:.72rem;color:#a0aec0;margin-top:2px;">' + (brand || '') + (brand && uom ? ' · ' : '') + (uom || '') + '</div>' : '') +
+                    '</div>' +
+                '</div>';
+            }).join('');
+        }
+
+        function _txnPickerToggle(el) {
+            var num = el.dataset.num, desc = el.dataset.desc;
+            var idx = _txnPickerPending.findIndex(function (s) { return s.item_number === num; });
+            if (idx >= 0) {
+                _txnPickerPending.splice(idx, 1);
+                el.dataset.sel = ''; el.style.background = '';
+                el.querySelector('div').style.border     = '2px solid #d1d5db';
+                el.querySelector('div').style.background = '#fff';
+                el.querySelector('div').innerHTML = '';
+            } else {
+                _txnPickerPending = [{ item_number: num, description: desc }]; // single-select
+                document.querySelectorAll('#txn-item-picker-list [data-num]').forEach(function (row) {
+                    var isSel = row.dataset.num === num;
+                    row.dataset.sel = isSel ? '1' : ''; row.style.background = isSel ? '#eef2ff' : '';
+                    var box = row.querySelector('div');
+                    box.style.border     = isSel ? '2px solid #4f46e5' : '2px solid #d1d5db';
+                    box.style.background = isSel ? '#4f46e5' : '#fff';
+                    box.innerHTML = isSel ? '<i class="fa-solid fa-check" style="color:#fff;font-size:.7rem;"></i>' : '';
+                });
+            }
+            _txnPickerUpdateCount();
+        }
+
+        function _txnPickerUpdateCount() {
+            var badge = document.getElementById('txn-item-picker-sel-count');
+            var n = _txnPickerPending.length;
+            badge.textContent = n ? n + ' selected' : '';
+            badge.style.display = n ? 'inline-block' : 'none';
+        }
+
+        function _txnItemPickerConfirm() {
+            _txnSelectedItems = _txnPickerPending.slice();
+            _txnRenderItemChips();
+            closeTxnItemPickerModal();
+        }
+
+        function _txnRenderItemChips() {
+            var wrap = document.getElementById('txn-item-chips');
+            if (!wrap) return;
+            wrap.innerHTML = _txnSelectedItems.map(function (it, i) {
+                return '<span style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;">' +
+                    it.item_number +
+                    '<button onclick="_txnRemoveItemChip(' + i + ')" style="background:none;border:none;cursor:pointer;color:#6366f1;padding:0;line-height:1;font-size:.75rem;" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
+                '</span>';
+            }).join('');
+        }
+
+        function _txnRemoveItemChip(i) { _txnSelectedItems.splice(i,1); _txnRenderItemChips(); }
 
         // ════════════════════════════════════════════════════════════
         // PANEL NAVIGATION
@@ -1139,7 +1278,7 @@
             var orgCode = orgSel.options[orgSel.selectedIndex] ? (orgSel.options[orgSel.selectedIndex].dataset.code || '') : '';
             var subinv  = (document.getElementById('txn-subinv').value || '').trim();
             var txnType = document.getElementById('txn-type').value;
-            var item    = (document.getElementById('txn-item').value || '').trim();
+            var item    = _txnSelectedItems.length ? _txnSelectedItems[0].item_number : '';
             var dateFrom= document.getElementById('txn-date-from').value;
             var shipment = (document.getElementById('txn-shipment').value || '').trim();
             var ref      = (document.getElementById('txn-ref').value || '').trim();
@@ -1422,7 +1561,9 @@
         function clearTxnSearch() {
             _txnCancelled = true;  // stop any in-flight fetch
             _setTxnLoading(false);
-            ['txn-org','txn-subinv','txn-type','txn-item','txn-date-from','txn-shipment','txn-ref','txn-source-ref','txn-grid-search'].forEach(function(id){
+            _txnSelectedItems = [];
+            _txnRenderItemChips();
+            ['txn-org','txn-subinv','txn-type','txn-date-from','txn-shipment','txn-ref','txn-source-ref','txn-grid-search'].forEach(function(id){
                 var el = document.getElementById(id); if (el) el.value = '';
             });
             _txnAllRows = [];
@@ -1673,6 +1814,52 @@
             </div>
             <div class="so-modal-body" id="so-modal-body">
                 <div class="so-loading"><div class="spinner"></div>Loading…</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Item Picker Modal -->
+    <div id="txn-item-picker-overlay" onclick="_txnItemPickerOverlayClick(event)" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:10000;align-items:center;justify-content:center;">
+        <div onclick="event.stopPropagation()" style="background:#fff;border-radius:12px;width:min(680px,95vw);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.25);overflow:hidden;">
+            <!-- Header -->
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;background:#f8f9ff;">
+                <div style="display:flex;align-items:center;gap:10px;">
+                    <i class="fa-solid fa-cubes" style="color:#4f46e5;font-size:1.1rem;"></i>
+                    <strong style="font-size:1rem;color:#1e1b4b;">Select Item</strong>
+                    <span id="txn-item-picker-sel-count" style="background:#eef2ff;color:#4f46e5;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:20px;display:none;"></span>
+                </div>
+                <button onclick="closeTxnItemPickerModal()" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:#718096;padding:4px 8px;border-radius:6px;" title="Close"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <!-- Search bar -->
+            <div style="padding:14px 20px;border-bottom:1px solid #f0f0f0;display:flex;gap:10px;align-items:center;">
+                <div style="position:relative;flex:1;">
+                    <i class="fa-solid fa-magnifying-glass" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#a0aec0;font-size:.85rem;"></i>
+                    <input id="txn-item-picker-inp" type="text" placeholder="Search by item number or description…"
+                        oninput="_txnItemPickerSearch(this.value)"
+                        onkeydown="_txnItemPickerKey(event)"
+                        autocomplete="off"
+                        style="width:100%;padding:8px 12px 8px 32px;border:1px solid #e2e8f0;border-radius:7px;font-size:.85rem;box-sizing:border-box;">
+                    <span id="txn-item-picker-spin" style="display:none;position:absolute;right:10px;top:50%;transform:translateY(-50%);color:#7c3aed;"><i class="fa-solid fa-spinner fa-spin" style="font-size:.8rem;"></i></span>
+                </div>
+                <button onclick="_txnItemPickerDoSearch()" style="padding:8px 16px;background:#4f46e5;color:#fff;border:none;border-radius:7px;font-size:.85rem;cursor:pointer;font-weight:600;white-space:nowrap;">
+                    <i class="fa-solid fa-magnifying-glass"></i> Search
+                </button>
+            </div>
+            <!-- Results -->
+            <div id="txn-item-picker-list" style="flex:1;overflow-y:auto;min-height:200px;">
+                <div style="display:flex;align-items:center;justify-content:center;height:180px;color:#a0aec0;font-size:.9rem;">
+                    <div style="text-align:center;"><i class="fa-solid fa-magnifying-glass" style="font-size:2rem;margin-bottom:10px;display:block;"></i>Type to search items</div>
+                </div>
+            </div>
+            <!-- Footer -->
+            <div style="padding:14px 20px;border-top:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;background:#fafafa;">
+                <span id="txn-item-picker-footer-txt" style="font-size:.8rem;color:#718096;"></span>
+                <div style="display:flex;gap:8px;">
+                    <button onclick="closeTxnItemPickerModal()" style="padding:8px 18px;background:#fff;border:1px solid #e2e8f0;border-radius:7px;font-size:.85rem;cursor:pointer;color:#4a5568;">Cancel</button>
+                    <button onclick="_txnItemPickerConfirm()" style="padding:8px 20px;background:#4f46e5;color:#fff;border:none;border-radius:7px;font-size:.85rem;cursor:pointer;font-weight:600;">
+                        <i class="fa-solid fa-check"></i> Select
+                    </button>
+                </div>
             </div>
         </div>
     </div>
