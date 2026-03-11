@@ -2266,9 +2266,11 @@
                         pageNum += 1;
                         fetchPage();
                     } else {
-                        renderOnhandRows(allItems);
-                        renderOnhandStats(allItems);
-                        count.textContent = allItems.length + ' record' + (allItems.length !== 1 ? 's' : '');
+                        var grouped = groupOnhandItems(allItems);
+                        renderOnhandRows(grouped);
+                        renderOnhandStats(grouped, allItems.length);
+                        count.textContent = grouped.length + ' record' + (grouped.length !== 1 ? 's' : '') +
+                            (grouped.length !== allItems.length ? ' (grouped from ' + allItems.length + ' lines)' : '');
                     }
                 });
             }
@@ -2276,7 +2278,23 @@
             fetchPage();
         }
 
-        var _onhandAllItems = [];   // raw items from last query, keyed by row index
+        var _onhandAllItems = [];   // grouped items from last query, keyed by row index
+
+        // Group API rows by ItemNumber + OrganizationCode + SubinventoryCode, summing PrimaryQuantity
+        function groupOnhandItems(rows) {
+            var map = {};
+            var order = [];
+            rows.forEach(function (r) {
+                var key = (r.ItemNumber || '') + '|' + (r.OrganizationCode || '') + '|' + (r.SubinventoryCode || '');
+                if (map[key]) {
+                    map[key].PrimaryQuantity = (parseFloat(map[key].PrimaryQuantity || 0) + parseFloat(r.PrimaryQuantity || 0)).toString();
+                } else {
+                    map[key] = Object.assign({}, r);
+                    order.push(key);
+                }
+            });
+            return order.map(function (k) { return map[k]; });
+        }
 
         function renderOnhandRows(rows) {
             _onhandAllItems = rows || [];
@@ -2353,7 +2371,7 @@
         }
 
         // ── Onhand stats bar ─────────────────────────────────
-        function renderOnhandStats(rows) {
+        function renderOnhandStats(rows, rawLineCount) {
             var bar = document.getElementById('onhand-stats');
             if (!rows || !rows.length) { bar.style.display = 'none'; return; }
 
@@ -2367,10 +2385,12 @@
             });
             var uniqueItems = Object.keys(items).length;
             var uniqueUOMs  = Object.keys(uoms).length;
+            var rawCount    = rawLineCount != null ? rawLineCount : rows.length;
 
             bar.style.display = 'flex';
             bar.innerHTML =
-                stat(rows.length,    'Total Lines') +
+                stat(rawCount,       'Raw Lines') +
+                stat(rows.length,    'Grouped Records') +
                 stat(uniqueItems,    'Unique Items') +
                 stat(totalQty.toLocaleString(), 'Total Onhand') +
                 stat(uniqueUOMs,     'UOM(s)');
