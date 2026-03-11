@@ -5,11 +5,15 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
+using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using WMSApp.PrintManagement;
@@ -33,13 +37,10 @@ namespace WMSApp
         private Button homeButton;
         private Button openFileButton;
         private Button clearCacheButton;
-        private Button glButton;
-        private Button arButton;
-        private Button apButton;
-        private Button omButton;
-        private Button faButton;
-        private Button caButton;
-        private Button posButton;
+        private Button wmsDevButton;
+        private Button wmsProdButton;
+        private Button modulesButton;
+        private ContextMenuStrip modulesContextMenu;
         private Label securityIcon;
         private FlowLayoutPanel tabBar;
         private ToolTip moduleToolTip;
@@ -55,41 +56,522 @@ namespace WMSApp
         private PrintJobManager _printJobManager;
         private LocalStorageManager _storageManager;
         private PrinterService _printerService;
+        private RestApiClient _restApiClient;
+
+        // User Session Fields
+        private string _loggedInUsername;
+        private string _loggedInPassword;
+        private string _loggedInInstance;
+        private string _loggedInDateTime;
+        private bool _isLoggedIn = false;
+
+        // Oracle Fusion Credentials (fetched from webservice on startup)
+        private string _fusionUsername;
+        private string _fusionPassword;
+        private bool _fusionCredentialsLoaded = false;
 
         public Form1()
         {
             InitializeComponent();
             InitializeComponent1();
 
-            // ⭐ ADD THIS TEST
             System.Diagnostics.Debug.WriteLine("========================================");
-            System.Diagnostics.Debug.WriteLine("🚀 APPLICATION STARTED - TESTING DEBUG OUTPUT");
+            System.Diagnostics.Debug.WriteLine("APPLICATION STARTED - TESTING DEBUG OUTPUT");
             System.Diagnostics.Debug.WriteLine("========================================");
 
+try
+            {
+                SetupUI();
 
-            SetupUI();
+                // Initialize the APEX downloader
+                _apexDownloader = new ApexHtmlFileDownloader();
+                _messageRouters = new Dictionary<WebView2, WebViewMessageRouter>();
+                var restClient = new RestApiClient();
+                _claudeApiHandler = new ClaudeApiHandler();
+                _promptHistoryManager = new PromptHistoryManager();
 
-            // Initialize the APEX downloader
-            _apexDownloader = new ApexHtmlFileDownloader();
-            _messageRouters = new Dictionary<WebView2, WebViewMessageRouter>();
-            var restClient = new RestApiClient();
-            _claudeApiHandler = new ClaudeApiHandler();
-            _promptHistoryManager = new PromptHistoryManager();
+                // Initialize Print Management Services
+                _printJobManager = new PrintJobManager();
+                _storageManager = new LocalStorageManager();
+                _printerService = new PrinterService();
+                _restApiClient = new RestApiClient();
 
-            // Initialize Print Management Services
-            _printJobManager = new PrintJobManager();
-            _storageManager = new LocalStorageManager();
-            _printerService = new PrinterService();
+                // Fetch Oracle Fusion credentials on startup (fire and forget)
+                _ = FetchFusionCredentialsOnStartup();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[STARTUP ERROR] {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[STARTUP ERROR] Stack: {ex.StackTrace}");
+                MessageBox.Show($"Application startup error: {ex.Message}\n\nStack trace:\n{ex.StackTrace}",
+                    "Startup Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// Thread-safe wrapper for PostWebMessageAsJson.
+        /// WebView2 COM objects must be called on the UI (STA) thread.
+        /// If called from a background thread, marshals to the UI thread via Invoke.
+        /// </summary>
+        private void PostWebViewMessage(WebView2 wv, string json)
+        {
+            if (wv.InvokeRequired)
+            {
+                wv.Invoke(new Action(() =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(json); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[PostWebViewMessage] Error on invoked thread: {ex.Message}"); }
+                }));
+            }
+            else
+            {
+                wv.CoreWebView2.PostWebMessageAsJson(json);
+            }
+        }
+
+        /// <summary>
+        /// Fetches Oracle Fusion credentials from webservice on application startup
+        /// URL: /trip/fusionuserdetails returns { items: [{ user_name, passwordd }] }
+        /// </summary>
+        private async Task FetchFusionCredentialsOnStartup()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] Fetching Oracle Fusion credentials on startup...");
+
+                // Use PROD endpoint for credentials
+                string credentialsUrl = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails";
+
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    var response = await client.GetAsync(credentialsUrl);
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string jsonResponse = await response.Content.ReadAsStringAsync();
+                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] Response received: {jsonResponse.Length} chars");
+
+                        using (var doc = JsonDocument.Parse(jsonResponse))
+                        {
+                            var items = doc.RootElement.GetProperty("items");
+                            foreach (var item in items.EnumerateArray())
+                            {
+                                _fusionUsername = item.TryGetProperty("user_name", out var userProp) ? userProp.GetString() : null;
+                                _fusionPassword = item.TryGetProperty("passwordd", out var passProp) ? passProp.GetString() : null;
+
+                                if (!string.IsNullOrEmpty(_fusionUsername) && !string.IsNullOrEmpty(_fusionPassword))
+                                {
+                                    _fusionCredentialsLoaded = true;
+                                    System.Diagnostics.Debug.WriteLine($"[FUSION CRED] SUCCESS - Loaded credentials for user: {_fusionUsername}");
+                                    System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
+                                    return;
+                                }
+                            }
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] WARNING - No valid credentials found in response");
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ERROR - HTTP {response.StatusCode}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ERROR - {ex.Message}");
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
         }
 
         private void InitializeComponent1()
         {
-            this.Text = "Fusion Client Browser";
+            // Read version info from version.txt in the application directory
+            string versionInfo = GetVersionInfo();
+            this.Text = $"Gray's WMS | {versionInfo}";
             this.Size = new Size(1200, 800);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.BackColor = Color.FromArgb(240, 240, 240);
         }
 
+        /// <summary>
+        /// Reads version info from version.txt in the application startup directory
+        /// Format expected: "YYYY-MM-DD || Comment"
+        /// </summary>
+        private string GetVersionInfo()
+        {
+            try
+            {
+                string versionFilePath = Path.Combine(Application.StartupPath, "version.txt");
+                if (File.Exists(versionFilePath))
+                {
+                    string versionContent = File.ReadAllText(versionFilePath).Trim();
+                    if (!string.IsNullOrEmpty(versionContent))
+                    {
+                        return versionContent;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Version] Error reading version.txt: {ex.Message}");
+            }
+
+            // Default fallback if version.txt doesn't exist or can't be read
+            return "Development Mode";
+        }
+
+        // Fixed installation path for web files
+        private const string INSTALL_PATH = @"C:\fusion\fusionclientweb\graysWMSwebviewnew";
+
+        /// <summary>
+        /// Gets the base path for web files (wms, gl, sync, etc.)
+        /// Supports development mode and installed mode at C:\fusion\fusionclientweb\graysWMSwebviewnew
+        /// </summary>
+        private string GetWebFilesBasePath()
+        {
+            // PRIORITY 1: Check for development mode first (running from source)
+            // Go up from bin/Debug/net8.0-windows to repo root
+            string devPath = Path.GetFullPath(Path.Combine(Application.StartupPath, "..", "..", ".."));
+            if (Directory.Exists(Path.Combine(devPath, "wms")))
+            {
+                System.Diagnostics.Debug.WriteLine($"[Path] Using development path: {devPath}");
+                return devPath;
+            }
+
+            // PRIORITY 2: Check parent directory (when running from dist\ subfolder inside graysWMSwebviewnew)
+            string parentPath = Path.GetFullPath(Path.Combine(Application.StartupPath, ".."));
+            if (Directory.Exists(Path.Combine(parentPath, "wms")))
+            {
+                System.Diagnostics.Debug.WriteLine($"[Path] Using parent path (dist subfolder): {parentPath}");
+                return parentPath;
+            }
+
+            // PRIORITY 3: Check if files are installed at fixed location
+            if (Directory.Exists(Path.Combine(INSTALL_PATH, "wms")))
+            {
+                System.Diagnostics.Debug.WriteLine($"[Path] Using installed path: {INSTALL_PATH}");
+                return INSTALL_PATH;
+            }
+
+            // PRIORITY 4: Check if files are in AppContext.BaseDirectory (single-file extracted to temp)
+            string basePath = AppContext.BaseDirectory;
+            if (Directory.Exists(Path.Combine(basePath, "wms")))
+            {
+                // Files found in temp extraction - install them to fixed location
+                System.Diagnostics.Debug.WriteLine($"[Path] Found files in temp, installing to: {INSTALL_PATH}");
+                InstallWebFiles(basePath, INSTALL_PATH);
+                return INSTALL_PATH;
+            }
+
+            // Fallback to StartupPath
+            System.Diagnostics.Debug.WriteLine($"[Path] Using fallback path: {Application.StartupPath}");
+            return Application.StartupPath;
+        }
+
+        /// <summary>
+        /// Installs web files from source (temp extraction) to C:\fusion\fusionclientweb
+        /// </summary>
+        private void InstallWebFiles(string sourcePath, string destPath)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[Install] Installing web files from {sourcePath} to {destPath}");
+
+                // Create destination directory
+                if (!Directory.Exists(destPath))
+                {
+                    Directory.CreateDirectory(destPath);
+                }
+
+                // Folders to copy
+                string[] folders = { "wms", "Home", "ap", "ar", "ca", "fa", "gl", "om", "pos", "sync" };
+
+                foreach (string folder in folders)
+                {
+                    string sourceFolder = Path.Combine(sourcePath, folder);
+                    string destFolder = Path.Combine(destPath, folder);
+
+                    if (Directory.Exists(sourceFolder))
+                    {
+                        CopyDirectory(sourceFolder, destFolder);
+                        System.Diagnostics.Debug.WriteLine($"[Install] Copied {folder}");
+                    }
+                }
+
+                // Copy root files (index.html, app.js, etc.)
+                string[] rootFiles = { "index.html", "login.html", "app.js", "config.js", "styles.css", "printer-management-new.js", "monitor-printing.js", "api-log.js" };
+                foreach (string file in rootFiles)
+                {
+                    string sourceFile = Path.Combine(sourcePath, file);
+                    string destFile = Path.Combine(destPath, file);
+
+                    if (File.Exists(sourceFile))
+                    {
+                        File.Copy(sourceFile, destFile, true);
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[Install] Installation complete to {destPath}");
+                MessageBox.Show(
+                    $"Web files installed successfully to:\n{destPath}",
+                    "Installation Complete",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Install ERROR] Access denied to {destPath}");
+                MessageBox.Show(
+                    $"Cannot install to {destPath}\n\nAccess denied. Please run as Administrator.",
+                    "Installation Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Error);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Install ERROR] {ex.Message}");
+                MessageBox.Show(
+                    $"Failed to install web files to {destPath}\n\nError: {ex.Message}",
+                    "Installation Error",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private bool ShowLoginForm()
+        {
+            System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+            System.Diagnostics.Debug.WriteLine("[DEBUG] ShowLoginForm() CALLED");
+            System.Diagnostics.Debug.WriteLine("[DEBUG] Creating LoginForm instance...");
+
+            using (LoginForm loginForm = new LoginForm())
+            {
+                System.Diagnostics.Debug.WriteLine("[DEBUG] LoginForm instance created, calling ShowDialog()...");
+                var dialogResult = loginForm.ShowDialog();
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] ShowDialog returned: {dialogResult}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] LoginSuccessful: {loginForm.LoginSuccessful}");
+
+                if (dialogResult == DialogResult.OK && loginForm.LoginSuccessful)
+                {
+                    _loggedInUsername = loginForm.Username;
+                    _loggedInPassword = loginForm.Password;
+                    _loggedInInstance = loginForm.InstanceName;
+                    _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
+                    _isLoggedIn = true;
+
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Success - User: {_loggedInUsername}, Instance: {_loggedInInstance}, DateTime: {_loggedInDateTime}");
+                    return true;
+                }
+                return false;
+            }
+        }
+
+        private void HandleLogout()
+        {
+            System.Diagnostics.Debug.WriteLine("[LOGOUT] Clearing user session...");
+
+            // Clear session variables
+            _isLoggedIn = false;
+            _loggedInUsername = null;
+            _loggedInPassword = null;
+            _loggedInInstance = null;
+            _loggedInDateTime = null;
+
+            System.Diagnostics.Debug.WriteLine("[LOGOUT] User session cleared successfully");
+        }
+
+        private async Task ClearWebViewLoginStateAsync()
+        {
+            // Clear localStorage login state in WebView2 before navigating to WMS
+            // This ensures fresh authentication is required each session
+            var wv = GetCurrentWebView();
+            if (wv?.CoreWebView2 != null)
+            {
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine("[LOGIN] Clearing localStorage login state before WMS navigation...");
+                    await wv.CoreWebView2.ExecuteScriptAsync(@"
+                        localStorage.removeItem('loggedIn');
+                        localStorage.removeItem('username');
+                        localStorage.removeItem('password');
+                        localStorage.removeItem('instanceName');
+                        localStorage.removeItem('loginTime');
+                        localStorage.removeItem('fusionCloudUsername');
+                        localStorage.removeItem('fusionCloudPassword');
+                        localStorage.removeItem('fusionInstance');
+                        console.log('[C# CLEAR] localStorage login state cleared');
+                    ");
+                    System.Diagnostics.Debug.WriteLine("[LOGIN] ✅ localStorage login state cleared");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[LOGIN] Warning: Could not clear localStorage: {ex.Message}");
+                }
+            }
+        }
+
+        private void NavigateToWmsIndex(string repoRoot)
+        {
+            string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+
+            if (File.Exists(indexPath))
+            {
+                System.Diagnostics.Debug.WriteLine($"[WMS Dev] Launching from local: {indexPath}");
+                // Clear any stale localStorage login state before navigation
+                _ = ClearWebViewLoginStateAsync();
+                string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                Navigate(fileUrl);
+            }
+            else
+            {
+                MessageBox.Show(
+                    "Local WMS development files not found at:\n" + indexPath,
+                    "WMS Dev Not Found",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+        }
+
+        private void HandleLoginSuccess(JsonElement root)
+        {
+            try
+            {
+                _loggedInUsername = root.TryGetProperty("username", out var userProp) ? userProp.GetString() : "Unknown";
+                _loggedInInstance = root.TryGetProperty("instanceName", out var instProp) ? instProp.GetString() : "PROD";
+                _loggedInDateTime = root.TryGetProperty("loginTime", out var timeProp) ? timeProp.GetString() : DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
+                _isLoggedIn = true;
+
+                System.Diagnostics.Debug.WriteLine($"[LOGIN SUCCESS] User: {_loggedInUsername}, Instance: {_loggedInInstance}, DateTime: {_loggedInDateTime}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LOGIN ERROR] Failed to process login: {ex.Message}");
+            }
+        }
+
+        private async Task HandleValidateLogin(WebView2 wv, JsonElement root, string requestId)
+        {
+            string username = "";
+            string instanceName = "PROD";
+
+            try
+            {
+                username = root.TryGetProperty("username", out var userProp) ? userProp.GetString() : "";
+                string password = root.TryGetProperty("password", out var passProp) ? passProp.GetString() : "";
+                instanceName = root.TryGetProperty("instanceName", out var instProp) ? instProp.GetString() : "PROD";
+
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Username: {username}");
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Instance: {instanceName}");
+
+                // Instance URLs
+                var instanceUrls = new Dictionary<string, string>
+                {
+                    { "PROD", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" },
+                    { "TEST", "https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" }
+                };
+
+                if (!instanceUrls.TryGetValue(instanceName, out string baseUrl))
+                {
+                    baseUrl = instanceUrls["PROD"];
+                }
+
+                // Call the login endpoint with credentials
+                string encodedUsername = Uri.EscapeDataString(username);
+                string encodedPassword = Uri.EscapeDataString(password);
+                string apiUrl = $"{baseUrl}/login?username={encodedUsername}&password={encodedPassword}";
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Calling login API: {baseUrl}/login?username={encodedUsername}&password=***");
+
+                using (var client = new HttpClient())
+                {
+                    client.Timeout = TimeSpan.FromSeconds(30);
+                    var response = await client.GetAsync(apiUrl);
+
+                    System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Response status: {response.StatusCode}");
+
+                    if (response.IsSuccessStatusCode)
+                    {
+                        string jsonResponse = await response.Content.ReadAsStringAsync();
+                        System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Response length: {jsonResponse.Length}");
+
+                        // Parse JSON response
+                        using (var doc = JsonDocument.Parse(jsonResponse))
+                        {
+                            var items = doc.RootElement.GetProperty("items");
+                            int itemCount = 0;
+                            foreach (var _ in items.EnumerateArray()) itemCount++;
+
+                            if (itemCount > 0)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] SUCCESS - User validated! Items count: {itemCount}");
+
+                                // Set session (including password for Oracle Fusion API calls)
+                                _loggedInUsername = username;
+                                _loggedInPassword = password;
+                                _loggedInInstance = instanceName;
+                                _loggedInDateTime = DateTime.Now.ToString("MMM dd, yyyy hh:mm:ss tt");
+                                _isLoggedIn = true;
+
+                                // Send success response to JavaScript by calling the global function directly
+                                string escapedUsername = username.Replace("\\", "\\\\").Replace("'", "\\'");
+                                string escapedInstance = instanceName.Replace("\\", "\\\\").Replace("'", "\\'");
+
+                                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                    console.log('[C# -> JS] Calling handleLoginResponse with success...');
+                                    if (typeof window.handleLoginResponse === 'function') {{
+                                        window.handleLoginResponse(true, '{escapedUsername}', '{escapedInstance}', '');
+                                    }} else {{
+                                        console.error('[C# -> JS] handleLoginResponse function not found!');
+                                    }}
+                                ");
+
+                                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Sent success response to JS");
+                            }
+                            else
+                            {
+                                throw new Exception("Invalid username or password");
+                            }
+                        }
+                    }
+                    else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                             response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                    {
+                        throw new Exception("Invalid username or password");
+                    }
+                    else
+                    {
+                        throw new Exception($"Server error: {response.StatusCode}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] FAILED - {ex.Message}");
+
+                // Send error response to JavaScript by calling the global function directly
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", " ").Replace("\r", "");
+                string escapedUsername = username.Replace("\\", "\\\\").Replace("'", "\\'");
+                string escapedInstance = instanceName.Replace("\\", "\\\\").Replace("'", "\\'");
+
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    console.log('[C# -> JS] Calling handleLoginResponse with error...');
+                    if (typeof window.handleLoginResponse === 'function') {{
+                        window.handleLoginResponse(false, '{escapedUsername}', '{escapedInstance}', '{escapedError}');
+                    }} else {{
+                        console.error('[C# -> JS] handleLoginResponse function not found!');
+                        alert('Login failed: {escapedError}');
+                    }}
+                ");
+
+                System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] Sent error response to JS");
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[VALIDATE LOGIN] ========================================");
+        }
 
         private void SetupUI()
         {
@@ -106,7 +588,7 @@ namespace WMSApp
             Panel titleBarPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 35,
+                Height = 32,
                 BackColor = Color.FromArgb(32, 32, 32)
             };
 
@@ -125,7 +607,7 @@ namespace WMSApp
             {
                 Text = "+",
                 Width = 35,
-                Height = 28,
+                Height = 26,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(50, 50, 50),
                 ForeColor = Color.White,
@@ -247,167 +729,330 @@ namespace WMSApp
             moduleToolTip.SetToolTip(clearCacheButton, "Clear Browser Cache");
             leftPosition += 45;
 
-            // GL Button - General Ledger
-            glButton = new Button
+            // WMS (Dev) Button - Launches local development version
+            wmsDevButton = new Button
             {
-                Text = "",
-                Width = 60,
+                Text = "WMS (Dev)",
+                Width = 85,
                 Height = 30,
                 Left = leftPosition,
                 Top = 10,
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(220, 240, 255),
-                Tag = "GL"
+                BackColor = Color.FromArgb(255, 245, 200),
+                ForeColor = Color.FromArgb(80, 80, 80),
+                Font = new Font("Segoe UI", 8, FontStyle.Bold),
+                Tag = "WMS_DEV"
             };
-            glButton.FlatAppearance.BorderColor = Color.FromArgb(100, 180, 255);
-            glButton.FlatAppearance.BorderSize = 2;
-            glButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 230, 255);
-            glButton.Paint += ModuleButton_Paint;
-
-            glButton.Click += async (s, e) =>
+            wmsDevButton.FlatAppearance.BorderColor = Color.FromArgb(220, 180, 80);
+            wmsDevButton.FlatAppearance.BorderSize = 1;
+            wmsDevButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 240, 180);
+            wmsDevButton.Click += (s, e) =>
             {
-                string apexUrl = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/files/static/v123456789/general_ledger.html";
-                await LoadModule("GL", apexUrl);
+                System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+                System.Diagnostics.Debug.WriteLine("[DEBUG] WMS DEV BUTTON CLICKED!");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
+
+                // Hardcoded path for WMS Dev - always points to local development folder
+                string repoRoot = @"C:\fusion\fusionclientweb\graysWMSwebviewnew";
+
+                // Debug: Show all paths being used
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] ========== WMS DEV PATHS ==========");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] repoRoot: {repoRoot}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] WMS index: {Path.Combine(repoRoot, "wms", "index.html")}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Login page: {Path.Combine(repoRoot, "login.html")}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Instance name: {_loggedInInstance}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] =====================================");
+
+                // Check if user is logged in for WMS, if not navigate to HTML login page
+                if (!_isLoggedIn)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, navigating to login page...");
+
+                    // Navigate to HTML login page
+                    string loginPath = Path.GetFullPath(Path.Combine(repoRoot, "login.html"));
+                    if (File.Exists(loginPath))
+                    {
+                        // Clear any stale localStorage login state before navigation
+                        _ = ClearWebViewLoginStateAsync();
+                        string loginUrl = "file:///" + loginPath.Replace("\\", "/");
+                        System.Diagnostics.Debug.WriteLine($"[WMS Dev] Navigating to login: {loginUrl}");
+                        Navigate(loginUrl);
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WMS Dev] Login page not found at: {loginPath}");
+                        // Fallback to C# login form
+                        if (!ShowLoginForm())
+                        {
+                            return;
+                        }
+                        NavigateToWmsIndex(repoRoot);
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, going directly to WMS");
+                    NavigateToWmsIndex(repoRoot);
+                }
             };
+            moduleToolTip.SetToolTip(wmsDevButton, "WMS Development - Local Version");
+            leftPosition += 90;
 
-            moduleToolTip.SetToolTip(glButton, "General Ledger");
-            leftPosition += 65;
-
-            // AR Button - Accounts Receivable
-            arButton = new Button
+            // WMS (Prod) Button - Launches production version from GitHub distribution
+            wmsProdButton = new Button
             {
-                Text = "",
-                Width = 60,
+                Text = "WMS (Prod)",
+                Width = 90,
                 Height = 30,
                 Left = leftPosition,
                 Top = 10,
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(220, 255, 220),
-                Tag = "AR"
+                BackColor = Color.FromArgb(100, 180, 255),
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 8, FontStyle.Bold),
+                Tag = "WMS_PROD"
             };
-            arButton.FlatAppearance.BorderColor = Color.FromArgb(80, 200, 80);
-            arButton.FlatAppearance.BorderSize = 2;
-            arButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 245, 200);
-            arButton.Paint += ModuleButton_Paint;
-            arButton.Click += (s, e) => LoadModule("AR", "https://www.google.com/search?q=Accounts+Receivable");
-            moduleToolTip.SetToolTip(arButton, "Accounts Receivable");
-            leftPosition += 65;
-
-            // AP Button - Accounts Payable
-            apButton = new Button
+            wmsProdButton.FlatAppearance.BorderColor = Color.FromArgb(50, 150, 255);
+            wmsProdButton.FlatAppearance.BorderSize = 1;
+            wmsProdButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(120, 200, 255);
+            wmsProdButton.Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
+                System.Diagnostics.Debug.WriteLine("[DEBUG] ========================================");
+                System.Diagnostics.Debug.WriteLine("[DEBUG] WMS PROD BUTTON CLICKED!");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Current _isLoggedIn: {_isLoggedIn}");
+
+                // Get repo root path
+                string repoRoot = GetWebFilesBasePath();
+
+                // Check if user is logged in for WMS, if not navigate to HTML login page
+                if (!_isLoggedIn)
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User NOT logged in, navigating to login page...");
+
+                    // Navigate to HTML login page
+                    string loginPath = Path.GetFullPath(Path.Combine(repoRoot, "login.html"));
+                    if (File.Exists(loginPath))
+                    {
+                        // Clear any stale localStorage login state before navigation
+                        _ = ClearWebViewLoginStateAsync();
+                        string loginUrl = "file:///" + loginPath.Replace("\\", "/");
+                        System.Diagnostics.Debug.WriteLine($"[WMS Prod] Navigating to login: {loginUrl}");
+                        Navigate(loginUrl);
+                        return; // Exit - user will be redirected to WMS after login
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[WMS Prod] Login page not found at: {loginPath}");
+                        // Fallback to C# login form
+                        if (!ShowLoginForm())
+                        {
+                            return;
+                        }
+                    }
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] User already logged in, going directly to WMS");
+                }
+
+                // Check if distribution folder exists
+                string distributionFolder = "C:\\fusion\\fusionclientweb\\wms";
+                string indexPath = Path.Combine(distributionFolder, "index.html");
+
+                if (Directory.Exists(distributionFolder) && File.Exists(indexPath))
+                {
+                    // Distribution exists - navigate to it
+                    System.Diagnostics.Debug.WriteLine($"[WMS Prod] Launching from distribution: {indexPath}");
+                    // Clear any stale localStorage login state before navigation
+                    _ = ClearWebViewLoginStateAsync();
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+                else
+                {
+                    // Distribution doesn't exist - prompt to download
+                    System.Diagnostics.Debug.WriteLine($"[WMS Prod] Distribution not found: {distributionFolder}");
+                    var result = MessageBox.Show(
+                        "WMS module not installed yet.\n\n" +
+                        "Would you like to download it now?\n" +
+                        "This will download from GitHub and install to:\n" +
+                        distributionFolder,
+                        "WMS Not Installed",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+
+                    if (result == DialogResult.Yes)
+                    {
+                        // Navigate to local WMS page which has the distribution manager
+                        repoRoot = GetWebFilesBasePath();
+                        string launcherPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+                        if (File.Exists(launcherPath))
+                        {
+                            // Clear any stale localStorage login state before navigation
+                            _ = ClearWebViewLoginStateAsync();
+                            string launcherUrl = "file:///" + launcherPath.Replace("\\", "/");
+                            Navigate(launcherUrl);
+
+                            // Wait for page to load, then trigger download
+                            var downloadTimer = new System.Windows.Forms.Timer();
+                            downloadTimer.Interval = 1500;
+                            downloadTimer.Tick += (sender2, e2) =>
+                            {
+                                downloadTimer.Stop();
+                                downloadTimer.Dispose();
+
+                                var wv = GetCurrentWebView();
+                                if (wv?.CoreWebView2 != null)
+                                {
+                                    System.Diagnostics.Debug.WriteLine("[WMS Prod] Triggering download...");
+                                    wv.CoreWebView2.ExecuteScriptAsync("if (typeof downloadNewVersion === 'function') { downloadNewVersion(); }");
+                                }
+                            };
+                            downloadTimer.Start();
+                        }
+                        else
+                        {
+                            MessageBox.Show(
+                                "Cannot trigger download. Local WMS files not found.",
+                                "Error",
+                                MessageBoxButtons.OK,
+                                MessageBoxIcon.Error);
+                        }
+                    }
+                }
+            };
+            moduleToolTip.SetToolTip(wmsProdButton, "WMS Production - GitHub Distribution");
+            leftPosition += 95;
+
+            // Modules Dropdown Button
+            modulesButton = new Button
+            {
+                Text = "Modules ▼",
+                Width = 90,
                 Height = 30,
                 Left = leftPosition,
                 Top = 10,
                 FlatStyle = FlatStyle.Flat,
                 Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(255, 230, 220),
-                Tag = "AP"
+                BackColor = Color.FromArgb(240, 240, 240),
+                ForeColor = Color.FromArgb(60, 60, 60),
+                Font = new Font("Segoe UI", 8, FontStyle.Bold),
+                Tag = "MODULES"
             };
-            apButton.FlatAppearance.BorderColor = Color.FromArgb(255, 140, 100);
-            apButton.FlatAppearance.BorderSize = 2;
-            apButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 215, 200);
-            apButton.Paint += ModuleButton_Paint;
-            apButton.Click += (s, e) => LoadModule("AP", "https://www.google.com/search?q=Accounts+Payable");
-            moduleToolTip.SetToolTip(apButton, "Accounts Payable");
-            leftPosition += 65;
+            modulesButton.FlatAppearance.BorderColor = Color.FromArgb(180, 180, 180);
+            modulesButton.FlatAppearance.BorderSize = 1;
+            modulesButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 230, 230);
 
-            // OM Button - Order Management
-            omButton = new Button
+            // Create context menu for modules dropdown
+            modulesContextMenu = new ContextMenuStrip();
+            modulesContextMenu.Items.Add("WMS - Warehouse Management").Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
-                Height = 30,
-                Left = leftPosition,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(240, 220, 255),
-                Tag = "OM"
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "wms", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
-            omButton.FlatAppearance.BorderColor = Color.FromArgb(160, 100, 255);
-            omButton.FlatAppearance.BorderSize = 2;
-            omButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(230, 210, 255);
-            omButton.Paint += ModuleButton_Paint;
-            omButton.Click += (s, e) => LoadModule("OM", "https://www.google.com/search?q=Order+Management");
-            moduleToolTip.SetToolTip(omButton, "Order Management");
-            leftPosition += 65;
 
-            // FA Button - Fixed Assets
-            faButton = new Button
+            modulesContextMenu.Items.Add("GL - General Ledger").Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
-                Height = 30,
-                Left = leftPosition,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(245, 235, 220),
-                Tag = "FA"
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "gl", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
-            faButton.FlatAppearance.BorderColor = Color.FromArgb(180, 140, 100);
-            faButton.FlatAppearance.BorderSize = 2;
-            faButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(235, 225, 210);
-            faButton.Paint += ModuleButton_Paint;
-            faButton.Click += (s, e) => LoadModule("FA", "https://www.google.com/search?q=Fixed+Assets");
-            moduleToolTip.SetToolTip(faButton, "Fixed Assets");
-            leftPosition += 65;
 
-            // CA Button - Cash Management
-            caButton = new Button
+            modulesContextMenu.Items.Add("SYNC - Oracle Fusion Sync").Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
-                Height = 30,
-                Left = leftPosition,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(220, 255, 245),
-                Tag = "CA"
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "sync", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
-            caButton.FlatAppearance.BorderColor = Color.FromArgb(80, 200, 180);
-            caButton.FlatAppearance.BorderSize = 2;
-            caButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(210, 245, 235);
-            caButton.Paint += ModuleButton_Paint;
-            caButton.Click += (s, e) => LoadModule("CA", "https://www.google.com/search?q=Cash+Management");
-            moduleToolTip.SetToolTip(caButton, "Cash Management");
-            leftPosition += 65;
 
-            // POS Button - Point of Sale
-            posButton = new Button
+            modulesContextMenu.Items.Add("AR - Accounts Receivable").Click += (s, e) =>
             {
-                Text = "",
-                Width = 60,
-                Height = 30,
-                Left = leftPosition,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Cursor = Cursors.Hand,
-                BackColor = Color.FromArgb(255, 240, 220),
-                Tag = "WMS"
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ar", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
-            posButton.FlatAppearance.BorderColor = Color.FromArgb(255, 160, 80);
-            posButton.FlatAppearance.BorderSize = 2;
-            posButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(255, 230, 210);
-            posButton.Paint += ModuleButton_Paint;
 
-            // WMS Button - Warehouse Management
-            posButton.Click += (s, e) =>
+            modulesContextMenu.Items.Add("AP - Accounts Payable").Click += (s, e) =>
             {
-                // Load local index.html file
-                string indexPath = Path.Combine(Application.StartupPath, "index.html");
-                string fileUrl = "file:///" + indexPath.Replace("\\", "/");
-                Navigate(fileUrl);
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ap", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
             };
 
-            moduleToolTip.SetToolTip(posButton, "WMS");
-            leftPosition += 70;
+            modulesContextMenu.Items.Add("OM - Order Management").Click += (s, e) =>
+            {
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "om", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
+            modulesContextMenu.Items.Add("FA - Fixed Assets").Click += (s, e) =>
+            {
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "fa", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
+            modulesContextMenu.Items.Add("CA - Cash Management").Click += (s, e) =>
+            {
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "ca", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
+            modulesContextMenu.Items.Add("POS - Point of Sale").Click += (s, e) =>
+            {
+                string repoRoot = GetWebFilesBasePath();
+                string indexPath = Path.GetFullPath(Path.Combine(repoRoot, "pos", "index.html"));
+                if (File.Exists(indexPath))
+                {
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    Navigate(fileUrl);
+                }
+            };
+
+            modulesButton.Click += (s, e) =>
+            {
+                modulesContextMenu.Show(modulesButton, new Point(0, modulesButton.Height));
+            };
+
+            moduleToolTip.SetToolTip(modulesButton, "Select a module to launch");
+            leftPosition += 95;
 
             // Compact Oval URL panel container
             urlPanel = new Panel
@@ -560,14 +1205,10 @@ namespace WMSApp
             navPanel.Controls.Add(homeButton);
             navPanel.Controls.Add(openFileButton);
             navPanel.Controls.Add(clearCacheButton);
-            navPanel.Controls.Add(glButton);
-            navPanel.Controls.Add(arButton);
-            navPanel.Controls.Add(apButton);
-            navPanel.Controls.Add(omButton);
-            navPanel.Controls.Add(faButton);
-            navPanel.Controls.Add(caButton);
-            navPanel.Controls.Add(posButton);
-            navPanel.Controls.Add(urlPanel);
+navPanel.Controls.Add(wmsDevButton);
+            navPanel.Controls.Add(wmsProdButton);
+            navPanel.Controls.Add(modulesButton);
+            // navPanel.Controls.Add(urlPanel); // HIDDEN: Address bar removed per user request
             navPanel.Controls.Add(profileButton);
             navPanel.Controls.Add(settingsButton);
 
@@ -583,8 +1224,57 @@ namespace WMSApp
             this.Controls.Add(navPanel);
             this.Controls.Add(titleBarPanel);
 
-            // Create initial tab
-            AddNewTab("https://www.google.com");
+            // Hide the C# toolbar — navigation is handled inside the HTML page
+            navPanel.Visible = false;
+            titleBarPanel.Visible = false;
+
+            // Startup: Navigate to Home dashboard
+            // Priority 1: Dev repo Home folder
+            // Priority 2: Fusion distribution Home folder
+            string devHomeFolder = @"C:\fusion\fusionclientweb\graysWMSwebviewnew\Home";
+            string fusionHomeFolder = @"C:\fusion\fusionclientweb\Home";
+            string homeFolder;
+            string wmsSource;
+
+            if (Directory.Exists(devHomeFolder) && File.Exists(Path.Combine(devHomeFolder, "index.html")))
+            {
+                homeFolder = devHomeFolder;
+                wmsSource = "DEV (home repo)";
+            }
+            else if (Directory.Exists(fusionHomeFolder) && File.Exists(Path.Combine(fusionHomeFolder, "index.html")))
+            {
+                homeFolder = fusionHomeFolder;
+                wmsSource = "PROD (fusion)";
+            }
+            else
+            {
+                // Final fallback: build output Home folder
+                homeFolder = Path.Combine(Application.StartupPath, "Home");
+                wmsSource = "BUILD OUTPUT";
+            }
+
+            string homeIndexPath = Path.Combine(homeFolder, "index.html");
+            System.Diagnostics.Debug.WriteLine("========================================");
+            System.Diagnostics.Debug.WriteLine($"[STARTUP] Loading Home dashboard from: {wmsSource}");
+            System.Diagnostics.Debug.WriteLine($"[STARTUP] Folder: {homeFolder}");
+            System.Diagnostics.Debug.WriteLine($"[STARTUP] Index: {homeIndexPath}");
+            System.Diagnostics.Debug.WriteLine("========================================");
+
+            // Show source mode in title bar so user knows where files are loading from
+            this.Text += $" | [{wmsSource}]";
+
+            if (File.Exists(homeIndexPath))
+            {
+                string fileUrl = "file:///" + homeIndexPath.Replace("\\", "/");
+                AddNewTab(fileUrl);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine($"[STARTUP] ERROR: Home/index.html not found at {homeIndexPath}");
+                MessageBox.Show($"Home dashboard not found.\n\nSearched:\n{devHomeFolder}\n{fusionHomeFolder}\n{Path.Combine(Application.StartupPath, "Home")}\n\nPlease check your installation.",
+                    "File Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                AddNewTab("https://www.google.com");
+            }
         }
 
         private void LogDebug(string message)
@@ -796,7 +1486,7 @@ namespace WMSApp
             {
                 TabText = "New Tab",
                 Width = 200,
-                Height = 28,
+                Height = 26,
                 BackColor = Color.FromArgb(50, 50, 50),
                 ForeColor = Color.White
             };
@@ -887,6 +1577,19 @@ namespace WMSApp
             {
                 await wv.EnsureCoreWebView2Async(null);
 
+                // CACHE FIX: Clear browser cache to ensure tabs load properly (preserve localStorage for login state)
+                try
+                {
+                    await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                        CoreWebView2BrowsingDataKinds.CacheStorage |
+                        CoreWebView2BrowsingDataKinds.DiskCache);
+                    System.Diagnostics.Debug.WriteLine("[CACHE] Browser cache cleared successfully (localStorage preserved)");
+                }
+                catch (Exception cacheEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[CACHE] Warning: Could not clear cache: {cacheEx.Message}");
+                }
+
                 wv.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
                 wv.CoreWebView2.Settings.AreDevToolsEnabled = true;
                 wv.CoreWebView2.Settings.IsWebMessageEnabled = true;
@@ -901,19 +1604,57 @@ namespace WMSApp
                         using (var doc = JsonDocument.Parse(messageJson))
                         {
                             var root = doc.RootElement;
-                            string action = root.GetProperty("action").GetString();
-                            string requestId = root.GetProperty("requestId").GetString();
+                            string action = root.TryGetProperty("action", out var actionProp) ? actionProp.GetString() : "";
+                            string requestId = root.TryGetProperty("requestId", out var reqIdProp) ? reqIdProp.GetString() : "";
+
+                            if (string.IsNullOrEmpty(action))
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[C#] No action in message, skipping");
+                                return;
+                            }
 
                             System.Diagnostics.Debug.WriteLine($"[C#] Action: {action}, RequestId: {requestId}");
 
                             switch (action)
                             {
+                                case "loginSuccess":
+                                    HandleLoginSuccess(root);
+                                    break;
+
+                                case "validateLogin":
+                                    await HandleValidateLogin(wv, root, requestId);
+                                    break;
+
                                 case "executeGet":
                                     await HandleRestApiRequest(wv, messageJson, requestId);
                                     break;
 
                                 case "executePost":
                                     await HandleRestApiPostRequest(wv, messageJson, requestId);
+                                    break;
+
+                                case "executeOracleFusionPost":
+                                    await HandleOracleFusionPostRequest(wv, messageJson, requestId);
+                                    break;
+
+                                case "executeOracleFusionPatch":
+                                    await HandleOracleFusionPatchRequest(wv, messageJson, requestId);
+                                    break;
+
+                                case "executeOracleFusionGet":
+                                    await HandleOracleFusionGetRequest(wv, messageJson, requestId);
+                                    break;
+
+                                case "getInventoryCache":
+                                    await HandleGetInventoryCache(wv, messageJson, requestId);
+                                    break;
+
+                                case "saveInventoryCache":
+                                    await HandleSaveInventoryCache(wv, messageJson, requestId);
+                                    break;
+
+                                case "executeDelete":
+                                    await HandleRestApiDeleteRequest(wv, messageJson, requestId);
                                     break;
 
                                 case "claudeApiTest":
@@ -937,8 +1678,17 @@ namespace WMSApp
                                     await HandleDownloadOrderPdf(wv, messageJson, requestId);
                                     break;
 
+                                // 🔧 NEW: Check if PDF exists locally
+                                case "checkPdfExists":
+                                    await HandleCheckPdfExists(wv, messageJson, requestId);
+                                    break;
+
                                 case "printOrder":
                                     await HandlePrintOrder(wv, messageJson, requestId);
+                                    break;
+
+                                case "printSalesOrder":
+                                    await HandlePrintSalesOrder(wv, messageJson, requestId);
                                     break;
 
                                 case "getPrintJobs":
@@ -964,6 +1714,19 @@ namespace WMSApp
                                 case "testPrinter":
                                     await HandleTestPrinter(wv, messageJson, requestId);
                                     break;
+
+                                case "discoverBluetoothPrinters":
+                                    await HandleDiscoverBluetoothPrinters(wv, messageJson, requestId);
+                                    break;
+
+                                case "discoverWifiPrinters":
+                                    await HandleDiscoverWifiPrinters(wv, messageJson, requestId);
+                                    break;
+
+                                case "setInstanceSetting":
+                                    await HandleSetInstanceSetting(wv, messageJson, requestId);
+                                    break;
+
                                 case "getAllPrintJobs":
                                     await HandleGetAllPrintJobs(wv, messageJson, requestId);
                                     break;
@@ -974,6 +1737,80 @@ namespace WMSApp
 
                                 case "openFileInExplorer":
                                     await HandleOpenFileInExplorer(wv, messageJson, requestId);
+                                    break;
+
+                                // 🔧 NEW: Open PDF file with default viewer
+                                case "openPdfFile":
+                                    await HandleOpenPdfFile(wv, messageJson, requestId);
+                                    break;
+
+                                // 🔧 NEW: Print Store Transaction Report
+                                case "printStoreTransaction":
+                                    await HandlePrintStoreTransaction(wv, messageJson, requestId);
+                                    break;
+
+                                // 🔧 NEW: Run SOAP Report (Generic handler for any Oracle BI Publisher report)
+                                case "runSoapReport":
+                                    await HandleRunSoapReport(wv, messageJson, requestId);
+                                    break;
+
+                                // Distribution System Cases
+                                case "check-distribution-folder":
+                                    await HandleCheckDistributionFolder(wv, messageJson, requestId);
+                                    break;
+
+                                case "download-distribution":
+                                    await HandleDownloadDistribution(wv, messageJson, requestId);
+                                    break;
+
+                                case "launch-wms-module":
+                                    await HandleLaunchWMSModule(wv, messageJson, requestId);
+                                    break;
+
+                                case "loadLocalFile":
+                                    await HandleLoadLocalFile(wv, messageJson, requestId);
+                                    break;
+
+                                case "logout":
+                                    HandleLogout();
+                                    break;
+
+                                // MRA Interface Processing
+                                case "processMRAInterface":
+                                    await HandleProcessMRAInterface(wv, messageJson, requestId);
+                                    break;
+
+                                // Release Manager
+                                case "createRelease":
+                                    await HandleCreateRelease(wv, messageJson, requestId);
+                                    break;
+
+                                case "getVersionInfo":
+                                    await HandleGetVersionInfo(wv, messageJson, requestId);
+                                    break;
+
+                                case "getPickersView":
+                                    await HandleGetPickersView(wv, messageJson, requestId);
+                                    break;
+
+                                case "postToTeams":
+                                    await HandlePostToTeams(wv, messageJson, requestId);
+                                    break;
+
+                                case "getOutlookEmail":
+                                    await HandleGetOutlookEmail(wv, messageJson, requestId);
+                                    break;
+
+                                case "sendOutlookEmail":
+                                    await HandleSendOutlookEmail(wv, messageJson, requestId);
+                                    break;
+
+                                case "sendSmtpEmail":
+                                    await HandleSendSmtpEmail(wv, messageJson, requestId);
+                                    break;
+
+                                case "testSmtpConnection":
+                                    await HandleTestSmtpConnection(wv, messageJson, requestId);
                                     break;
 
                                 default:
@@ -1014,13 +1851,50 @@ namespace WMSApp
 
                 System.Diagnostics.Debug.WriteLine($"[C#] Processing executeGet request: {message.FullUrl}");
 
+                // Check if credentials are provided
+                bool hasCredentials = !string.IsNullOrEmpty(message.Username) && !string.IsNullOrEmpty(message.Password);
+                if (hasCredentials)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using Basic Authentication for user: {message.Username}");
+                }
+
                 using (var httpClient = new HttpClient())
                 {
-                    httpClient.Timeout = TimeSpan.FromSeconds(30);
-                    var response = await httpClient.GetAsync(message.FullUrl);
+                    httpClient.Timeout = TimeSpan.FromSeconds(1060);
+
+                    // Create request message instead of using GetAsync directly
+                    var request = new HttpRequestMessage(HttpMethod.Get, message.FullUrl);
+
+                    // Add Basic Authentication header if credentials are provided
+                    if (hasCredentials)
+                    {
+                        string credentials = Convert.ToBase64String(
+                            System.Text.Encoding.ASCII.GetBytes($"{message.Username}:{message.Password}")
+                        );
+                        request.Headers.Add("Authorization", $"Basic {credentials}");
+                        System.Diagnostics.Debug.WriteLine($"[C#] Added Authorization header with Basic authentication");
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Making GET request to: {message.FullUrl}");
+
+                    // Use SendAsync instead of GetAsync to support custom headers
+                    var response = await httpClient.SendAsync(request);
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST call completed. Status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                    // Log error responses for debugging
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] HTTP {response.StatusCode}: {response.ReasonPhrase}");
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] Response body: {responseContent.Substring(0, Math.Min(500, responseContent.Length))}");
+                    }
+
+                    // Log first 200 chars of successful responses for debugging
+                    if (response.IsSuccessStatusCode && responseContent.Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Response preview: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
+                    }
 
                     var resultMessage = new
                     {
@@ -1030,7 +1904,10 @@ namespace WMSApp
                     };
 
                     string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending response back to JS. RequestId: {requestId}, DataLength: {responseContent.Length}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response JSON (first 200 chars): {resultJson.Substring(0, Math.Min(200, resultJson.Length))}");
                     wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ Response sent successfully to WebView2");
                 }
             }
             catch (Exception ex)
@@ -1058,23 +1935,46 @@ namespace WMSApp
                     new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
                 );
 
-                System.Diagnostics.Debug.WriteLine($"[C#] Processing executePost request: {message.FullUrl}");
-                System.Diagnostics.Debug.WriteLine($"[C#] POST Body: {message.Body}");
+                string method = message.Method?.ToUpper() ?? "POST";
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing {method} request: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[C#] Body: {message.Body}");
 
                 using (var httpClient = new HttpClient())
                 {
                     httpClient.Timeout = TimeSpan.FromSeconds(30);
 
-                    var content = new StringContent(
-                        message.Body ?? "{}",
-                        Encoding.UTF8,
-                        "application/json"
-                    );
+                    HttpResponseMessage response;
 
-                    var response = await httpClient.PostAsync(message.FullUrl, content);
+                    if (method == "POST")
+                    {
+                        var content = new StringContent(
+                            message.Body ?? "{}",
+                            Encoding.UTF8,
+                            "application/json"
+                        );
+                        response = await httpClient.PostAsync(message.FullUrl, content);
+                    }
+                    else if (method == "PUT")
+                    {
+                        var content = new StringContent(
+                            message.Body ?? "{}",
+                            Encoding.UTF8,
+                            "application/json"
+                        );
+                        response = await httpClient.PutAsync(message.FullUrl, content);
+                    }
+                    else if (method == "DELETE")
+                    {
+                        response = await httpClient.DeleteAsync(message.FullUrl);
+                    }
+                    else
+                    {
+                        throw new Exception($"Unsupported HTTP method: {method}");
+                    }
+
                     string responseContent = await response.Content.ReadAsStringAsync();
 
-                    System.Diagnostics.Debug.WriteLine($"[C#] REST POST completed. Status: {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] REST {method} completed. Status: {response.StatusCode}");
                     System.Diagnostics.Debug.WriteLine($"[C#] Response: {responseContent}");
 
                     var resultMessage = new
@@ -1085,12 +1985,660 @@ namespace WMSApp
                     };
 
                     string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending response back to JS. RequestId: {requestId}, DataLength: {responseContent.Length}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Response JSON (first 200 chars): {resultJson.Substring(0, Math.Min(200, resultJson.Length))}");
                     wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ Response sent successfully to WebView2");
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST POST call failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] REST call failed: {ex.Message}");
+
+                var errorMessage = new
+                {
+                    action = "error",
+                    requestId = requestId,
+                    data = new { message = ex.Message }
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        /// <summary>
+        /// Handles Oracle Fusion REST API POST requests with Basic Auth
+        /// Used for Pick Transactions API (pick confirm)
+        /// </summary>
+        private async Task HandleOracleFusionPostRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiPostWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] POST request to: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Body: {message.Body}");
+
+                // Get instance from message to determine credentials
+                string instance = "TEST";
+                try
+                {
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        if (doc.RootElement.TryGetProperty("instance", out var instProp))
+                        {
+                            instance = instProp.GetString()?.ToUpper() ?? "TEST";
+                        }
+                    }
+                }
+                catch { }
+
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Instance: {instance}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Fusion User: {_fusionUsername ?? "NULL"}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Fusion Credentials Loaded: {_fusionCredentialsLoaded}");
+
+                // Check for Fusion credentials (fetched on app startup)
+                if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ERROR: Fusion credentials not available!");
+
+                    // Try to fetch credentials now as fallback
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Attempting to fetch credentials now...");
+                    await FetchFusionCredentialsOnStartup();
+
+                    if (!_fusionCredentialsLoaded)
+                    {
+                        var noCredError = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorExplanation = "Oracle Fusion credentials not available. Could not fetch from webservice.",
+                                ErrorCode = "FUSION_CRED_MISSING"
+                            })
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(noCredError));
+                        return;
+                    }
+                }
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(120); // 2 min timeout for Oracle Fusion
+
+                    // Add Basic Auth header using Fusion credentials (from webservice)
+                    var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_fusionUsername}:{_fusionPassword}"));
+                    httpClient.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Added Basic Auth for Fusion user: {_fusionUsername}");
+
+                    // Add required headers for Oracle Fusion REST API
+                    httpClient.DefaultRequestHeaders.Accept.Add(
+                        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                    var content = new StringContent(
+                        message.Body ?? "{}",
+                        Encoding.UTF8,
+                        "application/json"
+                    );
+
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Sending POST request...");
+                    var response = await httpClient.PostAsync(message.FullUrl, content);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Response Status: {(int)response.StatusCode} {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Response Body: {responseContent}");
+
+                    // Handle non-success status codes
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] HTTP Error: {response.StatusCode}");
+
+                        // Try to parse error response, or create one
+                        string errorData;
+                        if (!string.IsNullOrEmpty(responseContent))
+                        {
+                            errorData = responseContent;
+                        }
+                        else
+                        {
+                            errorData = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorCode = $"HTTP_{(int)response.StatusCode}",
+                                ErrorExplanation = $"HTTP Error: {response.StatusCode}"
+                            });
+                        }
+
+                        var httpErrorMessage = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = errorData
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(httpErrorMessage));
+                        return;
+                    }
+
+                    var resultMessage = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+
+                    string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] Sending response back to JS. RequestId: {requestId}");
+                    wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ✓ Response sent successfully");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION] ========================================");
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] HTTP Request failed: {httpEx.Message}");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "HTTP_REQUEST_FAILED",
+                        ErrorExplanation = $"HTTP Request failed: {httpEx.Message}"
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+            catch (TaskCanceledException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] Request timed out");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "TIMEOUT",
+                        ErrorExplanation = "Request timed out. Oracle Fusion API did not respond within 120 seconds."
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] Unexpected error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION ERROR] Stack: {ex.StackTrace}");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "UNKNOWN",
+                        ErrorExplanation = ex.Message
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+        }
+
+        /// <summary>
+        /// Handles Oracle Fusion REST API PATCH requests with Basic Auth
+        /// Used for updating sales orders (e.g., cancelling lines)
+        /// </summary>
+        private async Task HandleOracleFusionPatchRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiPostWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] PATCH request to: {message.FullUrl}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Body: {message.Body}");
+
+                // Get instance from message to determine credentials
+                string instance = "TEST";
+                try
+                {
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        if (doc.RootElement.TryGetProperty("instance", out var instProp))
+                        {
+                            instance = instProp.GetString()?.ToUpper() ?? "TEST";
+                        }
+                    }
+                }
+                catch { }
+
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Instance: {instance}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Fusion User: {_fusionUsername ?? "NULL"}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Fusion Credentials Loaded: {_fusionCredentialsLoaded}");
+
+                // Check for Fusion credentials (fetched on app startup)
+                if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] ERROR: Fusion credentials not available!");
+
+                    // Try to fetch credentials now as fallback
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Attempting to fetch credentials now...");
+                    await FetchFusionCredentialsOnStartup();
+
+                    if (!_fusionCredentialsLoaded)
+                    {
+                        var noCredError = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorExplanation = "Oracle Fusion credentials not available. Could not fetch from webservice.",
+                                ErrorCode = "FUSION_CRED_MISSING"
+                            })
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(noCredError));
+                        return;
+                    }
+                }
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(120); // 2 min timeout for Oracle Fusion
+
+                    // Add Basic Auth header using Fusion credentials (from webservice)
+                    var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_fusionUsername}:{_fusionPassword}"));
+                    httpClient.DefaultRequestHeaders.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Added Basic Auth for Fusion user: {_fusionUsername}");
+
+                    // Add required headers for Oracle Fusion REST API
+                    httpClient.DefaultRequestHeaders.Accept.Add(
+                        new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                    var content = new StringContent(
+                        message.Body ?? "{}",
+                        Encoding.UTF8,
+                        "application/json"
+                    );
+
+                    // Create PATCH request
+                    var request = new HttpRequestMessage(new HttpMethod("PATCH"), message.FullUrl)
+                    {
+                        Content = content
+                    };
+
+                    // Copy headers from httpClient to request
+                    request.Headers.Authorization = httpClient.DefaultRequestHeaders.Authorization;
+
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Sending PATCH request...");
+                    var response = await httpClient.SendAsync(request);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Response Status: {(int)response.StatusCode} {response.StatusCode}");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Response Body: {responseContent}");
+
+                    // Handle non-success status codes
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] HTTP Error: {response.StatusCode}");
+
+                        // Try to parse error response, or create one
+                        string errorData;
+                        if (!string.IsNullOrEmpty(responseContent))
+                        {
+                            errorData = responseContent;
+                        }
+                        else
+                        {
+                            errorData = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorCode = $"HTTP_{(int)response.StatusCode}",
+                                ErrorExplanation = $"HTTP Error: {response.StatusCode}"
+                            });
+                        }
+
+                        var httpErrorMessage = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = errorData
+                        };
+                        wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(httpErrorMessage));
+                        return;
+                    }
+
+                    var resultMessage = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+
+                    string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Sending response back to JS. RequestId: {requestId}");
+                    wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] Response sent successfully");
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH] ========================================");
+                }
+            }
+            catch (HttpRequestException httpEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH ERROR] HTTP Request failed: {httpEx.Message}");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "HTTP_REQUEST_FAILED",
+                        ErrorExplanation = $"HTTP Request failed: {httpEx.Message}"
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+            catch (TaskCanceledException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH ERROR] Request timed out");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "TIMEOUT",
+                        ErrorExplanation = "Request timed out. Oracle Fusion API did not respond within 120 seconds."
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH ERROR] Unexpected error: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION PATCH ERROR] Stack: {ex.StackTrace}");
+
+                var errorMessage = new
+                {
+                    action = "restResponse",
+                    requestId = requestId,
+                    data = JsonSerializer.Serialize(new {
+                        ReturnStatus = "Error",
+                        ErrorCode = "UNKNOWN",
+                        ErrorExplanation = ex.Message
+                    })
+                };
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
+            }
+        }
+
+        /// <summary>
+        /// Handles Oracle Fusion REST API GET requests with Basic Auth.
+        /// Uses Fusion credentials loaded on startup (_fusionUsername / _fusionPassword).
+        /// Supports optional query limit via limit field (default 500).
+        /// </summary>
+        private async Task HandleOracleFusionGetRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] ========================================");
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] GET request to: {message.FullUrl}");
+
+                // Ensure Fusion credentials are available
+                if (!_fusionCredentialsLoaded || string.IsNullOrEmpty(_fusionUsername) || string.IsNullOrEmpty(_fusionPassword))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Credentials missing, attempting re-fetch...");
+                    await FetchFusionCredentialsOnStartup();
+
+                    if (!_fusionCredentialsLoaded)
+                    {
+                        var noCredMsg = new
+                        {
+                            action = "restResponse",
+                            requestId = requestId,
+                            data = JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorCode = "FUSION_CRED_MISSING",
+                                ErrorExplanation = "Oracle Fusion credentials not available."
+                            })
+                        };
+                        PostWebViewMessage(wv, JsonSerializer.Serialize(noCredMsg));
+                        return;
+                    }
+                }
+
+                // Do the entire HTTP exchange on a background thread, then marshal the
+                // PostWebMessageAsJson call back to the UI thread via PostWebViewMessage.
+                string resultJson = await Task.Run(async () =>
+                {
+                    using (var httpClient = new HttpClient())
+                    {
+                        httpClient.Timeout = TimeSpan.FromSeconds(120);
+
+                        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{_fusionUsername}:{_fusionPassword}"));
+                        httpClient.DefaultRequestHeaders.Authorization =
+                            new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", credentials);
+                        httpClient.DefaultRequestHeaders.Accept.Add(
+                            new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Sending request with user: {_fusionUsername}");
+                        var response = await httpClient.GetAsync(message.FullUrl).ConfigureAwait(false);
+                        string responseContent = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Status: {(int)response.StatusCode} {response.StatusCode}");
+
+                        if (!response.IsSuccessStatusCode)
+                        {
+                            var errData = !string.IsNullOrEmpty(responseContent) ? responseContent : JsonSerializer.Serialize(new {
+                                ReturnStatus = "Error",
+                                ErrorCode = $"HTTP_{(int)response.StatusCode}",
+                                ErrorExplanation = $"HTTP Error: {response.StatusCode}"
+                            });
+                            return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = errData });
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Response length: {responseContent.Length}");
+                        System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] ========================================");
+                        return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = responseContent });
+                    }
+                }).ConfigureAwait(false);
+
+                // Back on UI thread (via PostWebViewMessage InvokeRequired check)
+                PostWebViewMessage(wv, resultJson);
+            }
+            catch (TaskCanceledException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET] Request timed out");
+                PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { ReturnStatus = "Error", ErrorCode = "TIMEOUT", ErrorExplanation = "Request timed out." }) }));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ORACLE FUSION GET ERROR] {ex.Message}");
+                PostWebViewMessage(wv, JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { ReturnStatus = "Error", ErrorCode = "UNKNOWN", ErrorExplanation = ex.Message }) }));
+            }
+        }
+
+        /// <summary>
+        /// Reads an inventory cache file from C:\fusion\inventory\{cacheKey}.json.
+        /// Returns { found: bool, fetchedAt: string, data: [...] }
+        /// </summary>
+        private async Task HandleGetInventoryCache(WebView2 wv, string messageJson, string requestId)
+        {
+            string resultJson = await Task.Run(() =>
+            {
+                try
+                {
+                    string cacheKey = "";
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        if (doc.RootElement.TryGetProperty("cacheKey", out var kp)) cacheKey = kp.GetString() ?? "";
+                    }
+
+                    string cacheDir = @"C:\fusion\inventory";
+                    string filePath = System.IO.Path.Combine(cacheDir, cacheKey.Replace("/", "_") + ".json");
+
+                    System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] key={cacheKey} path={filePath}");
+
+                    if (System.IO.File.Exists(filePath))
+                    {
+                        string fileContent = System.IO.File.ReadAllText(filePath);
+                        System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] Cache hit, size={fileContent.Length}");
+                        return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { found = true, cache = fileContent }) });
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[INV CACHE GET] Cache miss");
+                        return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { found = false, cache = (string)null }) });
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[INV CACHE GET ERROR] {ex.Message}");
+                    return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { found = false, cache = (string)null, error = ex.Message }) });
+                }
+            });
+
+            PostWebViewMessage(wv, resultJson);
+        }
+
+        /// <summary>
+        /// Writes inventory cache data to C:\fusion\inventory\{cacheKey}.json.
+        /// Payload: { cacheKey: string, data: string (JSON) }
+        /// File format: { fetchedAt: ISO string, data: [...] }
+        /// </summary>
+        private async Task HandleSaveInventoryCache(WebView2 wv, string messageJson, string requestId)
+        {
+            string resultJson = await Task.Run(() =>
+            {
+                try
+                {
+                    string cacheKey = "";
+                    string payload = "";
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        if (doc.RootElement.TryGetProperty("cacheKey", out var kp)) cacheKey = kp.GetString() ?? "";
+                        if (doc.RootElement.TryGetProperty("data", out var dp)) payload = dp.GetString() ?? "";
+                    }
+
+                    string cacheDir = @"C:\fusion\inventory";
+                    System.IO.Directory.CreateDirectory(cacheDir);
+
+                    string filePath = System.IO.Path.Combine(cacheDir, cacheKey.Replace("/", "_") + ".json");
+
+                    string fileContent = JsonSerializer.Serialize(new
+                    {
+                        fetchedAt = DateTime.UtcNow.ToString("o"),
+                        data = payload
+                    });
+
+                    System.IO.File.WriteAllText(filePath, fileContent);
+                    System.Diagnostics.Debug.WriteLine($"[INV CACHE SAVE] Saved key={cacheKey} path={filePath} size={fileContent.Length}");
+
+                    return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { success = true }) });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[INV CACHE SAVE ERROR] {ex.Message}");
+                    return JsonSerializer.Serialize(new { action = "restResponse", requestId = requestId, data = JsonSerializer.Serialize(new { success = false, error = ex.Message }) });
+                }
+            });
+
+            PostWebViewMessage(wv, resultJson);
+        }
+
+        private async Task HandleRestApiDeleteRequest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<RestApiWebMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Processing executeDelete request: {message.FullUrl}");
+
+                // Check if credentials are provided
+                bool hasCredentials = !string.IsNullOrEmpty(message.Username) && !string.IsNullOrEmpty(message.Password);
+                if (hasCredentials)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using Basic Authentication for user: {message.Username}");
+                }
+
+                using (var httpClient = new HttpClient())
+                {
+                    httpClient.Timeout = TimeSpan.FromSeconds(1060);
+
+                    // Create request message
+                    var request = new HttpRequestMessage(HttpMethod.Delete, message.FullUrl);
+
+                    // Add Basic Authentication header if credentials are provided
+                    if (hasCredentials)
+                    {
+                        string credentials = Convert.ToBase64String(
+                            System.Text.Encoding.ASCII.GetBytes($"{message.Username}:{message.Password}")
+                        );
+                        request.Headers.Add("Authorization", $"Basic {credentials}");
+                        System.Diagnostics.Debug.WriteLine($"[C#] Added Authorization header with Basic authentication");
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Making DELETE request to: {message.FullUrl}");
+
+                    // Use SendAsync to support custom headers
+                    var response = await httpClient.SendAsync(request);
+                    string responseContent = await response.Content.ReadAsStringAsync();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] DELETE call completed. Status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                    // Log error responses for debugging
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] HTTP {response.StatusCode}: {response.ReasonPhrase}");
+                        System.Diagnostics.Debug.WriteLine($"[C# ERROR] Response body: {responseContent.Substring(0, Math.Min(500, responseContent.Length))}");
+                    }
+
+                    // Log first 200 chars of successful responses for debugging
+                    if (response.IsSuccessStatusCode && responseContent.Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Response preview: {responseContent.Substring(0, Math.Min(200, responseContent.Length))}...");
+                    }
+
+                    var resultMessage = new
+                    {
+                        action = "restResponse",
+                        requestId = requestId,
+                        data = responseContent
+                    };
+
+                    string resultJson = JsonSerializer.Serialize(resultMessage);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Sending response back to JS. RequestId: {requestId}, DataLength: {responseContent.Length}");
+                    wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✓ DELETE response sent successfully to WebView2");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] DELETE call failed: {ex.Message}");
 
                 var errorMessage = new
                 {
@@ -1557,6 +3105,466 @@ namespace WMSApp
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
+
+        // 🔧 NEW: Open PDF file with default PDF viewer
+        private async Task HandleOpenPdfFile(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Opening PDF file with default viewer...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    if (!File.Exists(filePath))
+                    {
+                        throw new FileNotFoundException($"PDF file not found: {filePath}");
+                    }
+
+                    // Open PDF with default application (e.g., Adobe Reader, Edge, etc.)
+                    var processStartInfo = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = filePath,
+                        UseShellExecute = true  // This uses the Windows file association
+                    };
+
+                    System.Diagnostics.Process.Start(processStartInfo);
+
+                    var response = new
+                    {
+                        action = "openPdfFileResponse",
+                        requestId = requestId,
+                        success = true,
+                        message = "PDF opened with default viewer"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ PDF opened successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Open PDF file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // Load local HTML file content (for Sync module external pages)
+        private async Task HandleLoadLocalFile(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Loading local file...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string filePath = root.GetProperty("filePath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] File path: {filePath}");
+
+                    // Resolve path relative to sync folder
+                    string repoRoot = GetWebFilesBasePath();
+                    string fullPath = Path.GetFullPath(Path.Combine(repoRoot, "sync", filePath));
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Full path: {fullPath}");
+
+                    if (!File.Exists(fullPath))
+                    {
+                        throw new FileNotFoundException($"File not found: {fullPath}");
+                    }
+
+                    // Read file content
+                    string content = await File.ReadAllTextAsync(fullPath);
+
+                    var response = new
+                    {
+                        action = "loadLocalFileResponse",
+                        requestId = requestId,
+                        success = true,
+                        content = content,
+                        filePath = filePath
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ File loaded successfully: {filePath}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Load local file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // ========== MRA INTERFACE HANDLER ==========
+
+        private async Task HandleProcessMRAInterface(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] ========== MRA INTERFACE REQUEST ==========");
+                System.Diagnostics.Debug.WriteLine($"[C#] Raw messageJson: {messageJson}");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string orderNumber = root.GetProperty("orderNumber").GetString();
+                    string fusionUsername = root.GetProperty("fusionUsername").GetString();
+                    string fusionPassword = root.GetProperty("fusionPassword").GetString();
+                    string instance = root.GetProperty("instance").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Parsed values:");
+                    System.Diagnostics.Debug.WriteLine($"[C#]   - Order Number: {orderNumber}");
+                    System.Diagnostics.Debug.WriteLine($"[C#]   - Username: {fusionUsername}");
+                    System.Diagnostics.Debug.WriteLine($"[C#]   - Instance: '{instance}'");
+                    System.Diagnostics.Debug.WriteLine($"[C#] ============================================");
+
+                    // Create MRA processor
+                    var mraProcessor = new WMSApp.MRA.MRAProcessor(
+                        fusionUsername,
+                        fusionPassword,
+                        instance
+                    );
+
+                    // Process with progress updates and data callbacks
+                    var result = await mraProcessor.ProcessMRAInterfaceAsync(
+                        orderNumber,
+                        // Progress callback
+                        (message, step) =>
+                        {
+                            // Send progress update to JavaScript
+                            var progressUpdate = new
+                            {
+                                action = "mraProcessingProgress",
+                                requestId = requestId,
+                                step = step.ToString(),
+                                message = message
+                            };
+
+                            string progressJson = JsonSerializer.Serialize(progressUpdate);
+                            wv.CoreWebView2.PostWebMessageAsJson(progressJson);
+                            System.Diagnostics.Debug.WriteLine($"[C#] MRA Progress: {step} - {message}");
+                        },
+                        // Order data callback (for Tab 1)
+                        (headerData, linesData) =>
+                        {
+                            var orderDataMsg = new
+                            {
+                                action = "mraOrderData",
+                                requestId = requestId,
+                                header = headerData,
+                                lines = linesData
+                            };
+
+                            string orderDataJson = JsonSerializer.Serialize(orderDataMsg);
+                            wv.CoreWebView2.PostWebMessageAsJson(orderDataJson);
+                            System.Diagnostics.Debug.WriteLine($"[C#] MRA Order Data sent to JS");
+                        },
+                        // MRA Request callback (for Tab 2)
+                        (endpoint, requestObj) =>
+                        {
+                            var requestDataMsg = new
+                            {
+                                action = "mraRequestData",
+                                requestId = requestId,
+                                endpoint = endpoint,
+                                request = requestObj
+                            };
+
+                            string requestDataJson = JsonSerializer.Serialize(requestDataMsg);
+                            wv.CoreWebView2.PostWebMessageAsJson(requestDataJson);
+                            System.Diagnostics.Debug.WriteLine($"[C#] MRA Request Data sent to JS");
+                        },
+                        // MRA Response callback (for Tab 2)
+                        (success, responseObj) =>
+                        {
+                            var responseDataMsg = new
+                            {
+                                action = "mraResponseData",
+                                requestId = requestId,
+                                success = success,
+                                response = responseObj
+                            };
+
+                            string responseDataJson = JsonSerializer.Serialize(responseDataMsg);
+                            wv.CoreWebView2.PostWebMessageAsJson(responseDataJson);
+                            System.Diagnostics.Debug.WriteLine($"[C#] MRA Response Data sent to JS");
+                        }
+                    );
+
+                    // Send final result
+                    var response = new
+                    {
+                        action = "processMRAInterfaceResponse",
+                        requestId = requestId,
+                        success = result.Success,
+                        message = result.Message,
+                        irnCode = result.IrnCode,
+                        qrCodeBase64 = result.QrCodeBase64,
+                        orderNumber = result.OrderNumber,
+                        headerId = result.HeaderId,
+                        currentStep = result.CurrentStep.ToString(),
+                        errorDetails = result.ErrorDetails
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ MRA Processing completed: {result.Success}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] MRA processing failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+                SendErrorResponse(wv, requestId, $"MRA processing error: {ex.Message}");
+            }
+        }
+
+        // ========== DISTRIBUTION SYSTEM HANDLERS ==========
+
+        private async Task HandleCheckDistributionFolder(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Checking distribution folder...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string folder = root.GetProperty("folder").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Distribution folder: {folder}");
+
+                    // Check if folder exists and contains index.html
+                    bool exists = Directory.Exists(folder) &&
+                                  File.Exists(Path.Combine(folder, "index.html"));
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Folder exists with index.html: {exists}");
+
+                    var response = new
+                    {
+                        type = "distribution-folder-exists",
+                        exists = exists,
+                        folder = folder,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ Distribution folder check complete");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Check distribution folder failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleDownloadDistribution(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Starting distribution download...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string version = root.GetProperty("version").GetString();
+                    string packageUrl = root.GetProperty("packageUrl").GetString();
+                    string extractTo = root.GetProperty("extractTo").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Version: {version}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Package URL: {packageUrl}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extract to: {extractTo}");
+
+                    // Create temp path for download
+                    string tempZipPath = Path.Combine(Path.GetTempPath(), $"wms-distribution-{version}.zip");
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Temp ZIP path: {tempZipPath}");
+
+                    // Download file with progress reporting
+                    using (WebClient client = new WebClient())
+                    {
+                        client.DownloadProgressChanged += (s, e) =>
+                        {
+                            // Send progress updates to JavaScript
+                            var progressResponse = new
+                            {
+                                type = "distribution-download-progress",
+                                percent = e.ProgressPercentage,
+                                bytesReceived = e.BytesReceived,
+                                totalBytes = e.TotalBytesToReceive,
+                                requestId = requestId
+                            };
+
+                            string progressJson = JsonSerializer.Serialize(progressResponse);
+                            wv.CoreWebView2.PostWebMessageAsJson(progressJson);
+                        };
+
+                        System.Diagnostics.Debug.WriteLine($"[C#] Downloading from GitHub...");
+                        await client.DownloadFileTaskAsync(packageUrl, tempZipPath);
+                        System.Diagnostics.Debug.WriteLine($"[C#] Download complete!");
+                    }
+
+                    // Create extraction folder if it doesn't exist
+                    if (!Directory.Exists(extractTo))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Creating distribution folder: {extractTo}");
+                        Directory.CreateDirectory(extractTo);
+                    }
+
+                    // Backup existing files if folder already has content
+                    string backupFolder = extractTo + ".backup";
+                    if (Directory.Exists(extractTo) && Directory.GetFiles(extractTo).Length > 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] Backing up existing files to: {backupFolder}");
+
+                        if (Directory.Exists(backupFolder))
+                        {
+                            Directory.Delete(backupFolder, true);
+                        }
+
+                        // Copy current files to backup
+                        CopyDirectory(extractTo, backupFolder);
+                    }
+
+                    // Extract ZIP file
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extracting ZIP file...");
+                    ZipFile.ExtractToDirectory(tempZipPath, extractTo, overwriteFiles: true);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Extraction complete!");
+
+                    // Clean up temp file
+                    File.Delete(tempZipPath);
+                    System.Diagnostics.Debug.WriteLine($"[C#] Temp file deleted");
+
+                    // Send success message
+                    var response = new
+                    {
+                        type = "distribution-download-complete",
+                        version = version,
+                        folder = extractTo,
+                        success = true,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ Distribution download complete!");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Distribution download failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+
+                // Send error message
+                var errorResponse = new
+                {
+                    type = "distribution-download-failed",
+                    error = ex.Message,
+                    requestId = requestId
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorResponse);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        private async Task HandleLaunchWMSModule(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Launching WMS module...");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string indexPath = root.GetProperty("indexPath").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Index path: {indexPath}");
+
+                    // Verify file exists
+                    if (!File.Exists(indexPath))
+                    {
+                        throw new FileNotFoundException($"WMS module not found at: {indexPath}");
+                    }
+
+                    // Convert Windows path to file:/// URL format
+                    string fileUrl = "file:///" + indexPath.Replace("\\", "/");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Navigating to: {fileUrl}");
+
+                    // Navigate the WebView2 control to the local HTML file
+                    wv.CoreWebView2.Navigate(fileUrl);
+
+                    // Send success message
+                    var response = new
+                    {
+                        type = "launch-wms-module",
+                        success = true,
+                        indexPath = indexPath,
+                        requestId = requestId
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ WMS module launched successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Launch WMS module failed: {ex.Message}");
+
+                // Send error message
+                var errorResponse = new
+                {
+                    type = "launch-wms-module",
+                    success = false,
+                    error = ex.Message,
+                    requestId = requestId
+                };
+
+                string errorJson = JsonSerializer.Serialize(errorResponse);
+                wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        // Helper method: Copy directory recursively
+        private void CopyDirectory(string sourceDir, string destDir)
+        {
+            // Create destination directory
+            Directory.CreateDirectory(destDir);
+
+            // Copy files
+            foreach (string file in Directory.GetFiles(sourceDir))
+            {
+                string fileName = Path.GetFileName(file);
+                string destFile = Path.Combine(destDir, fileName);
+                File.Copy(file, destFile, true);
+            }
+
+            // Copy subdirectories
+            foreach (string subDir in Directory.GetDirectories(sourceDir))
+            {
+                string dirName = Path.GetFileName(subDir);
+                string destSubDir = Path.Combine(destDir, dirName);
+                CopyDirectory(subDir, destSubDir);
+            }
+        }
+
         private async Task HandleDownloadOrderPdf(WebView2 wv, string messageJson, string requestId)
         {
             try
@@ -1593,6 +3601,288 @@ namespace WMSApp
             }
         }
 
+        // 🔧 NEW: Check if PDF exists locally
+        private async Task HandleCheckPdfExists(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<CheckPdfExistsMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Checking PDF existence for order {message.OrderNumber}");
+
+                // Construct PDF path: C:\fusion\{tripDate}\{tripId}\{orderNumber}.pdf
+                string formattedTripDate = message.TripDate;
+                if (!string.IsNullOrEmpty(message.TripDate))
+                {
+                    if (DateTime.TryParse(message.TripDate, out DateTime parsedTripDate))
+                        formattedTripDate = parsedTripDate.ToString("yyyy-MM-dd");
+                    else if (message.TripDate.Contains("T"))
+                        formattedTripDate = message.TripDate.Split('T')[0];
+                }
+                string pdfPath = Path.Combine(@"C:\fusion", formattedTripDate, message.TripId.ToString(), $"{message.OrderNumber}.pdf");
+                bool exists = File.Exists(pdfPath);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] PDF Path: {pdfPath}");
+                System.Diagnostics.Debug.WriteLine($"[C#] PDF Exists: {exists}");
+
+                var response = new
+                {
+                    action = "checkPdfExistsResponse",
+                    requestId = requestId,
+                    exists = exists,
+                    filePath = exists ? pdfPath : null,
+                    orderNumber = message.OrderNumber
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Check PDF exists failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Gets the active printer configuration from APEX REST API
+        /// Returns null if not found or on error (caller should fallback to local config)
+        /// </summary>
+        private async Task<PrinterConfig> GetActivePrinterConfigFromApexAsync()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[Form1] Getting printer config from APEX REST...");
+
+                string url = EndpointRegistry.GetEndpointUrl("WMS", "GETPRINTERCONFIG");
+                if (string.IsNullOrEmpty(url))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Form1] ❌ Printer config endpoint not found in registry");
+                    return null;
+                }
+
+                string jsonResponse = await _restApiClient.ExecuteGetAsync(url);
+
+                // Parse JSON response to get active printer
+                var jsonDoc = System.Text.Json.JsonDocument.Parse(jsonResponse);
+                var items = jsonDoc.RootElement.GetProperty("items");
+
+                foreach (var item in items.EnumerateArray())
+                {
+                    string isActive = item.GetProperty("isActive").GetString();
+                    if (isActive == "Y")
+                    {
+                        var config = new PrinterConfig
+                        {
+                            PrinterName = item.GetProperty("printerName").GetString(),
+                            PaperSize = item.GetProperty("paperSize").GetString(),
+                            Orientation = item.GetProperty("orientation").GetString(),
+                            FusionInstance = item.GetProperty("fusionInstance").GetString(),
+                            FusionUsername = item.GetProperty("fusionUsername").GetString(),
+                            FusionPassword = item.GetProperty("fusionPassword").GetString(),
+                            AutoDownload = item.GetProperty("autoDownload").GetString() == "Y",
+                            AutoPrint = item.GetProperty("autoPrint").GetString() == "Y"
+                        };
+
+                        System.Diagnostics.Debug.WriteLine($"[Form1] ✅ Got active printer config from APEX");
+                        System.Diagnostics.Debug.WriteLine($"[Form1] Fusion Username: {config.FusionUsername}, Instance: {config.FusionInstance}");
+                        return config;
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[Form1] ❌ No active printer found in APEX");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Form1] ❌ Failed to get printer config from APEX: {ex.Message}");
+                return null;
+            }
+        }
+
+        // 🔧 NEW: Print Store Transaction Report (Generic Handler)
+        private async Task HandlePrintStoreTransaction(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string orderNumber = root.GetProperty("orderNumber").GetString();
+                    string instance = root.GetProperty("instance").GetString();
+                    string reportPath = root.GetProperty("reportPath").GetString();
+                    string parameterName = root.GetProperty("parameterName").GetString();
+                    string tripId = root.GetProperty("tripId").GetString();
+                    string tripDate = root.GetProperty("tripDate").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Printing report: {reportPath}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] Parameter: {parameterName}={orderNumber}, Instance: {instance}");
+                    System.Diagnostics.Debug.WriteLine($"[C#] TripId: {tripId}, TripDate: {tripDate}");
+
+                    // ✅ FIX: Get credentials from APEX REST API instead of local config
+                    var printerConfig = await GetActivePrinterConfigFromApexAsync();
+
+                    if (printerConfig == null)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C#] ❌ Failed to get printer config from APEX, falling back to local config");
+                        // Fallback to local config if APEX fails
+                        printerConfig = _storageManager.LoadPrinterConfig();
+                    }
+
+                    if (printerConfig == null)
+                    {
+                        SendErrorResponse(wv, requestId, "Printer configuration not found in APEX or local storage");
+                        return;
+                    }
+
+                    var username = printerConfig.FusionUsername;
+                    var password = printerConfig.FusionPassword;
+
+                    if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                    {
+                        SendErrorResponse(wv, requestId, "Fusion credentials not configured. Please check APEX printer configuration.");
+                        return;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ Using credentials from APEX - Username: {username}, Instance: {instance}");
+
+                    // Download PDF using Generic method
+                    var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                    var result = await downloader.DownloadGenericReportPdfAsync(
+                        reportPath,
+                        parameterName,
+                        orderNumber,
+                        instance,
+                        username,
+                        password
+                    );
+
+                    if (!result.Success)
+                    {
+                        SendErrorResponse(wv, requestId, $"Failed to generate report: {result.ErrorMessage}");
+                        return;
+                    }
+
+                    // Convert base64 to bytes and save to C:\fusion\{tripDate}\{tripId}\ folder
+                    byte[] pdfBytes = Convert.FromBase64String(result.Base64Content);
+
+                    // Create folder structure: C:\fusion\{tripDate}\{tripId}
+                    string folderPath = Path.Combine(@"C:\fusion", tripDate, tripId);
+                    Directory.CreateDirectory(folderPath);
+
+                    // Simple filename: {orderNumber}.pdf
+                    string fileName = $"{orderNumber}.pdf";
+                    string filePath = Path.Combine(folderPath, fileName);
+
+                    await File.WriteAllBytesAsync(filePath, pdfBytes);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Report PDF saved to: {filePath}");
+
+                    // Send success response
+                    var response = new
+                    {
+                        action = "printStoreTransactionResponse",
+                        requestId = requestId,
+                        success = true,
+                        message = $"Report saved to: {filePath}",
+                        filePath = filePath
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Print Store Transaction failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // 🔧 NEW: Generic SOAP Report Handler - Runs any Oracle BI Publisher report and returns Base64 data
+        private async Task HandleRunSoapReport(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string reportPath = root.GetProperty("reportPath").GetString();
+                    string parameterName = root.GetProperty("parameterName").GetString();
+                    string parameterValue = root.GetProperty("parameterValue").GetString();
+                    string instance = root.GetProperty("instance").GetString();
+                    string username = root.GetProperty("username").GetString();
+                    string password = root.GetProperty("password").GetString();
+
+                    System.Diagnostics.Debug.WriteLine("====================================");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] HandleRunSoapReport STARTED");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Report Path: {reportPath}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Parameter: {parameterName} = {parameterValue}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Instance: {instance}");
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Username: {username}");
+                    System.Diagnostics.Debug.WriteLine("====================================");
+
+                    if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# SOAP] ❌ ERROR: Credentials are missing");
+                        SendErrorResponse(wv, requestId, "Fusion credentials not provided");
+                        return;
+                    }
+
+                    // Download report and parse data (forPrint=false extracts data table)
+                    var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Calling DownloadGenericReportAsync (forPrint=false)...");
+
+                    var result = await downloader.DownloadGenericReportAsync(
+                        reportPath,
+                        parameterName,
+                        parameterValue,
+                        instance,
+                        username,
+                        password,
+                        forPrint: false  // Extract data, not PDF
+                    );
+
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] DownloadGenericReportAsync returned - Success: {result.Success}");
+
+                    if (!result.Success)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[C# SOAP] ❌ ERROR: {result.ErrorMessage}");
+                        SendErrorResponse(wv, requestId, $"Failed to run SOAP report: {result.ErrorMessage}");
+                        return;
+                    }
+
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] ✅ SUCCESS - Data records count: {result.DataRecords?.Count ?? 0}");
+
+                    // Return data records as JSON array (not Base64)
+                    var response = new
+                    {
+                        action = "runSoapReportResponse",
+                        requestId = requestId,
+                        success = true,
+                        dataRecords = result.DataRecords,  // Send parsed data directly
+                        recordCount = result.DataRecords?.Count ?? 0,
+                        message = "SOAP report data extracted successfully"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] Sending {result.DataRecords?.Count ?? 0} records to JavaScript...");
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                    System.Diagnostics.Debug.WriteLine($"[C# SOAP] ✅ Response sent successfully");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# SOAP] ❌ EXCEPTION: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# SOAP] Stack trace: {ex.StackTrace}");
+                SendErrorResponse(wv, requestId, $"SOAP report error: {ex.Message}");
+            }
+        }
+
         private async Task HandlePrintOrder(WebView2 wv, string messageJson, string requestId)
         {
             try
@@ -1625,6 +3915,144 @@ namespace WMSApp
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Print order failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Handles printSalesOrder action from JavaScript
+        /// Downloads PDF from Oracle Fusion and saves it locally
+        /// </summary>
+        private async Task HandlePrintSalesOrder(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("====================================");
+                System.Diagnostics.Debug.WriteLine($"[C#] ⭐ HandlePrintSalesOrder STARTED");
+                System.Diagnostics.Debug.WriteLine($"[C#] RequestId: {requestId}");
+                System.Diagnostics.Debug.WriteLine($"[C#] Message: {messageJson}");
+                System.Diagnostics.Debug.WriteLine("====================================");
+
+                var message = JsonSerializer.Deserialize<PrintSalesOrderMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] PrintSalesOrder Parameters:");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - OrderNumber: {message.OrderNumber}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - Instance: {message.Instance}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - ReportPath: {message.ReportPath}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - ParameterName: {message.ParameterName}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - TripId: {message.TripId}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - TripDate: {message.TripDate}");
+                System.Diagnostics.Debug.WriteLine($"[C#]   - OrderType: {message.OrderType}");
+
+                // Get credentials from storage
+                var credentials = _storageManager.GetFusionCredentials();
+                if (credentials == null || string.IsNullOrEmpty(credentials.Username))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] ❌ No Fusion credentials found");
+                    var errorResponse = new
+                    {
+                        action = "printSalesOrderResponse",
+                        requestId = requestId,
+                        success = false,
+                        message = "Fusion credentials not configured. Please set up credentials in Settings."
+                    };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorResponse));
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Using credentials for user: {credentials.Username}");
+
+                // Download PDF using FusionPdfDownloader
+                var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                WMSApp.PrintManagement.FusionPdfResult result;
+
+                if (!string.IsNullOrEmpty(message.ReportPath))
+                {
+                    // Use generic report download with custom report path
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using generic report: {message.ReportPath}");
+                    result = await downloader.DownloadGenericReportPdfAsync(
+                        message.ReportPath,
+                        message.ParameterName ?? "Order_Number",
+                        message.OrderNumber,
+                        message.Instance,
+                        credentials.Username,
+                        credentials.Password
+                    );
+                }
+                else
+                {
+                    // Use default Sales Order report
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using default Sales Order report");
+                    result = await downloader.DownloadSalesOrderPdfAsync(
+                        message.OrderNumber,
+                        message.Instance,
+                        credentials.Username,
+                        credentials.Password
+                    );
+                }
+
+                if (result.Success)
+                {
+                    // Save PDF to file
+                    string tripDate = DateTime.Now.ToString("yyyy-MM-dd");
+                    if (!string.IsNullOrEmpty(message.TripDate))
+                    {
+                        if (DateTime.TryParse(message.TripDate, out DateTime parsedDate))
+                            tripDate = parsedDate.ToString("yyyy-MM-dd");
+                        else
+                            tripDate = message.TripDate.Split('T')[0];
+                    }
+                    string tripId = message.TripId ?? "manual";
+                    string folderPath = Path.Combine(@"C:\fusion", tripDate, tripId);
+                    Directory.CreateDirectory(folderPath);
+
+                    string fileName = $"{message.OrderNumber}.pdf";
+                    string filePath = Path.Combine(folderPath, fileName);
+
+                    byte[] pdfBytes = Convert.FromBase64String(result.Base64Content);
+                    await File.WriteAllBytesAsync(filePath, pdfBytes);
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] ✅ PDF saved to: {filePath}");
+
+                    var successResponse = new
+                    {
+                        action = "printSalesOrderResponse",
+                        requestId = requestId,
+                        success = true,
+                        pdfPath = filePath,
+                        filePath = filePath,
+                        message = "PDF generated successfully"
+                    };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(successResponse));
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[C#] ❌ PDF download failed: {result.ErrorMessage}");
+                    var errorResponse = new
+                    {
+                        action = "printSalesOrderResponse",
+                        requestId = requestId,
+                        success = false,
+                        message = result.ErrorMessage
+                    };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorResponse));
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] HandlePrintSalesOrder failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Stack trace: {ex.StackTrace}");
+
+                var errorResponse = new
+                {
+                    action = "printSalesOrderResponse",
+                    requestId = requestId,
+                    success = false,
+                    message = $"Error: {ex.Message}"
+                };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorResponse));
             }
         }
 
@@ -1771,6 +4199,42 @@ namespace WMSApp
             }
         }
 
+        private async Task HandleSetInstanceSetting(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Setting instance setting");
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string instance = root.GetProperty("instance").GetString();
+
+                    System.Diagnostics.Debug.WriteLine($"[C#] Instance setting: {instance}");
+
+                    bool success = _storageManager.SaveInstanceSetting(instance);
+
+                    var response = new
+                    {
+                        action = "setInstanceSettingResponse",
+                        requestId = requestId,
+                        success = success,
+                        message = success ? $"Instance setting saved: {instance}" : "Failed to save instance setting"
+                    };
+
+                    string responseJson = JsonSerializer.Serialize(response);
+                    wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Set instance setting failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
+        }
+
         private async Task HandleGetPrinterConfig(WebView2 wv, string messageJson, string requestId)
         {
             try
@@ -1861,6 +4325,95 @@ namespace WMSApp
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Test printer failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
+        }
+
+        private async Task HandleDiscoverBluetoothPrinters(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Discovering Bluetooth printers...");
+
+                // Get Bluetooth printers using PrinterSettings
+                var bluetoothPrinters = new List<string>();
+
+                // Note: Windows doesn't provide a direct API to filter only Bluetooth printers
+                // We'll get all printers and try to identify Bluetooth ones by name patterns
+                foreach (string printerName in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
+                {
+                    // Common Bluetooth printer patterns in names
+                    if (printerName.Contains("Bluetooth", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("BT", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("Wireless", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bluetoothPrinters.Add(printerName);
+                    }
+                }
+
+                var response = new
+                {
+                    action = "discoverBluetoothPrintersResponse",
+                    requestId = requestId,
+                    success = true,
+                    printers = bluetoothPrinters,
+                    count = bluetoothPrinters.Count
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Found {bluetoothPrinters.Count} Bluetooth printer(s)");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Bluetooth printer discovery failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
+        }
+
+        private async Task HandleDiscoverWifiPrinters(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[C#] Discovering WiFi/Network printers...");
+
+                // Get network printers
+                var networkPrinters = new List<string>();
+
+                foreach (string printerName in System.Drawing.Printing.PrinterSettings.InstalledPrinters)
+                {
+                    // Network printers typically have UNC paths (\\server\printer) or contain "Network"
+                    if (printerName.StartsWith("\\\\") ||
+                        printerName.Contains("Network", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("IP", StringComparison.OrdinalIgnoreCase) ||
+                        printerName.Contains("WiFi", StringComparison.OrdinalIgnoreCase))
+                    {
+                        networkPrinters.Add(printerName);
+                    }
+                }
+
+                var response = new
+                {
+                    action = "discoverWifiPrintersResponse",
+                    requestId = requestId,
+                    success = true,
+                    printers = networkPrinters,
+                    count = networkPrinters.Count
+                };
+
+                string responseJson = JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(responseJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Found {networkPrinters.Count} WiFi/Network printer(s)");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] WiFi printer discovery failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+
+            await Task.CompletedTask;
         }
 
         private void SendErrorResponse(WebView2 wv, string requestId, string errorMessage)
@@ -2042,7 +4595,7 @@ namespace WMSApp
             }
         }
 
-        private void Navigate(string url)
+        private async void Navigate(string url)
         {
             var wv = GetCurrentWebView();
             if (wv?.CoreWebView2 != null)
@@ -2051,6 +4604,13 @@ namespace WMSApp
                 {
                     try
                     {
+                        // Clear cache before loading local files (preserve localStorage for login state)
+                        System.Diagnostics.Debug.WriteLine("[CACHE] Clearing cache before loading local file (preserving localStorage)...");
+                        await wv.CoreWebView2.Profile.ClearBrowsingDataAsync(
+                            CoreWebView2BrowsingDataKinds.CacheStorage |
+                            CoreWebView2BrowsingDataKinds.DiskCache);
+                        System.Diagnostics.Debug.WriteLine("[CACHE] ✅ Cache cleared successfully!");
+
                         wv.Source = new Uri(url);
                     }
                     catch (Exception ex)
@@ -2083,7 +4643,7 @@ namespace WMSApp
             UpdateSecurityIcon(GetCurrentWebView());
         }
 
-        private void CoreWebView2_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
+        private async void CoreWebView2_NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs e)
         {
             var wv = sender as CoreWebView2;
             if (wv != null)
@@ -2104,6 +4664,96 @@ namespace WMSApp
 
                 UpdateNavigationButtons(GetCurrentWebView());
                 UpdateSecurityIcon(GetCurrentWebView());
+
+                // Send user session to WMS pages after navigation completes
+                string source = wv.Source.ToLower();
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Navigation completed: {source}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] _isLoggedIn: {_isLoggedIn}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG] Contains wms/index.html: {source.Contains("/wms/index.html") || source.Contains("\\wms\\index.html")}");
+
+                if (_isLoggedIn && (source.Contains("/wms/index.html") || source.Contains("\\wms\\index.html")))
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] Conditions met! Sending session to WebView...");
+                    // Add a small delay to ensure JavaScript is fully loaded
+                    await System.Threading.Tasks.Task.Delay(500);
+                    SendUserSessionToWebView(wv);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[DEBUG] Conditions NOT met for sending session");
+                }
+            }
+        }
+
+        private async void SendUserSessionToWebView(CoreWebView2 wv)
+        {
+            System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] ========================================");
+            System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] SendUserSessionToWebView CALLED");
+
+            try
+            {
+                // Escape strings for JavaScript
+                string username = _loggedInUsername?.Replace("'", "\\'") ?? "";
+                string password = _loggedInPassword?.Replace("'", "\\'") ?? "";
+                string instance = _loggedInInstance?.Replace("'", "\\'") ?? "";
+                string loginDateTime = ("Logged in: " + _loggedInDateTime)?.Replace("'", "\\'") ?? "";
+
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Username: {username}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Instance: {instance}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] LoginDateTime: {loginDateTime}");
+
+                // Set localStorage values for login state (required for web page auth check)
+                // Also set fusionCloudUsername/Password for API calls
+                string setLocalStorageScript = $@"
+                    console.log('[C# INJECT] Setting localStorage values...');
+                    localStorage.setItem('loggedIn', 'true');
+                    localStorage.setItem('username', '{username}');
+                    localStorage.setItem('password', '{password}');
+                    localStorage.setItem('instanceName', '{instance}');
+                    localStorage.setItem('loginTime', '{loginDateTime}');
+                    localStorage.setItem('fusionCloudUsername', '{username}');
+                    localStorage.setItem('fusionCloudPassword', '{password}');
+                    localStorage.setItem('fusionInstance', '{instance}');
+                    console.log('[C# INJECT] localStorage values set:');
+                    console.log('[C# INJECT] loggedIn:', localStorage.getItem('loggedIn'));
+                    console.log('[C# INJECT] username:', localStorage.getItem('username'));
+                    console.log('[C# INJECT] instanceName:', localStorage.getItem('instanceName'));
+                    console.log('[C# INJECT] fusionCloudUsername:', localStorage.getItem('fusionCloudUsername'));
+                ";
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Executing localStorage script...");
+                await wv.ExecuteScriptAsync(setLocalStorageScript);
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] localStorage script executed");
+
+                // Call the JavaScript function to update UI
+                string script = $@"
+                    console.log('[C# INJECT] Calling setLoggedInUser...');
+                    if (typeof setLoggedInUser === 'function') {{
+                        setLoggedInUser('{username}', '{instance}', '{loginDateTime}');
+                        console.log('[C# INJECT] setLoggedInUser called successfully');
+                    }} else {{
+                        console.log('[C# INJECT] WARNING: setLoggedInUser function NOT FOUND!');
+                    }}
+                ";
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Executing setLoggedInUser script...");
+                await wv.ExecuteScriptAsync(script);
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] setLoggedInUser script executed");
+
+                // Remove auth-pending class to show page content
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] Removing auth-pending class...");
+                await wv.ExecuteScriptAsync(@"
+                    console.log('[C# INJECT] Removing auth-pending class...');
+                    document.body.classList.remove('auth-pending');
+                    console.log('[C# INJECT] auth-pending class removed, body should be visible');
+                ");
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] auth-pending class removed");
+
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] ✅ SUCCESS - Sent session to WebView");
+                System.Diagnostics.Debug.WriteLine("[DEBUG SendSession] ========================================");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] ❌ ERROR: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DEBUG SendSession] Stack: {ex.StackTrace}");
             }
         }
 
@@ -2148,6 +4798,963 @@ namespace WMSApp
         {
             e.Handled = true;
             AddNewTab(e.Uri);
+        }
+
+        // ========== RELEASE MANAGER HANDLER ==========
+        private async Task HandleCreateRelease(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string versionBump = root.TryGetProperty("versionBump", out var vb) ? vb.GetString() : "patch";
+                    string changelog = root.TryGetProperty("changelog", out var cl) ? cl.GetString() : "";
+                    string githubToken = root.TryGetProperty("githubToken", out var gt) ? gt.GetString() : "";
+                    string repoOwner = root.TryGetProperty("repoOwner", out var ro) ? ro.GetString() : "javeedin";
+                    string repoName = root.TryGetProperty("repoName", out var rn) ? rn.GetString() : "graysWMSwebviewnew";
+
+                    System.Diagnostics.Debug.WriteLine($"[RELEASE] Starting release process - bump: {versionBump}");
+
+                    // Send progress to frontend
+                    await SendReleaseProgress(wv, 1, "Starting release process...", "info");
+
+                    // Get the repo root directory
+                    await SendReleaseProgress(wv, 1, "Finding repository root...", "info");
+                    string repoRoot = FindRepoRoot();
+                    if (string.IsNullOrEmpty(repoRoot))
+                    {
+                        await SendReleaseError(wv, "Could not find repository root directory. Make sure version.json exists in your repo folder.");
+                        return;
+                    }
+                    await SendReleaseProgress(wv, 1, $"Repository found: {repoRoot}", "info");
+
+                    string versionFilePath = Path.Combine(repoRoot, "version.json");
+                    if (!File.Exists(versionFilePath))
+                    {
+                        await SendReleaseError(wv, $"version.json not found at: {versionFilePath}");
+                        return;
+                    }
+
+                    // Read current version
+                    await SendReleaseProgress(wv, 1, "Reading current version...", "info");
+                    string versionJson = File.ReadAllText(versionFilePath);
+                    using (var versionDoc = JsonDocument.Parse(versionJson))
+                    {
+                        string currentVersion = versionDoc.RootElement.GetProperty("version").GetString();
+                        string[] parts = currentVersion.Split('.');
+                        int major = int.Parse(parts[0]);
+                        int minor = int.Parse(parts[1]);
+                        int patch = int.Parse(parts[2]);
+
+                        // Bump version
+                        switch (versionBump)
+                        {
+                            case "major": major++; minor = 0; patch = 0; break;
+                            case "minor": minor++; patch = 0; break;
+                            case "patch": patch++; break;
+                        }
+
+                        string newVersion = $"{major}.{minor}.{patch}";
+                        await SendReleaseProgress(wv, 1, $"Version bump: {currentVersion} -> {newVersion}", "success");
+
+                        // Step 2: Run PowerShell script
+                        await SendReleaseProgress(wv, 2, "Running PowerShell release script...", "info");
+
+                        string psScriptPath = Path.Combine(repoRoot, "create-release.ps1");
+                        if (!File.Exists(psScriptPath))
+                        {
+                            await SendReleaseError(wv, $"create-release.ps1 not found at: {psScriptPath}");
+                            return;
+                        }
+                        await SendReleaseProgress(wv, 2, $"Script found: {psScriptPath}", "info");
+
+                        // Run PowerShell script with timeout
+                        var psi = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "powershell.exe",
+                            Arguments = $"-ExecutionPolicy Bypass -NonInteractive -File \"{psScriptPath}\" -VersionBump {versionBump} -SkipGitPush",
+                            WorkingDirectory = repoRoot,
+                            RedirectStandardOutput = true,
+                            RedirectStandardError = true,
+                            UseShellExecute = false,
+                            CreateNoWindow = true
+                        };
+
+                        await SendReleaseProgress(wv, 2, "Executing PowerShell script (this may take a minute)...", "info");
+
+                        using (var process = new System.Diagnostics.Process { StartInfo = psi })
+                        {
+                            process.Start();
+
+                            // Read output asynchronously
+                            var outputTask = process.StandardOutput.ReadToEndAsync();
+                            var errorTask = process.StandardError.ReadToEndAsync();
+
+                            // Wait for process with timeout (2 minutes)
+                            bool exited = process.WaitForExit(120000);
+
+                            if (!exited)
+                            {
+                                process.Kill();
+                                await SendReleaseError(wv, "PowerShell script timed out after 2 minutes");
+                                return;
+                            }
+
+                            string output = await outputTask;
+                            string error = await errorTask;
+
+                            // Log output for debugging
+                            System.Diagnostics.Debug.WriteLine($"[RELEASE] PowerShell exit code: {process.ExitCode}");
+                            System.Diagnostics.Debug.WriteLine($"[RELEASE] PowerShell output: {output}");
+                            if (!string.IsNullOrEmpty(error))
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[RELEASE] PowerShell error: {error}");
+                            }
+
+                            // Send output lines to frontend
+                            if (!string.IsNullOrEmpty(output))
+                            {
+                                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                                foreach (var line in lines.Take(20)) // Show first 20 lines
+                                {
+                                    if (line.Contains("SUCCESS") || line.Contains("OK"))
+                                        await SendReleaseProgress(wv, 2, line.Trim(), "success");
+                                    else if (line.Contains("ERROR") || line.Contains("FAIL"))
+                                        await SendReleaseProgress(wv, 2, line.Trim(), "error");
+                                    else if (!string.IsNullOrWhiteSpace(line) && !line.StartsWith("="))
+                                        await SendReleaseProgress(wv, 2, line.Trim(), "info");
+                                }
+                            }
+
+                            if (process.ExitCode != 0)
+                            {
+                                await SendReleaseError(wv, $"Release script failed (exit code {process.ExitCode}): {error}");
+                                return;
+                            }
+                        }
+
+                        await SendReleaseProgress(wv, 2, "Distribution folder and ZIP created successfully!", "success");
+
+                        // Step 3: Verify ZIP file exists
+                        await SendReleaseProgress(wv, 3, "Verifying ZIP file...", "info");
+                        string zipFileName = $"wms-webview-html-{newVersion}.zip";
+                        string zipFilePath = Path.Combine(repoRoot, zipFileName);
+
+                        if (!File.Exists(zipFilePath))
+                        {
+                            await SendReleaseError(wv, $"ZIP file not found: {zipFileName}");
+                            return;
+                        }
+
+                        var zipInfo = new FileInfo(zipFilePath);
+                        await SendReleaseProgress(wv, 3, $"ZIP created: {zipFileName} ({zipInfo.Length / 1024 / 1024:F2} MB)", "success");
+
+                        // Step 4: Git commit and push
+                        await SendReleaseProgress(wv, 4, "Committing changes to Git...", "info");
+
+                        // Git add and commit
+                        await RunGitCommand(repoRoot, "add version.json latest-release.json");
+                        await RunGitCommand(repoRoot, $"commit -m \"Release: WMS v{newVersion}\"");
+
+                        // Get current branch and push
+                        string branch = await RunGitCommand(repoRoot, "rev-parse --abbrev-ref HEAD");
+                        branch = branch.Trim();
+                        await RunGitCommand(repoRoot, $"push origin {branch}");
+
+                        await SendReleaseProgress(wv, 4, $"Pushed to branch: {branch}", "success");
+
+                        // Step 5: Create GitHub Release
+                        await SendReleaseProgress(wv, 5, "Creating GitHub release...", "info");
+
+                        using (var httpClient = new HttpClient())
+                        {
+                            httpClient.DefaultRequestHeaders.Add("Authorization", $"token {githubToken}");
+                            httpClient.DefaultRequestHeaders.Add("User-Agent", "WMS-Release-Manager");
+                            httpClient.DefaultRequestHeaders.Add("Accept", "application/vnd.github.v3+json");
+
+                            var releasePayload = new
+                            {
+                                tag_name = $"v{newVersion}",
+                                name = $"WMS WebView HTML Package v{newVersion}",
+                                body = changelog,
+                                draft = false,
+                                prerelease = false
+                            };
+
+                            string releaseJson = JsonSerializer.Serialize(releasePayload);
+                            var content = new StringContent(releaseJson, System.Text.Encoding.UTF8, "application/json");
+
+                            var releaseResponse = await httpClient.PostAsync(
+                                $"https://api.github.com/repos/{repoOwner}/{repoName}/releases",
+                                content
+                            );
+
+                            string releaseResponseBody = await releaseResponse.Content.ReadAsStringAsync();
+
+                            if (!releaseResponse.IsSuccessStatusCode)
+                            {
+                                await SendReleaseError(wv, $"Failed to create release: {releaseResponseBody}");
+                                return;
+                            }
+
+                            using (var releaseDoc = JsonDocument.Parse(releaseResponseBody))
+                            {
+                                string uploadUrl = releaseDoc.RootElement.GetProperty("upload_url").GetString();
+                                uploadUrl = uploadUrl.Replace("{?name,label}", "");
+                                string releaseUrl = releaseDoc.RootElement.GetProperty("html_url").GetString();
+
+                                await SendReleaseProgress(wv, 5, $"Release created: {releaseUrl}", "success");
+
+                                // Step 6: Upload ZIP file
+                                await SendReleaseProgress(wv, 6, "Uploading ZIP file...", "info");
+
+                                byte[] zipBytes = File.ReadAllBytes(zipFilePath);
+                                var uploadContent = new ByteArrayContent(zipBytes);
+                                uploadContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/zip");
+
+                                var uploadResponse = await httpClient.PostAsync(
+                                    $"{uploadUrl}?name={Uri.EscapeDataString(zipFileName)}",
+                                    uploadContent
+                                );
+
+                                if (!uploadResponse.IsSuccessStatusCode)
+                                {
+                                    string uploadError = await uploadResponse.Content.ReadAsStringAsync();
+                                    await SendReleaseError(wv, $"Failed to upload ZIP: {uploadError}");
+                                    return;
+                                }
+
+                                await SendReleaseProgress(wv, 6, "ZIP file uploaded successfully!", "success");
+
+                                // Complete
+                                await SendReleaseComplete(wv, newVersion);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RELEASE ERROR] {ex.Message}");
+                await SendReleaseError(wv, ex.Message);
+            }
+        }
+
+        private async Task<string> RunGitCommand(string workingDir, string args)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "git",
+                Arguments = args,
+                WorkingDirectory = workingDir,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using (var process = new System.Diagnostics.Process { StartInfo = psi })
+            {
+                process.Start();
+                string output = await process.StandardOutput.ReadToEndAsync();
+                string error = await process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync();
+
+                if (process.ExitCode != 0 && !string.IsNullOrEmpty(error))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[GIT] Error: {error}");
+                }
+
+                return output;
+            }
+        }
+
+        private async Task HandleGetPickersView(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string fromDate = root.TryGetProperty("fromDate", out var fd) ? fd.GetString() : "";
+                    string instance = root.TryGetProperty("instance", out var inst) ? inst.GetString() : "PROD";
+
+                    System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] Loading data for date: {fromDate}, instance: {instance}");
+
+                    var instanceUrls = new Dictionary<string, string>
+                    {
+                        { "PROD", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" },
+                        { "TEST", "https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" }
+                    };
+
+                    string baseUrl = instanceUrls.ContainsKey(instance) ? instanceUrls[instance] : instanceUrls["PROD"];
+                    string apiUrl = $"{baseUrl}/trip/getpickersview?fromDate={fromDate}&instance={instance}";
+
+                    System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] API URL: {apiUrl}");
+
+                    using (var httpClient = new HttpClient())
+                    {
+                        httpClient.Timeout = TimeSpan.FromSeconds(60);
+                        var response = await httpClient.GetAsync(apiUrl);
+                        string responseContent = await response.Content.ReadAsStringAsync();
+
+                        System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] Response status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            // Send data back to JavaScript
+                            string escapedJson = responseContent.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handlePickersViewData === 'function') {{
+                                    window.handlePickersViewData({responseContent}, null);
+                                }}
+                            ");
+                        }
+                        else
+                        {
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handlePickersViewData === 'function') {{
+                                    window.handlePickersViewData(null, 'HTTP {(int)response.StatusCode}: {response.ReasonPhrase}');
+                                }}
+                            ");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW ERROR] {ex.Message}");
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handlePickersViewData === 'function') {{
+                        window.handlePickersViewData(null, '{escapedError}');
+                    }}
+                ");
+            }
+        }
+
+        /// <summary>
+        /// Posts a message to Microsoft Teams via Incoming Webhook
+        /// </summary>
+        private async Task HandlePostToTeams(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string webhookUrl = root.TryGetProperty("webhookUrl", out var wh) ? wh.GetString() : "";
+                    string cardJson = root.TryGetProperty("cardPayload", out var cp) ? cp.GetRawText() : "";
+
+                    System.Diagnostics.Debug.WriteLine($"[TEAMS] Posting to Teams webhook...");
+                    System.Diagnostics.Debug.WriteLine($"[TEAMS] Webhook URL: {webhookUrl?.Substring(0, Math.Min(50, webhookUrl?.Length ?? 0))}...");
+                    System.Diagnostics.Debug.WriteLine($"[TEAMS] Card JSON length: {cardJson?.Length}");
+
+                    if (string.IsNullOrEmpty(webhookUrl))
+                    {
+                        await wv.CoreWebView2.ExecuteScriptAsync($@"
+                            if (typeof window.handleTeamsPostResult === 'function') {{
+                                window.handleTeamsPostResult(false, 'Webhook URL is required');
+                            }}
+                        ");
+                        return;
+                    }
+
+                    if (string.IsNullOrEmpty(cardJson))
+                    {
+                        await wv.CoreWebView2.ExecuteScriptAsync($@"
+                            if (typeof window.handleTeamsPostResult === 'function') {{
+                                window.handleTeamsPostResult(false, 'Card payload is required');
+                            }}
+                        ");
+                        return;
+                    }
+
+                    using (var httpClient = new HttpClient())
+                    {
+                        httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+                        var content = new StringContent(cardJson, Encoding.UTF8, "application/json");
+                        var response = await httpClient.PostAsync(webhookUrl, content);
+                        string responseContent = await response.Content.ReadAsStringAsync();
+
+                        System.Diagnostics.Debug.WriteLine($"[TEAMS] Response status: {response.StatusCode}");
+                        System.Diagnostics.Debug.WriteLine($"[TEAMS] Response content: {responseContent}");
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handleTeamsPostResult === 'function') {{
+                                    window.handleTeamsPostResult(true, 'Message posted successfully to Teams');
+                                }}
+                            ");
+                        }
+                        else
+                        {
+                            string escapedError = responseContent.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handleTeamsPostResult === 'function') {{
+                                    window.handleTeamsPostResult(false, 'HTTP {(int)response.StatusCode}: {escapedError}');
+                                }}
+                            ");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TEAMS ERROR] {ex.Message}");
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleTeamsPostResult === 'function') {{
+                        window.handleTeamsPostResult(false, '{escapedError}');
+                    }}
+                ");
+            }
+        }
+
+        /// <summary>
+        /// Gets the current Outlook user's email address (with crash protection)
+        /// </summary>
+        private async Task HandleGetOutlookEmail(WebView2 wv, string messageJson, string requestId)
+        {
+            string email = "";
+
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[OUTLOOK] Getting current user email...");
+
+                // Method 1: Try Windows username as safest fallback first
+                try
+                {
+                    email = Environment.UserName;
+                    if (!string.IsNullOrEmpty(email))
+                    {
+                        email = email + "@grfruits.com";
+                    }
+                }
+                catch { }
+
+                // Method 2: Try to get from Outlook (may fail if Outlook not installed)
+                try
+                {
+                    Type outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                    if (outlookType != null)
+                    {
+                        dynamic outlookApp = null;
+                        try
+                        {
+                            outlookApp = Activator.CreateInstance(outlookType);
+                            if (outlookApp != null)
+                            {
+                                dynamic ns = outlookApp.GetNamespace("MAPI");
+                                if (ns != null)
+                                {
+                                    dynamic currentUser = ns.CurrentUser;
+                                    if (currentUser != null)
+                                    {
+                                        string outlookEmail = null;
+                                        try { outlookEmail = currentUser.Address; } catch { }
+
+                                        if (!string.IsNullOrEmpty(outlookEmail))
+                                        {
+                                            // If X500 format, try to get SMTP address
+                                            if (outlookEmail.StartsWith("/O=") || outlookEmail.StartsWith("/o="))
+                                            {
+                                                try
+                                                {
+                                                    dynamic exchUser = currentUser.GetExchangeUser();
+                                                    if (exchUser != null)
+                                                    {
+                                                        string smtpAddr = exchUser.PrimarySmtpAddress;
+                                                        if (!string.IsNullOrEmpty(smtpAddr))
+                                                        {
+                                                            outlookEmail = smtpAddr;
+                                                        }
+                                                    }
+                                                }
+                                                catch { }
+                                            }
+
+                                            email = outlookEmail;
+                                            System.Diagnostics.Debug.WriteLine($"[OUTLOOK] Found email from Outlook: {email}");
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        catch (Exception comEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[OUTLOOK] COM error (non-fatal): {comEx.Message}");
+                        }
+                    }
+                }
+                catch (Exception outlookEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[OUTLOOK] Outlook access error (non-fatal): {outlookEx.Message}");
+                }
+
+                // Ensure we have something
+                if (string.IsNullOrEmpty(email))
+                {
+                    email = Environment.UserName + "@grfruits.com";
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[OUTLOOK] Final email: {email}");
+
+                // Send result back to JavaScript
+                try
+                {
+                    string safeEmail = email.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
+                    await wv.CoreWebView2.ExecuteScriptAsync($@"
+                        if (typeof window.handleOutlookEmail === 'function') {{
+                            window.handleOutlookEmail('{safeEmail}', null);
+                        }}
+                    ");
+                }
+                catch (Exception jsEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[OUTLOOK] JS callback error: {jsEx.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                // Ultimate fallback - this should never crash
+                System.Diagnostics.Debug.WriteLine($"[OUTLOOK CRITICAL ERROR] {ex.Message}");
+                try
+                {
+                    string fallbackEmail = "user@grfruits.com";
+                    await wv.CoreWebView2.ExecuteScriptAsync($@"
+                        if (typeof window.handleOutlookEmail === 'function') {{
+                            window.handleOutlookEmail('{fallbackEmail}', null);
+                        }}
+                    ");
+                }
+                catch
+                {
+                    // Silently fail - don't crash the app
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sends an email via Outlook (with crash protection)
+        /// </summary>
+        private async Task HandleSendOutlookEmail(WebView2 wv, string messageJson, string requestId)
+        {
+            string to = "";
+            string subject = "";
+            string htmlBody = "";
+
+            try
+            {
+                // Parse message JSON safely
+                try
+                {
+                    using (var doc = JsonDocument.Parse(messageJson))
+                    {
+                        var root = doc.RootElement;
+                        to = root.TryGetProperty("to", out var toEl) ? toEl.GetString() ?? "" : "";
+                        subject = root.TryGetProperty("subject", out var subEl) ? subEl.GetString() ?? "" : "";
+                        htmlBody = root.TryGetProperty("htmlBody", out var bodyEl) ? bodyEl.GetString() ?? "" : "";
+                    }
+                }
+                catch (Exception parseEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[EMAIL] JSON parse error: {parseEx.Message}");
+                    await SendEmailResult(wv, false, "Failed to parse email data");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[EMAIL] Sending email to: {to}");
+                System.Diagnostics.Debug.WriteLine($"[EMAIL] Subject: {subject}");
+
+                if (string.IsNullOrEmpty(to))
+                {
+                    await SendEmailResult(wv, false, "Recipient email is required");
+                    return;
+                }
+
+                // Try Outlook first
+                bool outlookSuccess = false;
+                string outlookError = "";
+
+                try
+                {
+                    Type outlookType = Type.GetTypeFromProgID("Outlook.Application");
+                    if (outlookType != null)
+                    {
+                        dynamic outlookApp = Activator.CreateInstance(outlookType);
+                        if (outlookApp != null)
+                        {
+                            dynamic mailItem = outlookApp.CreateItem(0); // 0 = olMailItem
+                            if (mailItem != null)
+                            {
+                                mailItem.To = to;
+                                mailItem.Subject = subject;
+                                mailItem.HTMLBody = htmlBody;
+                                mailItem.Send();
+                                outlookSuccess = true;
+                                System.Diagnostics.Debug.WriteLine("[EMAIL] Email sent successfully via Outlook");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        outlookError = "Outlook is not installed";
+                    }
+                }
+                catch (Exception outlookEx)
+                {
+                    outlookError = outlookEx.Message;
+                    System.Diagnostics.Debug.WriteLine($"[EMAIL] Outlook error (non-fatal): {outlookEx.Message}");
+                }
+
+                if (outlookSuccess)
+                {
+                    await SendEmailResult(wv, true, "Email sent successfully");
+                    return;
+                }
+
+                // Fallback: Try to open default email client
+                try
+                {
+                    string plainBody = "";
+                    try
+                    {
+                        plainBody = System.Text.RegularExpressions.Regex.Replace(htmlBody ?? "", "<.*?>", " ");
+                        plainBody = System.Text.RegularExpressions.Regex.Replace(plainBody, @"\s+", " ").Trim();
+                        if (plainBody.Length > 1500) plainBody = plainBody.Substring(0, 1500) + "...";
+                    }
+                    catch { plainBody = "See attached content"; }
+
+                    string mailto = $"mailto:{Uri.EscapeDataString(to)}?subject={Uri.EscapeDataString(subject ?? "")}&body={Uri.EscapeDataString(plainBody)}";
+
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = mailto,
+                        UseShellExecute = true
+                    });
+
+                    await SendEmailResult(wv, true, "Email client opened. Please send manually.");
+                }
+                catch (Exception mailtoEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[EMAIL] Mailto fallback error: {mailtoEx.Message}");
+                    string errorMsg = !string.IsNullOrEmpty(outlookError) ? outlookError : mailtoEx.Message;
+                    await SendEmailResult(wv, false, $"Could not send email: {errorMsg}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[EMAIL CRITICAL ERROR] {ex.Message}");
+                await SendEmailResult(wv, false, $"Email error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Helper method to send email result back to JavaScript safely
+        /// </summary>
+        private async Task SendEmailResult(WebView2 wv, bool success, string message)
+        {
+            try
+            {
+                string safeMessage = (message ?? "").Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", " ");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleEmailSendResult === 'function') {{
+                        window.handleEmailSendResult({(success ? "true" : "false")}, '{safeMessage}');
+                    }}
+                ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[EMAIL] Failed to send result to JS: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Sends an email via SMTP (Office 365, Gmail, etc.)
+        /// </summary>
+        private async Task HandleSendSmtpEmail(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string smtpServer = root.TryGetProperty("smtpServer", out var srv) ? srv.GetString() ?? "" : "";
+                    int smtpPort = root.TryGetProperty("smtpPort", out var prt) ? prt.GetInt32() : 587;
+                    string username = root.TryGetProperty("username", out var usr) ? usr.GetString() ?? "" : "";
+                    string password = root.TryGetProperty("password", out var pwd) ? pwd.GetString() ?? "" : "";
+                    bool useSsl = root.TryGetProperty("useSsl", out var ssl) ? ssl.GetBoolean() : true;
+                    string from = root.TryGetProperty("from", out var frm) ? frm.GetString() ?? "" : "";
+                    string to = root.TryGetProperty("to", out var toEl) ? toEl.GetString() ?? "" : "";
+                    string subject = root.TryGetProperty("subject", out var sub) ? sub.GetString() ?? "" : "";
+                    string htmlBody = root.TryGetProperty("htmlBody", out var body) ? body.GetString() ?? "" : "";
+
+                    System.Diagnostics.Debug.WriteLine($"[SMTP] Sending email via {smtpServer}:{smtpPort}");
+                    System.Diagnostics.Debug.WriteLine($"[SMTP] From: {from}, To: {to}");
+
+                    if (string.IsNullOrEmpty(to))
+                    {
+                        await SendEmailResult(wv, false, "Recipient email is required");
+                        return;
+                    }
+
+                    try
+                    {
+                        using (var client = new System.Net.Mail.SmtpClient(smtpServer, smtpPort))
+                        {
+                            client.EnableSsl = useSsl;
+                            client.Credentials = new System.Net.NetworkCredential(username, password);
+                            client.Timeout = 30000; // 30 seconds
+
+                            var mailMessage = new System.Net.Mail.MailMessage();
+                            mailMessage.From = new System.Net.Mail.MailAddress(from);
+
+                            // Handle multiple recipients
+                            foreach (var recipient in to.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                mailMessage.To.Add(recipient.Trim());
+                            }
+
+                            mailMessage.Subject = subject;
+                            mailMessage.Body = htmlBody;
+                            mailMessage.IsBodyHtml = true;
+
+                            await Task.Run(() => client.Send(mailMessage));
+
+                            System.Diagnostics.Debug.WriteLine("[SMTP] Email sent successfully");
+                            await SendEmailResult(wv, true, "Email sent successfully via SMTP");
+                        }
+                    }
+                    catch (System.Net.Mail.SmtpException smtpEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SMTP] SMTP error: {smtpEx.Message}");
+                        string errorMsg = smtpEx.Message;
+                        if (smtpEx.StatusCode == System.Net.Mail.SmtpStatusCode.MustIssueStartTlsFirst)
+                        {
+                            errorMsg = "TLS required. Please enable 'Use TLS/SSL' in settings.";
+                        }
+                        else if (smtpEx.Message.Contains("5.7.57") || smtpEx.Message.Contains("authentication"))
+                        {
+                            errorMsg = "Authentication failed. Check your email and password. For Office 365 with MFA, use an App Password.";
+                        }
+                        await SendEmailResult(wv, false, errorMsg);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SMTP ERROR] {ex.Message}");
+                await SendEmailResult(wv, false, $"SMTP error: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Tests SMTP connection
+        /// </summary>
+        private async Task HandleTestSmtpConnection(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string smtpServer = root.TryGetProperty("smtpServer", out var srv) ? srv.GetString() ?? "" : "";
+                    int smtpPort = root.TryGetProperty("smtpPort", out var prt) ? prt.GetInt32() : 587;
+                    string username = root.TryGetProperty("username", out var usr) ? usr.GetString() ?? "" : "";
+                    string password = root.TryGetProperty("password", out var pwd) ? pwd.GetString() ?? "" : "";
+                    bool useSsl = root.TryGetProperty("useSsl", out var ssl) ? ssl.GetBoolean() : true;
+
+                    System.Diagnostics.Debug.WriteLine($"[SMTP TEST] Testing connection to {smtpServer}:{smtpPort}");
+
+                    try
+                    {
+                        using (var client = new System.Net.Mail.SmtpClient(smtpServer, smtpPort))
+                        {
+                            client.EnableSsl = useSsl;
+                            client.Credentials = new System.Net.NetworkCredential(username, password);
+                            client.Timeout = 15000; // 15 seconds for test
+
+                            // Try to connect by sending a NOOP command (no actual email sent)
+                            // SmtpClient doesn't have a direct "test" method, so we'll try a minimal operation
+                            // The connection will be established when we access the ServicePoint
+                            await Task.Run(() =>
+                            {
+                                // Create a minimal test message
+                                var testMsg = new System.Net.Mail.MailMessage();
+                                testMsg.From = new System.Net.Mail.MailAddress(username);
+                                testMsg.To.Add(username);
+                                testMsg.Subject = "Test";
+                                testMsg.Body = "Test";
+
+                                // This will throw if connection fails
+                                // We're not actually sending, just testing the connection setup
+                                using (var tcpClient = new System.Net.Sockets.TcpClient())
+                                {
+                                    tcpClient.Connect(smtpServer, smtpPort);
+                                    tcpClient.Close();
+                                }
+                            });
+
+                            System.Diagnostics.Debug.WriteLine("[SMTP TEST] Connection successful");
+                            await SendSmtpTestResult(wv, true, $"Successfully connected to {smtpServer}:{smtpPort}");
+                        }
+                    }
+                    catch (Exception connEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[SMTP TEST] Connection failed: {connEx.Message}");
+                        string errorMsg = connEx.Message;
+                        if (connEx.Message.Contains("5.7.57") || connEx.Message.Contains("authentication"))
+                        {
+                            errorMsg = "Authentication failed. Check your credentials.";
+                        }
+                        else if (connEx.Message.Contains("timed out"))
+                        {
+                            errorMsg = "Connection timed out. Check server address and port.";
+                        }
+                        await SendSmtpTestResult(wv, false, errorMsg);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SMTP TEST ERROR] {ex.Message}");
+                await SendSmtpTestResult(wv, false, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Helper method to send SMTP test result back to JavaScript
+        /// </summary>
+        private async Task SendSmtpTestResult(WebView2 wv, bool success, string message)
+        {
+            try
+            {
+                string safeMessage = (message ?? "").Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", " ");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleSmtpTestResult === 'function') {{
+                        window.handleSmtpTestResult({(success ? "true" : "false")}, '{safeMessage}');
+                    }}
+                ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SMTP TEST] Failed to send result to JS: {ex.Message}");
+            }
+        }
+
+        private async Task HandleGetVersionInfo(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                string repoRoot = FindRepoRoot();
+                if (string.IsNullOrEmpty(repoRoot))
+                {
+                    await wv.CoreWebView2.ExecuteScriptAsync($@"
+                        if (typeof window.handleVersionInfo === 'function') {{
+                            window.handleVersionInfo(null, 'Could not find repository root');
+                        }}
+                    ");
+                    return;
+                }
+
+                string versionFilePath = Path.Combine(repoRoot, "version.json");
+                if (!File.Exists(versionFilePath))
+                {
+                    await wv.CoreWebView2.ExecuteScriptAsync($@"
+                        if (typeof window.handleVersionInfo === 'function') {{
+                            window.handleVersionInfo(null, 'version.json not found at: {versionFilePath.Replace("\\", "\\\\")}');
+                        }}
+                    ");
+                    return;
+                }
+
+                string versionJson = File.ReadAllText(versionFilePath);
+                string escapedJson = versionJson.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\r", "").Replace("\n", "");
+
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleVersionInfo === 'function') {{
+                        window.handleVersionInfo({versionJson}, null);
+                    }}
+                ");
+
+                System.Diagnostics.Debug.WriteLine($"[VERSION INFO] Sent version info from: {versionFilePath}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[VERSION INFO ERROR] {ex.Message}");
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleVersionInfo === 'function') {{
+                        window.handleVersionInfo(null, '{escapedError}');
+                    }}
+                ");
+            }
+        }
+
+        private string FindRepoRoot()
+        {
+            // Try common locations
+            string[] possiblePaths = new[]
+            {
+                @"C:\fusion\fusionclientweb\graysWMSwebviewnew",
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos", "javeedin", "graysWMSwebviewnew"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "source", "repos", "graysWMSwebviewnew"),
+                Path.GetDirectoryName(Application.ExecutablePath)
+            };
+
+            foreach (var path in possiblePaths)
+            {
+                if (Directory.Exists(path) && File.Exists(Path.Combine(path, "version.json")))
+                {
+                    return path;
+                }
+            }
+
+            // Try to find from current executable location
+            string exeDir = Path.GetDirectoryName(Application.ExecutablePath);
+            while (!string.IsNullOrEmpty(exeDir))
+            {
+                if (File.Exists(Path.Combine(exeDir, "version.json")))
+                {
+                    return exeDir;
+                }
+                exeDir = Path.GetDirectoryName(exeDir);
+            }
+
+            return null;
+        }
+
+        private async Task SendReleaseProgress(WebView2 wv, int step, string message, string type)
+        {
+            string escapedMessage = message.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n");
+            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                if (typeof window.handleReleaseProgress === 'function') {{
+                    window.handleReleaseProgress({step}, '{escapedMessage}', '{type}');
+                }}
+            ");
+        }
+
+        private async Task SendReleaseComplete(WebView2 wv, string version)
+        {
+            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                if (typeof window.handleReleaseComplete === 'function') {{
+                    window.handleReleaseComplete('{version}');
+                }}
+            ");
+        }
+
+        private async Task SendReleaseError(WebView2 wv, string error)
+        {
+            string escapedError = error.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n");
+            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                if (typeof window.handleReleaseError === 'function') {{
+                    window.handleReleaseError('{escapedError}');
+                }}
+            ");
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -2237,7 +5844,7 @@ namespace WMSApp
                     LineAlignment = StringAlignment.Center,
                     Trimming = StringTrimming.EllipsisCharacter
                 };
-                e.Graphics.DrawString(tabText, new Font("Segoe UI", 9), textBrush, textRect, sf);
+                e.Graphics.DrawString(tabText, new Font("Segoe UI", 8), textBrush, textRect, sf);
             }
 
             closeRect = new Rectangle(Width - 22, 6, 16, 16);
@@ -2289,6 +5896,12 @@ namespace WMSApp
 
         [JsonPropertyName("fullUrl")]
         public string FullUrl { get; set; }
+
+        [JsonPropertyName("username")]
+        public string Username { get; set; }
+
+        [JsonPropertyName("password")]
+        public string Password { get; set; }
     }
 
     public class RestApiPostWebMessage
@@ -2304,6 +5917,9 @@ namespace WMSApp
 
         [JsonPropertyName("body")]
         public string Body { get; set; }
+
+        [JsonPropertyName("method")]
+        public string Method { get; set; }
     }
 
 }

@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inventory Transactions — Fusion Client</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f7;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: linear-gradient(135deg, #f59e0b 0%, #b45309 100%);
+            color: white;
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 60px;
+            box-shadow: 0 2px 12px rgba(245,158,11,0.35);
+            position: sticky;
+            top: 0;
+            z-index: 200;
+            flex-shrink: 0;
+        }
+        .header-left  { display: flex; align-items: center; gap: 14px; }
+        .header-right { display: flex; align-items: center; gap: 16px; }
+        .back-btn {
+            background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.35);
+            color: white; width: 34px; height: 34px; border-radius: 50%; cursor: pointer;
+            font-size: .85rem; display: flex; align-items: center; justify-content: center;
+            text-decoration: none; transition: background .2s;
+        }
+        .back-btn:hover { background: rgba(255,255,255,0.35); }
+        .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+        .breadcrumb a { color: rgba(255,255,255,.75); text-decoration: none; transition: color .15s; }
+        .breadcrumb a:hover { color: white; }
+        .breadcrumb .sep { color: rgba(255,255,255,.45); font-size: .75rem; }
+        .breadcrumb .current { font-weight: 600; }
+        .user-info { display: flex; align-items: center; gap: 7px; font-size: .85rem; }
+        .user-avatar { width:30px;height:30px;background:rgba(255,255,255,.25);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px; }
+        .user-name { font-weight: 600; }
+        .user-instance { font-size: .7rem; opacity: .8; }
+
+        /* ── App Body ── */
+        .app-body { display: flex; flex: 1; overflow: hidden; height: calc(100vh - 60px); }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 240px; background: white; border-right: 1px solid #e2e8f0;
+            display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto;
+            transition: width .22s ease;
+        }
+        .sidebar.collapsed { width: 60px; overflow: hidden; }
+        .sidebar.collapsed .sb-label,
+        .sidebar.collapsed .nav-label,
+        .sidebar.collapsed .nav-arrow,
+        .sidebar.collapsed .sidebar-footer { display: none; }
+        .sidebar.collapsed .sidebar-header { padding: 14px 0; justify-content: center; }
+        .sidebar.collapsed .nav-item { padding: 12px 0; justify-content: center; gap: 0; }
+        .sidebar.collapsed .nav-icon { margin: 0; }
+        .sidebar-header {
+            padding: 20px 20px 12px; border-bottom: 1px solid #f0f4f8;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .sidebar-header h3 {
+            font-size: .7rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: 1px; color: #a0aec0;
+        }
+        .sidebar-toggle {
+            background: none; border: none; cursor: pointer; color: #a0aec0;
+            font-size: .75rem; padding: 4px 6px; border-radius: 4px;
+            transition: color .15s, background .15s; flex-shrink: 0;
+        }
+        .sidebar-toggle:hover { color: #f59e0b; background: rgba(245,158,11,.08); }
+        .sidebar-nav { padding: 8px 0; flex: 1; }
+        .nav-item {
+            display: flex; align-items: center; gap: 12px; padding: 12px 20px;
+            cursor: pointer; color: #4a5568; font-size: .88rem; font-weight: 500;
+            border-left: 3px solid transparent; transition: all .15s ease; user-select: none;
+        }
+        .nav-item:hover { background: rgba(245,158,11,.06); color: #f59e0b; border-left-color: rgba(245,158,11,.3); }
+        .nav-item.active { background: rgba(245,158,11,.1); color: #d97706; border-left-color: #f59e0b; }
+        .nav-item .nav-icon {
+            width: 32px; height: 32px; border-radius: 8px;
+            background: rgba(245,158,11,.08); display: flex; align-items: center;
+            justify-content: center; font-size: 14px; flex-shrink: 0; transition: background .15s;
+        }
+        .nav-item.active .nav-icon, .nav-item:hover .nav-icon { background: rgba(245,158,11,.18); }
+        .nav-item .nav-icon i { color: #f59e0b; }
+        .nav-item .nav-label { flex: 1; }
+        .nav-item .nav-arrow { font-size: .7rem; color: #cbd5e0; transition: transform .15s; }
+        .nav-item.active .nav-arrow, .nav-item:hover .nav-arrow { color: #f59e0b; transform: translateX(2px); }
+        .sidebar-footer { padding: 16px 20px; border-top: 1px solid #f0f4f8; }
+        .sidebar-footer a {
+            display: flex; align-items: center; gap: 8px; color: #718096;
+            font-size: .82rem; text-decoration: none; padding: 8px 0; transition: color .15s;
+        }
+        .sidebar-footer a:hover { color: #f59e0b; }
+
+        /* ── Nav section separators ── */
+        .nav-section-label {
+            padding: 10px 20px 4px; font-size: .65rem; font-weight: 700;
+            text-transform: uppercase; letter-spacing: 1px; color: #cbd5e0;
+        }
+
+        /* ── Content ── */
+        .content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+
+        .panel { display: none; flex-direction: column; flex: 1; padding: 24px; gap: 16px; }
+        .panel.active { display: flex; }
+
+        .welcome-panel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 60px; text-align: center; color: #718096; }
+        .welcome-icon { font-size: 64px; margin-bottom: 8px; opacity: .25; }
+        .welcome-panel h3 { font-size: 1.3rem; color: #4a5568; font-weight: 600; }
+        .welcome-panel p { font-size: .9rem; }
+
+        /* ── Panel header ── */
+        .panel-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+        .panel-title-wrap { display: flex; align-items: center; gap: 14px; }
+        .panel-title-icon {
+            width: 44px; height: 44px; border-radius: 12px;
+            background: rgba(245,158,11,.1); display: flex; align-items: center;
+            justify-content: center; font-size: 20px; flex-shrink: 0;
+        }
+        .panel-title h2 { font-size: 1.2rem; font-weight: 700; color: #2d3748; }
+        .panel-title p  { font-size: .8rem; color: #718096; margin-top: 2px; }
+
+        /* ── Filters ── */
+        .filter-bar {
+            background: white; border-radius: 12px; padding: 16px 20px;
+            display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end;
+            box-shadow: 0 1px 4px rgba(0,0,0,.06);
+        }
+        .filter-group { display: flex; flex-direction: column; gap: 5px; min-width: 130px; }
+        .filter-group label { font-size: .72rem; font-weight: 600; color: #718096; text-transform: uppercase; letter-spacing: .4px; }
+        .filter-group input, .filter-group select {
+            padding: 7px 10px; border: 1px solid #e2e8f0; border-radius: 7px;
+            font-size: .84rem; background: white; color: #2d3748; outline: none;
+            font-family: inherit;
+        }
+        .filter-group input:focus, .filter-group select:focus { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,.15); }
+
+        .btn-search {
+            padding: 8px 18px; background: #f59e0b; color: white; border: none;
+            border-radius: 8px; cursor: pointer; font-size: .84rem; font-weight: 600;
+            font-family: inherit; display: flex; align-items: center; gap: 7px;
+            transition: background .15s; white-space: nowrap;
+        }
+        .btn-search:hover { background: #d97706; }
+        .btn-clear {
+            padding: 8px 14px; background: #f7fafc; color: #4a5568;
+            border: 1px solid #e2e8f0; border-radius: 8px; cursor: pointer;
+            font-size: .84rem; font-family: inherit; display: flex; align-items: center;
+            gap: 6px; transition: all .15s; white-space: nowrap;
+        }
+        .btn-clear:hover { background: #edf2f7; }
+        .btn-secondary {
+            padding: 8px 14px; background: #fffbeb; color: #92400e;
+            border: 1px solid #fde68a; border-radius: 8px; cursor: pointer;
+            font-size: .84rem; font-family: inherit; display: flex; align-items: center;
+            gap: 6px; transition: all .15s; white-space: nowrap;
+        }
+        .btn-secondary:hover { background: #fef3c7; }
+
+        /* ── Data card ── */
+        .data-card { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,.06); overflow: hidden; display: flex; flex-direction: column; flex: 1; }
+        .data-card-header { padding: 14px 18px; border-bottom: 1px solid #f0f4f8; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+        .data-card-header h3 { font-size: .95rem; font-weight: 700; color: #2d3748; }
+        .record-count { font-size: .75rem; background: #f0f4f8; color: #718096; padding: 3px 10px; border-radius: 12px; font-weight: 600; white-space: nowrap; }
+
+        /* ── Tabs inside panel ── */
+        .tab-bar { display: flex; gap: 4px; padding: 0 18px; border-bottom: 1px solid #f0f4f8; }
+        .tab-btn {
+            padding: 10px 16px; background: none; border: none; border-bottom: 2px solid transparent;
+            cursor: pointer; font-size: .84rem; font-weight: 600; color: #718096;
+            font-family: inherit; display: flex; align-items: center; gap: 6px; transition: all .15s;
+        }
+        .tab-btn:hover { color: #f59e0b; }
+        .tab-btn.active { color: #d97706; border-bottom-color: #f59e0b; }
+        .tab-body { display: none; flex: 1; overflow: auto; }
+        .tab-body.active { display: flex; flex-direction: column; }
+
+        /* ── Table ── */
+        .table-wrap { overflow-x: auto; overflow-y: auto; flex: 1; }
+        table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+        thead th {
+            position: sticky; top: 0; background: #f8fafc; padding: 9px 12px;
+            text-align: left; font-size: .71rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .5px; color: #718096; border-bottom: 1px solid #e2e8f0;
+            white-space: nowrap; z-index: 1;
+        }
+        tbody tr { border-bottom: 1px solid #f7f8fa; transition: background .12s; }
+        tbody tr:hover { background: rgba(245,158,11,.04); }
+        tbody td { padding: 8px 12px; color: #4a5568; vertical-align: middle; }
+        .qty-badge { font-size: .9rem; font-weight: 700; color: #d97706; }
+        .qty-neg   { color: #e53e3e; }
+        .qty-pos   { color: #38a169; }
+        .empty-state { padding: 40px; text-align: center; color: #a0aec0; }
+        .empty-state i { font-size: 2rem; margin-bottom: 10px; display: block; }
+        .empty-state p { font-size: .85rem; }
+        .loading-state { padding: 40px; text-align: center; color: #718096; display: flex; align-items: center; justify-content: center; gap: 12px; }
+        .spinner { width: 20px; height: 20px; border: 3px solid #e2e8f0; border-top-color: #f59e0b; border-radius: 50%; animation: spin .8s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Analytics charts ── */
+        .analytics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; }
+        .chart-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; }
+        .chart-card h4 { font-size: .85rem; color: #4a5568; margin-bottom: 12px; font-weight: 600; }
+        .chart-card canvas { max-height: 260px; }
+        @media(max-width:700px) { .analytics-grid { grid-template-columns: 1fr; } }
+
+        /* ── API URL bar ── */
+        .api-url-bar {
+            display: none; background: #1a202c; border-radius: 6px;
+            padding: 8px 12px; font-family: monospace; font-size: .78rem;
+            color: #81e6d9; word-break: break-all; flex-shrink: 0;
+        }
+
+        /* ── Transaction types list ── */
+        .types-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px,1fr)); gap: 12px; padding: 16px; }
+        .type-card {
+            background: white; border: 1px solid #e2e8f0; border-radius: 10px;
+            padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
+        }
+        .type-card-name { font-size: .88rem; font-weight: 700; color: #2d3748; }
+        .type-card-desc { font-size: .76rem; color: #718096; }
+        .type-card-action { font-size: .74rem; background: #fffbeb; color: #92400e; padding: 2px 8px; border-radius: 10px; align-self: flex-start; margin-top: 4px; }
+
+        /* ── Placeholder ── */
+        .placeholder-panel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: #a0aec0; text-align: center; }
+        .placeholder-panel i { font-size: 3rem; }
+        .placeholder-panel h3 { font-size: 1.1rem; color: #718096; }
+        .placeholder-panel p { font-size: .85rem; }
+        .placeholder-panel .cs-home-btn {
+            margin-top: 8px; display: inline-flex; align-items: center; gap: 8px;
+            padding: 9px 20px; background: #f59e0b; color: white;
+            border-radius: 8px; font-size: .85rem; font-weight: 600;
+            text-decoration: none; transition: background .15s;
+        }
+        .placeholder-panel .cs-home-btn:hover { background: #d97706; }
+
+        /* ── KPI stats strip ── */
+        .kpi-strip { display: flex; gap: 10px; flex-wrap: wrap; flex-shrink: 0; padding: 0 18px 14px; }
+        .kpi-card { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 8px 16px; text-align: center; min-width: 110px; }
+        .kpi-val { font-size: 1.15rem; font-weight: 700; color: #d97706; }
+        .kpi-lbl { font-size: .7rem; color: #92400e; margin-top: 2px; }
+
+        /* ── Cache status badge ── */
+        .cache-badge { font-size: .72rem; padding: 3px 10px; border-radius: 10px; font-weight: 600; }
+        .cache-hit  { background: #dcfce7; color: #166534; }
+        .cache-miss { background: #fef9c3; color: #854d0e; }
+
+        /* ── Source Ref drill-down link ── */
+        .src-ref-link {
+            color: #059669; font-weight: 600; text-decoration: none; cursor: pointer;
+            border-bottom: 1px dashed #059669; transition: color .15s;
+            font-size: .78rem;
+        }
+        .src-ref-link:hover { color: #047857; border-bottom-color: #047857; }
+
+        /* ══════════════════════════════════════════════
+           Sales Order Details Modal
+        ══════════════════════════════════════════════ */
+        .so-overlay {
+            display: none; position: fixed; inset: 0; background: rgba(15,23,42,.55);
+            z-index: 9000; align-items: center; justify-content: center;
+            backdrop-filter: blur(3px);
+        }
+        .so-overlay.open { display: flex; }
+
+        .so-modal {
+            background: #fff; border-radius: 16px; width: 92vw; max-width: 1100px;
+            max-height: 90vh; display: flex; flex-direction: column;
+            box-shadow: 0 24px 64px rgba(0,0,0,.22);
+            animation: soSlideIn .22s ease;
+        }
+        @keyframes soSlideIn {
+            from { opacity: 0; transform: translateY(-18px) scale(.97); }
+            to   { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        /* Modal header bar */
+        .so-modal-header {
+            background: linear-gradient(135deg, #0f766e 0%, #134e4a 100%);
+            color: white; padding: 16px 22px;
+            border-radius: 16px 16px 0 0;
+            display: flex; align-items: center; justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .so-modal-title { display: flex; align-items: center; gap: 12px; }
+        .so-modal-icon {
+            width: 40px; height: 40px; background: rgba(255,255,255,.18);
+            border-radius: 10px; display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+        }
+        .so-modal-title h2 { font-size: 1.05rem; font-weight: 700; }
+        .so-modal-title p  { font-size: .78rem; opacity: .75; margin-top: 1px; }
+        .so-close-btn {
+            background: rgba(255,255,255,.15); border: 1px solid rgba(255,255,255,.25);
+            color: white; width: 34px; height: 34px; border-radius: 8px; cursor: pointer;
+            font-size: .9rem; display: flex; align-items: center; justify-content: center;
+            transition: background .15s; flex-shrink: 0;
+        }
+        .so-close-btn:hover { background: rgba(255,255,255,.28); }
+
+        /* Modal body */
+        .so-modal-body { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+
+        /* Order header card */
+        .so-header-card {
+            background: #f0fdf9; border: 1px solid #99f6e4;
+            border-radius: 12px; padding: 16px 20px;
+        }
+        .so-header-card-title {
+            font-size: .7rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .6px; color: #0d9488; margin-bottom: 12px;
+            display: flex; align-items: center; gap: 6px;
+        }
+        .so-fields-grid {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;
+        }
+        .so-field { display: flex; flex-direction: column; gap: 2px; }
+        .so-field-label {
+            font-size: .68rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .4px; color: #718096;
+        }
+        .so-field-value { font-size: .88rem; font-weight: 600; color: #1a202c; }
+        .so-field-value.muted { font-weight: 400; color: #4a5568; }
+
+        /* Status badges */
+        .so-status {
+            display: inline-block; padding: 2px 10px; border-radius: 12px;
+            font-size: .73rem; font-weight: 700; text-transform: uppercase; letter-spacing: .3px;
+        }
+        .so-status-open     { background: #dcfce7; color: #166534; }
+        .so-status-closed   { background: #f1f5f9; color: #475569; }
+        .so-status-canceled { background: #fee2e2; color: #991b1b; }
+        .so-status-processing { background: #dbeafe; color: #1d4ed8; }
+        .so-status-other    { background: #fef9c3; color: #854d0e; }
+
+        /* Lines section */
+        .so-lines-card {
+            background: white; border: 1px solid #e2e8f0;
+            border-radius: 12px; overflow: hidden; flex: 1;
+        }
+        .so-lines-header {
+            padding: 12px 18px; border-bottom: 1px solid #f0f4f8;
+            display: flex; align-items: center; justify-content: space-between;
+            background: #f8fafc;
+        }
+        .so-lines-header h3 { font-size: .88rem; font-weight: 700; color: #2d3748; display: flex; align-items: center; gap: 7px; }
+        .so-lines-count { font-size: .72rem; background: #e2e8f0; color: #4a5568; padding: 2px 9px; border-radius: 10px; font-weight: 600; }
+        .so-lines-wrap { overflow-x: auto; }
+        .so-lines-table { width: 100%; border-collapse: collapse; font-size: .83rem; }
+        .so-lines-table thead th {
+            background: #f8fafc; padding: 9px 12px; text-align: left;
+            font-size: .69rem; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .5px; color: #718096; border-bottom: 1px solid #e2e8f0;
+            white-space: nowrap;
+        }
+        .so-lines-table tbody tr { border-bottom: 1px solid #f7f8fa; transition: background .12s; }
+        .so-lines-table tbody tr:hover { background: rgba(13,148,136,.04); }
+        .so-lines-table tbody td { padding: 9px 12px; color: #4a5568; vertical-align: middle; }
+        .so-lines-table tbody td.price { text-align: right; font-weight: 600; color: #0d9488; }
+        .so-lines-table tbody td.qty   { text-align: right; font-weight: 700; color: #d97706; }
+
+        /* Loading / error states inside modal */
+        .so-loading {
+            display: flex; align-items: center; justify-content: center;
+            gap: 12px; padding: 48px; color: #718096; font-size: .9rem;
+        }
+        .so-error {
+            padding: 32px; text-align: center; color: #e53e3e; font-size: .88rem;
+        }
+        .so-error i { font-size: 2rem; margin-bottom: 10px; display: block; color: #feb2b2; }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <a href="index.html" class="back-btn" title="Back to Inventory">
+                <i class="fa-solid fa-arrow-left"></i>
+            </a>
+            <div class="breadcrumb">
+                <a href="../Home/index.html"><i class="fa-solid fa-house"></i></a>
+                <span class="sep"><i class="fa-solid fa-chevron-right"></i></span>
+                <a href="index.html">Inventory</a>
+                <span class="sep"><i class="fa-solid fa-chevron-right"></i></span>
+                <span class="current">Transactions</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="user-info">
+                <div class="user-avatar">👤</div>
+                <div>
+                    <div class="user-name" id="displayUsername">User</div>
+                    <div class="user-instance" id="displayInstance">—</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- App body -->
+    <div class="app-body">
+
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h3 class="sb-label">Transactions Menu</h3>
+                <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+                    <i class="fa-solid fa-chevron-left" id="sidebar-toggle-icon"></i>
+                </button>
+            </div>
+            <nav class="sidebar-nav">
+
+                <div class="nav-item" data-panel="query-txn" onclick="showPanel('query-txn', this)">
+                    <div class="nav-icon"><i class="fa-solid fa-magnifying-glass-chart"></i></div>
+                    <span class="nav-label">Query Transactions</span>
+                    <i class="fa-solid fa-chevron-right nav-arrow"></i>
+                </div>
+
+                <div class="nav-item" data-panel="stock-movement" onclick="showPanel('stock-movement', this)">
+                    <div class="nav-icon"><i class="fa-solid fa-chart-line"></i></div>
+                    <span class="nav-label">Stock Movement Report</span>
+                    <i class="fa-solid fa-chevron-right nav-arrow"></i>
+                </div>
+
+                <div class="nav-item" data-panel="txn-types" onclick="showPanel('txn-types', this); autoLoadTxnTypes();">
+                    <div class="nav-icon"><i class="fa-solid fa-tags"></i></div>
+                    <span class="nav-label">Transaction Types</span>
+                    <i class="fa-solid fa-chevron-right nav-arrow"></i>
+                </div>
+
+                <div class="nav-item" data-panel="reservations" onclick="showPanel('reservations', this)">
+                    <div class="nav-icon"><i class="fa-solid fa-bookmark"></i></div>
+                    <span class="nav-label">Inventory Reservations</span>
+                    <i class="fa-solid fa-chevron-right nav-arrow"></i>
+                </div>
+
+            </nav>
+            <div class="sidebar-footer">
+                <a href="index.html">
+                    <i class="fa-solid fa-arrow-left"></i>
+                    <span>Back to Inventory</span>
+                </a>
+            </div>
+        </div>
+
+        <!-- Content -->
+        <div class="content">
+
+            <!-- Welcome -->
+            <div id="panel-welcome" class="panel active">
+                <div class="welcome-panel">
+                    <div class="welcome-icon"><i class="fa-solid fa-arrows-rotate"></i></div>
+                    <h3>Inventory Transactions</h3>
+                    <p>Select a menu option to get started.</p>
+                </div>
+            </div>
+
+            <!-- ── Query Transactions ── -->
+            <div id="panel-query-txn" class="panel">
+                <div class="panel-header">
+                    <div class="panel-title-wrap">
+                        <div class="panel-title-icon">
+                            <i class="fa-solid fa-magnifying-glass-chart" style="color:#f59e0b;"></i>
+                        </div>
+                        <div class="panel-title">
+                            <h2>Query Transactions</h2>
+                            <p>Search inventory material transactions</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <div class="filter-group">
+                        <label>Organization</label>
+                        <select id="txn-org">
+                            <option value="">— Select Org —</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Subinventory</label>
+                        <select id="txn-subinv">
+                            <option value="">— All —</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Transaction Type</label>
+                        <select id="txn-type">
+                            <option value="">— All —</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Item Number</label>
+                        <input type="text" id="txn-item" placeholder="e.g. EFI182098002W">
+                    </div>
+                    <div class="filter-group">
+                        <label>Date From</label>
+                        <input type="date" id="txn-date-from">
+                    </div>
+                    <div class="filter-group">
+                        <label>Shipment</label>
+                        <input type="text" id="txn-shipment" placeholder="e.g. VVFL36542">
+                    </div>
+                    <div class="filter-group">
+                        <label>Reference</label>
+                        <input type="text" id="txn-ref" placeholder="e.g. GIC130">
+                    </div>
+                    <div class="filter-group">
+                        <label>Source Reference <i class="fa-solid fa-circle-info" style="color:#059669;font-size:.7rem;cursor:help;" title="Sales Order Number"></i></label>
+                        <input type="text" id="txn-source-ref" placeholder="e.g. 70419000000" title="Sales Order Number">
+                    </div>
+                    <button class="btn-search" id="txn-search-btn" onclick="queryTransactions()">
+                        <i class="fa-solid fa-magnifying-glass"></i> Search
+                    </button>
+                    <button class="btn-clear" onclick="clearTxnSearch()">
+                        <i class="fa-solid fa-xmark"></i> Clear
+                    </button>
+                    <button id="txn-cancel-btn" onclick="cancelTxnSearch()" style="display:none;padding:8px 14px;background:#fee2e2;color:#dc2626;border:1px solid #fecaca;border-radius:8px;cursor:pointer;font-size:.84rem;font-weight:600;font-family:inherit;align-items:center;gap:6px;">
+                        <i class="fa-solid fa-stop"></i> Cancel
+                    </button>
+                    <button class="btn-clear" id="txn-api-toggle" onclick="toggleTxnApiBar()" title="Show API URL" style="padding:7px 10px;">
+                        <i class="fa-solid fa-link"></i>
+                    </button>
+                </div>
+
+                <div id="txn-api-bar" class="api-url-bar">
+                    <span style="color:#718096;margin-right:6px;"><i class="fa-solid fa-link"></i> API:</span>
+                    <span id="txn-api-url-txt">—</span>
+                </div>
+
+                <!-- Results card with tabs -->
+                <div class="data-card">
+                    <div class="tab-bar">
+                        <button class="tab-btn active" id="txn-tab-grid"     onclick="switchTxnTab('grid')">
+                            <i class="fa-solid fa-table"></i> Grid
+                        </button>
+                        <button class="tab-btn"        id="txn-tab-analytics" onclick="switchTxnTab('analytics')">
+                            <i class="fa-solid fa-chart-bar"></i> Analytics
+                        </button>
+                    </div>
+
+                    <!-- Grid tab -->
+                    <div id="txn-body-grid" class="tab-body active">
+                        <div class="data-card-header">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <input type="text" id="txn-grid-search" placeholder="Filter results…"
+                                    oninput="filterTxnGrid(this.value)"
+                                    style="padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;width:200px;">
+                                <span class="record-count" id="txn-count">0 records</span>
+                            </div>
+                        </div>
+                        <div id="txn-kpi" class="kpi-strip"></div>
+                        <div class="table-wrap">
+                            <table id="txn-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Transaction ID</th>
+                                        <th>Date</th>
+                                        <th>Item</th>
+                                        <th>Description</th>
+                                        <th>Org</th>
+                                        <th>Subinventory</th>
+                                        <th>Transfer Org</th>
+                                        <th>Transfer Subinv</th>
+                                        <th title="S2V Reference Number" style="cursor:help;">Shipment <i class="fa-solid fa-circle-info" style="color:#a0aec0;font-size:.62rem;"></i></th>
+                                        <th>Type</th>
+                                        <th>Action</th>
+                                        <th>Qty</th>
+                                        <th>UOM</th>
+                                        <th title="Sales Order Number" style="cursor:help;">Source Ref <i class="fa-solid fa-circle-info" style="color:#059669;font-size:.62rem;"></i></th>
+                                        <th>Reference</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="txn-tbody">
+                                    <tr><td colspan="16">
+                                        <div class="empty-state">
+                                            <i class="fa-solid fa-arrows-rotate"></i>
+                                            <p>Set filters and click Search.</p>
+                                        </div>
+                                    </td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <!-- Load Next floating FAB -->
+                        <div id="txn-next-bar" style="display:none;position:fixed;bottom:28px;right:28px;z-index:9999;flex-direction:column;align-items:flex-end;gap:6px;">
+                        </div>
+                    </div>
+
+                    <!-- Analytics tab -->
+                    <div id="txn-body-analytics" class="tab-body" style="flex-direction:column;overflow-y:auto;">
+                        <!-- Analytics filter strip -->
+                        <div id="txn-analytics-filter-bar" style="display:none;padding:10px 16px;background:#f8f9ff;border-bottom:1px solid #e8eaf6;flex-shrink:0;flex-wrap:wrap;align-items:flex-end;gap:10px;">
+                            <span style="font-size:.76rem;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;align-self:center;">
+                                <i class="fa-solid fa-filter" style="color:#4f46e5;"></i> Filter Charts:
+                            </span>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Date From</label>
+                                <input type="date" id="an-date-from" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;">
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Date To</label>
+                                <input type="date" id="an-date-to" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;">
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Transaction Type</label>
+                                <select id="an-txn-type" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;">
+                                    <option value="">— All —</option>
+                                </select>
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Subinventory</label>
+                                <input type="text" id="an-subinv" placeholder="e.g. VVFL" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;width:110px;">
+                            </div>
+                            <div style="display:flex;flex-direction:column;gap:3px;">
+                                <label style="font-size:.72rem;color:#718096;font-weight:600;">Item</label>
+                                <input type="text" id="an-item" placeholder="Item number" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:.82rem;font-family:inherit;width:130px;">
+                            </div>
+                            <button onclick="_applyTxnAnalyticsFilter()" style="padding:6px 14px;background:#4f46e5;color:white;border:none;border-radius:7px;cursor:pointer;font-size:.82rem;font-weight:600;font-family:inherit;align-self:flex-end;">
+                                <i class="fa-solid fa-chart-bar"></i> Apply
+                            </button>
+                            <button onclick="_resetTxnAnalyticsFilter()" style="padding:6px 12px;background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:7px;cursor:pointer;font-size:.82rem;font-family:inherit;align-self:flex-end;">
+                                <i class="fa-solid fa-rotate-left"></i> Reset
+                            </button>
+                            <span id="an-filter-badge" style="font-size:.78rem;color:#4f46e5;font-weight:600;align-self:center;"></span>
+                        </div>
+                        <div class="analytics-grid" id="txn-analytics-grid">
+                            <div class="chart-card">
+                                <h4><i class="fa-solid fa-calendar-days" style="color:#f59e0b;"></i> Transactions by Date</h4>
+                                <canvas id="chart-txn-by-date"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4><i class="fa-solid fa-tags" style="color:#3b82f6;"></i> Volume by Transaction Type</h4>
+                                <canvas id="chart-txn-by-type"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4><i class="fa-solid fa-warehouse" style="color:#10b981;"></i> Qty by Subinventory</h4>
+                                <canvas id="chart-txn-by-subinv"></canvas>
+                            </div>
+                            <div class="chart-card">
+                                <h4><i class="fa-solid fa-box" style="color:#8b5cf6;"></i> Top Items by Quantity</h4>
+                                <canvas id="chart-txn-top-items"></canvas>
+                            </div>
+                        </div>
+                        <div id="txn-analytics-empty" style="display:none;flex:1;align-items:center;justify-content:center;">
+                            <div class="empty-state"><i class="fa-solid fa-chart-bar"></i><p>Run a search first to see analytics.</p></div>
+                        </div>
+                    </div>
+                </div>
+            </div><!-- /query-txn -->
+
+            <!-- ── Stock Movement Report ── -->
+            <div id="panel-stock-movement" class="panel">
+                <div class="panel-header">
+                    <div class="panel-title-wrap">
+                        <div class="panel-title-icon">
+                            <i class="fa-solid fa-chart-line" style="color:#f59e0b;"></i>
+                        </div>
+                        <div class="panel-title">
+                            <h2>Stock Movement Report</h2>
+                            <p>Summarised stock movement analysis</p>
+                        </div>
+                    </div>
+                </div>
+                <div style="flex:1;display:flex;align-items:center;justify-content:center;">
+                    <div class="placeholder-panel">
+                        <i class="fa-solid fa-chart-line"></i>
+                        <h3>Coming Soon</h3>
+                        <p>Stock Movement Report will be available in the next release.</p>
+                        <a class="cs-home-btn" href="index.html">
+                            <i class="fa-solid fa-arrow-left"></i> Back to Inventory Home
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Transaction Types ── -->
+            <div id="panel-txn-types" class="panel">
+                <div class="panel-header">
+                    <div class="panel-title-wrap">
+                        <div class="panel-title-icon">
+                            <i class="fa-solid fa-tags" style="color:#f59e0b;"></i>
+                        </div>
+                        <div class="panel-title">
+                            <h2>Transaction Types</h2>
+                            <p>All inventory transaction types — fetched and cached locally</p>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <span id="txn-types-cache-badge" class="cache-badge" style="display:none;"></span>
+                        <button class="btn-secondary" onclick="fetchTxnTypes(true)">
+                            <i class="fa-solid fa-rotate"></i> Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="filter-bar" style="padding:10px 16px;">
+                    <div class="filter-group" style="flex:1;max-width:320px;">
+                        <label>Search Types</label>
+                        <input type="text" id="types-search" placeholder="Search by name or action…"
+                            oninput="filterTxnTypes(this.value)">
+                    </div>
+                    <span class="record-count" id="types-count" style="align-self:flex-end;">0 types</span>
+                </div>
+
+                <div class="data-card" style="flex:1;">
+                    <div class="table-wrap">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Transaction Type ID</th>
+                                    <th>Type Name</th>
+                                    <th>Description</th>
+                                    <th>Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="types-tbody">
+                                <tr><td colspan="5">
+                                    <div class="loading-state">
+                                        <div class="spinner"></div> Loading transaction types…
+                                    </div>
+                                </td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div><!-- /txn-types -->
+
+            <!-- ── Inventory Reservations ── -->
+            <div id="panel-reservations" class="panel">
+                <div class="panel-header">
+                    <div class="panel-title-wrap">
+                        <div class="panel-title-icon">
+                            <i class="fa-solid fa-bookmark" style="color:#f59e0b;"></i>
+                        </div>
+                        <div class="panel-title">
+                            <h2>Inventory Reservations</h2>
+                            <p>View and manage inventory reservations</p>
+                        </div>
+                    </div>
+                </div>
+                <div style="flex:1;display:flex;align-items:center;justify-content:center;">
+                    <div class="placeholder-panel">
+                        <i class="fa-solid fa-bookmark"></i>
+                        <h3>Coming Soon</h3>
+                        <p>Inventory Reservations will be available in the next release.</p>
+                        <a class="cs-home-btn" href="index.html">
+                            <i class="fa-solid fa-arrow-left"></i> Back to Inventory Home
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+        </div><!-- /content -->
+    </div><!-- /app-body -->
+
+    <script>
+        // ════════════════════════════════════════════════════════════
+        // CONFIG
+        // ════════════════════════════════════════════════════════════
+        var FUSION_BASE = 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05';
+        var TXN_TYPES_CACHE_KEY = 'txn_transaction_types';
+
+        // ── User info ────────────────────────────────────────────
+        (function () {
+            var u = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
+            var i = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+            document.getElementById('displayUsername').textContent = u;
+            document.getElementById('displayInstance').textContent = i || '—';
+        })();
+
+        // ════════════════════════════════════════════════════════════
+        // IPC BRIDGE
+        // ════════════════════════════════════════════════════════════
+        window._txnPendingRequests = {};
+
+        function _txnSendToCS(message, callback) {
+            var reqId = 'txn_' + Date.now() + '_' + Math.random().toString(36).slice(2,7);
+            message.requestId = reqId;
+            window._txnPendingRequests[reqId] = callback;
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage(message);
+            } else {
+                setTimeout(function () { callback('WebView2 not available', null); }, 0);
+            }
+        }
+
+        if (window.chrome && window.chrome.webview) {
+            window.chrome.webview.addEventListener('message', function (event) {
+                try {
+                    var resp = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                    var reqId = resp.requestId;
+                    if (reqId && window._txnPendingRequests[reqId]) {
+                        var cb = window._txnPendingRequests[reqId];
+                        delete window._txnPendingRequests[reqId];
+                        if (resp.action === 'error') {
+                            cb(resp.message || 'Unknown error', null);
+                        } else {
+                            var data = resp.data;
+                            if (typeof data === 'string') { try { data = JSON.parse(data); } catch(e){} }
+                            cb(null, data);
+                        }
+                    }
+                } catch(e) { console.error('[TXN] Message parse error', e); }
+            });
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // PANEL NAVIGATION
+        // ════════════════════════════════════════════════════════════
+        function showPanel(id, navEl) {
+            document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('active'); });
+            document.querySelectorAll('.nav-item').forEach(function(n){ n.classList.remove('active'); });
+            var panel = document.getElementById('panel-' + id);
+            if (panel) panel.classList.add('active');
+            if (navEl) navEl.classList.add('active');
+        }
+
+        function toggleSidebar() {
+            var sb = document.querySelector('.sidebar');
+            sb.classList.toggle('collapsed');
+            document.getElementById('sidebar-toggle-icon').className =
+                sb.classList.contains('collapsed') ? 'fa-solid fa-chevron-right' : 'fa-solid fa-chevron-left';
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // TRANSACTION TYPES (cached)
+        // ════════════════════════════════════════════════════════════
+        var _allTxnTypes = [];
+
+        function autoLoadTxnTypes() {
+            if (_allTxnTypes.length) return;   // already loaded
+            // Try local cache first
+            _txnSendToCS({ action: 'getInventoryCache', cacheKey: TXN_TYPES_CACHE_KEY }, function(err, cached) {
+                if (!err && cached && cached.items && cached.items.length) {
+                    _allTxnTypes = cached.items;
+                    _renderTxnTypes(_allTxnTypes);
+                    _showCacheBadge(true, cached.fetchedAt);
+                    _populateTxnTypeDropdown(_allTxnTypes);
+                } else {
+                    fetchTxnTypes(false);
+                }
+            });
+        }
+
+        function fetchTxnTypes(forceRefresh) {
+            document.getElementById('types-tbody').innerHTML =
+                '<tr><td colspan="5"><div class="loading-state"><div class="spinner"></div> Fetching from Fusion…</div></td></tr>';
+            document.getElementById('types-count').textContent = 'Loading…';
+
+            var url = FUSION_BASE + '/inventoryTransactionTypes?limit=500';
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (err) {
+                    document.getElementById('types-tbody').innerHTML =
+                        '<tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                    return;
+                }
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                _allTxnTypes = (payload && payload.items) ? payload.items : [];
+
+                // Save to cache
+                _txnSendToCS({ action: 'saveInventoryCache', cacheKey: TXN_TYPES_CACHE_KEY,
+                    data: { items: _allTxnTypes, fetchedAt: new Date().toISOString() } }, function(){});
+
+                _renderTxnTypes(_allTxnTypes);
+                _showCacheBadge(false, new Date().toISOString());
+                _populateTxnTypeDropdown(_allTxnTypes);
+            });
+        }
+
+        function _renderTxnTypes(rows) {
+            document.getElementById('types-search').value = '';
+            document.getElementById('types-count').textContent = rows.length + ' types';
+            var tbody = document.getElementById('types-tbody');
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-tags"></i><p>No transaction types found.</p></div></td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(function(r, i) {
+                return '<tr>' +
+                    '<td style="color:#a0aec0;">' + (i+1) + '</td>' +
+                    '<td style="font-size:.78rem;color:#a0aec0;">' + (r.TransactionTypeId||'') + '</td>' +
+                    '<td><strong style="font-size:.85rem;">' + (r.TransactionTypeName||'') + '</strong></td>' +
+                    '<td style="font-size:.82rem;color:#718096;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.TransactionTypeDescription||'') + '">' + (r.TransactionTypeDescription||'—') + '</td>' +
+                    '<td><span style="font-size:.75rem;background:#fffbeb;color:#92400e;padding:2px 8px;border-radius:10px;white-space:nowrap;">' + (r.TransactionAction||'—') + '</span></td>' +
+                    '</tr>';
+            }).join('');
+        }
+
+        function filterTxnTypes(val) {
+            var q = (val||'').toLowerCase();
+            var rows = q ? _allTxnTypes.filter(function(r) {
+                return ((r.TransactionTypeName||'')+(r.TransactionTypeDescription||'')+(r.TransactionAction||'')).toLowerCase().indexOf(q) !== -1;
+            }) : _allTxnTypes;
+            document.getElementById('types-count').textContent = rows.length + ' types';
+            document.getElementById('types-tbody').innerHTML = rows.length
+                ? rows.map(function(r, i) {
+                    return '<tr>' +
+                        '<td style="color:#a0aec0;">' + (i+1) + '</td>' +
+                        '<td style="font-size:.78rem;color:#a0aec0;">' + (r.TransactionTypeId||'') + '</td>' +
+                        '<td><strong style="font-size:.85rem;">' + (r.TransactionTypeName||'') + '</strong></td>' +
+                        '<td style="font-size:.82rem;color:#718096;max-width:280px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.TransactionTypeDescription||'') + '">' + (r.TransactionTypeDescription||'—') + '</td>' +
+                        '<td><span style="font-size:.75rem;background:#fffbeb;color:#92400e;padding:2px 8px;border-radius:10px;white-space:nowrap;">' + (r.TransactionAction||'—') + '</span></td>' +
+                        '</tr>';
+                }).join('')
+                : '<tr><td colspan="5"><div class="empty-state"><i class="fa-solid fa-tags"></i><p>No types match.</p></div></td></tr>';
+        }
+
+        function _populateTxnTypeDropdown(types) {
+            var sel = document.getElementById('txn-type');
+            sel.innerHTML = '<option value="">— All Types —</option>' +
+                types.map(function(t) {
+                    return '<option value="' + t.TransactionTypeId + '">' + t.TransactionTypeName + '</option>';
+                }).join('');
+        }
+
+        function _showCacheBadge(fromCache, fetchedAt) {
+            var badge = document.getElementById('txn-types-cache-badge');
+            badge.style.display = 'inline-flex';
+            if (fromCache) {
+                var d = fetchedAt ? new Date(fetchedAt).toLocaleDateString() : '';
+                badge.className = 'cache-badge cache-hit';
+                badge.textContent = '✓ Cached' + (d ? ' ' + d : '');
+            } else {
+                badge.className = 'cache-badge cache-miss';
+                badge.textContent = '↻ Fresh';
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // ORGANISATIONS + SUBINVENTORIES (reused from local storage)
+        // ════════════════════════════════════════════════════════════
+        var _txnCachedOrgs    = [];
+        var _txnCachedSubinvs = {};   // {orgId: [{SubinventoryCode, ...}]}
+
+        (function loadOrgsOnStart() {
+            _txnSendToCS({ action: 'getInventoryCache', cacheKey: 'organizations' }, function(err, cached) {
+                if (!err && cached && cached.items && cached.items.length) {
+                    _txnCachedOrgs = cached.items;
+                    _populateTxnOrgDropdown(_txnCachedOrgs);
+                } else {
+                    _fetchOrgs();
+                }
+            });
+        })();
+
+        function _fetchOrgs() {
+            var url = FUSION_BASE + '/inventoryOrganizationsLOV?limit=500';
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (err) return;
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var items = (payload && payload.items) ? payload.items : [];
+                if (items.length) {
+                    _txnCachedOrgs = items;
+                    _txnSendToCS({ action: 'saveInventoryCache', cacheKey: 'organizations',
+                        data: { items: items, fetchedAt: new Date().toISOString() } }, function(){});
+                    _populateTxnOrgDropdown(items);
+                }
+            });
+        }
+
+        function _populateTxnOrgDropdown(orgs) {
+            var sel = document.getElementById('txn-org');
+            sel.innerHTML = '<option value="">— Select Org —</option>' +
+                orgs.map(function(o) {
+                    return '<option value="' + o.OrganizationId + '" data-code="' + o.OrganizationCode + '">' +
+                           o.OrganizationCode + ' — ' + o.OrganizationName + '</option>';
+                }).join('');
+        }
+
+        document.getElementById('txn-org').addEventListener('change', function() {
+            var sel = this;
+            var orgId = sel.value;
+            var orgCode = orgId ? (sel.options[sel.selectedIndex].dataset.code || '') : '';
+            _loadSubinventories(orgId, orgCode);
+        });
+
+        function _loadSubinventories(orgId, orgCode) {
+            var subSel = document.getElementById('txn-subinv');
+            subSel.innerHTML = '<option value="">— All —</option>';
+            if (!orgId) return;
+
+            // Use cached subinventories if available
+            if (_txnCachedSubinvs[orgId]) {
+                _populateTxnSubinvDropdown(_txnCachedSubinvs[orgId]);
+                return;
+            }
+
+            // Try file cache
+            _txnSendToCS({ action: 'getInventoryCache', cacheKey: 'subinventories_' + orgId }, function(err, cached) {
+                if (!err && cached && cached.items && cached.items.length) {
+                    _txnCachedSubinvs[orgId] = cached.items;
+                    _populateTxnSubinvDropdown(cached.items);
+                } else {
+                    // Fetch from API
+                    var url = FUSION_BASE + '/subinventories?q=OrganizationId=' + orgId + '&limit=500';
+                    _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err2, data) {
+                        if (err2) return;
+                        var payload = data;
+                        if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                        var items = (payload && payload.items) ? payload.items : [];
+                        if (items.length) {
+                            _txnCachedSubinvs[orgId] = items;
+                            _txnSendToCS({ action: 'saveInventoryCache', cacheKey: 'subinventories_' + orgId,
+                                data: { items: items, fetchedAt: new Date().toISOString() } }, function(){});
+                        }
+                        _populateTxnSubinvDropdown(items);
+                    });
+                }
+            });
+        }
+
+        function _populateTxnSubinvDropdown(items) {
+            var sel = document.getElementById('txn-subinv');
+            sel.innerHTML = '<option value="">— All —</option>' +
+                items.map(function(s) {
+                    var code = s.SecondaryInventoryName || s.SubinventoryCode || '';
+                    return '<option value="' + code + '">' + code + '</option>';
+                }).join('');
+        }
+
+        // Also load txn types into dropdown on page load via cache
+        (function loadTxnTypesForDropdown() {
+            _txnSendToCS({ action: 'getInventoryCache', cacheKey: TXN_TYPES_CACHE_KEY }, function(err, cached) {
+                if (!err && cached && cached.items && cached.items.length) {
+                    _allTxnTypes = cached.items;
+                    _populateTxnTypeDropdown(_allTxnTypes);
+                }
+            });
+        })();
+
+        // ════════════════════════════════════════════════════════════
+        // QUERY TRANSACTIONS
+        // ════════════════════════════════════════════════════════════
+        var _txnAllRows      = [];
+        var _txnChartRefs    = {};
+        var _txnChartsBuilt  = false;
+        var _txnCancelled    = false;
+        var _txnLoading      = false;
+        var _txnPageSize     = 500;
+        var _txnOffset       = 0;
+        var _txnPageNum      = 1;
+        var _txnBaseUrl      = '';
+
+        function toggleTxnApiBar() {
+            var bar = document.getElementById('txn-api-bar');
+            bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
+        }
+
+        // ── Core page fetch ───────────────────────────────────────
+        function _txnDoFetch() {
+            var url = _txnBaseUrl + '&limit=' + _txnPageSize + '&offset=' + _txnOffset;
+            document.getElementById('txn-count').textContent = 'Loading page ' + _txnPageNum + '…';
+
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (_txnCancelled) {
+                    _setTxnLoading(false);
+                    _txnFinalizePage(false);
+                    return;
+                }
+                _setTxnLoading(false);
+
+                if (err) {
+                    if (_txnAllRows.length) {
+                        _txnFinalizePage(false);
+                        var bar = document.getElementById('txn-next-bar');
+                        bar.style.display = 'flex';
+                        bar.innerHTML = '<span style="color:#e53e3e;font-size:.82rem;"><i class="fa-solid fa-triangle-exclamation"></i> ' + err + '</span>';
+                    } else {
+                        document.getElementById('txn-tbody').innerHTML =
+                            '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                        document.getElementById('txn-count').textContent = 'Error';
+                    }
+                    return;
+                }
+
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var page = (payload && payload.items) ? payload.items : [];
+                _txnAllRows = _txnAllRows.concat(page);
+                _txnOffset += _txnPageSize;
+
+                var hasMore = !!(payload && payload.hasMore && page.length);
+                _txnFinalizePage(hasMore);
+            });
+        }
+
+        function _txnFinalizePage(hasMore) {
+            _renderTxnRows(_txnAllRows, true);
+            _renderTxnKpi(_txnAllRows);
+
+            // Update analytics type dropdown with current data
+            _populateAnTxnTypeDropdown();
+
+            if (document.getElementById('txn-tab-analytics').classList.contains('active')) {
+                _buildTxnCharts(_txnAllRows);
+                _txnChartsBuilt = true;
+            }
+
+            var bar = document.getElementById('txn-next-bar');
+            if (hasMore) {
+                bar.style.display = 'flex';
+                bar.innerHTML =
+                    '<span style="background:rgba(79,70,229,.12);color:#4f46e5;font-size:.72rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;">' +
+                        _txnAllRows.length + ' loaded — more available' +
+                    '</span>' +
+                    '<button onclick="_txnLoadNext()" title="Load next ' + _txnPageSize + ' records" ' +
+                        'style="width:52px;height:52px;border-radius:50%;background:#4f46e5;color:white;border:none;cursor:pointer;font-size:1.25rem;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(79,70,229,.45);transition:transform .15s;"' +
+                        ' onmouseover="this.style.transform=\'scale(1.1)\'" onmouseout="this.style.transform=\'scale(1)\'">' +
+                        '<i class="fa-solid fa-angles-down"></i>' +
+                    '</button>';
+            } else {
+                bar.style.display = 'none';
+            }
+        }
+
+        function queryTransactions() {
+            var orgSel  = document.getElementById('txn-org');
+            var orgCode = orgSel.options[orgSel.selectedIndex] ? (orgSel.options[orgSel.selectedIndex].dataset.code || '') : '';
+            var subinv  = (document.getElementById('txn-subinv').value || '').trim();
+            var txnType = document.getElementById('txn-type').value;
+            var item    = (document.getElementById('txn-item').value || '').trim();
+            var dateFrom= document.getElementById('txn-date-from').value;
+            var shipment = (document.getElementById('txn-shipment').value || '').trim();
+            var ref      = (document.getElementById('txn-ref').value || '').trim();
+            var srcRef   = (document.getElementById('txn-source-ref').value || '').trim();
+
+            if (!orgCode) { alert('Please select an Organization.'); return; }
+
+            var qParts = ['Organization=' + encodeURIComponent(orgCode)];
+            if (subinv)   qParts.push('SubinventoryCode=' + encodeURIComponent(subinv));
+            if (item)     qParts.push('Item=' + encodeURIComponent(item));
+            if (txnType)  qParts.push('TransactionTypeId=' + encodeURIComponent(txnType));
+            if (dateFrom) qParts.push('TransactionDate>=' + dateFrom);
+            if (shipment) qParts.push('Shipment=' + encodeURIComponent(shipment));
+            if (ref)      qParts.push('Reference=' + encodeURIComponent(ref));
+            if (srcRef)   qParts.push('SourceReference=' + encodeURIComponent(srcRef));
+
+            _txnBaseUrl  = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';');
+            _txnOffset   = 0;
+            _txnPageNum  = 1;
+            _txnCancelled = false;
+            _txnAllRows  = [];
+            _txnChartsBuilt = false;
+
+            document.getElementById('txn-api-url-txt').textContent = _txnBaseUrl + '&limit=' + _txnPageSize + '&offset=0';
+            document.getElementById('txn-next-bar').style.display  = 'none';
+            document.getElementById('txn-analytics-filter-bar').style.display = 'none';
+
+            _setTxnLoading(true);
+            _txnDoFetch();
+        }
+
+        function _txnLoadNext() {
+            _txnCancelled = false;
+            _txnPageNum++;
+            var bar = document.getElementById('txn-next-bar');
+            bar.innerHTML =
+                '<span style="background:rgba(79,70,229,.12);color:#4f46e5;font-size:.72rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;">Loading…</span>' +
+                '<div style="width:52px;height:52px;border-radius:50%;background:#4f46e5;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 14px rgba(79,70,229,.45);"><div class="spinner" style="width:22px;height:22px;border-color:rgba(255,255,255,.3);border-top-color:white;"></div></div>';
+            _setTxnLoading(true);
+            _txnDoFetch();
+        }
+
+        function cancelTxnSearch() {
+            _txnCancelled = true;
+            _setTxnLoading(false);
+            var bar = document.getElementById('txn-next-bar');
+            bar.style.display = 'flex';
+            bar.innerHTML = '<span style="background:#fee2e2;color:#dc2626;font-size:.72rem;font-weight:600;padding:3px 10px;border-radius:20px;white-space:nowrap;"><i class="fa-solid fa-circle-stop"></i> Cancelled — ' + _txnAllRows.length + ' loaded</span>';
+            if (_txnAllRows.length) _txnFinalizePage(false);
+        }
+
+        function _setTxnLoading(on) {
+            _txnLoading = on;
+            var cancelBtn = document.getElementById('txn-cancel-btn');
+            var searchBtn = document.getElementById('txn-search-btn');
+            cancelBtn.style.display = on ? 'inline-flex' : 'none';
+            searchBtn.disabled = on;
+            if (on) {
+                document.getElementById('txn-next-bar').style.display = 'none';
+                document.getElementById('txn-tbody').innerHTML =
+                    '<tr><td colspan="16"><div class="loading-state"><div class="spinner"></div> Searching transactions…</div></td></tr>';
+                document.getElementById('txn-count').textContent = 'Loading…';
+                document.getElementById('txn-kpi').innerHTML = '';
+            }
+        }
+
+        function _txnIsSalesOrder(txnType) {
+            return txnType && txnType.toLowerCase().indexOf('sales order') !== -1;
+        }
+
+        function _txnRow(r, i) {
+            var date = r.TransactionDate ? r.TransactionDate.slice(0,10) : '—';
+            var qty  = parseFloat(r.Quantity || r.TransactionQuantity || 0);
+            var qtyClass = qty < 0 ? 'qty-neg' : qty > 0 ? 'qty-pos' : '';
+            var srcRef = r.SourceReference || '—';
+            var srcRefHtml;
+            if (_txnIsSalesOrder(r.TransactionType) && srcRef !== '—') {
+                srcRefHtml = '<a class="src-ref-link" title="Open Sales Order ' + srcRef + '" ' +
+                    'onclick="openSalesOrderDetails(\'' + srcRef.replace(/'/g, "\\'") + '\')">' + srcRef + '</a>';
+            } else {
+                srcRefHtml = '<span style="font-size:.78rem;color:#059669;">' + srcRef + '</span>';
+            }
+            return '<tr>' +
+                '<td style="color:#a0aec0;">' + (i+1) + '</td>' +
+                '<td style="font-size:.78rem;color:#a0aec0;">' + (r.TransactionId||'') + '</td>' +
+                '<td style="white-space:nowrap;">' + date + '</td>' +
+                '<td><strong>' + (r.Item||'') + '</strong></td>' +
+                '<td style="max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.ItemDescription||'') + '">' + (r.ItemDescription||'') + '</td>' +
+                '<td>' + (r.Organization||'') + '</td>' +
+                '<td>' + (r.SubinventoryCode||'') + '</td>' +
+                '<td style="font-size:.78rem;color:#4f46e5;">' + (r.TransferOrganizationCode||'—') + '</td>' +
+                '<td style="font-size:.78rem;color:#0369a1;">' + (r.TransferSubinventory||'—') + '</td>' +
+                '<td style="font-size:.78rem;color:#0369a1;">' + (r.Shipment||'—') + '</td>' +
+                '<td style="font-size:.78rem;max-width:160px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + (r.TransactionType||'') + '">' + (r.TransactionType||'') + '</td>' +
+                '<td style="font-size:.76rem;">' + (r.TransactionAction||'') + '</td>' +
+                '<td class="' + qtyClass + ' qty-badge">' + qty.toLocaleString() + '</td>' +
+                '<td>' + (r.PrimaryUOMCode||r.UOMName||'') + '</td>' +
+                '<td>' + srcRefHtml + '</td>' +
+                '<td style="font-size:.78rem;color:#718096;">' + (r.Reference||'—') + '</td>' +
+                '</tr>';
+        }
+
+        function _renderTxnRows(rows, resetSearch) {
+            if (resetSearch) document.getElementById('txn-grid-search').value = '';
+            document.getElementById('txn-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
+            var tbody = document.getElementById('txn-tbody');
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No transactions found.</p></div></td></tr>';
+            } else {
+                tbody.innerHTML = rows.map(_txnRow).join('');
+            }
+        }
+
+        function filterTxnGrid(val) {
+            var q = (val||'').toLowerCase();
+            var rows = q ? _txnAllRows.filter(function(r) {
+                return ((r.Item||'')+(r.ItemDescription||'')+(r.TransactionType||'')+(r.SubinventoryCode||'')+(r.Reference||'')+(r.TransactionAction||'')+(r.TransferOrganizationCode||'')+(r.TransferSubinventory||'')+(r.Shipment||'')+(r.SourceReference||'')).toLowerCase().indexOf(q) !== -1;
+            }) : _txnAllRows;
+            _renderTxnRows(rows, false);
+        }
+
+        function _renderTxnKpi(rows) {
+            var totalQty = 0, items = {}, types = {}, subinvs = {};
+            rows.forEach(function(r) {
+                totalQty += parseFloat(r.Quantity || r.TransactionQuantity || 0);
+                if (r.Item) items[r.Item] = true;
+                if (r.TransactionType) types[r.TransactionType] = true;
+                if (r.SubinventoryCode) subinvs[r.SubinventoryCode] = true;
+            });
+            function k(val, lbl) {
+                return '<div class="kpi-card"><div class="kpi-val">' + val + '</div><div class="kpi-lbl">' + lbl + '</div></div>';
+            }
+            document.getElementById('txn-kpi').innerHTML =
+                k(rows.length, 'Total Lines') +
+                k(Object.keys(items).length, 'Unique Items') +
+                k(Object.keys(types).length, 'Txn Types') +
+                k(Object.keys(subinvs).length, 'Subinventories') +
+                k(Math.abs(totalQty).toLocaleString(), 'Total Qty');
+        }
+
+        // ── Analytics filter ──────────────────────────────────────
+        function _populateAnTxnTypeDropdown() {
+            var sel = document.getElementById('an-txn-type');
+            if (!sel) return;
+            var current = sel.value;
+            var types = {};
+            _txnAllRows.forEach(function(r){ if (r.TransactionType) types[r.TransactionType] = true; });
+            sel.innerHTML = '<option value="">— All —</option>' +
+                Object.keys(types).sort().map(function(t){
+                    return '<option value="' + t + '"' + (t === current ? ' selected' : '') + '>' + t + '</option>';
+                }).join('');
+        }
+
+        function _applyTxnAnalyticsFilter() {
+            if (!_txnAllRows.length) return;
+            var dFrom = document.getElementById('an-date-from').value;
+            var dTo   = document.getElementById('an-date-to').value;
+            var type  = document.getElementById('an-txn-type').value;
+            var subinv= (document.getElementById('an-subinv').value||'').trim().toLowerCase();
+            var item  = (document.getElementById('an-item').value||'').trim().toLowerCase();
+
+            var rows = _txnAllRows.filter(function(r) {
+                var d = r.TransactionDate ? r.TransactionDate.slice(0,10) : '';
+                if (dFrom && d < dFrom) return false;
+                if (dTo   && d > dTo)   return false;
+                if (type  && r.TransactionType !== type) return false;
+                if (subinv && (r.SubinventoryCode||'').toLowerCase().indexOf(subinv) === -1) return false;
+                if (item  && (r.Item||'').toLowerCase().indexOf(item) === -1) return false;
+                return true;
+            });
+
+            var active = [];
+            if (dFrom) active.push('From ' + dFrom);
+            if (dTo)   active.push('To ' + dTo);
+            if (type)  active.push(type);
+            if (subinv) active.push('Subinv: ' + subinv.toUpperCase());
+            if (item)  active.push('Item: ' + item.toUpperCase());
+            document.getElementById('an-filter-badge').textContent = active.length ? '(' + rows.length + ' rows matched)' : '';
+
+            _buildTxnCharts(rows);
+        }
+
+        function _resetTxnAnalyticsFilter() {
+            ['an-date-from','an-date-to','an-subinv','an-item'].forEach(function(id){
+                document.getElementById(id).value = '';
+            });
+            document.getElementById('an-txn-type').value = '';
+            document.getElementById('an-filter-badge').textContent = '';
+            _buildTxnCharts(_txnAllRows);
+        }
+
+        // ── Analytics tab ──────────────────────────────────────
+        function switchTxnTab(tab) {
+            document.getElementById('txn-tab-grid').classList.toggle('active', tab === 'grid');
+            document.getElementById('txn-tab-analytics').classList.toggle('active', tab === 'analytics');
+            document.getElementById('txn-body-grid').classList.toggle('active', tab === 'grid');
+            document.getElementById('txn-body-analytics').classList.toggle('active', tab === 'analytics');
+            if (tab === 'analytics') {
+                if (!_txnAllRows.length) {
+                    document.getElementById('txn-analytics-grid').style.display = 'none';
+                    document.getElementById('txn-analytics-empty').style.display = 'flex';
+                    document.getElementById('txn-analytics-filter-bar').style.display = 'none';
+                } else {
+                    document.getElementById('txn-analytics-grid').style.display = '';
+                    document.getElementById('txn-analytics-empty').style.display = 'none';
+                    document.getElementById('txn-analytics-filter-bar').style.display = 'flex';
+                    _populateAnTxnTypeDropdown();
+                    if (!_txnChartsBuilt) {
+                        _buildTxnCharts(_txnAllRows);
+                        _txnChartsBuilt = true;
+                    }
+                }
+            }
+        }
+
+        function _buildTxnCharts(rows) {
+            // Destroy previous
+            Object.keys(_txnChartRefs).forEach(function(k) {
+                if (_txnChartRefs[k]) { _txnChartRefs[k].destroy(); delete _txnChartRefs[k]; }
+            });
+
+            var palette = ['#f59e0b','#3b82f6','#10b981','#ef4444','#8b5cf6','#ec4899',
+                           '#06b6d4','#84cc16','#f97316','#6366f1','#14b8a6','#e11d48'];
+
+            // 1 — by date (line chart, count per day)
+            var byDate = {};
+            rows.forEach(function(r) {
+                var d = r.TransactionDate ? r.TransactionDate.slice(0,10) : 'Unknown';
+                byDate[d] = (byDate[d] || 0) + 1;
+            });
+            var dateLabels = Object.keys(byDate).sort();
+            _txnMakeChart('chart-txn-by-date', 'line', dateLabels, [{
+                label: 'Transactions', data: dateLabels.map(function(d){ return byDate[d]; }),
+                borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,.12)', tension: .3, fill: true, pointRadius: 3
+            }], { scales: { x: { ticks: { maxTicksLimit: 10 } } } });
+
+            // 2 — by transaction type (horizontal bar, count)
+            var byType = {};
+            rows.forEach(function(r) { var t = r.TransactionType||'Unknown'; byType[t] = (byType[t]||0) + 1; });
+            var typeEntries = Object.keys(byType).map(function(k){ return {n:k,v:byType[k]}; }).sort(function(a,b){return b.v-a.v;}).slice(0,12);
+            _txnMakeChart('chart-txn-by-type', 'bar', typeEntries.map(function(e){return e.n;}), [{
+                label: 'Count', data: typeEntries.map(function(e){return e.v;}),
+                backgroundColor: palette.slice(0, typeEntries.length)
+            }], { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
+
+            // 3 — by subinventory (bar, total qty)
+            var bySubinv = {};
+            rows.forEach(function(r) {
+                var s = r.SubinventoryCode||'Unknown';
+                bySubinv[s] = (bySubinv[s]||0) + Math.abs(parseFloat(r.Quantity||r.TransactionQuantity||0));
+            });
+            var subEntries = Object.keys(bySubinv).map(function(k){return {n:k,v:bySubinv[k]};}).sort(function(a,b){return b.v-a.v;});
+            _txnMakeChart('chart-txn-by-subinv', 'bar', subEntries.map(function(e){return e.n;}), [{
+                label: 'Total Qty', data: subEntries.map(function(e){return e.v;}),
+                backgroundColor: '#10b981'
+            }], { scales: { x: { beginAtZero: true } } });
+
+            // 4 — top items (horizontal bar, total qty)
+            var byItem = {};
+            rows.forEach(function(r) {
+                if (r.Item) byItem[r.Item] = (byItem[r.Item]||0) + Math.abs(parseFloat(r.Quantity||r.TransactionQuantity||0));
+            });
+            var topItems = Object.keys(byItem).map(function(k){return {n:k,v:byItem[k]};}).sort(function(a,b){return b.v-a.v;}).slice(0,12);
+            _txnMakeChart('chart-txn-top-items', 'bar', topItems.map(function(e){return e.n;}), [{
+                label: 'Total Qty', data: topItems.map(function(e){return e.v;}),
+                backgroundColor: '#8b5cf6'
+            }], { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
+
+            _txnChartsBuilt = true;
+        }
+
+        function _txnMakeChart(canvasId, type, labels, datasets, extraOpts) {
+            var ctx = document.getElementById(canvasId);
+            if (!ctx) return;
+            if (_txnChartRefs[canvasId]) { _txnChartRefs[canvasId].destroy(); }
+            var opts = Object.assign({ responsive: true, plugins: { legend: { display: type !== 'bar' } } }, extraOpts || {});
+            _txnChartRefs[canvasId] = new Chart(ctx, { type: type, data: { labels: labels, datasets: datasets }, options: opts });
+        }
+
+        function clearTxnSearch() {
+            _txnCancelled = true;  // stop any in-flight fetch
+            _setTxnLoading(false);
+            ['txn-org','txn-subinv','txn-type','txn-item','txn-date-from','txn-shipment','txn-ref','txn-source-ref','txn-grid-search'].forEach(function(id){
+                var el = document.getElementById(id); if (el) el.value = '';
+            });
+            _txnAllRows = [];
+            _txnChartsBuilt = false;
+            document.getElementById('txn-next-bar').style.display = 'none';
+            document.getElementById('txn-analytics-filter-bar').style.display = 'none';
+            document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>Set filters and click Search.</p></div></td></tr>';
+            document.getElementById('txn-count').textContent = '0 records';
+            document.getElementById('txn-kpi').innerHTML = '';
+        }
+        // ── Auto-load transaction types in background on page load ──
+        document.addEventListener('DOMContentLoaded', function() {
+            autoLoadTxnTypes();
+        });
+
+        // ════════════════════════════════════════════════════════════
+        // SALES ORDER DETAILS MODAL
+        // ════════════════════════════════════════════════════════════
+
+        function _soStatusClass(code) {
+            if (!code) return 'so-status-other';
+            var c = code.toUpperCase();
+            if (c === 'OPEN')       return 'so-status-open';
+            if (c === 'CLOSED')     return 'so-status-closed';
+            if (c === 'CANCELED')   return 'so-status-canceled';
+            if (c === 'PROCESSING') return 'so-status-processing';
+            return 'so-status-other';
+        }
+
+        function _soFmt(val, fallback) {
+            return (val !== null && val !== undefined && val !== '') ? val : (fallback || '—');
+        }
+
+        function _soFmtDate(val) {
+            if (!val) return '—';
+            return val.slice(0, 10);
+        }
+
+        function _soFmtCurrency(val, currency) {
+            if (val === null || val === undefined || val === '') return '—';
+            var n = parseFloat(val);
+            if (isNaN(n)) return val;
+            return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+                   (currency ? ' ' + currency : '');
+        }
+
+        function openSalesOrderDetails(sourceRef) {
+            if (!sourceRef || sourceRef === '—') return;
+
+            var overlay = document.getElementById('so-details-overlay');
+            var titleEl = document.getElementById('so-modal-order-num');
+            var bodyEl  = document.getElementById('so-modal-body');
+
+            titleEl.textContent = sourceRef;
+            bodyEl.innerHTML = '<div class="so-loading"><div class="spinner"></div>Loading Sales Order details…</div>';
+            overlay.classList.add('open');
+
+            var url = FUSION_BASE + '/salesOrdersForOrderHub?q=SourceTransactionNumber=' + encodeURIComponent(sourceRef);
+
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (err) {
+                    bodyEl.innerHTML = '<div class="so-error"><i class="fa-solid fa-circle-exclamation"></i>Failed to load Sales Order: ' + err + '</div>';
+                    return;
+                }
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var items = payload && payload.items ? payload.items : [];
+                if (!items.length) {
+                    bodyEl.innerHTML = '<div class="so-error"><i class="fa-solid fa-magnifying-glass"></i>No Sales Order found for: <strong>' + sourceRef + '</strong></div>';
+                    return;
+                }
+                var order = items[0];
+                _soRenderHeader(order, bodyEl);
+
+                // Find lines child href
+                var linesHref = null;
+                if (order.links) {
+                    order.links.forEach(function(l) {
+                        if (l.name === 'lines' && l.rel === 'child') linesHref = l.href;
+                    });
+                }
+                if (linesHref) {
+                    _soFetchLines(linesHref, bodyEl);
+                } else {
+                    var linesDiv = document.createElement('div');
+                    linesDiv.className = 'so-lines-card';
+                    linesDiv.innerHTML = '<div class="so-lines-header"><h3><i class="fa-solid fa-list-ul" style="color:#0d9488;"></i>Order Lines</h3></div>' +
+                        '<div class="so-loading"><div class="spinner"></div>Loading lines…</div>';
+                    bodyEl.appendChild(linesDiv);
+                    var linesUrl = FUSION_BASE + '/salesOrdersForOrderHub/' +
+                        encodeURIComponent(order.SourceTransactionSystem + ':' + sourceRef) + '/child/lines';
+                    _soFetchLinesUrl(linesUrl, linesDiv);
+                }
+            });
+        }
+
+        function _soRenderHeader(order, bodyEl) {
+            bodyEl.innerHTML = '';
+
+            var statusCode   = order.StatusCode || '';
+            var statusLabel  = order.Status || statusCode || '—';
+            var buName       = _soFmt(order.BusinessUnitName);
+            var orderNum     = _soFmt(order.OrderNumber);
+            var txnDate      = _soFmtDate(order.TransactionOn);
+            var customer     = _soFmt(order.BuyingPartyName);
+            var custNo       = _soFmt(order.BuyingPartyNumber);
+            var custPO       = _soFmt(order.CustomerPONumber);
+            var txnType      = _soFmt(order.TransactionTypeCode);
+            var currency     = _soFmt(order.TransactionalCurrencyName);
+            var submittedBy  = _soFmt(order.SubmittedBy);
+            var onHold       = order.OnHoldFlag ? '<span class="so-status so-status-canceled">On Hold</span>' : '';
+
+            var html =
+                '<div class="so-header-card">' +
+                    '<div class="so-header-card-title"><i class="fa-solid fa-file-invoice"></i> Order Header</div>' +
+                    '<div class="so-fields-grid">' +
+                        '<div class="so-field"><div class="so-field-label">Business Unit</div><div class="so-field-value">' + buName + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Order Number</div><div class="so-field-value" style="color:#0d9488;">' + orderNum + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Transaction Date</div><div class="so-field-value muted">' + txnDate + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Customer</div><div class="so-field-value">' + customer + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Customer No.</div><div class="so-field-value muted">' + custNo + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Customer PO</div><div class="so-field-value">' + custPO + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Order Type</div><div class="so-field-value muted">' + txnType + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Currency</div><div class="so-field-value muted">' + currency + '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Status</div><div class="so-field-value">' +
+                            '<span class="so-status ' + _soStatusClass(statusCode) + '">' + statusLabel + '</span>' +
+                            (onHold ? ' ' + onHold : '') +
+                        '</div></div>' +
+                        '<div class="so-field"><div class="so-field-label">Submitted By</div><div class="so-field-value muted">' + submittedBy + '</div></div>' +
+                    '</div>' +
+                '</div>';
+
+            bodyEl.insertAdjacentHTML('beforeend', html);
+        }
+
+        function _soFetchLines(linesHref, bodyEl) {
+            var linesDiv = document.createElement('div');
+            linesDiv.className = 'so-lines-card';
+            linesDiv.innerHTML =
+                '<div class="so-lines-header"><h3><i class="fa-solid fa-list-ul" style="color:#0d9488;"></i>Order Lines</h3></div>' +
+                '<div class="so-loading"><div class="spinner"></div>Loading lines…</div>';
+            bodyEl.appendChild(linesDiv);
+            _soFetchLinesUrl(linesHref, linesDiv);
+        }
+
+        function _soFetchLinesUrl(url, linesDiv) {
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function(err, data) {
+                if (err) {
+                    linesDiv.querySelector('.so-loading').outerHTML =
+                        '<div class="so-error"><i class="fa-solid fa-circle-exclamation"></i>Failed to load lines: ' + err + '</div>';
+                    return;
+                }
+                var payload = data;
+                if (typeof payload === 'string') { try { payload = JSON.parse(payload); } catch(e){} }
+                var lines = payload && payload.items ? payload.items : [];
+                _soRenderLines(lines, linesDiv);
+            });
+        }
+
+        function _soRenderLines(lines, linesDiv) {
+            var countHtml = '<span class="so-lines-count">' + lines.length + ' line' + (lines.length !== 1 ? 's' : '') + '</span>';
+
+            var tableHtml =
+                '<div class="so-lines-header">' +
+                    '<h3><i class="fa-solid fa-list-ul" style="color:#0d9488;"></i>Order Lines</h3>' +
+                    countHtml +
+                '</div>' +
+                '<div class="so-lines-wrap">' +
+                    '<table class="so-lines-table">' +
+                        '<thead><tr>' +
+                            '<th>#</th>' +
+                            '<th>Product Number</th>' +
+                            '<th>Description</th>' +
+                            '<th>Org</th>' +
+                            '<th>Ordered Qty</th>' +
+                            '<th>UOM</th>' +
+                            '<th>Unit List Price</th>' +
+                            '<th>Unit Selling Price</th>' +
+                            '<th>Status</th>' +
+                        '</tr></thead>' +
+                        '<tbody>';
+
+            if (!lines.length) {
+                tableHtml += '<tr><td colspan="9"><div class="empty-state"><i class="fa-solid fa-inbox"></i><p>No lines found.</p></div></td></tr>';
+            } else {
+                lines.forEach(function(l) {
+                    var sno       = _soFmt(l.SourceTransactionLineId);
+                    var prodNum   = _soFmt(l.ProductNumber);
+                    var prodDesc  = _soFmt(l.ProductDescription);
+                    var org       = _soFmt(l.InventoryOrganizationCode);
+                    var qty       = (l.OrderedQuantity !== null && l.OrderedQuantity !== undefined) ? parseFloat(l.OrderedQuantity).toLocaleString() : '—';
+                    var uom       = _soFmt(l.OrderedUOMCode || l.UOMCode);
+                    var listPrice = _soFmtCurrency(l.UnitListPrice);
+                    var sellPrice = _soFmtCurrency(l.UnitSellingPrice);
+                    var statusCode= l.StatusCode || '';
+                    var statusLbl = l.Status || statusCode || '—';
+                    tableHtml +=
+                        '<tr>' +
+                        '<td style="color:#a0aec0;font-size:.78rem;">' + sno + '</td>' +
+                        '<td><strong style="color:#0d9488;">' + prodNum + '</strong></td>' +
+                        '<td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="' + prodDesc + '">' + prodDesc + '</td>' +
+                        '<td><span style="font-size:.76rem;background:#f0fdf9;color:#0d9488;padding:2px 7px;border-radius:8px;font-weight:600;">' + org + '</span></td>' +
+                        '<td class="qty">' + qty + '</td>' +
+                        '<td style="font-size:.78rem;color:#718096;">' + uom + '</td>' +
+                        '<td class="price">' + listPrice + '</td>' +
+                        '<td class="price" style="color:#d97706;">' + sellPrice + '</td>' +
+                        '<td><span class="so-status ' + _soStatusClass(statusCode) + '">' + statusLbl + '</span></td>' +
+                        '</tr>';
+                });
+            }
+
+            tableHtml += '</tbody></table></div>';
+            linesDiv.innerHTML = tableHtml;
+        }
+
+        function closeSoModal() {
+            document.getElementById('so-details-overlay').classList.remove('open');
+        }
+
+        // Close on overlay click
+        document.getElementById('so-details-overlay').addEventListener('click', function(e) {
+            if (e.target === this) closeSoModal();
+        });
+
+        // Close on Escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeSoModal();
+        });
+
+    </script>
+
+    <!-- ══════════════════════════════════════════════
+         Sales Order Details Modal
+    ══════════════════════════════════════════════ -->
+    <div id="so-details-overlay" class="so-overlay">
+        <div class="so-modal">
+            <div class="so-modal-header">
+                <div class="so-modal-title">
+                    <div class="so-modal-icon"><i class="fa-solid fa-cart-shopping"></i></div>
+                    <div>
+                        <h2>Sales Order Details</h2>
+                        <p>Source Reference: <span id="so-modal-order-num">—</span></p>
+                    </div>
+                </div>
+                <button class="so-close-btn" onclick="closeSoModal()" title="Close">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <div class="so-modal-body" id="so-modal-body">
+                <div class="so-loading"><div class="spinner"></div>Loading…</div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

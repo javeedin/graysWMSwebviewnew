@@ -737,6 +737,12 @@ body {
     background: var(--gray-50);
 }
 
+.btn-edit-trip:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(245, 158, 11, 0.4) !important;
+}
+
 .status-badge {
     padding: 0.3rem 0.75rem;
     border-radius: 50px;
@@ -1273,10 +1279,10 @@ input:checked + .toggle-slider:before {
         flex: 1 1 auto;
         min-width: 150px;
     }
-    
+
     #pdf-preview-modal > div {
         width: 95%;
         height: 95%;
     }
 }
-</style>
+

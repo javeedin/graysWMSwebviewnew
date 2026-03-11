@@ -22,18 +22,61 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <script src="config.js"></script>
 </head>
+<style>
+    /* ── WMS header override — match Inventory onhand style ── */
+    header.header {
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%) !important;
+        color: white !important;
+        padding: 0 24px !important;
+        gap: 0 !important;
+        box-shadow: 0 2px 12px rgba(99,102,241,0.35) !important;
+        justify-content: space-between !important;
+        height: 60px !important;
+    }
+    .wms-header-left { display: flex; align-items: center; gap: 14px; }
+    .wms-header-right { display: flex; align-items: center; gap: 16px; }
+    header.header .hamburger {
+        background: rgba(255,255,255,0.15) !important;
+        border: 1px solid rgba(255,255,255,0.3) !important;
+        color: white !important;
+        width: 34px; height: 34px; border-radius: 8px;
+        font-size: .9rem; padding: 0;
+        display: flex; align-items: center; justify-content: center;
+    }
+    header.header .hamburger:hover { background: rgba(255,255,255,0.28) !important; }
+    .wms-breadcrumb { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+    .wms-breadcrumb a { color: rgba(255,255,255,.75); text-decoration: none; transition: color .15s; }
+    .wms-breadcrumb a:hover { color: white; }
+    .wms-breadcrumb .sep { color: rgba(255,255,255,.45); font-size: .75rem; }
+    .wms-breadcrumb .current { font-weight: 600; color: white; }
+    .wms-user-info { display: flex; align-items: center; gap: 7px; font-size: .85rem; color: white; }
+    .wms-user-avatar {
+        width: 30px; height: 30px; background: rgba(255,255,255,.25);
+        border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px;
+    }
+    .wms-user-name { font-weight: 600; }
+    .wms-user-instance { font-size: .7rem; opacity: .8; }
+</style>
 <body>
     <header class="header">
-        <button class="hamburger" id="hamburger">
-            <i class="fas fa-bars"></i>
-        </button>
-        <div class="logo">
-            <i class="fas fa-warehouse"></i>
-            <span>WMS</span>
+        <div class="wms-header-left">
+            <button class="hamburger" id="hamburger" title="Toggle sidebar">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="wms-breadcrumb">
+                <a href="Home/index.html"><i class="fa-solid fa-house"></i></a>
+                <span class="sep"><i class="fa-solid fa-chevron-right"></i></span>
+                <span class="current">Warehouse Management</span>
+            </div>
         </div>
-        <div class="user-info">
-            <i class="fas fa-user-circle"></i>
-            <span>Admin</span>
+        <div class="wms-header-right">
+            <div class="wms-user-info">
+                <div class="wms-user-avatar">👤</div>
+                <div>
+                    <div class="wms-user-name" id="wmsDisplayUsername">User</div>
+                    <div class="wms-user-instance" id="wmsDisplayInstance"></div>
+                </div>
+            </div>
         </div>
     </header>
     
@@ -67,6 +110,10 @@
                 <i class="fas fa-print"></i>
                 <span>Printer Setup New</span>
             </div>
+            <div class="menu-item" data-page="api-log">
+                <i class="fas fa-code"></i>
+                <span>API Log</span>
+            </div>
         </aside>
         
         <main class="main-content" id="main-content">
@@ -94,14 +141,13 @@
                             <input type="date" id="trip-date-to" class="form-control">
                         </div>
                         <button id="fetch-trips-btn" class="btn" style="height: 34px;">
-                            <i class="fas fa-sync-alt" id="fetch-icon"></i> 
+                            <i class="fas fa-sync-alt" id="fetch-icon"></i>
                             <span id="fetch-text">Fetch Trips</span>
                         </button>
+                        <div id="summary-stats" class="summary-stats" style="display: none; width: 100%; margin-top: 1rem;"></div>
                     </div>
                 </div>
-                
-                <div id="summary-stats" class="summary-stats" style="display: none;"></div>
-                
+
                 <div class="grid-container">
                     <div class="grid-header" style="padding: 0;">
                         <div id="trip-tab-header" class="tab-header" style="width: 100%;">
@@ -606,6 +652,74 @@
                     </div>
                 </div>
             </div>
+
+            <!-- API LOG PAGE -->
+            <div id="api-log" class="page-content" style="display: none;">
+                <div style="margin-bottom: 1.5rem;">
+                    <h2 class="page-title" style="margin: 0 0 0.5rem 0;">API Log - Webservice Documentation</h2>
+                    <p style="color: #666; margin: 0;">Complete list of all API endpoints used across the application</p>
+                </div>
+
+                <!-- Summary Cards -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1.5rem;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(102,126,234,0.4);">
+                        <div style="font-size: 2rem; font-weight: 700;" id="api-total-count">0</div>
+                        <div style="font-size: 0.875rem; opacity: 0.9;">Total API Endpoints</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(17,153,142,0.4);">
+                        <div style="font-size: 2rem; font-weight: 700;" id="api-instance-yes">0</div>
+                        <div style="font-size: 0.875rem; opacity: 0.9;">Using Instance Name</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(235,51,73,0.4);">
+                        <div style="font-size: 2rem; font-weight: 700;" id="api-instance-no">0</div>
+                        <div style="font-size: 0.875rem; opacity: 0.9;">Missing Instance Name</div>
+                    </div>
+                    <div style="background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; padding: 1.5rem; border-radius: 12px; box-shadow: 0 4px 15px rgba(79,172,254,0.4);">
+                        <div style="font-size: 2rem; font-weight: 700;" id="api-local-count">0</div>
+                        <div style="font-size: 0.875rem; opacity: 0.9;">Local C# Actions</div>
+                    </div>
+                </div>
+
+                <!-- Filter Controls -->
+                <div style="display: flex; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap; align-items: center;">
+                    <div class="form-group" style="margin-bottom: 0; min-width: 200px;">
+                        <label for="api-page-filter">Filter by Page</label>
+                        <select id="api-page-filter" class="form-control" onchange="filterAPILog()">
+                            <option value="">All Pages</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0; min-width: 180px;">
+                        <label for="api-instance-filter">Instance Name Status</label>
+                        <select id="api-instance-filter" class="form-control" onchange="filterAPILog()">
+                            <option value="">All</option>
+                            <option value="yes">Using Instance Name</option>
+                            <option value="no">Missing Instance Name</option>
+                            <option value="local">Local Actions (N/A)</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0; min-width: 150px;">
+                        <label for="api-method-filter">Method</label>
+                        <select id="api-method-filter" class="form-control" onchange="filterAPILog()">
+                            <option value="">All Methods</option>
+                            <option value="GET">GET</option>
+                            <option value="POST">POST</option>
+                            <option value="LOCAL">LOCAL</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-secondary" style="margin-top: 1.2rem;" onclick="resetAPIFilters()">
+                        <i class="fas fa-times"></i> Clear Filters
+                    </button>
+                </div>
+
+                <!-- API Grid -->
+                <div class="grid-container">
+                    <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                        <div class="grid-title">API Endpoints</div>
+                        <div id="api-filtered-count" style="color: #666; font-size: 14px;">0 endpoints</div>
+                    </div>
+                    <div id="api-log-grid" style="height: 600px;"></div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -613,5 +727,16 @@
     <script src="printer-management.js"></script>
     <script src="printer-management-new.js"></script>
     <script src="monitor-printing.js"></script>
+    <script src="api-log.js"></script>
+    <script>
+        (function () {
+            var u = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
+            var i = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+            var el = document.getElementById('wmsDisplayUsername');
+            var ei = document.getElementById('wmsDisplayInstance');
+            if (el) el.textContent = u;
+            if (ei) ei.textContent = i;
+        })();
+    </script>
 </body>
 </html>
