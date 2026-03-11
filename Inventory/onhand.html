@@ -1194,7 +1194,7 @@
                     </div>
                     <div class="filter-group" style="min-width:220px;flex:1;">
                         <label>Items</label>
-                        <button onclick="openItemPickerModal()" style="display:flex;align-items:center;gap:7px;padding:7px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;cursor:pointer;color:#4f46e5;font-weight:600;transition:border-color .15s;" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='#e2e8f0'">
+                        <button onclick="openItemPickerModal(_onhandSelectedItems, function(s){_onhandSelectedItems=s;_onhandRenderChips();}, true)" style="display:flex;align-items:center;gap:7px;padding:7px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;cursor:pointer;color:#4f46e5;font-weight:600;transition:border-color .15s;" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='#e2e8f0'">
                             <i class="fa-solid fa-cubes"></i> Select Items…
                         </button>
                         <!-- Selected item chips -->
