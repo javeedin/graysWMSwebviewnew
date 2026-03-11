@@ -2246,7 +2246,7 @@
 
         function toggleOnhandApiUrl() {
             var bar = document.getElementById('onhand-api-url-bar');
-            bar.style.display = (bar.style.display === 'none') ? 'block' : 'none';
+            bar.style.display = getComputedStyle(bar).display === 'none' ? 'block' : 'none';
         }
 
         // ── Shared Item Picker Modal ──────────────────────────────
@@ -2613,7 +2613,6 @@
             _onhandOffset  = 0;
             _onhandHasMore = false;
             document.getElementById('onhand-next-bar').style.display = 'none';
-            document.getElementById('onhand-api-url-bar').style.display = 'block';
 
             if (_onhandSelectedItems.length > 0) {
                 // ── Multi-item mode: fetch all records for each item sequentially ──

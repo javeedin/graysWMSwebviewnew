@@ -1263,7 +1263,7 @@
 
         function toggleTxnApiBar() {
             var bar = document.getElementById('txn-api-bar');
-            bar.style.display = bar.style.display === 'none' ? 'block' : 'none';
+            bar.style.display = getComputedStyle(bar).display === 'none' ? 'block' : 'none';
         }
 
         // ── Core page fetch ───────────────────────────────────────
