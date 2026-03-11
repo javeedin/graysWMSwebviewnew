@@ -4689,7 +4689,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Add Actions column at the beginning
             columns.unshift({
                 caption: 'Actions',
-                width: 60,
+                width: 90,
                 alignment: 'center',
                 allowFiltering: false,
                 allowSorting: false,
@@ -4715,22 +4715,70 @@ document.addEventListener('DOMContentLoaded', function() {
                     const orderType = rowData.ORDER_TYPE || rowData.order_type || rowData.ORDER_TYPE_CODE || rowData.order_type_code || '';
                     const tripIdFromRow = rowData.TRIP_ID || rowData.trip_id || '';
                     const tripDateFromRow = rowData.TRIP_DATE || rowData.trip_date || '';
+                    const orderNumber = rowData.ORDER_NUMBER || rowData.order_number || '';
 
                     console.log('[Trip Details Grid] Final Print button data:', {
-                        orderNumber: rowData.ORDER_NUMBER || rowData.order_number,
+                        orderNumber: orderNumber,
                         instanceName: instanceName,
                         orderType: orderType,
                         tripId: tripIdFromRow,
                         tripDate: tripDateFromRow
                     });
 
-                    $(container).html(`
-                        <div style="display: flex; gap: 0.5rem; justify-content: center;">
-                            <button class="icon-btn" onclick="printStoreTransaction('${rowData.ORDER_NUMBER || rowData.order_number}', '${instanceName}', '${orderType}', '${tripIdFromRow}', '${tripDateFromRow}')" title="Print Store Transaction">
-                                <i class="fas fa-print" style="color: #8b5cf6;"></i>
-                            </button>
-                        </div>
-                    `);
+                    const $div = $('<div>').css({ display: 'flex', gap: '0.4rem', justifyContent: 'center' });
+
+                    // Remove button
+                    $('<button>')
+                        .addClass('icon-btn')
+                        .attr('title', 'Remove from Trip')
+                        .html('<i class="fas fa-trash-alt" style="color: #ef4444;"></i>')
+                        .on('click', function() {
+                            if (!orderNumber) {
+                                alert('Order number not found for this row.');
+                                return;
+                            }
+                            if (!confirm(`Remove order ${orderNumber} from this trip?\n\nThis action cannot be undone.`)) {
+                                return;
+                            }
+                            const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/deletetripline?P_ORDER_NUMBER=${encodeURIComponent(orderNumber)}&P_INSTANCE_NAME=${encodeURIComponent(instanceName)}`;
+                            sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(error, data) {
+                                if (error) {
+                                    alert('Failed to remove order: ' + error);
+                                    return;
+                                }
+                                try {
+                                    const result = typeof data === 'string' ? JSON.parse(data) : data;
+                                    if (result && result.status === 'error') {
+                                        alert('Error: ' + (result.message || 'Unknown error'));
+                                        return;
+                                    }
+                                } catch (e) { /* non-JSON treated as success */ }
+
+                                // Remove row from grid data and refresh
+                                tripData = tripData.filter(r => (r.ORDER_NUMBER || r.order_number || '') !== orderNumber);
+                                gridContainer.dxDataGrid('instance').option('dataSource', tripData);
+
+                                // Show success toast
+                                const toast = document.createElement('div');
+                                toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#10b981;color:white;padding:10px 18px;border-radius:8px;font-size:0.8rem;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+                                toast.textContent = `Order ${orderNumber} removed from trip successfully`;
+                                document.body.appendChild(toast);
+                                setTimeout(() => toast.remove(), 3500);
+                            });
+                        })
+                        .appendTo($div);
+
+                    // Print button
+                    $('<button>')
+                        .addClass('icon-btn')
+                        .attr('title', 'Print Store Transaction')
+                        .html('<i class="fas fa-print" style="color: #8b5cf6;"></i>')
+                        .on('click', function() {
+                            printStoreTransaction(orderNumber, instanceName, orderType, tripIdFromRow, tripDateFromRow);
+                        })
+                        .appendTo($div);
+
+                    $(container).append($div);
                 }
             });
 
