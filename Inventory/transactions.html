@@ -923,15 +923,12 @@
                 el.querySelector('div').style.background = '#fff';
                 el.querySelector('div').innerHTML = '';
             } else {
-                _txnPickerPending = [{ item_number: num, description: desc }]; // single-select
-                document.querySelectorAll('#txn-item-picker-list [data-num]').forEach(function (row) {
-                    var isSel = row.dataset.num === num;
-                    row.dataset.sel = isSel ? '1' : ''; row.style.background = isSel ? '#eef2ff' : '';
-                    var box = row.querySelector('div');
-                    box.style.border     = isSel ? '2px solid #4f46e5' : '2px solid #d1d5db';
-                    box.style.background = isSel ? '#4f46e5' : '#fff';
-                    box.innerHTML = isSel ? '<i class="fa-solid fa-check" style="color:#fff;font-size:.7rem;"></i>' : '';
-                });
+                _txnPickerPending.push({ item_number: num, description: desc });
+                el.dataset.sel = '1';
+                el.style.background = '#eef2ff';
+                el.querySelector('div').style.border     = '2px solid #4f46e5';
+                el.querySelector('div').style.background = '#4f46e5';
+                el.querySelector('div').innerHTML = '<i class="fa-solid fa-check" style="color:#fff;font-size:.7rem;"></i>';
             }
             _txnPickerUpdateCount();
         }
@@ -1278,7 +1275,6 @@
             var orgCode = orgSel.options[orgSel.selectedIndex] ? (orgSel.options[orgSel.selectedIndex].dataset.code || '') : '';
             var subinv  = (document.getElementById('txn-subinv').value || '').trim();
             var txnType = document.getElementById('txn-type').value;
-            var item    = _txnSelectedItems.length ? _txnSelectedItems[0].item_number : '';
             var dateFrom= document.getElementById('txn-date-from').value;
             var shipment = (document.getElementById('txn-shipment').value || '').trim();
             var ref      = (document.getElementById('txn-ref').value || '').trim();
@@ -1286,28 +1282,77 @@
 
             if (!orgCode) { alert('Please select an Organization.'); return; }
 
-            var qParts = ['Organization=' + encodeURIComponent(orgCode)];
-            if (subinv)   qParts.push('SubinventoryCode=' + encodeURIComponent(subinv));
-            if (item)     qParts.push('Item=' + encodeURIComponent(item));
-            if (txnType)  qParts.push('TransactionTypeId=' + encodeURIComponent(txnType));
-            if (dateFrom) qParts.push('TransactionDate>=' + dateFrom);
-            if (shipment) qParts.push('Shipment=' + encodeURIComponent(shipment));
-            if (ref)      qParts.push('Reference=' + encodeURIComponent(ref));
-            if (srcRef)   qParts.push('SourceReference=' + encodeURIComponent(srcRef));
-
-            _txnBaseUrl  = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';');
             _txnOffset   = 0;
             _txnPageNum  = 1;
             _txnCancelled = false;
             _txnAllRows  = [];
             _txnChartsBuilt = false;
-
-            document.getElementById('txn-api-url-txt').textContent = _txnBaseUrl + '&limit=' + _txnPageSize + '&offset=0';
             document.getElementById('txn-next-bar').style.display  = 'none';
             document.getElementById('txn-analytics-filter-bar').style.display = 'none';
 
-            _setTxnLoading(true);
-            _txnDoFetch();
+            // Build base query parts (no item)
+            var baseQParts = ['Organization=' + encodeURIComponent(orgCode)];
+            if (subinv)   baseQParts.push('SubinventoryCode=' + encodeURIComponent(subinv));
+            if (txnType)  baseQParts.push('TransactionTypeId=' + encodeURIComponent(txnType));
+            if (dateFrom) baseQParts.push('TransactionDate>=' + dateFrom);
+            if (shipment) baseQParts.push('Shipment=' + encodeURIComponent(shipment));
+            if (ref)      baseQParts.push('Reference=' + encodeURIComponent(ref));
+            if (srcRef)   baseQParts.push('SourceReference=' + encodeURIComponent(srcRef));
+
+            if (_txnSelectedItems.length > 1) {
+                // ── Multi-item: fetch each item's transactions sequentially ──
+                var itemNumbers = _txnSelectedItems.map(function (s) { return s.item_number; });
+                var totalItems  = itemNumbers.length;
+                var doneItems   = 0;
+                _setTxnLoading(true);
+                document.getElementById('txn-count').textContent = 'Fetching item 1 of ' + totalItems + '…';
+
+                function fetchItemAllPages(itemNumber, offset, onDone) {
+                    if (_txnCancelled) { onDone(); return; }
+                    var q   = baseQParts.concat(['Item=' + encodeURIComponent(itemNumber)]).join(';');
+                    var url = FUSION_BASE + '/inventoryCompletedTransactions?q=' + q +
+                              '&limit=' + _txnPageSize + '&offset=' + offset;
+                    document.getElementById('txn-api-url-txt').textContent = url;
+                    _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                        if (_txnCancelled) { onDone(); return; }
+                        if (err) { onDone(); return; }
+                        var payload = typeof data === 'string' ? JSON.parse(data) : data;
+                        var page    = (payload && payload.items) ? payload.items : [];
+                        _txnAllRows = _txnAllRows.concat(page);
+                        if (payload && payload.hasMore && page.length) {
+                            fetchItemAllPages(itemNumber, offset + _txnPageSize, onDone);
+                        } else {
+                            onDone();
+                        }
+                    });
+                }
+
+                function fetchNextItem(idx) {
+                    if (_txnCancelled || idx >= itemNumbers.length) {
+                        _setTxnLoading(false);
+                        _txnFinalizePage(false);
+                        return;
+                    }
+                    document.getElementById('txn-count').textContent =
+                        'Fetching item ' + (idx + 1) + ' of ' + totalItems + '…';
+                    fetchItemAllPages(itemNumbers[idx], 0, function () {
+                        fetchNextItem(idx + 1);
+                    });
+                }
+
+                fetchNextItem(0);
+
+            } else {
+                // ── Single item or no item: use existing paged fetch ──
+                var qParts = baseQParts.slice();
+                var singleItem = _txnSelectedItems.length ? _txnSelectedItems[0].item_number : '';
+                if (singleItem) qParts.push('Item=' + encodeURIComponent(singleItem));
+
+                _txnBaseUrl = FUSION_BASE + '/inventoryCompletedTransactions?q=' + qParts.join(';');
+                document.getElementById('txn-api-url-txt').textContent = _txnBaseUrl + '&limit=' + _txnPageSize + '&offset=0';
+                _setTxnLoading(true);
+                _txnDoFetch();
+            }
         }
 
         function _txnLoadNext() {
@@ -1825,7 +1870,7 @@
             <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #e2e8f0;background:#f8f9ff;">
                 <div style="display:flex;align-items:center;gap:10px;">
                     <i class="fa-solid fa-cubes" style="color:#4f46e5;font-size:1.1rem;"></i>
-                    <strong style="font-size:1rem;color:#1e1b4b;">Select Item</strong>
+                    <strong style="font-size:1rem;color:#1e1b4b;">Select Items</strong>
                     <span id="txn-item-picker-sel-count" style="background:#eef2ff;color:#4f46e5;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:20px;display:none;"></span>
                 </div>
                 <button onclick="closeTxnItemPickerModal()" style="background:none;border:none;cursor:pointer;font-size:1.1rem;color:#718096;padding:4px 8px;border-radius:6px;" title="Close"><i class="fa-solid fa-xmark"></i></button>
@@ -1857,7 +1902,7 @@
                 <div style="display:flex;gap:8px;">
                     <button onclick="closeTxnItemPickerModal()" style="padding:8px 18px;background:#fff;border:1px solid #e2e8f0;border-radius:7px;font-size:.85rem;cursor:pointer;color:#4a5568;">Cancel</button>
                     <button onclick="_txnItemPickerConfirm()" style="padding:8px 20px;background:#4f46e5;color:#fff;border:none;border-radius:7px;font-size:.85rem;cursor:pointer;font-weight:600;">
-                        <i class="fa-solid fa-check"></i> Select
+                        <i class="fa-solid fa-check"></i> Add Selected
                     </button>
                 </div>
             </div>
