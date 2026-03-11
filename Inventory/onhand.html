@@ -1369,7 +1369,7 @@
                     </div>
                     <div class="filter-group">
                         <label>Item</label>
-                        <button onclick="openItemPickerModal(_ilotSelectedItems, function(s){_ilotSelectedItems=s;_ilotRenderChips();}, false)" style="display:flex;align-items:center;gap:7px;padding:7px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;cursor:pointer;color:#4f46e5;font-weight:600;" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='#e2e8f0'">
+                        <button onclick="openItemPickerModal(_ilotSelectedItems, function(s){_ilotSelectedItems=s;_ilotRenderChips();}, true)" style="display:flex;align-items:center;gap:7px;padding:7px 14px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;font-size:.85rem;cursor:pointer;color:#4f46e5;font-weight:600;" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='#e2e8f0'">
                             <i class="fa-solid fa-cubes"></i> Select Item…
                         </button>
                         <div id="ilot-item-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;"></div>
@@ -3749,14 +3749,9 @@
         function queryItemLots() {
             var sel = document.getElementById('ilot-org');
             var orgCode = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].dataset.code || sel.value : '';
-            var item = _ilotSelectedItems.length ? _ilotSelectedItems[0].item_number : '';
             var lot  = (document.getElementById('ilot-lot').value || '').trim();
 
             if (!orgCode) { alert('Please select an Organization.'); return; }
-
-            _ilotCurrentQ  = 'OrganizationCode=' + encodeURIComponent(orgCode);
-            if (item) _ilotCurrentQ += ';ItemNumber=' + encodeURIComponent(item);
-            if (lot)  _ilotCurrentQ += ';LotNumber='  + encodeURIComponent(lot);
 
             _ilotExpFrom   = document.getElementById('ilot-exp-from').value;
             _ilotExpTo     = document.getElementById('ilot-exp-to').value;
@@ -3777,8 +3772,59 @@
             document.querySelectorAll('.ilot-preset').forEach(function(b){ b.classList.remove('ilot-preset-active'); });
             document.querySelector('.ilot-preset[data-preset="all"]').classList.add('ilot-preset-active');
 
-            _ilotSetLoading(true);
-            _ilotDoFetch();
+            var baseQ = 'OrganizationCode=' + encodeURIComponent(orgCode);
+            if (lot) baseQ += ';LotNumber=' + encodeURIComponent(lot);
+
+            if (_ilotSelectedItems.length > 1) {
+                // ── Multi-item: fetch each item's lots sequentially ───
+                var itemNumbers = _ilotSelectedItems.map(function (s) { return s.item_number; });
+                var totalItems  = itemNumbers.length;
+                _ilotSetLoading(true);
+                document.getElementById('ilot-count').textContent = 'Fetching item 1 of ' + totalItems + '…';
+
+                function fetchItemAllPages(itemNumber, offset, onDone) {
+                    if (_ilotCancelled) { onDone(); return; }
+                    var url = FUSION_BASE + '/inventoryItemLots?q=' + baseQ +
+                              ';ItemNumber=' + encodeURIComponent(itemNumber) +
+                              '&limit=' + _ilotPageSize + '&offset=' + offset;
+                    _invSendToCS({ action: 'executeOracleFusionGet', fullUrl: url }, function (err, data) {
+                        if (_ilotCancelled) { onDone(); return; }
+                        if (err) { onDone(); return; }
+                        var payload = typeof data === 'string' ? JSON.parse(data) : data;
+                        var page    = (payload && payload.items) ? payload.items : [];
+                        _ilotAllRows = _ilotAllRows.concat(page);
+                        if (payload && payload.hasMore && page.length) {
+                            fetchItemAllPages(itemNumber, offset + _ilotPageSize, onDone);
+                        } else {
+                            onDone();
+                        }
+                    });
+                }
+
+                function fetchNextItem(idx) {
+                    if (_ilotCancelled || idx >= itemNumbers.length) {
+                        _ilotSetLoading(false);
+                        _ilotFinalizePage(false);
+                        return;
+                    }
+                    document.getElementById('ilot-count').textContent =
+                        'Fetching item ' + (idx + 1) + ' of ' + totalItems + '…';
+                    fetchItemAllPages(itemNumbers[idx], 0, function () {
+                        fetchNextItem(idx + 1);
+                    });
+                }
+
+                fetchNextItem(0);
+
+            } else {
+                // ── Single item or no item: use existing paged fetch ──
+                _ilotCurrentQ = baseQ;
+                if (_ilotSelectedItems.length === 1) {
+                    _ilotCurrentQ += ';ItemNumber=' + encodeURIComponent(_ilotSelectedItems[0].item_number);
+                }
+                _ilotSetLoading(true);
+                _ilotDoFetch();
+            }
         }
 
         // ── Public: load next 500 ─────────────────────────────────
