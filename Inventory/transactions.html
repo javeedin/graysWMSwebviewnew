@@ -829,14 +829,17 @@
         // ════════════════════════════════════════════════════════════
         // ITEM PICKER MODAL
         // ════════════════════════════════════════════════════════════
-        var _txnSelectedItems     = [];
-        var _txnPickerPending     = [];
-        var _txnPickerSearchTimer = null;
+        var _txnSelectedItems        = [];
+        var _txnPickerPending        = [];
+        var _txnPickerCurrentResults = [];
+        var _txnPickerSearchTimer    = null;
         var TXN_ITEM_SEARCH_URL   = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/queryfusionitems';
 
         function openTxnItemPickerModal() {
-            _txnPickerPending = _txnSelectedItems.map(function (x) { return Object.assign({}, x); });
+            _txnPickerPending        = _txnSelectedItems.map(function (x) { return Object.assign({}, x); });
+            _txnPickerCurrentResults = [];
             document.getElementById('txn-item-picker-inp').value = '';
+            document.getElementById('txn-item-picker-selall-bar').style.display = 'none';
             _txnPickerRenderList([]);
             _txnPickerUpdateCount();
             document.getElementById('txn-item-picker-footer-txt').textContent = '';
@@ -884,11 +887,16 @@
         }
 
         function _txnPickerRenderList(items) {
+            _txnPickerCurrentResults = items;
+            var bar  = document.getElementById('txn-item-picker-selall-bar');
             var list = document.getElementById('txn-item-picker-list');
             if (!items.length) {
+                bar.style.display = 'none';
                 list.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:180px;color:#a0aec0;font-size:.9rem;"><div style="text-align:center;"><i class="fa-solid fa-magnifying-glass" style="font-size:2rem;margin-bottom:10px;display:block;"></i>Type to search items</div></div>';
                 return;
             }
+            bar.style.display = 'flex';
+            _txnPickerUpdateSelAllBtn();
             list.innerHTML = items.map(function (it) {
                 var num   = it.item_number  || '';
                 var desc  = it.description  || '';
@@ -931,6 +939,48 @@
                 el.querySelector('div').innerHTML = '<i class="fa-solid fa-check" style="color:#fff;font-size:.7rem;"></i>';
             }
             _txnPickerUpdateCount();
+            if (_txnPickerCurrentResults.length) _txnPickerUpdateSelAllBtn();
+        }
+
+        function _txnPickerUpdateSelAllBtn() {
+            var btn     = document.getElementById('txn-item-picker-selall-btn');
+            var countEl = document.getElementById('txn-item-picker-result-count');
+            var n = _txnPickerCurrentResults.length;
+            countEl.textContent = n + ' result' + (n !== 1 ? 's' : '');
+            var allSel = _txnPickerCurrentResults.every(function (it) {
+                return _txnPickerPending.some(function (s) { return s.item_number === it.item_number; });
+            });
+            btn.innerHTML     = allSel ? '<i class="fa-solid fa-xmark"></i> Deselect All' : '<i class="fa-solid fa-check-double"></i> Select All';
+            btn.style.background  = allSel ? '#fee2e2' : '#eef2ff';
+            btn.style.color       = allSel ? '#dc2626' : '#4f46e5';
+            btn.style.borderColor = allSel ? '#fecaca' : '#c7d2fe';
+        }
+
+        function _txnPickerToggleAll() {
+            var allSel = _txnPickerCurrentResults.every(function (it) {
+                return _txnPickerPending.some(function (s) { return s.item_number === it.item_number; });
+            });
+            if (allSel) {
+                var nums = _txnPickerCurrentResults.map(function (it) { return it.item_number; });
+                _txnPickerPending = _txnPickerPending.filter(function (s) { return nums.indexOf(s.item_number) === -1; });
+            } else {
+                _txnPickerCurrentResults.forEach(function (it) {
+                    if (!_txnPickerPending.some(function (s) { return s.item_number === it.item_number; })) {
+                        _txnPickerPending.push({ item_number: it.item_number, description: it.description || '' });
+                    }
+                });
+            }
+            _txnPickerUpdateCount();
+            _txnPickerUpdateSelAllBtn();
+            document.querySelectorAll('#txn-item-picker-list [data-num]').forEach(function (row) {
+                var isSel = _txnPickerPending.some(function (s) { return s.item_number === row.dataset.num; });
+                row.dataset.sel = isSel ? '1' : '';
+                row.style.background = isSel ? '#eef2ff' : '';
+                var box = row.querySelector('div');
+                box.style.border     = isSel ? '2px solid #4f46e5' : '2px solid #d1d5db';
+                box.style.background = isSel ? '#4f46e5' : '#fff';
+                box.innerHTML = isSel ? '<i class="fa-solid fa-check" style="color:#fff;font-size:.7rem;"></i>' : '';
+            });
         }
 
         function _txnPickerUpdateCount() {
@@ -949,15 +999,28 @@
         function _txnRenderItemChips() {
             var wrap = document.getElementById('txn-item-chips');
             if (!wrap) return;
-            wrap.innerHTML = _txnSelectedItems.map(function (it, i) {
-                return '<span style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;">' +
-                    it.item_number +
-                    '<button onclick="_txnRemoveItemChip(' + i + ')" style="background:none;border:none;cursor:pointer;color:#6366f1;padding:0;line-height:1;font-size:.75rem;" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
-                '</span>';
-            }).join('');
+            var items = _txnSelectedItems;
+            if (!items.length) { wrap.innerHTML = ''; return; }
+            var MAX_CHIPS = 3;
+            if (items.length <= MAX_CHIPS) {
+                wrap.innerHTML = items.map(function (it, i) {
+                    return '<span style="display:inline-flex;align-items:center;gap:5px;background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;border-radius:20px;padding:3px 10px;font-size:.75rem;font-weight:600;">' +
+                        it.item_number +
+                        '<button onclick="_txnRemoveItemChip(' + i + ')" style="background:none;border:none;cursor:pointer;color:#6366f1;padding:0;line-height:1;font-size:.75rem;" title="Remove"><i class="fa-solid fa-xmark"></i></button>' +
+                    '</span>';
+                }).join('');
+            } else {
+                wrap.innerHTML =
+                    '<span style="display:inline-flex;align-items:center;gap:7px;background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;border-radius:20px;padding:4px 12px;font-size:.78rem;font-weight:600;">' +
+                        '<i class="fa-solid fa-cubes"></i>' +
+                        items.length + ' items selected' +
+                        '<button onclick="_txnRemoveAllItemChips()" style="background:none;border:none;cursor:pointer;color:#6366f1;padding:0;line-height:1;font-size:.75rem;margin-left:2px;" title="Clear all"><i class="fa-solid fa-xmark"></i></button>' +
+                    '</span>';
+            }
         }
 
         function _txnRemoveItemChip(i) { _txnSelectedItems.splice(i,1); _txnRenderItemChips(); }
+        function _txnRemoveAllItemChips() { _txnSelectedItems = []; _txnRenderItemChips(); }
 
         // ════════════════════════════════════════════════════════════
         // PANEL NAVIGATION
@@ -1888,6 +1951,13 @@
                 </div>
                 <button onclick="_txnItemPickerDoSearch()" style="padding:8px 16px;background:#4f46e5;color:#fff;border:none;border-radius:7px;font-size:.85rem;cursor:pointer;font-weight:600;white-space:nowrap;">
                     <i class="fa-solid fa-magnifying-glass"></i> Search
+                </button>
+            </div>
+            <!-- Select All bar -->
+            <div id="txn-item-picker-selall-bar" style="display:none;padding:7px 18px;border-bottom:1px solid #f0f0f0;background:#fafafa;align-items:center;justify-content:space-between;">
+                <span id="txn-item-picker-result-count" style="font-size:.78rem;color:#718096;"></span>
+                <button onclick="_txnPickerToggleAll()" id="txn-item-picker-selall-btn" style="padding:4px 14px;background:#eef2ff;color:#4f46e5;border:1px solid #c7d2fe;border-radius:20px;font-size:.78rem;font-weight:700;cursor:pointer;">
+                    <i class="fa-solid fa-check-double"></i> Select All
                 </button>
             </div>
             <!-- Results -->
