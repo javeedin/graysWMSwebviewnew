@@ -684,11 +684,6 @@ window.createNewTrip = async function() {
         return;
     }
 
-    if (!picker) {
-        alert('Please select a picker');
-        return;
-    }
-
     if (!priority) {
         alert('Please select a priority');
         return;
