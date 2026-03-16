@@ -1272,10 +1272,6 @@ document.querySelectorAll('.menu-item').forEach(item => {
         // Removed old auto-load for monitor-printing
         // User must now click "Load Trips" button manually
 
-        // Init RAG page when navigated to
-        if (page === 'rag-knowledge-base' && typeof window.initRagPage === 'function') {
-            setTimeout(window.initRagPage, 100);
-        }
     });
 });
 
@@ -2006,9 +2002,6 @@ document.addEventListener('DOMContentLoaded', function() {
     const initialHash = window.location.hash.replace('#', '');
     if (initialHash) {
         navigateToPage(initialHash, false);
-        if (initialHash === 'rag-knowledge-base' && typeof window.initRagPage === 'function') {
-            setTimeout(window.initRagPage, 200);
-        }
     } else {
         // Set initial history state for default page
         const defaultPage = document.querySelector('.menu-item.active');
