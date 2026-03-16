@@ -6,7 +6,7 @@ REM  End users do NOT need Python installed.
 REM ============================================================
 
 echo [RAG Build] Installing dependencies...
-pip install -r requirements.txt
+pip install --prefer-binary -r requirements.txt
 pip install pyinstaller
 
 echo [RAG Build] Building standalone exe...

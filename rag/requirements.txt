@@ -1,10 +1,17 @@
+# Core API server
 fastapi==0.115.6
-uvicorn==0.32.1
-chromadb==0.5.23
-langchain==0.3.12
-langchain-community==0.3.12
-langchain-anthropic==0.3.3
+uvicorn[standard]==0.32.1
+
+# Vector DB — use pre-built wheel to avoid C++ compiler requirement
+chromadb==0.5.3
+
+# Embeddings (downloads ~80MB model on first run, then fully offline)
 sentence-transformers==3.3.1
+
+# Claude AI
+anthropic==0.40.0
+
+# HTTP + utilities
 requests==2.32.3
 python-dotenv==1.0.1
 pydantic==2.10.4
