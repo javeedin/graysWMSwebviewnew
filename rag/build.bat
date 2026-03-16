@@ -5,9 +5,9 @@ REM  Produces a single self-contained rag_service.exe
 REM  End users do NOT need Python installed.
 REM ============================================================
 
-echo [RAG Build] Installing dependencies...
-pip install --prefer-binary -r requirements.txt
-pip install pyinstaller
+echo [RAG Build] Installing dependencies (using Python 3.11)...
+py -3.11 -m pip install --prefer-binary -r requirements.txt
+py -3.11 -m pip install pyinstaller
 
 echo [RAG Build] Building standalone exe...
 pyinstaller --onefile ^

@@ -1,12 +1,17 @@
-# Core API server
-fastapi==0.115.6
-uvicorn[standard]==0.32.1
+# ⚠️  REQUIRES Python 3.11 or 3.12
+# Python 3.14 (cp314) has no pre-built wheels for pydantic-core yet.
+# Install with:  py -3.11 -m pip install --prefer-binary -r requirements.txt
+# Run with:      py -3.11 rag_service.py
 
-# Vector DB — use pre-built wheel to avoid C++ compiler requirement
+# Core API server
+fastapi==0.111.0
+uvicorn[standard]==0.30.6
+
+# Vector DB
 chromadb==0.5.3
 
 # Embeddings (downloads ~80MB model on first run, then fully offline)
-sentence-transformers==3.3.1
+sentence-transformers==3.0.1
 
 # Claude AI
 anthropic==0.40.0
@@ -14,4 +19,3 @@ anthropic==0.40.0
 # HTTP + utilities
 requests==2.32.3
 python-dotenv==1.0.1
-pydantic==2.10.4
