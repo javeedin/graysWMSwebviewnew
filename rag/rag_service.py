@@ -12,7 +12,9 @@ Run:  python rag_service.py
 """
 
 import os
+import sys
 import json
+import logging
 import threading
 import requests
 import numpy as np
@@ -21,6 +23,32 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from fastembed import TextEmbedding
 import anthropic
+
+# ─────────────────────────────────────────────
+#  Logging — console + file (C:\fusion\rag_service.log)
+# ─────────────────────────────────────────────
+LOG_DIR  = r"C:\fusion"
+LOG_FILE = os.path.join(LOG_DIR, "rag_service.log")
+
+os.makedirs(LOG_DIR, exist_ok=True)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout),                       # console window
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),         # C:\fusion\rag_service.log
+    ],
+)
+log = logging.getLogger("rag")
+
+
+def banner(msg):
+    """Print a highlighted section header."""
+    log.info("=" * 55)
+    log.info(f"  {msg}")
+    log.info("=" * 55)
 
 # ─────────────────────────────────────────────
 #  Configuration
@@ -135,7 +163,14 @@ _store    = None
 def get_embedder():
     global _embedder
     if _embedder is None:
-        _embedder = TextEmbedding(EMBED_MODEL)
+        log.info(f"Loading embedding model: {EMBED_MODEL}")
+        log.info("(First run downloads ~130 MB — please wait...)")
+        try:
+            _embedder = TextEmbedding(EMBED_MODEL)
+            log.info("Embedding model loaded OK")
+        except Exception as e:
+            log.error(f"FAILED to load embedding model: {e}")
+            raise
     return _embedder
 
 
@@ -144,6 +179,7 @@ def get_store():
     if _store is None:
         os.makedirs(STORE_DIR, exist_ok=True)
         _store = SimpleVectorStore(STORE_DIR)
+        log.info(f"Vector store ready — {_store.count()} documents  ({STORE_DIR})")
     return _store
 
 
@@ -165,8 +201,15 @@ def fetch_trips_for_date(date, instance="PROD"):
             return data
         if isinstance(data, dict):
             return data.get("items", data.get("data", []))
+    except requests.exceptions.ConnectionError as e:
+        msg = f"{ds}: Cannot reach APEX — check internet connection. {e}"
+        log.error(msg); sync_state["errors"].append(msg)
+    except requests.exceptions.Timeout:
+        msg = f"{ds}: APEX request timed out (60s)"
+        log.error(msg); sync_state["errors"].append(msg)
     except Exception as e:
-        sync_state["errors"].append(f"{ds}: {str(e)}")
+        msg = f"{ds}: {str(e)}"
+        log.error(msg); sync_state["errors"].append(msg)
     return []
 
 
@@ -214,16 +257,19 @@ def embed_texts(texts):
 
 
 def do_sync(date_from, date_to, instance):
+    total_days = (date_to - date_from).days + 1
     sync_state.update({
         "running": True, "finished": False, "errors": [],
         "total_docs": 0, "done_days": 0,
         "started_at": datetime.now().isoformat(),
-        "total_days": (date_to - date_from).days + 1,
+        "total_days": total_days,
     })
+    log.info(f"Sync started — {date_to_apex(date_from)} → {date_to_apex(date_to)} ({total_days} days, instance={instance})")
     store   = get_store()
     current = date_from
     while current <= date_to and sync_state["running"]:
-        sync_state["current_date"] = date_to_apex(current)
+        ds = date_to_apex(current)
+        sync_state["current_date"] = ds
         rows = fetch_trips_for_date(current, instance)
         if rows:
             docs, ids, metas = [], [], []
@@ -233,8 +279,19 @@ def do_sync(date_from, date_to, instance):
             store.upsert(ids=ids, documents=docs,
                          embeddings=embed_texts(docs), metadatas=metas)
             sync_state["total_docs"] += len(docs)
+            log.info(f"  {ds} — {len(docs)} records synced (total so far: {sync_state['total_docs']})")
+        else:
+            log.info(f"  {ds} — no records")
         sync_state["done_days"] += 1
         current += timedelta(days=1)
+
+    if sync_state["errors"]:
+        log.warning(f"Sync finished with {len(sync_state['errors'])} error(s):")
+        for err in sync_state["errors"]:
+            log.warning(f"  {err}")
+    else:
+        log.info(f"Sync complete — {sync_state['total_docs']} total documents in vector store")
+
     sync_state["running"]  = False
     sync_state["finished"] = True
 
@@ -308,6 +365,7 @@ def query():
     if not question:
         return jsonify({"success": False, "answer": "No question provided.", "sources": []})
 
+    log.info(f"Query: {question[:80]}")
     try:
         store = get_store()
         if store.count() == 0:
@@ -355,7 +413,11 @@ def query():
 
         return jsonify({"success": True, "answer": answer, "sources": sources})
 
+        log.info(f"Query answered — {len(sources)} source(s) returned")
+        return jsonify({"success": True, "answer": answer, "sources": sources})
+
     except Exception as e:
+        log.error(f"Query error: {e}")
         return jsonify({"success": False, "answer": f"Error: {str(e)}", "sources": []})
 
 
@@ -363,5 +425,23 @@ def query():
 #  Entry point
 # ─────────────────────────────────────────────
 if __name__ == "__main__":
-    print("WMS RAG Service starting on http://127.0.0.1:8765")
+    banner("Gray's WMS RAG Service")
+    log.info(f"Log file   : {LOG_FILE}")
+    log.info(f"Vector DB  : {STORE_DIR}")
+    log.info(f"Embed model: {EMBED_MODEL}")
+    log.info(f"Port       : 8765")
+    log.info("")
+    log.info("Pre-loading embedding model...")
+    try:
+        get_embedder()
+        get_store()
+    except Exception as e:
+        log.error(f"STARTUP FAILED: {e}")
+        log.error("Check log file for details, then press Enter to exit.")
+        input()
+        sys.exit(1)
+
+    banner("Service ready — http://127.0.0.1:8765")
+    log.info("Press Ctrl+C to stop.")
+    log.info("")
     app.run(host="127.0.0.1", port=8765, debug=False, threaded=True)
