@@ -1,0 +1,10 @@
+fastapi==0.115.6
+uvicorn==0.32.1
+chromadb==0.5.23
+langchain==0.3.12
+langchain-community==0.3.12
+langchain-anthropic==0.3.3
+sentence-transformers==3.3.1
+requests==2.32.3
+python-dotenv==1.0.1
+pydantic==2.10.4

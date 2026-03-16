@@ -5091,3 +5091,37 @@ input:checked + .toggle-slider:before {
 .header button[onclick="handleLogout()"]:hover {
     background: rgba(200,35,51,0.9) !important;
 }
+
+/* ── RAG Knowledge Base ── */
+.rag-range-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    border: 1px solid #e2e8f0;
+    border-radius: 999px;
+    background: white;
+    color: #475569;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+}
+.rag-range-btn:hover {
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+}
+.rag-chip-btn {
+    padding: 5px 12px;
+    font-size: 12px;
+    border: 1px solid #e0e7ff;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #4338ca;
+    cursor: pointer;
+    font-weight: 500;
+    transition: background 0.15s, color 0.15s;
+}
+.rag-chip-btn:hover {
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+}
