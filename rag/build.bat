@@ -1,9 +1,12 @@
 @echo off
 REM ============================================================
 REM  Gray's WMS RAG Service - Build Script
-REM  Works with Python 3.14+ (Flask, no Rust required)
-REM  Produces a single self-contained rag_service.exe
+REM  Python 3.14+ compatible — no C++ / Rust compilation
 REM ============================================================
+
+echo [RAG Build] Fixing pip if needed...
+python -m ensurepip --upgrade
+python -m pip install --upgrade pip setuptools wheel
 
 echo [RAG Build] Installing dependencies...
 pip install --prefer-binary -r requirements.txt
@@ -14,8 +17,8 @@ pyinstaller --onefile ^
   --name rag_service ^
   --hidden-import=flask ^
   --hidden-import=flask_cors ^
-  --hidden-import=chromadb ^
-  --hidden-import=sentence_transformers ^
+  --hidden-import=fastembed ^
+  --hidden-import=numpy ^
   --hidden-import=anthropic ^
   rag_service.py
 

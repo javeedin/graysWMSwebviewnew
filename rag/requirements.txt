@@ -1,19 +1,18 @@
-# Works on Python 3.14+ (no Rust / C++ compilation required)
-# Install: pip install --prefer-binary -r requirements.txt
-# Run:     python rag_service.py
+# ─────────────────────────────────────────────────────────────
+#  Gray's WMS RAG Service — Python 3.14+ compatible
+#  Zero C++ / Rust compilation required — all binary wheels
+# ─────────────────────────────────────────────────────────────
 
-# Web server — pure Python, no Rust
+# Web server (pure Python)
 flask==3.1.0
 flask-cors==5.0.0
 
-# Vector DB
-chromadb==0.5.3
+# ONNX-based embeddings — no torch, no Rust (replaces sentence-transformers)
+fastembed>=0.3.0
 
-# Embeddings (downloads ~80MB model on first run, then fully offline)
-sentence-transformers==3.0.1
+# Numerics — cp314 binary wheels available via PyPI
+numpy>=2.0.0
 
-# Claude AI
-anthropic==0.40.0
-
-# HTTP
+# HTTP + Claude AI (pure Python)
 requests==2.32.3
+anthropic==0.40.0
