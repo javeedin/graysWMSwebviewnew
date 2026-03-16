@@ -1,11 +1,10 @@
-# ⚠️  REQUIRES Python 3.11 or 3.12
-# Python 3.14 (cp314) has no pre-built wheels for pydantic-core yet.
-# Install with:  py -3.11 -m pip install --prefer-binary -r requirements.txt
-# Run with:      py -3.11 rag_service.py
+# Works on Python 3.14+ (no Rust / C++ compilation required)
+# Install: pip install --prefer-binary -r requirements.txt
+# Run:     python rag_service.py
 
-# Core API server
-fastapi==0.111.0
-uvicorn[standard]==0.30.6
+# Web server — pure Python, no Rust
+flask==3.1.0
+flask-cors==5.0.0
 
 # Vector DB
 chromadb==0.5.3
@@ -16,6 +15,5 @@ sentence-transformers==3.0.1
 # Claude AI
 anthropic==0.40.0
 
-# HTTP + utilities
+# HTTP
 requests==2.32.3
-python-dotenv==1.0.1
