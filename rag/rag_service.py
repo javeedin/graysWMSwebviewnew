@@ -59,6 +59,7 @@ def banner(msg):
 # ─────────────────────────────────────────────
 APEX_BASE       = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP"
 TRIPS_ENDPOINT  = f"{APEX_BASE}/WAREHOUSEMANAGEMENT/GETTRIPDETAILS"
+DETAIL_ENDPOINT = f"{APEX_BASE}/WAREHOUSEMANAGEMENT/GETTRIPDETAILS"  # + /{trip_id}
 STORE_DIR       = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vector_db")
 EMBED_MODEL     = "BAAI/bge-small-en-v1.5"   # ~130 MB ONNX model, fully offline
 
@@ -276,37 +277,86 @@ def build_document(row):
     return doc_id, text, metadata
 
 
+def fetch_trip_detail(trip_id, instance="PROD"):
+    """Fetch per-order-line detail for one trip via GETTRIPDETAILS/{tripId}."""
+    url    = f"{DETAIL_ENDPOINT}/{trip_id}"
+    params = {"P_INSTANCE_NAME": instance}
+    try:
+        resp = requests.get(url, params=params, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            return data.get("items", data.get("data", []))
+    except Exception as e:
+        log.warning(f"Trip detail fetch failed for {trip_id}: {e}")
+        sync_state["errors"].append(f"Detail fetch failed — Trip {trip_id}: {e}")
+    return []
+
+
 def embed_texts(texts):
     """Returns list of lists (fastembed yields numpy arrays)."""
     return [emb.tolist() for emb in get_embedder().embed(texts)]
 
 
-def do_sync(date_from, date_to, instance):
+def do_sync(date_from, date_to, instance, include_details=False):
     total_days = (date_to - date_from).days + 1
     sync_state.update({
         "running": True, "finished": False, "errors": [],
         "total_docs": 0, "done_days": 0,
         "started_at": datetime.now().isoformat(),
         "total_days": total_days,
+        "include_details": include_details,
     })
-    log.info(f"Sync started — {date_to_apex(date_from)} → {date_to_apex(date_to)} ({total_days} days, instance={instance})")
+    log.info(f"Sync started — {date_to_apex(date_from)} → {date_to_apex(date_to)} "
+             f"({total_days} days, instance={instance}, details={include_details})")
     store   = get_store()
     current = date_from
     while current <= date_to and sync_state["running"]:
         ds = date_to_apex(current)
         sync_state["current_date"] = ds
-        rows = fetch_trips_for_date(current, instance)
-        if rows:
-            docs, ids, metas = [], [], []
-            for row in rows:
-                doc_id, text, meta = build_document(row)
+        header_rows = fetch_trips_for_date(current, instance)
+
+        if not header_rows:
+            log.info(f"  {ds} — no records")
+            sync_state["done_days"] += 1
+            current += timedelta(days=1)
+            continue
+
+        if include_details:
+            # Collect unique trip IDs then fetch their order-line details
+            seen_trips = dict.fromkeys(
+                str(r.get("TRIP_ID") or r.get("trip_id") or "").strip()
+                for r in header_rows
+            )
+            seen_trips.pop("", None)
+            rows_to_index = []
+            for trip_id in seen_trips:
+                detail = fetch_trip_detail(trip_id, instance)
+                if detail:
+                    rows_to_index.extend(detail)
+                else:
+                    # fall back: use header rows for this trip
+                    rows_to_index.extend(
+                        r for r in header_rows
+                        if str(r.get("TRIP_ID") or r.get("trip_id") or "").strip() == trip_id
+                    )
+        else:
+            rows_to_index = header_rows
+
+        docs, ids, metas = [], [], []
+        for row in rows_to_index:
+            doc_id, text, meta = build_document(row)
+            if doc_id:
                 docs.append(text); ids.append(doc_id); metas.append(meta)
+
+        if docs:
             store.upsert(ids=ids, documents=docs,
                          embeddings=embed_texts(docs), metadatas=metas)
             sync_state["total_docs"] += len(docs)
             log.info(f"  {ds} — {len(docs)} records synced (total so far: {sync_state['total_docs']})")
-        else:
-            log.info(f"  {ds} — no records")
+
         sync_state["done_days"] += 1
         current += timedelta(days=1)
 
@@ -375,9 +425,12 @@ def sync():
         return jsonify({"success": False, "message": "Invalid date format. Use DD-MM-YYYY"})
     if d_from > d_to:
         return jsonify({"success": False, "message": "date_from must be <= date_to"})
-    threading.Thread(target=do_sync, args=(d_from, d_to, instance), daemon=True).start()
+    include_details = bool(body.get("include_details", False))
+    threading.Thread(target=do_sync,
+                     args=(d_from, d_to, instance, include_details), daemon=True).start()
     return jsonify({"success": True,
-                    "message": f"Sync started for {date_from_str} → {date_to_str}"})
+                    "message": f"Sync started for {date_from_str} → {date_to_str}",
+                    "include_details": include_details})
 
 
 @app.get("/sync/progress")
@@ -385,6 +438,52 @@ def sync_progress():
     pct = round((sync_state["done_days"] / sync_state["total_days"]) * 100) \
           if sync_state["total_days"] > 0 else 0
     return jsonify({**sync_state, "percent": pct})
+
+
+@app.get("/preview")
+def preview():
+    """
+    Fetch raw APEX data for a given date — no indexing.
+    Shows what fields the API returns and up to 5 sample records.
+    If include_details=true, also fetches order-line detail for the first trip.
+    """
+    date_str        = request.args.get("date_from", "")
+    instance        = request.args.get("instance", "PROD")
+    include_details = request.args.get("include_details", "false").lower() == "true"
+
+    if not date_str:
+        return jsonify({"error": "date_from is required (DD-MM-YYYY)"})
+    try:
+        d = datetime.strptime(date_str, "%d-%m-%Y")
+    except ValueError:
+        return jsonify({"error": "Invalid date. Use DD-MM-YYYY"})
+
+    try:
+        header_rows = fetch_trips_for_date(d, instance)
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+    result = {
+        "date":           date_str,
+        "instance":       instance,
+        "header_count":   len(header_rows),
+        "header_fields":  list(header_rows[0].keys()) if header_rows else [],
+        "header_sample":  header_rows[:5],
+        "detail_sample":  [],
+        "detail_fields":  [],
+        "detail_count":   0,
+    }
+
+    if include_details and header_rows:
+        first_trip = str(header_rows[0].get("TRIP_ID") or
+                         header_rows[0].get("trip_id") or "").strip()
+        if first_trip:
+            detail_rows = fetch_trip_detail(first_trip, instance)
+            result["detail_count"]  = len(detail_rows)
+            result["detail_fields"] = list(detail_rows[0].keys()) if detail_rows else []
+            result["detail_sample"] = detail_rows[:5]
+
+    return jsonify(result)
 
 
 @app.post("/sync/cancel")
