@@ -7,7 +7,8 @@ REM    C:\fusion\fusionclientweb\graysWMSwebviewnew\
 REM       Home\         (Home dashboard)
 REM       wms\          (web frontend files)
 REM       dist\         (.NET build output + runtime)
-REM       ap\, ar\, ca\, fa\, gl\, om\, pos\, sync\  (modules)
+REM       ap\, ar\, ca\, fa\, gl\, om\, pos\, sync\, Inventory\  (modules)
+REM       rag\rag_service.exe, rag\index.html  (compiled RAG service)
 REM       app.js, config.js, index.html, styles.css, etc.
 REM ============================================================
 
@@ -78,7 +79,7 @@ if errorlevel 1 (
 )
 
 REM --- Copy module folders ---
-for %%F in (ap ar ca fa gl om pos sync Inventory rag) do (
+for %%F in (ap ar ca fa gl om pos sync Inventory) do (
     if exist "%SCRIPT_DIR%%%F" (
         echo Copying %%F folder...
         mkdir "%APP_DIR%\%%F"
@@ -86,6 +87,21 @@ for %%F in (ap ar ca fa gl om pos sync Inventory rag) do (
     ) else (
         echo   [SKIP] %%F folder not found, skipping...
     )
+)
+
+REM --- Copy RAG service (compiled exe only, not Python source) ---
+echo Copying RAG service...
+if not exist "%SCRIPT_DIR%rag\dist\rag_service.exe" (
+    echo ERROR: rag\dist\rag_service.exe not found.
+    echo        Run rag\build.bat first, or use release.bat which does this automatically.
+    goto :error
+)
+mkdir "%APP_DIR%\rag"
+copy /y "%SCRIPT_DIR%rag\dist\rag_service.exe" "%APP_DIR%\rag\rag_service.exe" >nul
+echo   - rag\rag_service.exe
+if exist "%SCRIPT_DIR%rag\index.html" (
+    copy /y "%SCRIPT_DIR%rag\index.html" "%APP_DIR%\rag\index.html" >nul
+    echo   - rag\index.html
 )
 
 REM --- Copy root web files ---
