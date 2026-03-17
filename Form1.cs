@@ -70,6 +70,9 @@ namespace WMSApp
         private string _fusionPassword;
         private bool _fusionCredentialsLoaded = false;
 
+        // RAG Service Process
+        private System.Diagnostics.Process _ragServiceProcess;
+
         public Form1()
         {
             InitializeComponent();
@@ -1811,6 +1814,14 @@ navPanel.Controls.Add(wmsDevButton);
 
                                 case "testSmtpConnection":
                                     await HandleTestSmtpConnection(wv, messageJson, requestId);
+                                    break;
+
+                                case "startRagService":
+                                    await HandleStartRagService(wv, requestId);
+                                    break;
+
+                                case "stopRagService":
+                                    await HandleStopRagService(wv, requestId);
                                     break;
 
                                 default:
@@ -5692,6 +5703,106 @@ navPanel.Controls.Add(wmsDevButton);
                         window.handleVersionInfo(null, '{escapedError}');
                     }}
                 ");
+            }
+        }
+
+        // ========== RAG SERVICE HANDLERS ==========
+
+        private async Task HandleStartRagService(WebView2 wv, string requestId)
+        {
+            try
+            {
+                if (_ragServiceProcess != null && !_ragServiceProcess.HasExited)
+                {
+                    await SendRagServiceResult(wv, true, "RAG Service is already running.");
+                    return;
+                }
+
+                // Locate rag_service.py in common paths
+                string[] searchDirs = new[]
+                {
+                    Path.Combine(Path.GetDirectoryName(Application.ExecutablePath) ?? "", "rag"),
+                    @"C:\fusion\fusionclientweb\graysWMSwebviewnew\rag",
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        @"source\repos\graysWMSwebviewnew\rag"),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                        @"source\repos\javeedin\graysWMSwebviewnew\rag"),
+                };
+
+                string ragScript = null;
+                foreach (var dir in searchDirs)
+                {
+                    var candidate = Path.Combine(dir, "rag_service.py");
+                    if (File.Exists(candidate)) { ragScript = candidate; break; }
+                }
+
+                if (ragScript == null)
+                {
+                    await SendRagServiceResult(wv, false, "rag_service.py not found. Check that the rag folder exists.");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[RAG SERVICE] Starting: py -3.12 \"{ragScript}\"");
+
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "py",
+                    Arguments = $"-3.12 \"{ragScript}\"",
+                    UseShellExecute = true,   // opens a visible console window
+                    CreateNoWindow = false,
+                };
+
+                _ragServiceProcess = System.Diagnostics.Process.Start(psi);
+                System.Diagnostics.Debug.WriteLine($"[RAG SERVICE] Started PID {_ragServiceProcess?.Id}");
+
+                // Give the service time to boot before responding
+                await Task.Delay(3500);
+                await SendRagServiceResult(wv, true, "RAG Service started — checking connection…");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RAG SERVICE START ERROR] {ex.Message}");
+                await SendRagServiceResult(wv, false, $"Failed to start service: {ex.Message}");
+            }
+        }
+
+        private async Task HandleStopRagService(WebView2 wv, string requestId)
+        {
+            try
+            {
+                if (_ragServiceProcess == null || _ragServiceProcess.HasExited)
+                {
+                    await SendRagServiceResult(wv, false, "RAG Service is not running.");
+                    return;
+                }
+
+                _ragServiceProcess.Kill(entireProcessTree: true);
+                _ragServiceProcess = null;
+                System.Diagnostics.Debug.WriteLine("[RAG SERVICE] Stopped by user.");
+                await SendRagServiceResult(wv, true, "RAG Service stopped.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RAG SERVICE STOP ERROR] {ex.Message}");
+                await SendRagServiceResult(wv, false, $"Failed to stop service: {ex.Message}");
+            }
+        }
+
+        private async Task SendRagServiceResult(WebView2 wv, bool success, string message)
+        {
+            try
+            {
+                string safeMsg = (message ?? "").Replace("\\", "\\\\").Replace("'", "\\'")
+                                                 .Replace("\r", "").Replace("\n", " ");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handleRagServiceResult === 'function') {{
+                        window.handleRagServiceResult({(success ? "true" : "false")}, '{safeMsg}');
+                    }}
+                ");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[RAG SERVICE] Failed to send result to JS: {ex.Message}");
             }
         }
 

@@ -118,6 +118,20 @@
             font-weight: 600; cursor: pointer;
             text-decoration: none; transition: background 0.2s;
         }
+
+        .btn-svc {
+            display: flex; align-items: center; gap: 6px;
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white; padding: 7px 14px;
+            border-radius: 8px; font-size: 12px;
+            font-weight: 600; cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn-svc-start { background: rgba(16,185,129,0.3); }
+        .btn-svc-start:hover { background: rgba(16,185,129,0.55); }
+        .btn-svc-stop  { background: rgba(239,68,68,0.3); }
+        .btn-svc-stop:hover  { background: rgba(239,68,68,0.55); }
+        .btn-svc:disabled { opacity: 0.5; cursor: not-allowed; }
         .btn-home:hover { background: rgba(255,255,255,0.3); }
 
         /* ── Main layout ── */
@@ -374,6 +388,12 @@
             <span class="service-dot" id="svc-dot"></span>
             <span id="svc-text">Checking service…</span>
         </div>
+        <button class="btn-svc btn-svc-start" id="btn-start-svc" onclick="startService()" title="Start RAG Service">
+            <i class="fas fa-play"></i> Start Service
+        </button>
+        <button class="btn-svc btn-svc-stop" id="btn-stop-svc" onclick="stopService()" title="Stop RAG Service" style="display:none">
+            <i class="fas fa-stop"></i> Stop Service
+        </button>
         <a href="../Home/index.html" class="btn-home">
             <i class="fas fa-home"></i> Home
         </a>
@@ -589,11 +609,13 @@
 
     // ── Health check ──
     async function checkHealth() {
-        const dot  = document.getElementById('svc-dot');
-        const text = document.getElementById('svc-text');
-        const count = document.getElementById('doc-count');
-        const syncBtn = document.getElementById('sync-btn');
-        const askBtn  = document.getElementById('ask-btn');
+        const dot       = document.getElementById('svc-dot');
+        const text      = document.getElementById('svc-text');
+        const count     = document.getElementById('doc-count');
+        const syncBtn   = document.getElementById('sync-btn');
+        const askBtn    = document.getElementById('ask-btn');
+        const btnStart  = document.getElementById('btn-start-svc');
+        const btnStop   = document.getElementById('btn-stop-svc');
         try {
             const d = await apiGet('/status');
             dot.style.background  = '#10b981';
@@ -602,14 +624,56 @@
             count.textContent = n > 0 ? `${n.toLocaleString()} records indexed` : 'No records yet — sync first';
             syncBtn.disabled = false;
             askBtn.disabled  = false;
+            if (btnStart) btnStart.style.display = 'none';
+            if (btnStop)  btnStop.style.display  = '';
         } catch {
             dot.style.background  = '#ef4444';
-            text.textContent = 'Service Offline — start rag_service.exe';
+            text.textContent = 'Service Offline';
             count.textContent = '';
             syncBtn.disabled = true;
             askBtn.disabled  = true;
+            if (btnStart) { btnStart.style.display = ''; btnStart.disabled = false; }
+            if (btnStop)  btnStop.style.display  = 'none';
         }
     }
+
+    // ── Service control (uses WebView2 IPC when available) ──
+    window.startService = function () {
+        const btn = document.getElementById('btn-start-svc');
+        if (btn) btn.disabled = true;
+
+        if (window.chrome && window.chrome.webview) {
+            notify('Starting RAG Service…', 'info');
+            window.chrome.webview.postMessage({ action: 'startRagService', requestId: 'rag-start' });
+        } else {
+            // Running in a standalone browser — show manual instructions
+            notify('Run in a terminal: py -3.12 rag/rag_service.py', 'info');
+            if (btn) btn.disabled = false;
+        }
+    };
+
+    window.stopService = function () {
+        const btn = document.getElementById('btn-stop-svc');
+        if (btn) btn.disabled = true;
+
+        if (window.chrome && window.chrome.webview) {
+            notify('Stopping RAG Service…', 'info');
+            window.chrome.webview.postMessage({ action: 'stopRagService', requestId: 'rag-stop' });
+        } else {
+            notify('Close the rag_service terminal window to stop it.', 'info');
+            if (btn) btn.disabled = false;
+        }
+    };
+
+    // ── Callback from C# after start/stop ──
+    window.handleRagServiceResult = function (success, message) {
+        const btnStart = document.getElementById('btn-start-svc');
+        const btnStop  = document.getElementById('btn-stop-svc');
+        if (btnStart) btnStart.disabled = false;
+        if (btnStop)  btnStop.disabled  = false;
+        notify(message, success ? 'success' : 'error');
+        checkHealth();
+    };
 
     // ── Date helpers ──
     function toInput(d)   { return d.toISOString().split('T')[0]; }
