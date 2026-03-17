@@ -223,10 +223,24 @@ def fetch_trips_for_date(date, instance="PROD"):
         resp = requests.get(TRIPS_ENDPOINT, params=params, timeout=60)
         resp.raise_for_status()
         data = resp.json()
+        # Direct list
         if isinstance(data, list):
+            log.info(f"  {ds} — API returned {len(data)} rows (direct list)")
             return data
         if isinstance(data, dict):
-            return data.get("items", data.get("data", []))
+            # Try all common APEX wrapper keys
+            for key in ("items", "data", "rows", "records", "trips",
+                        "ITEMS", "DATA", "ROWS", "RECORDS", "TRIPS"):
+                if isinstance(data.get(key), list):
+                    log.info(f"  {ds} — API returned {len(data[key])} rows (key='{key}')")
+                    return data[key]
+            # Fall back: first list value found in the dict
+            for v in data.values():
+                if isinstance(v, list) and v:
+                    log.info(f"  {ds} — API returned {len(v)} rows (fallback list)")
+                    return v
+            log.warning(f"  {ds} — unexpected dict structure. Keys: {list(data.keys())}")
+        log.warning(f"  {ds} — API response type: {type(data).__name__}, value: {str(data)[:200]}")
     except requests.exceptions.ConnectionError as e:
         msg = f"{ds}: Cannot reach APEX — check internet connection. {e}"
         log.error(msg); sync_state["errors"].append(msg)
@@ -240,39 +254,87 @@ def fetch_trips_for_date(date, instance="PROD"):
 
 
 def build_document(row):
+    """
+    Build an embeddable text document from one APEX row.
+    g() checks the key as-is, uppercase, and lowercase — handles mixed-case APIs.
+    All remaining fields are appended so nothing from the API response is lost.
+    """
     def g(*keys):
         for k in keys:
-            v = row.get(k) or row.get(k.lower())
-            if v:
-                return str(v)
+            for variant in (k, k.upper(), k.lower()):
+                v = row.get(variant)
+                if v is not None and str(v).strip():
+                    return str(v).strip()
         return ""
 
-    trip_id      = g("TRIP_ID")
-    trip_date    = g("TRIP_DATE")
-    order_number = g("ORDER_NUMBER")
-    customer     = g("ACCOUNT_NAME", "CUSTOMER_NAME")
-    picker       = g("PICKER", "PICKER_NAME")
-    status       = g("LINE_STATUS", "STATUS")
-    priority     = g("TRIP_PRIORITY", "PRIORITY")
-    vehicle      = g("LORRY_NUMBER", "TRIP_LORRY")
-    product      = g("PRODUCT_NAME", "ITEM_NAME")
-    quantity     = g("QUANTITY")
-    weight       = g("WEIGHT")
-    loading_bay  = g("LOADING_BAY")
-    order_type   = g("ORDER_TYPE_CODE", "ORDER_TYPE")
+    trip_id      = g("TRIP_ID",      "trip_id")
+    trip_date    = g("TRIP_DATE",    "trip_date")
+    order_number = g("ORDER_NUMBER", "order_number")
+    customer     = g("ACCOUNT_NAME", "account_name", "CUSTOMER_NAME", "customer_name",
+                     "CUSTOMER",     "customer")
+    picker       = g("PICKER",       "picker",       "PICKER_NAME",   "picker_name")
+    status       = g("LINE_STATUS",  "line_status",  "STATUS",        "status",
+                     "TRIP_STATUS",  "trip_status",  "ORDER_STATUS",  "order_status")
+    priority     = g("TRIP_PRIORITY","trip_priority","PRIORITY",      "priority")
+    vehicle      = g("LORRY_NUMBER", "lorry_number", "TRIP_LORRY",    "trip_lorry",
+                     "VEHICLE",      "vehicle")
+    product      = g("PRODUCT_NAME", "product_name", "ITEM_NAME",     "item_name",
+                     "ITEM_DESCRIPTION", "item_description", "DESCRIPTION", "description")
+    quantity     = g("QUANTITY",     "quantity",     "QTY",           "qty",
+                     "ORDER_QTY",    "order_qty")
+    weight       = g("WEIGHT",       "weight",       "TOTAL_WEIGHT",  "total_weight",
+                     "NET_WEIGHT",   "net_weight",   "GROSS_WEIGHT",  "gross_weight")
+    loading_bay  = g("LOADING_BAY",  "loading_bay",  "BAY",           "bay")
+    order_type   = g("ORDER_TYPE_CODE","order_type_code","ORDER_TYPE", "order_type")
 
     doc_id = f"{trip_id}_{order_number}_{trip_date}".replace("/", "-").replace(" ", "_")
-    text = (
-        f"Trip ID: {trip_id}\nTrip Date: {trip_date}\nOrder Number: {order_number}\n"
-        f"Customer: {customer}\nPicker: {picker}\nStatus: {status}\n"
-        f"Priority: {priority}\nVehicle: {vehicle}\nProduct: {product}\n"
-        f"Quantity: {quantity}\nWeight: {weight}\nLoading Bay: {loading_bay}\n"
-        f"Order Type: {order_type}"
-    )
+
+    # ── Core fields ────────────────────────────────────────────────────────────
+    lines = []
+    if trip_id:      lines.append(f"Trip ID: {trip_id}")
+    if trip_date:    lines.append(f"Trip Date: {trip_date}")
+    if order_number: lines.append(f"Order Number: {order_number}")
+    if customer:     lines.append(f"Customer: {customer}")
+    if picker:       lines.append(f"Picker: {picker}")
+    if status:       lines.append(f"Status: {status}")
+    if priority:     lines.append(f"Priority: {priority}")
+    if vehicle:      lines.append(f"Vehicle: {vehicle}")
+    if product:      lines.append(f"Product: {product}")
+    if quantity:     lines.append(f"Quantity: {quantity}")
+    if weight:       lines.append(f"Weight: {weight}")
+    if loading_bay:  lines.append(f"Loading Bay: {loading_bay}")
+    if order_type:   lines.append(f"Order Type: {order_type}")
+
+    # ── Append ALL remaining fields from the row so nothing is lost ────────────
+    handled = {
+        "trip_id","trip_date","order_number",
+        "account_name","customer_name","customer",
+        "picker","picker_name",
+        "line_status","status","trip_status","order_status",
+        "trip_priority","priority",
+        "lorry_number","trip_lorry","vehicle",
+        "product_name","item_name","item_description","description",
+        "quantity","qty","order_qty",
+        "weight","total_weight","net_weight","gross_weight",
+        "loading_bay","bay",
+        "order_type_code","order_type",
+    }
+    for k, v in row.items():
+        if k.lower() not in handled and v is not None and str(v).strip():
+            label = k.replace("_", " ").title()
+            lines.append(f"{label}: {str(v).strip()}")
+
+    text = "\n".join(lines)
+
     metadata = {
-        "trip_id": trip_id, "trip_date": trip_date, "order_number": order_number,
-        "customer": customer, "picker": picker, "status": status,
-        "priority": priority, "vehicle": vehicle,
+        "trip_id":      trip_id,
+        "trip_date":    trip_date,
+        "order_number": order_number,
+        "customer":     customer,
+        "picker":       picker,
+        "status":       status,
+        "priority":     priority,
+        "vehicle":      vehicle,
     }
     return doc_id, text, metadata
 
@@ -458,10 +520,22 @@ def preview():
     except ValueError:
         return jsonify({"error": "Invalid date. Use DD-MM-YYYY"})
 
+    # ── Fetch raw response so we can show it even if parsing fails ─────────────
+    ds     = date_to_apex(d)
+    params = {"P_DATE_FROM": ds, "P_DATE_TO": ds, "P_INSTANCE_NAME": instance}
+    raw_text = ""
+    header_rows = []
     try:
+        resp     = requests.get(TRIPS_ENDPOINT, params=params, timeout=60)
+        raw_text = resp.text[:4000]          # first 4 KB of raw response
+        resp.raise_for_status()
         header_rows = fetch_trips_for_date(d, instance)
     except Exception as e:
-        return jsonify({"error": str(e)})
+        return jsonify({
+            "error":       str(e),
+            "raw_response": raw_text,
+            "hint":        "The APEX endpoint returned an error or could not be reached.",
+        })
 
     result = {
         "date":           date_str,
@@ -469,14 +543,20 @@ def preview():
         "header_count":   len(header_rows),
         "header_fields":  list(header_rows[0].keys()) if header_rows else [],
         "header_sample":  header_rows[:5],
+        "raw_response":   raw_text,          # always included for debugging
         "detail_sample":  [],
         "detail_fields":  [],
         "detail_count":   0,
+        "hint":           (
+            "No records found for this date. Try a different date that has trip data."
+            if not header_rows else ""
+        ),
     }
 
     if include_details and header_rows:
-        first_trip = str(header_rows[0].get("TRIP_ID") or
-                         header_rows[0].get("trip_id") or "").strip()
+        first_trip = str(
+            header_rows[0].get("TRIP_ID") or header_rows[0].get("trip_id") or ""
+        ).strip()
         if first_trip:
             detail_rows = fetch_trip_detail(first_trip, instance)
             result["detail_count"]  = len(detail_rows)
