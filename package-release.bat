@@ -90,18 +90,22 @@ for %%F in (ap ar ca fa gl om pos sync Inventory) do (
 )
 
 REM --- Copy RAG service (compiled exe only, not Python source) ---
-echo Copying RAG service...
-if not exist "%SCRIPT_DIR%rag\dist\rag_service.exe" (
-    echo ERROR: rag\dist\rag_service.exe not found.
-    echo        Run rag\build.bat first, or use release.bat which does this automatically.
-    goto :error
-)
-mkdir "%APP_DIR%\rag"
-copy /y "%SCRIPT_DIR%rag\dist\rag_service.exe" "%APP_DIR%\rag\rag_service.exe" >nul
-echo   - rag\rag_service.exe
-if exist "%SCRIPT_DIR%rag\index.html" (
-    copy /y "%SCRIPT_DIR%rag\index.html" "%APP_DIR%\rag\index.html" >nul
-    echo   - rag\index.html
+if /i "%INCLUDE_RAG%"=="N" (
+    echo [SKIP] RAG service excluded from this release.
+) else (
+    echo Copying RAG service...
+    if not exist "%SCRIPT_DIR%rag\dist\rag_service.exe" (
+        echo ERROR: rag\dist\rag_service.exe not found.
+        echo        Run rag\build.bat first, or use release.bat which does this automatically.
+        goto :error
+    )
+    mkdir "%APP_DIR%\rag"
+    copy /y "%SCRIPT_DIR%rag\dist\rag_service.exe" "%APP_DIR%\rag\rag_service.exe" >nul
+    echo   - rag\rag_service.exe
+    if exist "%SCRIPT_DIR%rag\index.html" (
+        copy /y "%SCRIPT_DIR%rag\index.html" "%APP_DIR%\rag\index.html" >nul
+        echo   - rag\index.html
+    )
 )
 
 REM --- Copy root web files ---

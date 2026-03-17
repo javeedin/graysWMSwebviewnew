@@ -9,12 +9,28 @@ echo ============================================================
 echo   Gray's WMS - Release Builder
 echo ============================================================
 echo.
-echo   Step 1: Build RAG service (rag_service.exe via PyInstaller)
-echo   Step 2: Build distribution folder (dist\)
-echo   Step 3: Package into fusionclientweb.zip
+choice /M "   Include RAG service in this release? (adds ~150MB)"
+if errorlevel 2 (
+    set "INCLUDE_RAG=N"
+    echo   RAG service: EXCLUDED
+) else (
+    set "INCLUDE_RAG=Y"
+    echo   RAG service: INCLUDED
+)
+echo.
+if "%INCLUDE_RAG%"=="Y" (
+    echo   Step 1: Build RAG service ^(rag_service.exe via PyInstaller^)
+    echo   Step 2: Build distribution folder ^(dist^\^)
+    echo   Step 3: Package into fusionclientweb.zip
+) else (
+    echo   Step 1: Build distribution folder ^(dist^\^)
+    echo   Step 2: Package into fusionclientweb.zip  ^(no RAG^)
+)
 echo.
 choice /M "Continue?"
 if errorlevel 2 goto :eof
+
+if "%INCLUDE_RAG%"=="N" goto :skip_rag_entirely
 
 echo.
 echo ============================================================
@@ -68,6 +84,8 @@ if not exist "%~dp0rag\dist\rag_service.exe" (
     exit /b 1
 )
 echo   rag_service.exe OK.
+
+:skip_rag_entirely
 
 echo.
 echo ============================================================
