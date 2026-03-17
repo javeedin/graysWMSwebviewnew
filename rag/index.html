@@ -245,6 +245,17 @@ textarea { resize:vertical; }
 .provider-card-name { font-weight:800; font-size:13px; color:var(--text); display:flex; align-items:center; gap:7px; }
 .provider-card-desc { font-size:11px; color:var(--text-3); }
 
+/* ── API info badge ── */
+.api-badge {
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:10px; font-weight:700; padding:3px 9px; border-radius:999px;
+    background:#eef2ff; color:var(--indigo); border:1px solid #c7d2fe;
+    cursor:pointer; transition:background .15s;
+    text-transform:uppercase; letter-spacing:.04em;
+}
+.api-badge:hover { background:#e0e7ff; }
+.api-badge i { font-size:9px; }
+
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    BROWSE MODAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
@@ -355,7 +366,12 @@ textarea { resize:vertical; }
 
             <div class="page-head">
                 <div>
-                    <div class="page-title"><i class="fas fa-database"></i> Sync WMS Data</div>
+                    <div class="page-title">
+                        <i class="fas fa-database"></i> Sync WMS Data
+                        <span class="api-badge" onclick="openApiInfo()" title="View API configuration">
+                            <i class="fas fa-plug"></i> API
+                        </span>
+                    </div>
                     <div class="page-sub">Pull trip &amp; order records from APEX into the local knowledge base.</div>
                 </div>
                 <span class="pill" id="doc-count"></span>
@@ -708,6 +724,60 @@ textarea { resize:vertical; }
 
     </main><!-- /main -->
 </div><!-- /app-body -->
+
+<!-- ══════════════════════════════════════
+     API INFO MODAL
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="api-info-modal" onclick="closeApiInfoOnOverlay(event)">
+    <div class="modal-box" style="max-width:720px;">
+        <div class="modal-head" style="background:linear-gradient(135deg,#334155,#475569);">
+            <i class="fas fa-plug fa-lg"></i>
+            <h2>API Configuration &amp; Data Being Synced</h2>
+            <button class="modal-close" onclick="closeApiInfo()">✕</button>
+        </div>
+        <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;">
+
+            <!-- Restart warning -->
+            <div id="api-restart-warn" style="display:none;background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;">
+                <strong><i class="fas fa-exclamation-triangle"></i> Restart Required:</strong>
+                The service is running an old version that doesn't have some endpoints.
+                Close the terminal and run <code style="background:#fef9c3;padding:1px 4px;border-radius:3px;">py -3.12 rag/rag_service.py</code> again.
+            </div>
+
+            <!-- Endpoints -->
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;"><i class="fas fa-network-wired"></i> APEX Endpoints Being Called</div>
+                <div id="api-endpoints" style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+                    <div style="color:var(--text-3);">Loading…</div>
+                </div>
+            </div>
+
+            <!-- Embed model -->
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;"><i class="fas fa-brain"></i> Embedding Model</div>
+                <div id="api-embed" style="font-family:monospace;font-size:12px;background:#f8fafc;padding:8px 10px;border-radius:6px;color:var(--indigo);border:1px solid var(--border);"></div>
+            </div>
+
+            <!-- Store dir -->
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;"><i class="fas fa-folder"></i> Vector Store Location</div>
+                <div id="api-store" style="font-family:monospace;font-size:11px;background:#f8fafc;padding:8px 10px;border-radius:6px;color:var(--text-2);border:1px solid var(--border);word-break:break-all;"></div>
+            </div>
+
+            <!-- Sample document -->
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;"><i class="fas fa-file-alt"></i> Sample Indexed Document (what the AI sees)</div>
+                <div class="pre-box" id="api-sample" style="max-height:220px;font-size:11px;">Loading…</div>
+                <div id="api-sample-meta" style="margin-top:6px;font-size:11px;display:flex;flex-wrap:wrap;gap:5px;"></div>
+            </div>
+
+        </div>
+        <div class="modal-foot">
+            <span id="api-version" style="color:var(--text-3);"></span>
+            <span style="color:var(--text-3);">Read-only — no changes made</span>
+        </div>
+    </div>
+</div>
 
 <!-- ══════════════════════════════════════
      BROWSE MODAL
@@ -1266,6 +1336,77 @@ window.closePreviewOnOverlay = function (e) {
     if (e.target === document.getElementById('preview-modal')) closePreview();
 };
 
+// ── API Info modal ────────────────────────────────────────────────────────────
+window.openApiInfo = async function () {
+    document.getElementById('api-info-modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('api-endpoints').innerHTML = '<div style="color:var(--text-3);">Loading…</div>';
+    document.getElementById('api-sample').textContent  = 'Loading…';
+    document.getElementById('api-restart-warn').style.display = 'none';
+
+    try {
+        const d = await apiGet('/info');
+
+        // Restart warning if /info returns error (old service running)
+        if (d.error) {
+            document.getElementById('api-restart-warn').style.display = '';
+            document.getElementById('api-endpoints').innerHTML =
+                `<div style="color:var(--danger);font-size:12px;"><i class="fas fa-exclamation-circle"></i> ${esc(d.error)}<br>
+                ${esc(d.hint || 'Restart the service to load the new version.')}</div>`;
+            return;
+        }
+
+        document.getElementById('api-version').textContent =
+            `${d.service || 'RAG Service'} v${d.version || '?'} · ${d.documents_in_db || 0} records indexed`;
+        document.getElementById('api-embed').textContent  = d.embed_model || '—';
+        document.getElementById('api-store').textContent  = d.store_dir   || '—';
+
+        // Endpoints
+        const ep = d.apex_endpoints || {};
+        document.getElementById('api-endpoints').innerHTML = `
+            <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+                <div style="font-size:10px;font-weight:700;color:var(--text-3);margin-bottom:4px;">TRIP HEADERS (per date)</div>
+                <div style="font-family:monospace;font-size:11px;color:var(--indigo);word-break:break-all;">${esc(ep.trips_header || '—')}</div>
+                <div style="font-size:10px;color:var(--text-3);margin-top:3px;">Params: ${esc(ep.params_header || '—')}</div>
+            </div>
+            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;">
+                <div style="font-size:10px;font-weight:700;color:var(--text-3);margin-bottom:4px;">ORDER LINE DETAILS (per trip, when toggle is ON)</div>
+                <div style="font-family:monospace;font-size:11px;color:var(--success);word-break:break-all;">${esc(ep.trips_detail || '—')}</div>
+                <div style="font-size:10px;color:var(--text-3);margin-top:3px;">Params: ${esc(ep.params_detail || '—')}</div>
+            </div>`;
+
+        // Sample document
+        const sd = d.sample_document || {};
+        document.getElementById('api-sample').textContent =
+            sd.text || '(no data synced yet — run a sync first)';
+
+        const sm = sd.metadata || {};
+        document.getElementById('api-sample-meta').innerHTML =
+            Object.entries(sm).filter(([,v]) => v).map(([k,v]) =>
+                `<span style="font-size:10px;background:#eef2ff;color:var(--indigo);padding:2px 7px;border-radius:4px;font-family:monospace;">
+                    <strong>${esc(k)}:</strong> ${esc(String(v))}
+                </span>`
+            ).join('');
+
+    } catch(e) {
+        document.getElementById('api-restart-warn').style.display = '';
+        document.getElementById('api-endpoints').innerHTML =
+            `<div style="color:var(--danger);font-size:12px;font-weight:600;">
+                <i class="fas fa-exclamation-circle"></i>
+                Could not load API info: ${esc(e.message)}<br><br>
+                Most likely the running service is an older version.<br>
+                <strong>Stop and restart rag_service.py to apply updates.</strong>
+            </div>`;
+    }
+};
+window.closeApiInfo = function () {
+    document.getElementById('api-info-modal').classList.remove('open');
+    document.body.style.overflow = '';
+};
+window.closeApiInfoOnOverlay = function (e) {
+    if (e.target === document.getElementById('api-info-modal')) closeApiInfo();
+};
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function esc(v) {
     return v ? String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
@@ -1309,7 +1450,7 @@ function init() {
 
     // Esc to close modals
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') { closeBrowse(); closePreview(); }
+        if (e.key === 'Escape') { closeBrowse(); closePreview(); closeApiInfo(); }
     });
 
     checkHealth();

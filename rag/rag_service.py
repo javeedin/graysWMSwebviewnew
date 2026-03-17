@@ -90,6 +90,19 @@ def handle_preflight(path):
     response.headers["Access-Control-Allow-Headers"]         = "Content-Type"
     return response
 
+@app.errorhandler(404)
+def not_found(e):
+    """Return JSON (not HTML) for 404s so the JS client can always parse the response."""
+    return jsonify({"error": "Not found", "detail": str(e),
+                    "hint": "Restart rag_service.py — the running instance may be out of date."}), 404
+
+@app.errorhandler(500)
+@app.errorhandler(Exception)
+def server_error(e):
+    """Return JSON (not HTML) for unhandled exceptions."""
+    log.error(f"Unhandled exception in route: {e}")
+    return jsonify({"error": "Internal server error", "detail": str(e)}), 500
+
 # ─────────────────────────────────────────────
 #  Sync state
 # ─────────────────────────────────────────────
@@ -348,9 +361,18 @@ def fetch_trip_detail(trip_id, instance="PROD"):
         resp.raise_for_status()
         data = resp.json()
         if isinstance(data, list):
+            log.info(f"    detail trip {trip_id} — {len(data)} lines")
             return data
         if isinstance(data, dict):
-            return data.get("items", data.get("data", []))
+            for key in ("items", "data", "rows", "records",
+                        "ITEMS", "DATA", "ROWS", "RECORDS"):
+                if isinstance(data.get(key), list):
+                    log.info(f"    detail trip {trip_id} — {len(data[key])} lines (key='{key}')")
+                    return data[key]
+            for v in data.values():
+                if isinstance(v, list) and v:
+                    return v
+            log.warning(f"    detail trip {trip_id} — unexpected dict keys: {list(data.keys())}")
     except Exception as e:
         log.warning(f"Trip detail fetch failed for {trip_id}: {e}")
         sync_state["errors"].append(f"Detail fetch failed — Trip {trip_id}: {e}")
@@ -470,6 +492,44 @@ def status():
         doc_count = 0
     return jsonify({"running": True, "collection": "wms_trips",
                     "documents_in_db": doc_count, "sync": sync_state})
+
+
+@app.get("/info")
+def info():
+    """Return service configuration — what API is being called, what model, etc."""
+    try:
+        doc_count = get_store().count()
+        # Grab a sample document text so the UI can show what gets indexed
+        store = get_store()
+        sample_doc = store._docs[0] if store._docs else "(no data synced yet)"
+        sample_meta = store._metas[0] if store._metas else {}
+    except Exception:
+        doc_count   = 0
+        sample_doc  = "(store not loaded)"
+        sample_meta = {}
+    return jsonify({
+        "service":         "Gray's WMS RAG Service",
+        "version":         "2.1",
+        "apex_endpoints": {
+            "trips_header":  TRIPS_ENDPOINT,
+            "trips_detail":  DETAIL_ENDPOINT + "/{trip_id}?P_INSTANCE_NAME={instance}",
+            "params_header": "P_DATE_FROM=DD-MM-YYYY, P_DATE_TO=DD-MM-YYYY, P_INSTANCE_NAME",
+            "params_detail": "P_INSTANCE_NAME",
+        },
+        "embed_model":     EMBED_MODEL,
+        "store_dir":       STORE_DIR,
+        "documents_in_db": doc_count,
+        "sync": {
+            "running":         sync_state["running"],
+            "include_details": sync_state.get("include_details", False),
+            "last_started":    sync_state.get("started_at"),
+            "total_docs":      sync_state.get("total_docs", 0),
+        },
+        "sample_document": {
+            "text":     sample_doc,
+            "metadata": sample_meta,
+        },
+    })
 
 
 @app.post("/sync")
