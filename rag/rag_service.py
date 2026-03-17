@@ -23,6 +23,10 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from fastembed import TextEmbedding
 import anthropic
+try:
+    import openai as _openai_mod
+except ImportError:
+    _openai_mod = None
 
 # ─────────────────────────────────────────────
 #  Logging — console + file (C:\fusion\rag_service.log)
@@ -320,6 +324,32 @@ def do_sync(date_from, date_to, instance):
 # ─────────────────────────────────────────────
 #  Routes
 # ─────────────────────────────────────────────
+@app.get("/browse")
+def browse():
+    """Return a paginated list of all records stored in the vector DB."""
+    try:
+        page     = max(1, int(request.args.get("page",     1)))
+        per_page = max(1, min(100, int(request.args.get("per_page", 25))))
+        store    = get_store()
+        total    = store.count()
+        start    = (page - 1) * per_page
+        end      = min(start + per_page, total)
+        records  = [
+            {"id": store._ids[i], "metadata": store._metas[i]}
+            for i in range(start, end)
+        ]
+        return jsonify({
+            "total":    total,
+            "page":     page,
+            "per_page": per_page,
+            "pages":    max(1, (total + per_page - 1) // per_page),
+            "records":  records,
+        })
+    except Exception as e:
+        return jsonify({"total": 0, "page": 1, "per_page": 25, "pages": 1,
+                        "records": [], "error": str(e)})
+
+
 @app.get("/status")
 def status():
     try:
@@ -381,12 +411,15 @@ def query():
     body           = request.get_json(silent=True) or {}
     question       = body.get("question", "").strip()
     top_k          = int(body.get("top_k", 8))
+    llm_provider   = body.get("llm_provider", "claude").lower()  # "claude" or "openai"
     claude_api_key = body.get("claude_api_key") or os.environ.get("CLAUDE_API_KEY", "")
+    openai_api_key = body.get("openai_api_key") or os.environ.get("OPENAI_API_KEY", "")
+    openai_model   = body.get("openai_model", "gpt-4o-mini")
 
     if not question:
         return jsonify({"success": False, "answer": "No question provided.", "sources": []})
 
-    log.info(f"Query: {question[:80]}")
+    log.info(f"Query [{llm_provider}]: {question[:80]}")
     try:
         store = get_store()
         if store.count() == 0:
@@ -415,13 +448,37 @@ def query():
         )
         user_prompt = f"Context from WMS database:\n\n{context}\n\nQuestion: {question}\n\nAnswer:"
 
-        message = anthropic.Anthropic(api_key=claude_api_key).messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": user_prompt}],
-            system=system_prompt,
-        )
-        answer = message.content[0].text
+        # ── Call the selected LLM ──────────────────────────────────────────
+        if llm_provider == "openai":
+            if _openai_mod is None:
+                return jsonify({"success": False,
+                                "answer": "OpenAI package not installed. Run: pip install openai",
+                                "sources": []})
+            if not openai_api_key:
+                return jsonify({"success": False,
+                                "answer": "OpenAI API key is required.", "sources": []})
+            client   = _openai_mod.OpenAI(api_key=openai_api_key)
+            response = client.chat.completions.create(
+                model=openai_model,
+                max_tokens=1024,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user",   "content": user_prompt},
+                ],
+            )
+            answer = response.choices[0].message.content
+        else:
+            # default: Claude
+            if not claude_api_key:
+                return jsonify({"success": False,
+                                "answer": "Claude API key is required.", "sources": []})
+            message = anthropic.Anthropic(api_key=claude_api_key).messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=1024,
+                messages=[{"role": "user", "content": user_prompt}],
+                system=system_prompt,
+            )
+            answer = message.content[0].text
 
         sources, seen = [], set()
         for meta in metas:
@@ -431,8 +488,6 @@ def query():
                 sources.append({k: meta.get(k, "") for k in
                                  ("trip_id", "order_number", "trip_date",
                                   "customer", "picker", "status")})
-
-        return jsonify({"success": True, "answer": answer, "sources": sources})
 
         log.info(f"Query answered — {len(sources)} source(s) returned")
         return jsonify({"success": True, "answer": answer, "sources": sources})

@@ -362,6 +362,77 @@
             text-align: center; padding: 16px;
             font-size: 11px; color: #94a3b8;
         }
+
+        /* ── Provider toggle ── */
+        .provider-tabs { display: flex; gap: 0; margin-bottom: 10px; border: 1px solid #e2e8f0; border-radius: 9px; overflow: hidden; }
+        .provider-tab {
+            flex: 1; padding: 8px 0; font-size: 12px; font-weight: 700;
+            border: none; background: #f8fafc; color: #64748b; cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .provider-tab.active { background: #6366f1; color: white; }
+        .provider-tab:first-child { border-right: 1px solid #e2e8f0; }
+
+        /* ── Browse modal ── */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 2000;
+            background: rgba(15,23,42,0.55); backdrop-filter: blur(3px);
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.open { display: flex; }
+        .modal-box {
+            background: white; border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+            width: min(96vw, 1020px); max-height: 88vh;
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        .modal-head {
+            padding: 16px 20px; background: linear-gradient(135deg,#6366f1,#4f46e5);
+            color: white; display: flex; align-items: center; gap: 10px;
+        }
+        .modal-head h2 { margin: 0; font-size: 1rem; font-weight: 800; flex: 1; }
+        .modal-close {
+            background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.35);
+            color: white; width: 30px; height: 30px; border-radius: 50%;
+            cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center;
+        }
+        .modal-toolbar {
+            padding: 10px 16px; border-bottom: 1px solid #f1f5f9;
+            display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+        }
+        .modal-body { overflow-y: auto; flex: 1; padding: 0; }
+        .modal-foot {
+            padding: 10px 16px; border-top: 1px solid #f1f5f9;
+            display: flex; align-items: center; justify-content: space-between;
+            font-size: 12px; color: #64748b;
+        }
+        .db-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .db-table th {
+            position: sticky; top: 0; background: #f8fafc; z-index: 1;
+            padding: 8px 10px; text-align: left; font-size: 10px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .05em; color: #475569;
+            border-bottom: 2px solid #e2e8f0;
+        }
+        .db-table td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; color: #1e293b; }
+        .db-table tr:last-child td { border-bottom: none; }
+        .db-table tr:hover td { background: #f8fafc; }
+        .badge-status {
+            font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px;
+            background: #f1f5f9; color: #475569; display: inline-block;
+        }
+        .pager-btn {
+            padding: 5px 12px; font-size: 12px; font-weight: 600;
+            border: 1px solid #e2e8f0; border-radius: 7px;
+            background: white; color: #475569; cursor: pointer;
+        }
+        .pager-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .pager-btn:hover:not(:disabled) { background: #f1f5f9; }
+        .search-input {
+            padding: 6px 10px; border: 1px solid #e2e8f0; border-radius: 7px;
+            font-size: 12px; font-family: inherit; color: #1e293b; background: #f8fafc;
+            width: 200px;
+        }
+        .search-input:focus { outline: none; border-color: #6366f1; background: white; }
     </style>
 </head>
 <body>
@@ -490,7 +561,10 @@
 
                     <hr class="divider">
 
-                    <!-- Danger zone -->
+                    <!-- Browse + Danger zone -->
+                    <button class="btn-ghost" style="width:100%; padding:8px;" onclick="openBrowse()">
+                        <i class="fas fa-table"></i> Browse Knowledge Base
+                    </button>
                     <button class="btn-danger" onclick="clearDB()">
                         <i class="fas fa-trash-alt"></i> Clear Knowledge Base
                     </button>
@@ -519,13 +593,41 @@
                 </div>
                 <div class="card-body gap-2">
 
-                    <!-- Claude API key -->
+                    <!-- LLM provider + API key -->
                     <div class="mb-3">
-                        <label class="field-label">
-                            <i class="fas fa-key"></i> Claude API Key
-                            <span style="color:#94a3b8; text-transform:none; font-weight:400; margin-left:4px;">(saved locally)</span>
-                        </label>
-                        <input type="password" id="claude-key" placeholder="sk-ant-api03-…" style="font-family:monospace; font-size:12px;">
+                        <label class="field-label"><i class="fas fa-robot"></i> AI Provider</label>
+                        <div class="provider-tabs">
+                            <button class="provider-tab active" id="tab-claude" onclick="selectProvider('claude')">
+                                🧠 Claude (Anthropic)
+                            </button>
+                            <button class="provider-tab" id="tab-openai" onclick="selectProvider('openai')">
+                                🤖 OpenAI / GPT
+                            </button>
+                        </div>
+                        <!-- Claude key -->
+                        <div id="key-row-claude">
+                            <label class="field-label" style="margin-top:6px;">
+                                <i class="fas fa-key"></i> Claude API Key
+                                <span style="color:#94a3b8; text-transform:none; font-weight:400; margin-left:4px;">(saved locally)</span>
+                                <a href="https://console.anthropic.com/settings/keys" target="_blank" style="color:#6366f1; font-weight:600; margin-left:8px; text-transform:none; font-size:10px;">Get key ↗</a>
+                            </label>
+                            <input type="password" id="claude-key" placeholder="sk-ant-api03-…" style="font-family:monospace; font-size:12px;">
+                        </div>
+                        <!-- OpenAI key -->
+                        <div id="key-row-openai" style="display:none;">
+                            <label class="field-label" style="margin-top:6px;">
+                                <i class="fas fa-key"></i> OpenAI API Key
+                                <span style="color:#94a3b8; text-transform:none; font-weight:400; margin-left:4px;">(saved locally)</span>
+                                <a href="https://platform.openai.com/api-keys" target="_blank" style="color:#6366f1; font-weight:600; margin-left:8px; text-transform:none; font-size:10px;">Get key ↗</a>
+                            </label>
+                            <input type="password" id="openai-key" placeholder="sk-…" style="font-family:monospace; font-size:12px;">
+                            <label class="field-label" style="margin-top:8px;"><i class="fas fa-microchip"></i> Model</label>
+                            <select id="openai-model">
+                                <option value="gpt-4o-mini">gpt-4o-mini (fast, cheap)</option>
+                                <option value="gpt-4o">gpt-4o (best quality)</option>
+                                <option value="gpt-3.5-turbo">gpt-3.5-turbo (legacy)</option>
+                            </select>
+                        </div>
                     </div>
 
                     <!-- Quick prompts -->
@@ -577,6 +679,49 @@
 
 </main>
 
+<!-- ══════════════════════════════════════════════
+     BROWSE MODAL
+══════════════════════════════════════════════ -->
+<div class="modal-overlay" id="browse-modal" onclick="closeBrowseOnOverlay(event)">
+    <div class="modal-box">
+        <div class="modal-head">
+            <i class="fas fa-table fa-lg"></i>
+            <h2>Browse Knowledge Base <span id="browse-title-count" style="font-weight:400; opacity:0.75;"></span></h2>
+            <button class="modal-close" onclick="closeBrowse()" title="Close">✕</button>
+        </div>
+        <div class="modal-toolbar">
+            <input class="search-input" id="browse-search" placeholder="Filter by trip, order, customer…" oninput="browseFilter()">
+            <span style="font-size:12px; color:#94a3b8; flex:1;" id="browse-filter-note"></span>
+            <button class="pager-btn" id="browse-prev" onclick="browsePage(-1)"><i class="fas fa-chevron-left"></i> Prev</button>
+            <span id="browse-pager-text" style="font-size:12px; color:#475569; white-space:nowrap;"></span>
+            <button class="pager-btn" id="browse-next" onclick="browsePage(1)">Next <i class="fas fa-chevron-right"></i></button>
+        </div>
+        <div class="modal-body">
+            <table class="db-table">
+                <thead>
+                    <tr>
+                        <th>Trip ID</th>
+                        <th>Date</th>
+                        <th>Order #</th>
+                        <th>Customer</th>
+                        <th>Picker</th>
+                        <th>Vehicle</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="browse-tbody">
+                    <tr><td colspan="8" style="text-align:center; color:#94a3b8; padding:32px;">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="modal-foot">
+            <span id="browse-foot-info" style="color:#475569;"></span>
+            <span style="color:#94a3b8;">Local vector DB — records synced from APEX</span>
+        </div>
+    </div>
+</div>
+
 <div class="footer">AI Knowledge Base — Gray's Fusion Client &copy; 2026</div>
 
 <!-- ══════════════════════════════════════════════
@@ -588,6 +733,7 @@
 
     const RAG_API = 'http://127.0.0.1:8765';
     let syncPollInterval = null;
+    let currentProvider  = 'claude';   // 'claude' | 'openai'
 
     // ── API helpers ──
     async function apiGet(path) {
@@ -618,7 +764,7 @@
         const btnStop   = document.getElementById('btn-stop-svc');
         try {
             const d = await apiGet('/status');
-            dot.style.background  = '#10b981';
+            dot.style.background = '#10b981';
             text.textContent = 'RAG Service Online';
             const n = d.documents_in_db || 0;
             count.textContent = n > 0 ? `${n.toLocaleString()} records indexed` : 'No records yet — sync first';
@@ -627,7 +773,7 @@
             if (btnStart) btnStart.style.display = 'none';
             if (btnStop)  btnStop.style.display  = '';
         } catch {
-            dot.style.background  = '#ef4444';
+            dot.style.background = '#ef4444';
             text.textContent = 'Service Offline';
             count.textContent = '';
             syncBtn.disabled = true;
@@ -637,16 +783,14 @@
         }
     }
 
-    // ── Service control (uses WebView2 IPC when available) ──
+    // ── Service control ──
     window.startService = function () {
         const btn = document.getElementById('btn-start-svc');
         if (btn) btn.disabled = true;
-
         if (window.chrome && window.chrome.webview) {
             notify('Starting RAG Service…', 'info');
             window.chrome.webview.postMessage({ action: 'startRagService', requestId: 'rag-start' });
         } else {
-            // Running in a standalone browser — show manual instructions
             notify('Run in a terminal: py -3.12 rag/rag_service.py', 'info');
             if (btn) btn.disabled = false;
         }
@@ -655,7 +799,6 @@
     window.stopService = function () {
         const btn = document.getElementById('btn-stop-svc');
         if (btn) btn.disabled = true;
-
         if (window.chrome && window.chrome.webview) {
             notify('Stopping RAG Service…', 'info');
             window.chrome.webview.postMessage({ action: 'stopRagService', requestId: 'rag-stop' });
@@ -665,7 +808,6 @@
         }
     };
 
-    // ── Callback from C# after start/stop ──
     window.handleRagServiceResult = function (success, message) {
         const btnStart = document.getElementById('btn-start-svc');
         const btnStop  = document.getElementById('btn-stop-svc');
@@ -675,9 +817,19 @@
         checkHealth();
     };
 
+    // ── Provider toggle ──
+    window.selectProvider = function (provider) {
+        currentProvider = provider;
+        document.getElementById('tab-claude').classList.toggle('active', provider === 'claude');
+        document.getElementById('tab-openai').classList.toggle('active', provider === 'openai');
+        document.getElementById('key-row-claude').style.display = provider === 'claude' ? '' : 'none';
+        document.getElementById('key-row-openai').style.display = provider === 'openai' ? '' : 'none';
+        localStorage.setItem('ragProvider', provider);
+    };
+
     // ── Date helpers ──
-    function toInput(d)   { return d.toISOString().split('T')[0]; }
-    function toApex(val)  { const [y,m,d] = val.split('-'); return `${d}-${m}-${y}`; }
+    function toInput(d)  { return d.toISOString().split('T')[0]; }
+    function toApex(val) { const [y,m,d] = val.split('-'); return `${d}-${m}-${y}`; }
 
     window.applyRange = function (days) {
         const to   = new Date();
@@ -691,12 +843,11 @@
 
     // ── Sync ──
     window.startSync = async function () {
-        const f = document.getElementById('sync-from').value;
-        const t = document.getElementById('sync-to').value;
+        const f    = document.getElementById('sync-from').value;
+        const t    = document.getElementById('sync-to').value;
         const inst = document.getElementById('sync-instance').value;
         if (!f || !t) { notify('Select a date range first.', 'error'); return; }
         if (f > t)    { notify('From date must be before To date.', 'error'); return; }
-
         try {
             const r = await apiPost('/sync', { date_from: toApex(f), date_to: toApex(t), instance: inst });
             if (!r.success) { notify(r.message || 'Failed to start sync.', 'error'); return; }
@@ -704,15 +855,15 @@
             document.getElementById('progress-box').style.display = 'block';
             if (syncPollInterval) clearInterval(syncPollInterval);
             syncPollInterval = setInterval(pollProgress, 1500);
-        } catch { notify('Cannot reach RAG service. Is rag_service.exe running?', 'error'); }
+        } catch { notify('Cannot reach RAG service.', 'error'); }
     };
 
     async function pollProgress() {
         try {
-            const p = await apiGet('/sync/progress');
+            const p   = await apiGet('/sync/progress');
             const pct = p.percent || 0;
-            document.getElementById('progress-bar').style.width = pct + '%';
-            document.getElementById('progress-label').textContent = pct + '%';
+            document.getElementById('progress-bar').style.width      = pct + '%';
+            document.getElementById('progress-label').textContent     = pct + '%';
             if (p.running) {
                 document.getElementById('progress-detail').textContent =
                     `Day ${p.done_days}/${p.total_days} · ${p.current_date} · ${p.total_docs.toLocaleString()} records`;
@@ -726,12 +877,12 @@
                 clearInterval(syncPollInterval);
                 syncPollInterval = null;
                 document.getElementById('progress-bar').style.background = 'linear-gradient(90deg,#10b981,#059669)';
-                document.getElementById('progress-detail').textContent = `Done — ${p.total_docs.toLocaleString()} records indexed`;
+                document.getElementById('progress-detail').textContent    = `Done — ${p.total_docs.toLocaleString()} records indexed`;
                 notify(`Sync complete — ${p.total_docs.toLocaleString()} records.`, 'success');
                 checkHealth();
                 setTimeout(() => { document.getElementById('progress-box').style.display = 'none'; }, 6000);
             }
-        } catch { /* brief busy */ }
+        } catch { /* brief */ }
     }
 
     window.cancelSync = async function () {
@@ -761,24 +912,31 @@
     window.submitQuery = async function () {
         const q = document.getElementById('query-input').value.trim();
         if (!q) { notify('Enter a question first.', 'error'); return; }
-        const key = document.getElementById('claude-key').value.trim() || localStorage.getItem('claudeApiKey') || '';
+
+        const body = { question: q, top_k: 10, llm_provider: currentProvider };
+        if (currentProvider === 'openai') {
+            body.openai_api_key = document.getElementById('openai-key').value.trim()
+                                  || localStorage.getItem('openaiApiKey') || '';
+            body.openai_model   = document.getElementById('openai-model').value;
+        } else {
+            body.claude_api_key = document.getElementById('claude-key').value.trim()
+                                  || localStorage.getItem('claudeApiKey') || '';
+        }
 
         setLoading(true);
         clearAnswer();
-
         try {
-            const r = await apiPost('/query', { question: q, top_k: 10, claude_api_key: key });
+            const r = await apiPost('/query', body);
             if (r.success) renderAnswer(r.answer, r.sources || []);
             else           renderError(r.answer || 'Query failed.');
-        } catch { renderError('Cannot reach RAG service. Is rag_service.exe running?'); }
-        finally   { setLoading(false); }
+        } catch { renderError('Cannot reach RAG service. Is it running?'); }
+        finally  { setLoading(false); }
     };
 
     function setLoading(on) {
         document.getElementById('ask-btn').disabled = on;
         document.getElementById('ask-spinner').style.display = on ? 'inline-block' : 'none';
     }
-
     function clearAnswer() { document.getElementById('answer-box').innerHTML = ''; }
 
     function renderAnswer(answer, sources) {
@@ -786,7 +944,6 @@
             .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
             .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
             .replace(/\n/g,'<br>');
-
         let srcHtml = '';
         if (sources.length) {
             const rows = sources.slice(0, 8).map(s => `
@@ -800,18 +957,114 @@
                 </div>`).join('');
             srcHtml = `<div class="sources-header"><i class="fas fa-database"></i> Sources (${sources.length} records)</div>${rows}`;
         }
-
-        document.getElementById('answer-box').innerHTML = `
-            <div class="answer-success">${html}</div>
-            ${srcHtml}`;
+        document.getElementById('answer-box').innerHTML = `<div class="answer-success">${html}</div>${srcHtml}`;
     }
 
     function renderError(msg) {
-        document.getElementById('answer-box').innerHTML = `
-            <div class="answer-error"><i class="fas fa-exclamation-circle"></i> ${msg}</div>`;
+        document.getElementById('answer-box').innerHTML =
+            `<div class="answer-error"><i class="fas fa-exclamation-circle"></i> ${msg}</div>`;
     }
 
-    // ── Toast notifications ──
+    // ── Browse modal ──────────────────────────────────────────────────────────
+    let browseCurrentPage = 1;
+    let browseTotalPages  = 1;
+    let browseAllRows     = [];   // full page data (for client-side filter)
+    let browseFilterStr   = '';
+
+    window.openBrowse = async function () {
+        browseCurrentPage = 1;
+        browseFilterStr   = '';
+        document.getElementById('browse-search').value = '';
+        document.getElementById('browse-modal').classList.add('open');
+        document.body.style.overflow = 'hidden';
+        await loadBrowsePage(1);
+    };
+
+    window.closeBrowse = function () {
+        document.getElementById('browse-modal').classList.remove('open');
+        document.body.style.overflow = '';
+    };
+
+    window.closeBrowseOnOverlay = function (e) {
+        if (e.target === document.getElementById('browse-modal')) closeBrowse();
+    };
+
+    window.browsePage = async function (delta) {
+        const next = browseCurrentPage + delta;
+        if (next < 1 || next > browseTotalPages) return;
+        await loadBrowsePage(next);
+    };
+
+    window.browseFilter = function () {
+        browseFilterStr = document.getElementById('browse-search').value.toLowerCase().trim();
+        renderBrowseRows();
+    };
+
+    async function loadBrowsePage(page) {
+        const tbody = document.getElementById('browse-tbody');
+        tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px;">
+            <i class="fas fa-spinner spinner"></i> Loading…</td></tr>`;
+        try {
+            const d = await apiGet(`/browse?page=${page}&per_page=50`);
+            browseCurrentPage = d.page;
+            browseTotalPages  = d.pages;
+            browseAllRows     = d.records || [];
+            document.getElementById('browse-title-count').textContent =
+                `— ${d.total.toLocaleString()} records total`;
+            document.getElementById('browse-pager-text').textContent =
+                `Page ${d.page} / ${d.pages}`;
+            document.getElementById('browse-prev').disabled = page <= 1;
+            document.getElementById('browse-next').disabled = page >= d.pages;
+            renderBrowseRows();
+        } catch {
+            tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;color:#ef4444;padding:24px;">
+                Cannot reach RAG service.</td></tr>`;
+        }
+    }
+
+    function renderBrowseRows() {
+        const rows = browseFilterStr
+            ? browseAllRows.filter(r => {
+                const m = r.metadata || {};
+                return [m.trip_id, m.order_number, m.customer, m.picker, m.vehicle, m.trip_date]
+                    .some(v => v && String(v).toLowerCase().includes(browseFilterStr));
+              })
+            : browseAllRows;
+
+        const note = document.getElementById('browse-filter-note');
+        note.textContent = browseFilterStr
+            ? `${rows.length} of ${browseAllRows.length} shown (filtered)`
+            : '';
+
+        document.getElementById('browse-foot-info').textContent =
+            `${rows.length} record${rows.length !== 1 ? 's' : ''} on this page`;
+
+        if (!rows.length) {
+            document.getElementById('browse-tbody').innerHTML =
+                `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px;">No records match.</td></tr>`;
+            return;
+        }
+
+        document.getElementById('browse-tbody').innerHTML = rows.map(r => {
+            const m = r.metadata || {};
+            return `<tr>
+                <td style="color:#6366f1;font-weight:700;">${esc(m.trip_id)}</td>
+                <td>${esc(m.trip_date)}</td>
+                <td>${esc(m.order_number)}</td>
+                <td>${esc(m.customer)}</td>
+                <td style="color:#10b981;">${m.picker ? '👤 ' + esc(m.picker) : '<span style="color:#cbd5e1">—</span>'}</td>
+                <td>${esc(m.vehicle)}</td>
+                <td>${m.priority ? `<span class="badge-status">${esc(m.priority)}</span>` : '—'}</td>
+                <td>${m.status  ? `<span class="badge-status">${esc(m.status)}</span>`   : '—'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    function esc(v) {
+        return v ? String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+    }
+
+    // ── Toast ──
     function notify(msg, type) {
         const colors = { success:'#10b981', error:'#ef4444', info:'#6366f1' };
         const icons  = { success:'check-circle', error:'exclamation-circle', info:'info-circle' };
@@ -826,18 +1079,28 @@
 
     // ── Init ──
     function init() {
-        // Default range = 15 days
         applyRange(15);
 
-        // Restore saved Claude key
-        const saved = localStorage.getItem('claudeApiKey') || '';
-        const keyInput = document.getElementById('claude-key');
-        keyInput.value = saved;
-        keyInput.addEventListener('input', () => localStorage.setItem('claudeApiKey', keyInput.value.trim()));
+        // Restore provider
+        const savedProvider = localStorage.getItem('ragProvider') || 'claude';
+        selectProvider(savedProvider);
 
-        // Enter to submit query
+        // Restore keys
+        const claudeKey = document.getElementById('claude-key');
+        claudeKey.value = localStorage.getItem('claudeApiKey') || '';
+        claudeKey.addEventListener('input', () => localStorage.setItem('claudeApiKey', claudeKey.value.trim()));
+
+        const openaiKey = document.getElementById('openai-key');
+        openaiKey.value = localStorage.getItem('openaiApiKey') || '';
+        openaiKey.addEventListener('input', () => localStorage.setItem('openaiApiKey', openaiKey.value.trim()));
+
         document.getElementById('query-input').addEventListener('keydown', e => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitQuery(); }
+        });
+
+        // Esc closes modal
+        document.addEventListener('keydown', e => {
+            if (e.key === 'Escape') closeBrowse();
         });
 
         checkHealth();

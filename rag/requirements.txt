@@ -13,6 +13,7 @@ fastembed>=0.3.0
 # Numerics — cp314 binary wheels available via PyPI
 numpy>=2.0.0
 
-# HTTP + Claude AI (pure Python)
+# HTTP + AI providers (pure Python)
 requests==2.32.3
 anthropic==0.40.0
+openai>=1.0.0
