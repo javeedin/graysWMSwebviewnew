@@ -6,6 +6,7 @@
 <title>AI Knowledge Base — Gray's WMS</title>
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 /* ── Reset ── */
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -284,6 +285,33 @@ textarea { resize:vertical; }
    PREVIEW MODAL
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 .pre-box { background:#0f172a; color:#e2e8f0; padding:14px; border-radius:8px; font-family:monospace; font-size:11px; overflow:auto; max-height:340px; white-space:pre; line-height:1.55; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ADVANCED OUTPUT — chart / table / html
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.export-btn {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:6px 14px; font-size:12px; font-weight:600;
+    border:1px solid var(--border); border-radius:7px;
+    background:white; color:var(--text-2); cursor:pointer;
+    font-family:inherit; transition:background .15s,color .15s,border-color .15s;
+}
+.export-btn:hover { background:#eef2ff; color:var(--indigo); border-color:#a5b4fc; }
+.export-btn i { font-size:11px; }
+.export-bar { display:flex; gap:7px; flex-wrap:wrap; margin-top:10px; }
+.chart-wrap { position:relative; width:100%; max-height:300px; margin:10px 0; }
+.output-hint {
+    font-size:11px; color:var(--text-3); background:#f8fafc;
+    border:1px solid var(--border); border-radius:7px;
+    padding:8px 12px; display:flex; align-items:center; gap:7px;
+}
+.output-hint strong { color:var(--indigo); }
+.out-table { width:100%; border-collapse:collapse; font-size:12px; }
+.out-table th { background:#f8fafc; padding:7px 10px; text-align:left;
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--text-2); border-bottom:2px solid var(--border); }
+.out-table td { padding:6px 10px; border-bottom:1px solid #f8fafc; color:var(--text); }
+.out-table tr:hover td { background:#fafafe; }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
    SPINNER / TOAST
@@ -577,6 +605,20 @@ textarea { resize:vertical; }
                                 </div>
 
                                 <div>
+                                    <label class="field-label"><i class="fas fa-magic" style="color:var(--indigo);"></i> Advanced — Charts &amp; Reports</label>
+                                    <div class="prompt-chips">
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a bar chart of total orders by picker')">📊 Bar: orders by picker</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a pie chart of trips by vehicle')">🥧 Pie: trips by vehicle</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a bar chart of orders by status (delivered, pending, open)')">📊 Bar: by status</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a line chart of daily order volumes')">📈 Line: daily volumes</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Show a table of all trips with trip ID, customer, picker, vehicle, and status')">📋 Table: all trips</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Create a table of top 10 customers by number of orders')">📋 Table: top customers</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Generate an HTML report page for recent deliveries with a summary table and key stats')">🖥️ HTML report</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a doughnut chart of high vs normal vs low priority trips')">🍩 Doughnut: priority</button>
+                                    </div>
+                                </div>
+
+                                <div>
                                     <label class="field-label">Your Question</label>
                                     <textarea id="query-input" rows="5"
                                         placeholder="e.g. Which pickers handled the most orders this month?&#10;(Enter = submit, Shift+Enter = new line)"></textarea>
@@ -587,6 +629,11 @@ textarea { resize:vertical; }
                                     <i class="fas fa-spinner spinner" id="ask-spinner" style="display:none;"></i>
                                     Ask AI
                                 </button>
+
+                                <div class="output-hint">
+                                    <i class="fas fa-magic"></i>
+                                    <span><strong>Advanced outputs:</strong> Say "draw a chart", "show a table", or "generate an HTML report" — the AI renders it directly with export options.</span>
+                                </div>
 
                                 <!-- Provider indicator -->
                                 <div id="provider-indicator" style="text-align:center;font-size:11px;color:var(--text-3);margin-top:-4px;">
@@ -1137,27 +1184,239 @@ function setLoading(on) {
     document.getElementById('ask-spinner').style.display = on ? 'inline-block' : 'none';
 }
 
-function renderAnswer(answer, sources) {
+// ── Structured output parser ───────────────────────────────────────────────────
+function tryParseStructured(raw) {
+    const s = (raw || '').trim();
+    // Direct JSON
+    try { const p = JSON.parse(s); if (p && p.type) return p; } catch {}
+    // Fenced code block: ```json ... ``` or ``` ... ```
+    const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) { try { const p = JSON.parse(fenced[1].trim()); if (p && p.type) return p; } catch {} }
+    // Raw JSON object in mixed text
+    const first = s.indexOf('{');
+    const last  = s.lastIndexOf('}');
+    if (first !== -1 && last > first) {
+        try { const p = JSON.parse(s.slice(first, last + 1)); if (p && p.type) return p; } catch {}
+    }
+    return null;
+}
+
+// ── Sources HTML (shared) ─────────────────────────────────────────────────────
+function sourcesHtml(sources) {
+    if (!sources || !sources.length) return '';
+    const rows = sources.slice(0, 8).map(s => `
+        <div class="src-row">
+            <span style="color:var(--indigo);font-weight:700;min-width:64px;">Trip ${esc(s.trip_id)}</span>
+            <span style="color:var(--text-3);">${esc(s.trip_date)}</span>
+            <span>${esc(s.order_number)}</span>
+            <span style="color:var(--text-2);">${esc(s.customer)}</span>
+            ${s.picker ? `<span style="color:var(--success);">👤 ${esc(s.picker)}</span>` : ''}
+            ${s.status ? `<span class="badge">${esc(s.status)}</span>` : ''}
+        </div>`).join('');
+    return `<div class="src-label"><i class="fas fa-database"></i> Sources (${sources.length} records)</div>${rows}`;
+}
+
+// ── Main dispatcher ────────────────────────────────────────────────────────────
+function renderAnswer(rawAnswer, sources) {
+    const parsed = tryParseStructured(rawAnswer);
+    if (parsed) {
+        switch (parsed.type) {
+            case 'chart':  return renderChartOutput(parsed, sources);
+            case 'table':  return renderTableOutput(parsed, sources);
+            case 'html':   return renderHtmlOutput(parsed, sources);
+        }
+    }
+    renderTextOutput(rawAnswer, sources);
+}
+
+// ── TEXT output ────────────────────────────────────────────────────────────────
+function renderTextOutput(answer, sources) {
     const html = answer
         .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
         .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
         .replace(/\n/g,'<br>');
-    let srcHtml = '';
-    if (sources.length) {
-        const rows = sources.slice(0,8).map(s => `
-            <div class="src-row">
-                <span style="color:var(--indigo);font-weight:700;min-width:64px;">Trip ${esc(s.trip_id)}</span>
-                <span style="color:var(--text-3);">${esc(s.trip_date)}</span>
-                <span>${esc(s.order_number)}</span>
-                <span style="color:var(--text-2);">${esc(s.customer)}</span>
-                ${s.picker ? `<span style="color:var(--success);">👤 ${esc(s.picker)}</span>` : ''}
-                ${s.status ? `<span class="badge">${esc(s.status)}</span>` : ''}
-            </div>`).join('');
-        srcHtml = `<div class="src-label"><i class="fas fa-database"></i> Sources (${sources.length} records)</div>${rows}`;
-    }
     document.getElementById('answer-box').innerHTML =
-        `<div class="answer-success">${html}</div>${srcHtml}`;
+        `<div class="answer-success">${html}</div>${sourcesHtml(sources)}`;
 }
+
+// ── CHART output (Chart.js) ────────────────────────────────────────────────────
+let _chartInstance = null;
+function renderChartOutput(data, sources) {
+    const canvasId = 'rag-chart-' + Date.now();
+    const expTxt   = data.explanation ? `<div style="margin-bottom:10px;color:var(--text-2);font-size:12px;">${esc(data.explanation)}</div>` : '';
+    document.getElementById('answer-box').innerHTML = `
+        <div class="answer-success">
+            <div style="font-weight:800;font-size:14px;margin-bottom:6px;color:var(--text);">
+                <i class="fas fa-chart-bar" style="color:var(--indigo);"></i> ${esc(data.title || 'Chart')}
+            </div>
+            ${expTxt}
+            <div class="chart-wrap"><canvas id="${canvasId}"></canvas></div>
+            <div class="export-bar">
+                <button class="export-btn" onclick="downloadChartPng('${canvasId}','${esc(data.title||'chart')}')">
+                    <i class="fas fa-image"></i> Save PNG
+                </button>
+                <button class="export-btn" onclick="printChart('${canvasId}','${esc(data.title||'Chart')}')">
+                    <i class="fas fa-print"></i> Print / PDF
+                </button>
+            </div>
+        </div>
+        ${sourcesHtml(sources)}`;
+    // Destroy previous chart to avoid canvas reuse errors
+    if (_chartInstance) { try { _chartInstance.destroy(); } catch {} _chartInstance = null; }
+    try {
+        const cfg = data.chartjs || {};
+        // Ensure responsive
+        cfg.options = cfg.options || {};
+        cfg.options.responsive = true;
+        cfg.options.maintainAspectRatio = true;
+        _chartInstance = new Chart(document.getElementById(canvasId), cfg);
+    } catch(e) {
+        document.getElementById('answer-box').innerHTML +=
+            `<div style="color:var(--danger);font-size:12px;margin-top:6px;"><i class="fas fa-exclamation-circle"></i> Chart render error: ${esc(e.message)}</div>`;
+    }
+}
+
+window.downloadChartPng = function(canvasId, title) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = (title || 'chart').replace(/[^a-z0-9_-]/gi,'_') + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+};
+
+window.printChart = function(canvasId, title) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const img   = canvas.toDataURL('image/png');
+    const win   = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head><title>${esc(title)}</title>
+        <style>body{font-family:Segoe UI,sans-serif;padding:24px;}h1{color:#4f46e5;font-size:18px;}img{max-width:100%;}</style>
+        </head><body><h1>${esc(title)}</h1><img src="${img}"><script>window.onload=()=>window.print();<\/script></body></html>`);
+    win.document.close();
+};
+
+// ── TABLE output ───────────────────────────────────────────────────────────────
+window._lastTable = null;
+function renderTableOutput(data, sources) {
+    const cols = data.columns || [];
+    const rows = data.rows    || [];
+    const expTxt = data.explanation ? `<div style="margin-bottom:10px;color:var(--text-2);font-size:12px;">${esc(data.explanation)}</div>` : '';
+    const thead  = `<tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr>`;
+    const tbody  = rows.map(r => `<tr>${r.map(v => `<td>${esc(String(v??''))}</td>`).join('')}</tr>`).join('');
+    document.getElementById('answer-box').innerHTML = `
+        <div class="answer-success">
+            <div style="font-weight:800;font-size:14px;margin-bottom:6px;color:var(--text);">
+                <i class="fas fa-table" style="color:var(--indigo);"></i> ${esc(data.title || 'Table')}
+            </div>
+            ${expTxt}
+            <div style="overflow-x:auto;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;">
+                <table class="out-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+            </div>
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:8px;">${rows.length} row${rows.length!==1?'s':''}</div>
+            <div class="export-bar">
+                <button class="export-btn" onclick="exportTableCsv()">
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </button>
+                <button class="export-btn" onclick="printTableOutput()">
+                    <i class="fas fa-print"></i> Print / PDF
+                </button>
+            </div>
+        </div>
+        ${sourcesHtml(sources)}`;
+    window._lastTable = { columns: cols, rows: rows, title: data.title || 'report' };
+}
+
+window.exportTableCsv = function() {
+    if (!window._lastTable) return;
+    const { columns, rows, title } = window._lastTable;
+    const csvRow = arr => arr.map(v => `"${String(v??'').replace(/"/g,'""')}"`).join(',');
+    const csv    = [csvRow(columns), ...rows.map(csvRow)].join('\r\n');
+    const blob   = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a      = document.createElement('a');
+    a.href       = URL.createObjectURL(blob);
+    a.download   = (title || 'report').replace(/[^a-z0-9_-]/gi,'_') + '.csv';
+    a.click();
+};
+
+window.printTableOutput = function() {
+    if (!window._lastTable) return;
+    const { columns, rows, title } = window._lastTable;
+    const thead = `<tr>${columns.map(c => `<th style="background:#f1f5f9;padding:8px;text-align:left;border-bottom:2px solid #e2e8f0;font-size:11px;text-transform:uppercase;">${c}</th>`).join('')}</tr>`;
+    const tbody = rows.map(r => `<tr>${r.map(v => `<td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;">${String(v??'')}</td>`).join('')}</tr>`).join('');
+    const win   = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+        <style>body{font-family:Segoe UI,sans-serif;padding:24px;font-size:13px;}
+        h1{color:#4f46e5;font-size:18px;}table{width:100%;border-collapse:collapse;}</style>
+        </head><body><h1>${title}</h1>
+        <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+        <p style="color:#94a3b8;font-size:11px;margin-top:16px;">Gray's WMS · ${new Date().toLocaleDateString()}</p>
+        <script>window.onload=()=>window.print();<\/script></body></html>`);
+    win.document.close();
+};
+
+// ── HTML output ────────────────────────────────────────────────────────────────
+function renderHtmlOutput(data, sources) {
+    const iframeId = 'rag-iframe-' + Date.now();
+    document.getElementById('answer-box').innerHTML = `
+        <div class="answer-success">
+            <div style="font-weight:800;font-size:14px;margin-bottom:8px;color:var(--text);">
+                <i class="fas fa-file-code" style="color:var(--indigo);"></i> ${esc(data.title || 'HTML Report')}
+            </div>
+            <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px;">
+                <iframe id="${iframeId}" style="width:100%;min-height:320px;border:none;display:block;" srcdoc=""></iframe>
+            </div>
+            <div class="export-bar">
+                <button class="export-btn" onclick="printIframeContent('${iframeId}')">
+                    <i class="fas fa-print"></i> Print / Save PDF
+                </button>
+                <button class="export-btn" onclick="copyHtmlContent('${iframeId}')">
+                    <i class="fas fa-copy"></i> Copy HTML
+                </button>
+                <button class="export-btn" onclick="openHtmlNewTab('${iframeId}')">
+                    <i class="fas fa-external-link-alt"></i> Open in Tab
+                </button>
+            </div>
+        </div>
+        ${sourcesHtml(sources)}`;
+
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+        <style>
+        body{font-family:'Segoe UI',Tahoma,sans-serif;padding:20px;font-size:13px;color:#1e293b;line-height:1.6;}
+        h1,h2,h3{color:#4f46e5;}
+        table{width:100%;border-collapse:collapse;margin:10px 0;}
+        th{background:#f1f5f9;padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;}
+        td{padding:7px 10px;border-bottom:1px solid #f1f5f9;}
+        tr:hover td{background:#f8fafc;}
+        .badge{background:#eef2ff;color:#4f46e5;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;}
+        .stat{background:#f8fafc;border-radius:8px;padding:12px 16px;display:inline-block;margin:4px;}
+        .stat-num{font-size:24px;font-weight:900;color:#4f46e5;}
+        .stat-lbl{font-size:11px;color:#94a3b8;}
+        </style></head><body>${data.content || ''}</body></html>`;
+    document.getElementById(iframeId).srcdoc = fullHtml;
+}
+
+window.printIframeContent = function(iframeId) {
+    const frame = document.getElementById(iframeId);
+    if (frame && frame.contentWindow) frame.contentWindow.print();
+};
+
+window.copyHtmlContent = function(iframeId) {
+    const frame = document.getElementById(iframeId);
+    if (!frame) return;
+    const html = frame.srcdoc || '';
+    navigator.clipboard.writeText(html).then(() => notify('HTML copied to clipboard!', 'success'))
+        .catch(() => notify('Copy failed — try manually.', 'error'));
+};
+
+window.openHtmlNewTab = function(iframeId) {
+    const frame = document.getElementById(iframeId);
+    if (!frame || !frame.srcdoc) return;
+    const blob = new Blob([frame.srcdoc], { type: 'text/html' });
+    const url  = URL.createObjectURL(blob);
+    const win  = window.open(url, '_blank');
+    if (win) setTimeout(() => URL.revokeObjectURL(url), 5000);
+};
 
 function renderError(msg) {
     document.getElementById('answer-box').innerHTML =

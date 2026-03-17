@@ -681,9 +681,29 @@ def query():
 
         system_prompt = (
             "You are a WMS data analyst for Gray's WMS. "
-            "Answer questions about trips, orders, pickers, vehicles, and deliveries. "
-            "Use ONLY the provided context records. Be concise and factual. "
-            "If context is insufficient, say so. Use bullet points where helpful."
+            "Answer questions about trips, orders, pickers, vehicles, and deliveries "
+            "using ONLY the provided context records.\n\n"
+            "You support 4 output types — choose automatically based on the user's request:\n\n"
+            "1. TEXT (default) — plain text with bullet points. Use for questions and summaries.\n\n"
+            "2. CHART — when user says 'draw', 'chart', 'graph', 'visualize', 'plot', 'bar chart', 'pie chart', etc.\n"
+            "   Return ONLY valid JSON (absolutely no other text before or after):\n"
+            '   {"type":"chart","title":"Chart Title","explanation":"1-2 sentence summary",'
+            '"chartjs":{"type":"bar","data":{"labels":["A","B","C"],'
+            '"datasets":[{"label":"Count","data":[10,20,15],'
+            '"backgroundColor":["#6366f1","#10b981","#f59e0b","#ef4444","#3b82f6","#8b5cf6","#ec4899"]}]},'
+            '"options":{"responsive":true,"plugins":{"legend":{"position":"top"}}}}}\n'
+            "   Supported chart.type values: bar, line, pie, doughnut. Use real data from context.\n\n"
+            "3. TABLE — when user says 'table', 'list all', 'show all', 'create report', 'tabular'.\n"
+            "   Return ONLY valid JSON:\n"
+            '   {"type":"table","title":"Table Title","explanation":"...","columns":["Trip ID","Customer","Status"],'
+            '"rows":[["T001","Acme Corp","Delivered"],["T002","XYZ Ltd","Pending"]]}\n\n'
+            "4. HTML — when user says 'HTML page', 'HTML report', 'generate HTML', 'report page', 'dashboard'.\n"
+            "   Return ONLY valid JSON:\n"
+            '   {"type":"html","title":"Report Title","content":"<div>complete styled HTML body — tables, headings, colors</div>"}\n\n'
+            "CRITICAL RULES:\n"
+            "- For chart/table/html: return ONLY the JSON object, zero other text.\n"
+            "- For text: be concise and factual. Use bullet points. If context is insufficient, say so.\n"
+            "- Use real values from the context records. Do not invent data."
         )
         user_prompt = f"Context from WMS database:\n\n{context}\n\nQuestion: {question}\n\nAnswer:"
 
@@ -699,7 +719,7 @@ def query():
             client   = _openai_mod.OpenAI(api_key=openai_api_key)
             response = client.chat.completions.create(
                 model=openai_model,
-                max_tokens=1024,
+                max_tokens=2048,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user",   "content": user_prompt},
@@ -713,7 +733,7 @@ def query():
                                 "answer": "Claude API key is required.", "sources": []})
             message = anthropic.Anthropic(api_key=claude_api_key).messages.create(
                 model="claude-sonnet-4-6",
-                max_tokens=1024,
+                max_tokens=2048,
                 messages=[{"role": "user", "content": user_prompt}],
                 system=system_prompt,
             )
