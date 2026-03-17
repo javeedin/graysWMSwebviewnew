@@ -17,9 +17,10 @@ pyinstaller --onefile ^
   --name rag_service ^
   --hidden-import=flask ^
   --hidden-import=flask_cors ^
-  --hidden-import=fastembed ^
   --hidden-import=numpy ^
   --hidden-import=anthropic ^
+  --collect-all fastembed ^
+  --collect-all onnxruntime ^
   rag_service.py
 
 echo [RAG Build] Done! Output: dist\rag_service.exe
