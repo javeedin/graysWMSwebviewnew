@@ -73,6 +73,11 @@ namespace WMSApp
         // RAG Service Process
         private System.Diagnostics.Process _ragServiceProcess;
 
+        // Shared WebView2 environment — created once with browser args that allow
+        // file:// pages to fetch http://127.0.0.1 (Private Network Access).
+        private static CoreWebView2Environment _sharedEnv;
+        private static readonly System.Threading.SemaphoreSlim _envLock = new System.Threading.SemaphoreSlim(1, 1);
+
         public Form1()
         {
             InitializeComponent();
@@ -1574,11 +1579,43 @@ navPanel.Controls.Add(wmsDevButton);
                 this.Close();
         }
 
+        /// <summary>
+        /// Returns a shared CoreWebView2Environment whose browser args allow file://
+        /// pages to make fetch() calls to http://127.0.0.1 (RAG service, etc.).
+        /// BlockInsecurePrivateNetworkRequests is the Chromium feature that blocks
+        /// requests from non-secure / file:// contexts to localhost addresses.
+        /// </summary>
+        private static async Task<CoreWebView2Environment> GetSharedEnvironmentAsync()
+        {
+            if (_sharedEnv != null) return _sharedEnv;
+            await _envLock.WaitAsync();
+            try
+            {
+                if (_sharedEnv == null)
+                {
+                    var opts = new CoreWebView2EnvironmentOptions
+                    {
+                        AdditionalBrowserArguments =
+                            "--disable-features=BlockInsecurePrivateNetworkRequests"
+                    };
+                    _sharedEnv = await CoreWebView2Environment.CreateAsync(
+                        browserExecutableFolder: null,
+                        userDataFolder:          null,
+                        options:                 opts);
+                }
+                return _sharedEnv;
+            }
+            finally
+            {
+                _envLock.Release();
+            }
+        }
+
         private async void InitializeWebView(WebView2 wv, string url)
         {
             try
             {
-                await wv.EnsureCoreWebView2Async(null);
+                await wv.EnsureCoreWebView2Async(await GetSharedEnvironmentAsync());
 
                 // CACHE FIX: Clear browser cache to ensure tabs load properly (preserve localStorage for login state)
                 try
