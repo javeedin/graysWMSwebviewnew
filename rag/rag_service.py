@@ -62,7 +62,28 @@ EMBED_MODEL     = "BAAI/bge-small-en-v1.5"   # ~130 MB ONNX model, fully offline
 #  Flask app
 # ─────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins="*", supports_credentials=False)
+
+@app.after_request
+def add_cors_private_network(response):
+    """Allow WebView2 (file:// context) to reach this local service.
+    Chrome/WebView2 Private Network Access policy requires this header."""
+    response.headers["Access-Control-Allow-Origin"]          = "*"
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    response.headers["Access-Control-Allow-Methods"]         = "GET, POST, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"]         = "Content-Type"
+    return response
+
+@app.route("/", defaults={"path": ""}, methods=["OPTIONS"])
+@app.route("/<path:path>", methods=["OPTIONS"])
+def handle_preflight(path):
+    """Handle CORS preflight (OPTIONS) for Private Network Access."""
+    response = app.make_default_options_response()
+    response.headers["Access-Control-Allow-Origin"]          = "*"
+    response.headers["Access-Control-Allow-Private-Network"] = "true"
+    response.headers["Access-Control-Allow-Methods"]         = "GET, POST, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"]         = "Content-Type"
+    return response
 
 # ─────────────────────────────────────────────
 #  Sync state
