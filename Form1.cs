@@ -5755,7 +5755,6 @@ navPanel.Controls.Add(wmsDevButton);
                     return;
                 }
 
-                // Locate rag_service.py in common paths
                 string[] searchDirs = new[]
                 {
                     Path.Combine(Path.GetDirectoryName(Application.ExecutablePath) ?? "", "rag"),
@@ -5766,28 +5765,45 @@ navPanel.Controls.Add(wmsDevButton);
                         @"source\repos\javeedin\graysWMSwebviewnew\rag"),
                 };
 
+                // Prefer compiled exe (production), fall back to .py (dev)
+                string ragExe = null;
                 string ragScript = null;
                 foreach (var dir in searchDirs)
                 {
-                    var candidate = Path.Combine(dir, "rag_service.py");
-                    if (File.Exists(candidate)) { ragScript = candidate; break; }
+                    var exeCandidate = Path.Combine(dir, "rag_service.exe");
+                    if (File.Exists(exeCandidate)) { ragExe = exeCandidate; break; }
+                    var pyCandidate = Path.Combine(dir, "rag_service.py");
+                    if (File.Exists(pyCandidate)) { ragScript = pyCandidate; break; }
                 }
 
-                if (ragScript == null)
+                System.Diagnostics.ProcessStartInfo psi;
+                if (ragExe != null)
                 {
-                    await SendRagServiceResult(wv, false, "rag_service.py not found. Check that the rag folder exists.");
+                    System.Diagnostics.Debug.WriteLine($"[RAG SERVICE] Starting exe: \"{ragExe}\"");
+                    psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = ragExe,
+                        WorkingDirectory = Path.GetDirectoryName(ragExe),
+                        UseShellExecute = true,
+                        CreateNoWindow = false,
+                    };
+                }
+                else if (ragScript != null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[RAG SERVICE] Starting: py -3.12 \"{ragScript}\"");
+                    psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "py",
+                        Arguments = $"-3.12 \"{ragScript}\"",
+                        UseShellExecute = true,
+                        CreateNoWindow = false,
+                    };
+                }
+                else
+                {
+                    await SendRagServiceResult(wv, false, "RAG service not found (rag_service.exe or rag_service.py). Check that the rag folder exists.");
                     return;
                 }
-
-                System.Diagnostics.Debug.WriteLine($"[RAG SERVICE] Starting: py -3.12 \"{ragScript}\"");
-
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "py",
-                    Arguments = $"-3.12 \"{ragScript}\"",
-                    UseShellExecute = true,   // opens a visible console window
-                    CreateNoWindow = false,
-                };
 
                 _ragServiceProcess = System.Diagnostics.Process.Start(psi);
                 System.Diagnostics.Debug.WriteLine($"[RAG SERVICE] Started PID {_ragServiceProcess?.Id}");
