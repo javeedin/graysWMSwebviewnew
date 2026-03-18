@@ -240,6 +240,14 @@ namespace WMSApp
         [JsonProperty("message")]     public string   Message     { get; set; }
         [JsonProperty("sender")]      public string   Sender      { get; set; }
         [JsonProperty("data")]        public object   Data        { get; set; }
+
+        // Location tracking fields (type = "location")
+        [JsonProperty("pickerId")]    public string   PickerId    { get; set; }
+        [JsonProperty("pickerName")]  public string   PickerName  { get; set; }
+        [JsonProperty("zone")]        public string   Zone        { get; set; }
+        [JsonProperty("x")]           public double   X           { get; set; }
+        [JsonProperty("y")]           public double   Y           { get; set; }
+
         public DateTime ReceivedAt { get; set; }
     }
 }

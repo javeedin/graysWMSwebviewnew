@@ -76,6 +76,10 @@ namespace WMSApp
         // Mobile Notification Listener
         private MobileNotificationListener _mobileListener;
 
+        // Picker route store — keyed by pickerId, each value is ordered list of location points
+        private readonly Dictionary<string, List<MobileNotification>> _pickerRoutes = new();
+        private readonly object _pickerRoutesLock = new object();
+
         // Shared WebView2 environment — created once with browser args that allow
         // file:// pages to fetch http://127.0.0.1 (Private Network Access).
         private static CoreWebView2Environment _sharedEnv;
@@ -1879,6 +1883,15 @@ navPanel.Controls.Add(wmsDevButton);
                                 case "stopMobileListener":
                                     _mobileListener?.Stop();
                                     await SendScriptAsync(wv, requestId, true, "Mobile listener stopped.");
+                                    break;
+
+                                case "getPickerRoutes":
+                                    await HandleGetPickerRoutes(wv, requestId);
+                                    break;
+
+                                case "clearPickerRoute":
+                                    HandleClearPickerRoute(root);
+                                    await SendScriptAsync(wv, requestId, true, "Route cleared.");
                                     break;
 
                                 default:
@@ -5903,6 +5916,20 @@ navPanel.Controls.Add(wmsDevButton);
         /// </summary>
         private void OnMobileNotificationReceived(MobileNotification notification)
         {
+            // Store location points for route tracking
+            if (notification.Type == "location" && !string.IsNullOrEmpty(notification.PickerId))
+            {
+                lock (_pickerRoutesLock)
+                {
+                    if (!_pickerRoutes.ContainsKey(notification.PickerId))
+                        _pickerRoutes[notification.PickerId] = new List<MobileNotification>();
+                    _pickerRoutes[notification.PickerId].Add(notification);
+                    // Keep last 1000 points per picker
+                    var list = _pickerRoutes[notification.PickerId];
+                    if (list.Count > 1000) list.RemoveRange(0, list.Count - 1000);
+                }
+            }
+
             string json = Newtonsoft.Json.JsonConvert.SerializeObject(notification);
             string safe = json.Replace("\\", "\\\\").Replace("'", "\\'");
 
@@ -5951,6 +5978,47 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MobileListener] HandleGetInfo error: {ex.Message}");
+            }
+        }
+
+        private async Task HandleGetPickerRoutes(WebView2 wv, string requestId)
+        {
+            try
+            {
+                Dictionary<string, List<MobileNotification>> snapshot;
+                lock (_pickerRoutesLock)
+                {
+                    snapshot = _pickerRoutes.ToDictionary(
+                        kv => kv.Key,
+                        kv => kv.Value.ToList());
+                }
+                string json  = Newtonsoft.Json.JsonConvert.SerializeObject(snapshot);
+                string reqId = requestId?.Replace("'", "\\'") ?? "";
+                await wv.CoreWebView2.ExecuteScriptAsync(
+                    $"if(window.pendingRequests&&window.pendingRequests['{reqId}']){{window.pendingRequests['{reqId}'](null,JSON.stringify({json}));delete window.pendingRequests['{reqId}'];}}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MobileListener] HandleGetPickerRoutes error: {ex.Message}");
+            }
+        }
+
+        private void HandleClearPickerRoute(System.Text.Json.JsonElement root)
+        {
+            try
+            {
+                string pickerId = root.TryGetProperty("pickerId", out var pidProp) ? pidProp.GetString() ?? "" : "";
+                lock (_pickerRoutesLock)
+                {
+                    if (pickerId == "all")
+                        _pickerRoutes.Clear();
+                    else if (!string.IsNullOrEmpty(pickerId))
+                        _pickerRoutes.Remove(pickerId);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MobileListener] HandleClearPickerRoute error: {ex.Message}");
             }
         }
 
