@@ -73,6 +73,9 @@ namespace WMSApp
         // RAG Service Process
         private System.Diagnostics.Process _ragServiceProcess;
 
+        // Mobile Notification Listener
+        private MobileNotificationListener _mobileListener;
+
         // Shared WebView2 environment — created once with browser args that allow
         // file:// pages to fetch http://127.0.0.1 (Private Network Access).
         private static CoreWebView2Environment _sharedEnv;
@@ -106,6 +109,9 @@ try
 
                 // Fetch Oracle Fusion credentials on startup (fire and forget)
                 _ = FetchFusionCredentialsOnStartup();
+
+                // Start mobile notification listener
+                StartMobileListener();
             }
             catch (Exception ex)
             {
@@ -1859,6 +1865,20 @@ navPanel.Controls.Add(wmsDevButton);
 
                                 case "stopRagService":
                                     await HandleStopRagService(wv, requestId);
+                                    break;
+
+                                case "getMobileListenerInfo":
+                                    await HandleGetMobileListenerInfo(wv, requestId);
+                                    break;
+
+                                case "startMobileListener":
+                                    StartMobileListener();
+                                    await HandleGetMobileListenerInfo(wv, requestId);
+                                    break;
+
+                                case "stopMobileListener":
+                                    _mobileListener?.Stop();
+                                    await SendScriptAsync(wv, requestId, true, "Mobile listener stopped.");
                                     break;
 
                                 default:
@@ -5856,6 +5876,97 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[RAG SERVICE] Failed to send result to JS: {ex.Message}");
+            }
+        }
+
+        // ========== MOBILE NOTIFICATION LISTENER ==========
+
+        private void StartMobileListener()
+        {
+            try
+            {
+                if (_mobileListener != null && _mobileListener.IsRunning) return;
+
+                _mobileListener = new MobileNotificationListener(8766);
+                _mobileListener.NotificationReceived += OnMobileNotificationReceived;
+                _mobileListener.Start();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MobileListener] Start failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Called on a background thread when the mobile app posts a notification.
+        /// Marshals to UI thread and broadcasts to all open WebViews.
+        /// </summary>
+        private void OnMobileNotificationReceived(MobileNotification notification)
+        {
+            string json = Newtonsoft.Json.JsonConvert.SerializeObject(notification);
+            string safe = json.Replace("\\", "\\\\").Replace("'", "\\'");
+
+            System.Diagnostics.Debug.WriteLine($"[MobileListener] Broadcasting: {json}");
+
+            // Marshal to UI thread — WebView2 must be called from STA thread
+            this.BeginInvoke(new Action(() =>
+            {
+                foreach (Control ctrl in tabBar.Controls)
+                {
+                    if (ctrl is CustomTabButton tab && tab.WebView?.CoreWebView2 != null)
+                    {
+                        try
+                        {
+                            _ = tab.WebView.CoreWebView2.ExecuteScriptAsync(
+                                $"if(typeof window.handleMobileNotification==='function'){{window.handleMobileNotification({json});}}");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[MobileListener] Broadcast to tab failed: {ex.Message}");
+                        }
+                    }
+                }
+            }));
+        }
+
+        private async Task HandleGetMobileListenerInfo(WebView2 wv, string requestId)
+        {
+            try
+            {
+                var ips  = MobileNotificationListener.GetLocalIPs();
+                var info = new
+                {
+                    isRunning = _mobileListener?.IsRunning ?? false,
+                    port      = _mobileListener?.Port ?? 8766,
+                    ips,
+                    notifyUrl = ips.Length > 0
+                        ? $"http://{ips[0]}:{_mobileListener?.Port ?? 8766}/notify"
+                        : $"http://localhost:{_mobileListener?.Port ?? 8766}/notify"
+                };
+                string json  = Newtonsoft.Json.JsonConvert.SerializeObject(info);
+                string reqId = requestId?.Replace("'", "\\'") ?? "";
+                await wv.CoreWebView2.ExecuteScriptAsync(
+                    $"if(window.pendingRequests&&window.pendingRequests['{reqId}']){{window.pendingRequests['{reqId}'](null,JSON.stringify({json}));delete window.pendingRequests['{reqId}'];}}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MobileListener] HandleGetInfo error: {ex.Message}");
+            }
+        }
+
+        private async Task SendScriptAsync(WebView2 wv, string requestId, bool success, string message)
+        {
+            try
+            {
+                string safeMsg = (message ?? "").Replace("\\", "\\\\").Replace("'", "\\'");
+                string reqId   = (requestId ?? "").Replace("'", "\\'");
+                string payload = Newtonsoft.Json.JsonConvert.SerializeObject(new { success, message });
+                await wv.CoreWebView2.ExecuteScriptAsync(
+                    $"if(window.pendingRequests&&window.pendingRequests['{reqId}']){{window.pendingRequests['{reqId}'](null,JSON.stringify({payload}));delete window.pendingRequests['{reqId}'];}}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SendScriptAsync] Error: {ex.Message}");
             }
         }
 

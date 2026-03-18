@@ -89,6 +89,205 @@ window.showNotification = function(message, type = 'info') {
 };
 
 // ========================================
+// MOBILE NOTIFICATIONS
+// ========================================
+
+window._mobileNotifications = [];    // history (newest first)
+window._mobileNotifPanelOpen = false;
+window._mobileUnread = 0;
+
+/** Called by C# (Form1) when a notification arrives from the mobile app */
+window.handleMobileNotification = function(notification) {
+    console.log('[Mobile Notify] Received:', notification);
+
+    // Normalise
+    const n = {
+        type:        notification.type        || 'alert',
+        orderNumber: notification.orderNumber || notification.OrderNumber || '',
+        message:     notification.message     || notification.Message     || '(no message)',
+        sender:      notification.sender      || notification.Sender      || 'Mobile App',
+        data:        notification.data        || notification.Data        || {},
+        receivedAt:  notification.receivedAt  || new Date().toISOString()
+    };
+
+    // Add to history
+    window._mobileNotifications.unshift(n);
+    if (window._mobileNotifications.length > 100) window._mobileNotifications.pop();
+
+    // Badge
+    if (!window._mobileNotifPanelOpen) {
+        window._mobileUnread++;
+        _updateMobileNotifBadge();
+    }
+
+    // Refresh panel list if open
+    _renderMobileNotifList();
+
+    // Pop-up toast (mobile-specific style — purple, wider, persists 6s)
+    _showMobileToast(n);
+};
+
+function _showMobileToast(n) {
+    const existing = document.getElementById('mobile-push-toast');
+    if (existing) existing.remove();
+
+    const typeColors = {
+        order_update:  '#6366f1',
+        alert:         '#ef4444',
+        status_change: '#f59e0b',
+        action:        '#8b5cf6'
+    };
+    const typeIcons = {
+        order_update:  'fa-box',
+        alert:         'fa-exclamation-circle',
+        status_change: 'fa-exchange-alt',
+        action:        'fa-bolt'
+    };
+    const color = typeColors[n.type] || '#6366f1';
+    const icon  = typeIcons[n.type]  || 'fa-mobile-alt';
+
+    const toast = document.createElement('div');
+    toast.id = 'mobile-push-toast';
+    toast.style.cssText = `
+        position:fixed;top:20px;right:20px;
+        background:${color};color:white;
+        padding:14px 18px;border-radius:10px;
+        box-shadow:0 6px 20px rgba(0,0,0,0.35);
+        z-index:999998;display:flex;align-items:flex-start;gap:12px;
+        max-width:340px;cursor:pointer;
+        animation:slideIn 0.3s ease-out;
+    `;
+    toast.innerHTML = `
+        <i class="fas ${icon}" style="font-size:1.1rem;margin-top:2px;flex-shrink:0;"></i>
+        <div style="flex:1;min-width:0;">
+            <div style="font-weight:700;font-size:0.82rem;opacity:0.85;margin-bottom:2px;">
+                <i class="fas fa-mobile-alt"></i> ${escHtml(n.sender)}
+                ${n.orderNumber ? `· <span style="font-weight:600;">${escHtml(n.orderNumber)}</span>` : ''}
+            </div>
+            <div style="font-size:0.9rem;font-weight:600;">${escHtml(n.message)}</div>
+        </div>
+        <button onclick="this.parentElement.remove()" style="background:rgba(255,255,255,0.25);border:none;color:white;border-radius:4px;padding:2px 6px;cursor:pointer;flex-shrink:0;">✕</button>
+    `;
+    toast.onclick = (e) => { if (e.target.tagName !== 'BUTTON') { toast.remove(); openMobileNotifPanel(); } };
+    document.body.appendChild(toast);
+    setTimeout(() => { toast.style.transition='opacity 0.4s'; toast.style.opacity='0'; setTimeout(()=>toast.remove(),400); }, 6000);
+}
+
+function _updateMobileNotifBadge() {
+    const badge = document.getElementById('mobile-notif-badge');
+    if (!badge) return;
+    if (window._mobileUnread > 0) {
+        badge.style.display = 'block';
+        badge.textContent = window._mobileUnread > 99 ? '99+' : window._mobileUnread;
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
+function _renderMobileNotifList() {
+    const list  = document.getElementById('mobile-notif-list');
+    const empty = document.getElementById('mobile-notif-empty');
+    const count = document.getElementById('mobile-notif-count-label');
+    if (!list) return;
+
+    const items = window._mobileNotifications;
+    if (count) count.textContent = items.length ? `(${items.length})` : '';
+    if (empty) empty.style.display = items.length ? 'none' : 'block';
+
+    // Remove old cards (keep empty placeholder)
+    list.querySelectorAll('.mobile-notif-card').forEach(el => el.remove());
+
+    const typeColors = { order_update:'#6366f1', alert:'#ef4444', status_change:'#f59e0b', action:'#8b5cf6' };
+    const typeIcons  = { order_update:'fa-box',  alert:'fa-exclamation-circle', status_change:'fa-exchange-alt', action:'fa-bolt' };
+
+    items.forEach((n, i) => {
+        const color = typeColors[n.type] || '#6366f1';
+        const icon  = typeIcons[n.type]  || 'fa-mobile-alt';
+        const time  = n.receivedAt ? new Date(n.receivedAt).toLocaleTimeString() : '';
+        const card  = document.createElement('div');
+        card.className = 'mobile-notif-card';
+        card.style.cssText = `background:#f8fafc;border:1px solid #e2e8f0;border-left:4px solid ${color};border-radius:8px;padding:0.7rem 0.85rem;`;
+        card.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:0.5rem;">
+                <div style="display:flex;align-items:center;gap:0.5rem;flex:1;min-width:0;">
+                    <i class="fas ${icon}" style="color:${color};flex-shrink:0;"></i>
+                    <span style="font-weight:700;font-size:0.85rem;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                        ${escHtml(n.sender)}${n.orderNumber ? ' · ' + escHtml(n.orderNumber) : ''}
+                    </span>
+                </div>
+                <span style="font-size:0.72rem;color:#94a3b8;flex-shrink:0;">${time}</span>
+            </div>
+            <div style="font-size:0.88rem;color:#334155;margin-top:0.35rem;">${escHtml(n.message)}</div>
+            ${Object.keys(n.data||{}).length ? `<div style="font-size:0.75rem;color:#94a3b8;margin-top:0.25rem;font-family:monospace;">${escHtml(JSON.stringify(n.data))}</div>` : ''}
+        `;
+        list.insertBefore(card, list.firstChild === empty ? empty : list.firstChild);
+    });
+}
+
+function escHtml(str) {
+    return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+window.toggleMobileNotifPanel = function() {
+    if (window._mobileNotifPanelOpen) closeMobileNotifPanel();
+    else openMobileNotifPanel();
+};
+
+window.openMobileNotifPanel = function() {
+    const panel    = document.getElementById('mobile-notif-panel');
+    const backdrop = document.getElementById('mobile-notif-backdrop');
+    if (!panel) return;
+    panel.style.display    = 'flex';
+    backdrop.style.display = 'block';
+    requestAnimationFrame(() => panel.style.transform = 'translateX(0)');
+    window._mobileNotifPanelOpen = true;
+    window._mobileUnread = 0;
+    _updateMobileNotifBadge();
+    _renderMobileNotifList();
+    _loadMobileListenerInfo();
+};
+
+window.closeMobileNotifPanel = function() {
+    const panel    = document.getElementById('mobile-notif-panel');
+    const backdrop = document.getElementById('mobile-notif-backdrop');
+    if (!panel) return;
+    panel.style.transform  = 'translateX(100%)';
+    backdrop.style.display = 'none';
+    setTimeout(() => { if (!window._mobileNotifPanelOpen) panel.style.display = 'none'; }, 300);
+    window._mobileNotifPanelOpen = false;
+};
+
+window.clearMobileNotifications = function() {
+    window._mobileNotifications = [];
+    window._mobileUnread = 0;
+    _updateMobileNotifBadge();
+    _renderMobileNotifList();
+};
+
+function _loadMobileListenerInfo() {
+    const bar = document.getElementById('mobile-notif-connection');
+    if (!bar) return;
+    sendMessageToCSharp({ action: 'getMobileListenerInfo' }, function(err, data) {
+        if (err || !data) {
+            bar.innerHTML = '<i class="fas fa-exclamation-triangle" style="color:#ef4444;"></i> Could not get listener info.';
+            return;
+        }
+        try {
+            const info = typeof data === 'string' ? JSON.parse(data) : data;
+            const statusDot = info.isRunning
+                ? '<span style="color:#22c55e;">●</span> Listening'
+                : '<span style="color:#ef4444;">●</span> Not running';
+            const urls = (info.ips || []).map(ip =>
+                `<code style="background:#e2e8f0;padding:1px 4px;border-radius:3px;">http://${ip}:${info.port}/notify</code>`
+            ).join('  ');
+            bar.innerHTML = `${statusDot} on port <strong>${info.port}</strong>&nbsp;&nbsp;${urls}`;
+        } catch(e) {
+            bar.textContent = String(data);
+        }
+    }, 8000, false);
+}
+
+// ========================================
 // PROCESSING INDICATOR SYSTEM
 // ========================================
 
