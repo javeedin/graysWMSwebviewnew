@@ -159,18 +159,37 @@ namespace WMSApp
 
                 System.Diagnostics.Debug.WriteLine($"[MobileListener] Body: {body}");
 
-                MobileNotification notif;
-                try
+                var trimmed = body.TrimStart();
+                int count = 0;
+                var receivedAt = DateTime.Now;
+
+                if (trimmed.StartsWith("["))
                 {
-                    notif = JsonConvert.DeserializeObject<MobileNotification>(body)
-                            ?? new MobileNotification { Type = "alert", Message = body };
+                    // Array of notifications
+                    List<MobileNotification> list;
+                    try { list = JsonConvert.DeserializeObject<List<MobileNotification>>(body) ?? new List<MobileNotification>(); }
+                    catch { list = new List<MobileNotification>(); }
+
+                    foreach (var n in list)
+                    {
+                        n.ReceivedAt = receivedAt;
+                        NotificationReceived?.Invoke(n);
+                    }
+                    count = list.Count;
                 }
-                catch { notif = new MobileNotification { Type = "alert", Message = body }; }
+                else
+                {
+                    // Single notification (original behaviour)
+                    MobileNotification notif;
+                    try { notif = JsonConvert.DeserializeObject<MobileNotification>(body) ?? new MobileNotification { Type = "alert", Message = body }; }
+                    catch { notif = new MobileNotification { Type = "alert", Message = body }; }
 
-                notif.ReceivedAt = DateTime.Now;
-                NotificationReceived?.Invoke(notif);
+                    notif.ReceivedAt = receivedAt;
+                    NotificationReceived?.Invoke(notif);
+                    count = 1;
+                }
 
-                var resp = JsonConvert.SerializeObject(new { status = "received", receivedAt = notif.ReceivedAt });
+                var resp = JsonConvert.SerializeObject(new { status = "received", count, receivedAt });
                 WriteResponse(stream, 200, "OK", cors + "Content-Type: application/json\r\n", resp);
                 return;
             }
