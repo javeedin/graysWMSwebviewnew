@@ -11373,21 +11373,208 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     // Ship Confirm Order
-    window.shipConfirmOrder = function(orderNumber) {
-        console.log('[Order Transactions] Ship Confirm for order:', orderNumber);
+    window.shipConfirmOrder = async function(orderNumber) {
+        console.log('[Ship Confirm] Starting for order:', orderNumber);
 
-        // Get instance
-        const instance = window.currentOrderTransContext?.instance || window.currentTripInstance || 'TEST';
+        const ctx = window.currentOrderTransContext;
+        const instance = ctx?.instance || window.currentOrderTransactionsInstance || window.currentTripInstance || 'TEST';
+        const sourceOrderNumber = ctx?.sourceOrderNumber || orderNumber;
 
-        // Show confirmation
-        const confirmMsg = `Are you sure you want to ship confirm order ${orderNumber}?`;
-        if (!confirm(confirmMsg)) {
+        if (!confirm(`Ship Confirm order ${sourceOrderNumber}?\n\nThis will run 3 steps:\n  1. Get Shipment Number\n  2. Confirm Shipment in Oracle Fusion\n  3. Update WMS Ship Confirm Status`)) {
             return;
         }
 
-        // TODO: Call API to ship confirm
-        // For now, show message
-        alert(`Ship Confirm initiated for order: ${orderNumber}\n\nNote: API integration pending.`);
+        // ── Helper: wrap sendMessageToCSharp in a Promise ──────────────
+        function postApex(url, body) {
+            return new Promise((resolve, reject) => {
+                sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: JSON.stringify(body) }, function(err, data) {
+                    if (err) return reject(err);
+                    try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                    catch(e) { resolve(data); }
+                });
+            });
+        }
+        function postFusion(url, body) {
+            return new Promise((resolve, reject) => {
+                sendMessageToCSharp({ action: 'executeOracleFusionPost', fullUrl: url, body: JSON.stringify(body), instance }, function(err, data) {
+                    if (err) return reject(err);
+                    try {
+                        let parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                        if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+                        resolve(parsed);
+                    } catch(e) { resolve(data); }
+                });
+            });
+        }
+
+        // ── Build / show progress modal ─────────────────────────────────
+        const existingModal = document.getElementById('ship-confirm-progress-modal');
+        if (existingModal) existingModal.remove();
+
+        const stepHtml = (num, label) => `
+            <div id="sc-step-${num}" style="display:flex; align-items:flex-start; gap:1rem; padding:1rem; border-radius:8px; background:#f8fafc; border:1px solid #e2e8f0; margin-bottom:0.75rem;">
+                <div id="sc-icon-${num}" style="width:32px;height:32px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:0.9rem;font-weight:700;color:#64748b;">${num}</div>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;color:#1e293b;margin-bottom:0.25rem;">${label}</div>
+                    <div id="sc-msg-${num}" style="font-size:0.82rem;color:#64748b;">Waiting…</div>
+                    <div id="sc-detail-${num}" style="font-size:0.78rem;color:#94a3b8;margin-top:0.25rem;word-break:break-all;display:none;"></div>
+                </div>
+            </div>`;
+
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="ship-confirm-progress-modal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.55);z-index:99999;display:flex;justify-content:center;align-items:center;">
+                <div style="background:white;border-radius:14px;width:520px;max-width:95vw;box-shadow:0 24px 60px rgba(0,0,0,0.3);overflow:hidden;">
+                    <div style="padding:1.25rem 1.5rem;background:linear-gradient(135deg,#1e293b,#334155);color:white;display:flex;align-items:center;gap:0.75rem;">
+                        <i class="fas fa-truck-loading" style="font-size:1.2rem;"></i>
+                        <div>
+                            <div style="font-weight:700;font-size:1rem;">Ship Confirm Order</div>
+                            <div style="font-size:0.8rem;opacity:0.75;">${sourceOrderNumber} &nbsp;·&nbsp; ${instance.toUpperCase()}</div>
+                        </div>
+                    </div>
+                    <div style="padding:1.25rem 1.5rem;">
+                        ${stepHtml(1, 'Get Shipment Number')}
+                        ${stepHtml(2, 'Fusion Ship Confirm')}
+                        ${stepHtml(3, 'Update WMS Ship Confirm Status')}
+                        <div id="sc-footer" style="display:flex;justify-content:flex-end;margin-top:0.5rem;">
+                            <button id="sc-close-btn" onclick="document.getElementById('ship-confirm-progress-modal').remove()" disabled
+                                style="padding:0.5rem 1.5rem;background:#e2e8f0;color:#94a3b8;border:none;border-radius:6px;cursor:not-allowed;font-weight:600;">
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>`);
+
+        // ── Step UI helpers ─────────────────────────────────────────────
+        function setStepRunning(n) {
+            document.getElementById(`sc-icon-${n}`).innerHTML = '<i class="fas fa-spinner fa-spin" style="font-size:0.85rem;"></i>';
+            document.getElementById(`sc-icon-${n}`).style.background = '#dbeafe';
+            document.getElementById(`sc-icon-${n}`).style.color = '#3b82f6';
+            document.getElementById(`sc-step-${n}`).style.borderColor = '#93c5fd';
+            document.getElementById(`sc-msg-${n}`).textContent = 'Running…';
+            document.getElementById(`sc-msg-${n}`).style.color = '#3b82f6';
+        }
+        function setStepOk(n, msg, detail) {
+            document.getElementById(`sc-icon-${n}`).innerHTML = '<i class="fas fa-check" style="font-size:0.85rem;"></i>';
+            document.getElementById(`sc-icon-${n}`).style.background = '#dcfce7';
+            document.getElementById(`sc-icon-${n}`).style.color = '#16a34a';
+            document.getElementById(`sc-step-${n}`).style.borderColor = '#86efac';
+            document.getElementById(`sc-step-${n}`).style.background = '#f0fdf4';
+            document.getElementById(`sc-msg-${n}`).textContent = msg;
+            document.getElementById(`sc-msg-${n}`).style.color = '#16a34a';
+            if (detail) {
+                const el = document.getElementById(`sc-detail-${n}`);
+                el.textContent = detail;
+                el.style.display = 'block';
+            }
+        }
+        function setStepFail(n, msg) {
+            document.getElementById(`sc-icon-${n}`).innerHTML = '<i class="fas fa-times" style="font-size:0.85rem;"></i>';
+            document.getElementById(`sc-icon-${n}`).style.background = '#fee2e2';
+            document.getElementById(`sc-icon-${n}`).style.color = '#dc2626';
+            document.getElementById(`sc-step-${n}`).style.borderColor = '#fca5a5';
+            document.getElementById(`sc-step-${n}`).style.background = '#fff5f5';
+            document.getElementById(`sc-msg-${n}`).textContent = msg;
+            document.getElementById(`sc-msg-${n}`).style.color = '#dc2626';
+        }
+        function enableClose(success) {
+            const btn = document.getElementById('sc-close-btn');
+            btn.disabled = false;
+            btn.style.cursor = 'pointer';
+            btn.style.background = success ? '#16a34a' : '#dc2626';
+            btn.style.color = 'white';
+        }
+
+        // ── APEX base URL ───────────────────────────────────────────────
+        const apexBase = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP';
+
+        // ── Fusion shipping URL (PROD vs TEST) ──────────────────────────
+        const fusionShipUrl = instance.toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/shippingTransactions'
+            : 'https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/shippingTransactions';
+
+        let shipmentName = null;
+
+        try {
+            // ── STEP 1: Get Shipment Number ─────────────────────────────
+            setStepRunning(1);
+            console.log('[Ship Confirm] Step 1 – Get Shipment Number');
+            const step1Res = await postApex(
+                `${apexBase}/WAREHOUSEMANAGEMENT/getshipmentnumber`,
+                { source_order_number: sourceOrderNumber, p_instance_name: instance }
+            );
+            console.log('[Ship Confirm] Step 1 response:', step1Res);
+
+            // Accept various response shapes
+            shipmentName = step1Res?.shipment_number || step1Res?.SHIPMENT_NUMBER
+                        || step1Res?.ShipmentName    || step1Res?.shipmentName
+                        || step1Res?.p_shipment_number || step1Res?.P_SHIPMENT_NUMBER
+                        || null;
+
+            if (!shipmentName) {
+                const msg = step1Res?.message || step1Res?.error || JSON.stringify(step1Res);
+                setStepFail(1, 'No shipment number returned: ' + msg);
+                enableClose(false);
+                return;
+            }
+            setStepOk(1, `Shipment: ${shipmentName}`, JSON.stringify(step1Res));
+
+            // ── STEP 2: Fusion Ship Confirm ─────────────────────────────
+            setStepRunning(2);
+            console.log('[Ship Confirm] Step 2 – Fusion Ship Confirm, URL:', fusionShipUrl);
+            const step2Body = { ShipmentName: shipmentName, Action: 'CONFIRM', Organization: 'GIC' };
+            let step2Res;
+            try {
+                step2Res = await postFusion(fusionShipUrl, step2Body);
+                console.log('[Ship Confirm] Step 2 response:', step2Res);
+            } catch(fusionErr) {
+                setStepFail(2, 'Fusion error: ' + fusionErr);
+                enableClose(false);
+                return;
+            }
+
+            // Fusion returns HTTP 201 on success; check for error fields
+            const hasFusionError = step2Res?.type === 'error'
+                                || step2Res?.['o:errorDetails']
+                                || (step2Res?.detail && !step2Res?.ShipmentName && !step2Res?.shipmentName);
+            if (hasFusionError) {
+                const errMsg = step2Res?.detail || step2Res?.title || JSON.stringify(step2Res);
+                setStepFail(2, 'Fusion rejected: ' + errMsg);
+                enableClose(false);
+                return;
+            }
+            setStepOk(2, 'Shipment confirmed in Oracle Fusion', JSON.stringify(step2Res));
+
+            // ── STEP 3: Update Ship Confirmation Status ─────────────────
+            setStepRunning(3);
+            console.log('[Ship Confirm] Step 3 – Update WMS Ship Confirm Status');
+            const step3Res = await postApex(
+                `${apexBase}/TRIPMANAGEMENT/updateshipconfirmationstatus`,
+                { P_SOURCE_ORDER: sourceOrderNumber, p_instance_name: instance }
+            );
+            console.log('[Ship Confirm] Step 3 response:', step3Res);
+
+            const step3Ok = step3Res?.status === 'success' || step3Res?.STATUS === 'SUCCESS'
+                         || step3Res?.result === 'success' || step3Res?.p_status === 'SUCCESS'
+                         || (!step3Res?.error && !step3Res?.ERROR);
+            if (!step3Ok) {
+                const errMsg = step3Res?.message || step3Res?.error || JSON.stringify(step3Res);
+                setStepFail(3, 'WMS update failed: ' + errMsg);
+                enableClose(false);
+                showNotification(`Ship Confirm: Fusion OK but WMS update failed for ${sourceOrderNumber}`, 'warning');
+                return;
+            }
+            setStepOk(3, 'WMS status updated', JSON.stringify(step3Res));
+
+            enableClose(true);
+            showNotification(`Ship Confirm complete for ${sourceOrderNumber}`, 'success');
+            console.log('[Ship Confirm] All 3 steps completed successfully.');
+
+        } catch(err) {
+            console.error('[Ship Confirm] Unexpected error:', err);
+            enableClose(false);
+            showNotification('Ship Confirm error: ' + err, 'error');
+        }
     };
 
     // Toggle Store Transactions Header Details
