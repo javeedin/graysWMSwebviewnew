@@ -361,3 +361,12 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+
+# WebView2 runtime cache & temp files
+dist/*.exe.WebView2/
+dist/*.WebView2/
+
+# Compiled binaries in dist (built by CI/publish, not source)
+dist/*.dll
+dist/*.exe
