@@ -251,15 +251,165 @@
                 </div>
             </div>
             
-            <div id="picker-management" class="page-content" style="display: none;">
-                <div class="grid-container">
-                    <div class="empty-state">
-                        <i class="fas fa-user-tie"></i>
-                        <h3>Picker Management</h3>
-                        <p>This feature will be implemented soon</p>
+            <!-- ═══════════════════════════════════════════════════════ -->
+            <!-- PICKER MONITOR PAGE                                    -->
+            <!-- ═══════════════════════════════════════════════════════ -->
+            <div id="picker-management" class="page-content" style="display: none; padding: 0; flex-direction: column;">
+
+                <!-- Page header bar -->
+                <div style="padding: 0.85rem 1.25rem; background: linear-gradient(135deg,#6366f1,#4f46e5); display: flex; align-items: center; gap: 1rem;">
+                    <div style="width:36px;height:36px;background:rgba(255,255,255,0.2);border-radius:9px;display:flex;align-items:center;justify-content:center;">
+                        <i class="fas fa-hard-hat" style="color:white;font-size:1.1rem;"></i>
+                    </div>
+                    <div>
+                        <div style="font-size:1.05rem;font-weight:700;color:white;">Picker Monitor</div>
+                        <div style="font-size:0.72rem;color:rgba(255,255,255,0.78);">Real-time picking status — by picker, lorry or loading bay</div>
                     </div>
                 </div>
-            </div>
+
+                <!-- Two-column layout -->
+                <div class="pm-layout">
+
+                    <!-- ── LEFT: Main content ─────────────────────────── -->
+                    <div class="pm-main">
+
+                        <!-- Summary stats row -->
+                        <div id="pm-summary" class="pm-summary-row"></div>
+
+                        <!-- View mode toggle -->
+                        <div class="pm-view-bar">
+                            <button class="pm-view-btn active" data-view="picker" onclick="pmSetView('picker')">
+                                <i class="fas fa-user-tie"></i> By Picker
+                            </button>
+                            <button class="pm-view-btn" data-view="lorry" onclick="pmSetView('lorry')">
+                                <i class="fas fa-truck"></i> By Lorry
+                            </button>
+                            <button class="pm-view-btn" data-view="bay" onclick="pmSetView('bay')">
+                                <i class="fas fa-warehouse"></i> By Loading Bay
+                            </button>
+                        </div>
+
+                        <!-- Cards area -->
+                        <div id="pm-cards-area">
+                            <div class="pm-placeholder">
+                                <i class="fas fa-hard-hat"></i>
+                                <h3>No Data Loaded</h3>
+                                <p>Select a date on the right and click <strong>Fetch Data</strong> to start monitoring.</p>
+                            </div>
+                        </div>
+
+                    </div><!-- /pm-main -->
+
+                    <!-- ── RIGHT: Filter panel ────────────────────────── -->
+                    <div class="pm-filter-panel">
+
+                        <!-- WMS Home -->
+                        <div class="pm-panel-section">
+                            <button class="pm-home-btn" onclick="window.location.href='Home/index.html'">
+                                <i class="fas fa-home" style="color:#6366f1;"></i> WMS Home
+                            </button>
+                        </div>
+
+                        <!-- Date & Instance -->
+                        <div class="pm-panel-section">
+                            <div class="pm-panel-section-title">Date &amp; Instance</div>
+
+                            <div class="form-group" style="margin-bottom:0.6rem;">
+                                <label for="pm-date" style="font-size:0.75rem;font-weight:600;color:#334155;margin-bottom:0.25rem;display:block;">
+                                    <i class="fas fa-calendar-alt" style="color:#6366f1;margin-right:4px;"></i>Date
+                                </label>
+                                <input type="date" id="pm-date" class="form-control" style="font-size:0.82rem;padding:0.45rem 0.65rem;">
+                            </div>
+
+                            <div class="form-group" style="margin-bottom:0.6rem;">
+                                <label for="pm-instance" style="font-size:0.75rem;font-weight:600;color:#334155;margin-bottom:0.25rem;display:block;">
+                                    <i class="fas fa-server" style="color:#6366f1;margin-right:4px;"></i>Instance
+                                </label>
+                                <select id="pm-instance" class="form-control" style="font-size:0.82rem;padding:0.45rem 0.65rem;">
+                                    <option value="PROD">PROD</option>
+                                    <option value="TEST">TEST</option>
+                                    <option value="DEV">DEV</option>
+                                </select>
+                            </div>
+
+                            <button id="pm-fetch-btn" class="pm-fetch-btn" onclick="pmFetchData()">
+                                <i class="fas fa-sync-alt"></i> Fetch Data
+                            </button>
+                        </div>
+
+                        <!-- Filters -->
+                        <div class="pm-panel-section">
+                            <div class="pm-panel-section-title">Filters</div>
+
+                            <div class="form-group" style="margin-bottom:0.6rem;">
+                                <label for="pm-filter-picker" style="font-size:0.72rem;font-weight:600;color:#475569;margin-bottom:0.2rem;display:block;">
+                                    <i class="fas fa-user-tie" style="color:#6366f1;width:14px;"></i> Picker
+                                </label>
+                                <select id="pm-filter-picker" class="form-control" style="font-size:0.78rem;padding:0.4rem 0.6rem;" onchange="pmApplyFilters()">
+                                    <option value="">All Pickers</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group" style="margin-bottom:0.6rem;">
+                                <label for="pm-filter-lorry" style="font-size:0.72rem;font-weight:600;color:#475569;margin-bottom:0.2rem;display:block;">
+                                    <i class="fas fa-truck" style="color:#0ea5e9;width:14px;"></i> Lorry
+                                </label>
+                                <select id="pm-filter-lorry" class="form-control" style="font-size:0.78rem;padding:0.4rem 0.6rem;" onchange="pmApplyFilters()">
+                                    <option value="">All Lorries</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group" style="margin-bottom:0.75rem;">
+                                <label for="pm-filter-bay" style="font-size:0.72rem;font-weight:600;color:#475569;margin-bottom:0.2rem;display:block;">
+                                    <i class="fas fa-warehouse" style="color:#10b981;width:14px;"></i> Loading Bay
+                                </label>
+                                <select id="pm-filter-bay" class="form-control" style="font-size:0.78rem;padding:0.4rem 0.6rem;" onchange="pmApplyFilters()">
+                                    <option value="">All Bays</option>
+                                </select>
+                            </div>
+
+                            <button class="btn btn-secondary" style="width:100%;font-size:0.78rem;padding:0.45rem;" onclick="pmClearFilters()">
+                                <i class="fas fa-times"></i> Clear Filters
+                            </button>
+                        </div>
+
+                        <!-- Refresh -->
+                        <div class="pm-panel-section">
+                            <div class="pm-panel-section-title">Refresh</div>
+                            <button id="pm-refresh-btn" class="pm-refresh-btn" onclick="pmRefresh()" disabled>
+                                <i class="fas fa-redo-alt"></i> Refresh Data
+                            </button>
+                            <div id="pm-last-updated" class="pm-last-updated" style="margin-top:0.5rem;">Not loaded yet</div>
+                        </div>
+
+                        <!-- Legend -->
+                        <div class="pm-panel-section">
+                            <div class="pm-panel-section-title">Status Legend</div>
+                            <div style="display:flex;flex-direction:column;gap:0.4rem;">
+                                <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.72rem;color:#475569;">
+                                    <div style="width:10px;height:10px;border-radius:50%;background:#10b981;flex-shrink:0;"></div>
+                                    <span>Picked / Complete</span>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.72rem;color:#475569;">
+                                    <div style="width:10px;height:10px;border-radius:50%;background:#f59e0b;flex-shrink:0;"></div>
+                                    <span>In Progress</span>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.72rem;color:#475569;">
+                                    <div style="width:10px;height:10px;border-radius:50%;background:#ef4444;flex-shrink:0;"></div>
+                                    <span>Pending</span>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.72rem;color:#475569;">
+                                    <div style="width:10px;height:10px;border-radius:50%;background:#94a3b8;flex-shrink:0;"></div>
+                                    <span>Cancelled</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div><!-- /pm-filter-panel -->
+
+                </div><!-- /pm-layout -->
+
+            </div><!-- /picker-management -->
             
       <!-- ============================================================ -->
 <!-- REPLACE THE ENTIRE <div id="monitor-printing"> SECTION -->
@@ -728,6 +878,7 @@
     <script src="printer-management-new.js"></script>
     <script src="monitor-printing.js"></script>
     <script src="api-log.js"></script>
+    <script src="picker-monitor.js"></script>
     <script>
         (function () {
             var u = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
