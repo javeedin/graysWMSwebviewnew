@@ -13,7 +13,7 @@ pip install --prefer-binary -r requirements.txt
 pip install pyinstaller
 
 echo [RAG Build] Building standalone exe...
-pyinstaller --onefile ^
+pyinstaller --onedir ^
   --name rag_service ^
   --hidden-import=flask ^
   --hidden-import=flask_cors ^
@@ -21,7 +21,11 @@ pyinstaller --onefile ^
   --hidden-import=anthropic ^
   --collect-all fastembed ^
   --collect-all onnxruntime ^
+  --exclude-module PIL ^
+  --exclude-module Pillow ^
+  --exclude-module torch ^
+  --exclude-module torchvision ^
   rag_service.py
 
-echo [RAG Build] Done! Output: dist\rag_service.exe
+echo [RAG Build] Done! Output: dist\rag_service\rag_service.exe
 pause

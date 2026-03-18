@@ -39,7 +39,7 @@ echo ============================================================
 echo.
 
 REM Check if already built - allow skipping
-if exist "%~dp0rag\dist\rag_service.exe" (
+if exist "%~dp0rag\dist\rag_service\rag_service.exe" (
     echo   rag_service.exe already exists.
     choice /M "   Rebuild RAG service? (No = use existing exe)"
     if errorlevel 2 goto :skip_rag_build
@@ -76,14 +76,14 @@ popd
 :skip_rag_build
 
 REM Verify the exe was produced
-if not exist "%~dp0rag\dist\rag_service.exe" (
+if not exist "%~dp0rag\dist\rag_service\rag_service.exe" (
     echo.
-    echo ERROR: rag\dist\rag_service.exe not found after build.
+    echo ERROR: rag\dist\rag_service\rag_service.exe not found after build.
     echo        Run rag\build.bat manually first, then re-run release.bat.
     pause
     exit /b 1
 )
-echo   rag_service.exe OK.
+echo   rag_service OK (onedir build).
 
 :skip_rag_entirely
 

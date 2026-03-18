@@ -94,14 +94,14 @@ if /i "%INCLUDE_RAG%"=="N" (
     echo [SKIP] RAG service excluded from this release.
 ) else (
     echo Copying RAG service...
-    if not exist "%SCRIPT_DIR%rag\dist\rag_service.exe" (
-        echo ERROR: rag\dist\rag_service.exe not found.
+    if not exist "%SCRIPT_DIR%rag\dist\rag_service\rag_service.exe" (
+        echo ERROR: rag\dist\rag_service\rag_service.exe not found.
         echo        Run rag\build.bat first, or use release.bat which does this automatically.
         goto :error
     )
     mkdir "%APP_DIR%\rag"
-    copy /y "%SCRIPT_DIR%rag\dist\rag_service.exe" "%APP_DIR%\rag\rag_service.exe" >nul
-    echo   - rag\rag_service.exe
+    xcopy "%SCRIPT_DIR%rag\dist\rag_service\*" "%APP_DIR%\rag\" /s /e /y /q
+    echo   - rag\ (all runtime files)
     if exist "%SCRIPT_DIR%rag\index.html" (
         copy /y "%SCRIPT_DIR%rag\index.html" "%APP_DIR%\rag\index.html" >nul
         echo   - rag\index.html
