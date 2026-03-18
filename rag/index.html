@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Knowledge Base — Gray's WMS</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ── Reset ── */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --indigo:    #6366f1;
+    --indigo-d:  #4f46e5;
+    --dark:      #0f172a;
+    --dark-2:    #1e293b;
+    --success:   #10b981;
+    --danger:    #ef4444;
+    --warning:   #f59e0b;
+    --text:      #1e293b;
+    --text-2:    #475569;
+    --text-3:    #94a3b8;
+    --border:    #e2e8f0;
+    --bg:        #f0f2f7;
+    --bg-card:   #ffffff;
+    --sidebar-w: 250px;
+    --sidebar-c: 62px;   /* collapsed width */
+    --header-h:  62px;
+}
+
+body { font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif; background:var(--bg); height:100vh; display:flex; flex-direction:column; overflow:hidden; color:var(--text); }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   HEADER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.header {
+    height: var(--header-h);
+    background: linear-gradient(135deg, #4f46e5 0%, #6366f1 60%, #818cf8 100%);
+    color: white;
+    display: flex; align-items: center;
+    padding: 0 18px;
+    gap: 14px;
+    box-shadow: 0 2px 16px rgba(99,102,241,.4);
+    flex-shrink: 0;
+    z-index: 200;
+}
+.sidebar-toggle {
+    background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.35);
+    color: white; width: 34px; height: 34px; border-radius: 8px;
+    cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: background .2s;
+}
+.sidebar-toggle:hover { background: rgba(255,255,255,.32); }
+.logo { display:flex; align-items:center; gap:10px; flex:1; }
+.logo-icon { width:38px; height:38px; background:rgba(255,255,255,.15); border:2px solid rgba(255,255,255,.4); border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+.logo-text { line-height:1.2; }
+.logo-name { font-size:1.1rem; font-weight:800; }
+.logo-name span { opacity:.65; font-weight:400; }
+.logo-sub  { font-size:.62rem; opacity:.7; letter-spacing:.5px; }
+.header-right { display:flex; align-items:center; gap:10px; }
+.svc-pill { display:flex; align-items:center; gap:7px; background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.25); padding:5px 13px; border-radius:999px; font-size:12px; font-weight:600; }
+.svc-dot { width:9px; height:9px; border-radius:50%; background:#94a3b8; transition:background .3s; display:inline-block; }
+.hdr-btn { display:flex; align-items:center; gap:6px; border:1px solid rgba(255,255,255,.35); color:white; padding:6px 13px; border-radius:8px; font-size:12px; font-weight:600; cursor:pointer; transition:background .2s; background:transparent; }
+.hdr-btn:hover { background:rgba(255,255,255,.18); }
+.hdr-btn.green { background:rgba(16,185,129,.3); }
+.hdr-btn.green:hover { background:rgba(16,185,129,.5); }
+.hdr-btn.red   { background:rgba(239,68,68,.3);  }
+.hdr-btn.red:hover   { background:rgba(239,68,68,.5);  }
+.hdr-btn:disabled { opacity:.45; cursor:not-allowed; }
+a.hdr-btn { text-decoration:none; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   LAYOUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.app-body { display:flex; flex:1; overflow:hidden; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SIDEBAR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.sidebar {
+    width: var(--sidebar-w);
+    background: var(--dark);
+    display: flex; flex-direction: column;
+    flex-shrink: 0;
+    transition: width .25s cubic-bezier(.4,0,.2,1);
+    overflow: hidden;
+    z-index: 100;
+}
+.sidebar.collapsed { width: var(--sidebar-c); }
+
+.sidebar-section { border-bottom: 1px solid rgba(255,255,255,.07); }
+
+.nav-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 16px; cursor: pointer;
+    color: rgba(255,255,255,.55);
+    font-size: 13px; font-weight: 600;
+    transition: background .15s, color .15s;
+    user-select: none; white-space: nowrap;
+    position: relative;
+}
+.nav-item:hover { background: rgba(255,255,255,.06); color: rgba(255,255,255,.85); }
+.nav-item.active { background: rgba(99,102,241,.25); color: white; }
+.nav-item.active::before {
+    content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
+    background: var(--indigo); border-radius:0 3px 3px 0;
+}
+.nav-icon { width:28px; height:28px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; flex-shrink:0; }
+.nav-item.active .nav-icon { background:rgba(99,102,241,.35); color:white; }
+.nav-item:not(.active) .nav-icon { background:rgba(255,255,255,.07); }
+.nav-label { flex:1; transition:opacity .2s; }
+.sidebar.collapsed .nav-label { opacity:0; pointer-events:none; }
+.nav-badge { font-size:10px; background:var(--indigo); color:white; padding:1px 7px; border-radius:999px; font-weight:700; transition:opacity .2s; }
+.sidebar.collapsed .nav-badge { opacity:0; }
+
+.sidebar-footer {
+    margin-top: auto;
+    padding: 14px 16px;
+    font-size: 10px; color: rgba(255,255,255,.25);
+    white-space: nowrap; overflow: hidden;
+    transition: opacity .2s;
+}
+.sidebar.collapsed .sidebar-footer { opacity:0; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   MAIN CONTENT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.main { flex:1; overflow-y:auto; display:flex; flex-direction:column; }
+
+.page { display:none; flex:1; flex-direction:column; }
+.page.active { display:flex; }
+
+/* ── Page header ── */
+.page-head {
+    padding: 20px 24px 0;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px;
+}
+.page-title { font-size:1.4rem; font-weight:800; color:var(--text); display:flex; align-items:center; gap:10px; }
+.page-title i { color:var(--indigo); }
+.page-sub { color:var(--text-3); font-size:.82rem; margin-top:3px; }
+.pill { font-size:12px; color:var(--indigo); background:#eef2ff; padding:5px 14px; border-radius:999px; font-weight:700; border:1px solid #c7d2fe; white-space:nowrap; }
+
+/* ── Content grid ── */
+.page-body { padding: 16px 24px 32px; display:flex; flex-direction:column; gap:16px; flex:1; }
+
+/* ── Two col ── */
+.two-col { display:grid; grid-template-columns:340px 1fr; gap:16px; }
+@media(max-width:900px){ .two-col { grid-template-columns:1fr; } }
+.one-col { display:flex; flex-direction:column; gap:16px; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   CARDS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.card { background:var(--bg-card); border-radius:14px; border:1px solid var(--border); box-shadow:0 1px 6px rgba(0,0,0,.06); overflow:hidden; }
+.card-header { padding:13px 16px; color:white; display:flex; align-items:center; gap:10px; }
+.card-header h3 { margin:0; font-size:.92rem; font-weight:700; }
+.card-header p  { margin:3px 0 0; font-size:.75rem; opacity:.8; }
+.card-header-inner { flex:1; }
+.card-header.indigo { background:linear-gradient(135deg,#6366f1,#4f46e5); }
+.card-header.dark   { background:linear-gradient(135deg,#0f172a,#1e293b); }
+.card-header.teal   { background:linear-gradient(135deg,#0d9488,#0f766e); }
+.card-header.orange { background:linear-gradient(135deg,#f97316,#ea580c); }
+.card-body { padding:16px; display:flex; flex-direction:column; gap:10px; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   FORM CONTROLS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.field-label { display:block; font-size:11px; font-weight:700; color:var(--text-2); margin-bottom:5px; text-transform:uppercase; letter-spacing:.05em; }
+.field-label a { color:var(--indigo); font-weight:600; text-transform:none; font-size:10px; margin-left:6px; }
+input, select, textarea {
+    width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px;
+    font-size:13px; font-family:inherit; color:var(--text); background:#f8fafc;
+    transition:border .15s; box-sizing:border-box;
+}
+input:focus, select:focus, textarea:focus { outline:none; border-color:var(--indigo); background:white; }
+input[type=password] { font-family:monospace; font-size:12px; }
+textarea { resize:vertical; }
+
+/* ── Toggle switch ── */
+.toggle-row { display:flex; align-items:center; gap:10px; }
+.toggle-label { font-size:12px; font-weight:600; color:var(--text-2); flex:1; }
+.toggle { position:relative; display:inline-block; width:40px; height:22px; flex-shrink:0; }
+.toggle input { opacity:0; width:0; height:0; }
+.toggle-slider { position:absolute; cursor:pointer; inset:0; background:#cbd5e1; border-radius:999px; transition:.2s; }
+.toggle-slider::before { content:''; position:absolute; width:16px; height:16px; left:3px; top:3px; background:white; border-radius:50%; transition:.2s; }
+.toggle input:checked + .toggle-slider { background:var(--indigo); }
+.toggle input:checked + .toggle-slider::before { transform:translateX(18px); }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   BUTTONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.btn { display:flex; align-items:center; justify-content:center; gap:7px; padding:10px 16px; border:none; border-radius:9px; font-size:13px; font-weight:700; cursor:pointer; transition:opacity .15s; font-family:inherit; }
+.btn:disabled { opacity:.45; cursor:not-allowed; }
+.btn-primary { background:linear-gradient(135deg,#6366f1,#4f46e5); color:white; width:100%; }
+.btn-dark    { background:linear-gradient(135deg,#0f172a,#1e293b); color:white; width:100%; }
+.btn-teal    { background:linear-gradient(135deg,#0d9488,#0f766e); color:white; width:100%; }
+.btn-outline { background:white; color:var(--text-2); border:1px solid var(--border); width:100%; }
+.btn-danger  { background:white; color:#dc2626;  border:1px solid #fca5a5; width:100%; font-size:12px; padding:8px 14px; }
+.btn-primary:hover:not(:disabled), .btn-dark:hover:not(:disabled),
+.btn-teal:hover:not(:disabled), .btn-outline:hover:not(:disabled) { opacity:.88; }
+.btn-danger:hover:not(:disabled) { background:#fef2f2; }
+
+/* ── Range chips ── */
+.chips { display:flex; gap:5px; flex-wrap:wrap; }
+.chip { padding:4px 10px; font-size:11px; font-weight:600; border:1px solid var(--border); border-radius:999px; background:white; color:var(--text-2); cursor:pointer; transition:background .15s,color .15s,border-color .15s; }
+.chip:hover, .chip.active { background:var(--indigo); color:white; border-color:var(--indigo); }
+
+/* ── Prompt chips ── */
+.prompt-chips { display:flex; flex-wrap:wrap; gap:6px; }
+.prompt-chip { padding:5px 12px; font-size:12px; font-weight:500; border:1px solid #e0e7ff; border-radius:999px; background:#eef2ff; color:#4338ca; cursor:pointer; transition:background .15s,color .15s; }
+.prompt-chip:hover { background:var(--indigo); color:white; border-color:var(--indigo); }
+
+/* ── Progress ── */
+.progress-wrap { background:var(--border); border-radius:999px; height:7px; overflow:hidden; }
+.progress-bar  { height:100%; width:0; background:linear-gradient(90deg,#6366f1,#4f46e5); transition:width .4s; border-radius:999px; }
+
+/* ── Row grid ── */
+.row-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.row-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+.divider { border:none; border-top:1px solid var(--border); margin:4px 0; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   CHATBOT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.chat-wrap { display:flex; flex-direction:column; gap:14px; flex:1; }
+.answer-box { min-height:80px; font-size:13px; line-height:1.7; color:var(--text-2); }
+.answer-success { background:#f0fdf4; border-left:4px solid var(--success); padding:14px 16px; border-radius:0 8px 8px 0; color:var(--text); }
+.answer-error   { background:#fef2f2; border-left:4px solid var(--danger);  padding:14px 16px; border-radius:0 8px 8px 0; color:#dc2626; }
+.src-label { font-size:11px; font-weight:700; color:var(--text-3); text-transform:uppercase; letter-spacing:.06em; margin:12px 0 6px; display:flex; align-items:center; gap:6px; }
+.src-row   { display:flex; gap:10px; padding:6px 0; border-bottom:1px solid var(--bg); flex-wrap:wrap; font-size:12px; }
+.src-row:last-child { border-bottom:none; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SETTINGS — provider tabs
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.provider-cards { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.provider-card {
+    border:2px solid var(--border); border-radius:12px; padding:14px;
+    cursor:pointer; transition:border-color .15s, background .15s;
+    display:flex; flex-direction:column; gap:6px;
+}
+.provider-card:hover { border-color:#a5b4fc; background:#fafafe; }
+.provider-card.selected { border-color:var(--indigo); background:#eef2ff; }
+.provider-card-name { font-weight:800; font-size:13px; color:var(--text); display:flex; align-items:center; gap:7px; }
+.provider-card-desc { font-size:11px; color:var(--text-3); }
+
+/* ── API info badge ── */
+.api-badge {
+    display:inline-flex; align-items:center; gap:5px;
+    font-size:10px; font-weight:700; padding:3px 9px; border-radius:999px;
+    background:#eef2ff; color:var(--indigo); border:1px solid #c7d2fe;
+    cursor:pointer; transition:background .15s;
+    text-transform:uppercase; letter-spacing:.04em;
+}
+.api-badge:hover { background:#e0e7ff; }
+.api-badge i { font-size:9px; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   BROWSE MODAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.modal-overlay { display:none; position:fixed; inset:0; z-index:2000; background:rgba(15,23,42,.55); backdrop-filter:blur(3px); align-items:center; justify-content:center; }
+.modal-overlay.open { display:flex; }
+.modal-box { background:white; border-radius:16px; box-shadow:0 20px 60px rgba(0,0,0,.25); width:min(96vw,1020px); max-height:88vh; display:flex; flex-direction:column; overflow:hidden; }
+.modal-head { padding:14px 18px; background:linear-gradient(135deg,#6366f1,#4f46e5); color:white; display:flex; align-items:center; gap:10px; }
+.modal-head h2 { margin:0; font-size:.95rem; font-weight:800; flex:1; }
+.modal-close { background:rgba(255,255,255,.2); border:1px solid rgba(255,255,255,.35); color:white; width:28px; height:28px; border-radius:50%; cursor:pointer; font-size:13px; display:flex; align-items:center; justify-content:center; }
+.modal-toolbar { padding:9px 14px; border-bottom:1px solid #f1f5f9; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.modal-body { overflow-y:auto; flex:1; }
+.modal-foot { padding:9px 14px; border-top:1px solid #f1f5f9; display:flex; align-items:center; justify-content:space-between; font-size:11px; color:var(--text-3); }
+.db-table { width:100%; border-collapse:collapse; font-size:12px; }
+.db-table th { position:sticky; top:0; background:#f8fafc; z-index:1; padding:8px 10px; text-align:left; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-2); border-bottom:2px solid var(--border); }
+.db-table td { padding:7px 10px; border-bottom:1px solid #f8fafc; color:var(--text); }
+.db-table tr:last-child td { border-bottom:none; }
+.db-table tr:hover td { background:#f8fafc; }
+.badge { font-size:10px; font-weight:700; padding:2px 7px; border-radius:4px; background:#f1f5f9; color:var(--text-2); display:inline-block; }
+.pager-btn { padding:4px 11px; font-size:12px; font-weight:600; border:1px solid var(--border); border-radius:6px; background:white; color:var(--text-2); cursor:pointer; }
+.pager-btn:disabled { opacity:.4; cursor:not-allowed; }
+.pager-btn:hover:not(:disabled) { background:#f1f5f9; }
+.search-in { padding:6px 10px; border:1px solid var(--border); border-radius:7px; font-size:12px; font-family:inherit; color:var(--text); background:#f8fafc; width:200px; }
+.search-in:focus { outline:none; border-color:var(--indigo); background:white; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   PREVIEW MODAL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.pre-box { background:#0f172a; color:#e2e8f0; padding:14px; border-radius:8px; font-family:monospace; font-size:11px; overflow:auto; max-height:340px; white-space:pre; line-height:1.55; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ADVANCED OUTPUT — chart / table / html
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+.export-btn {
+    display:inline-flex; align-items:center; gap:6px;
+    padding:6px 14px; font-size:12px; font-weight:600;
+    border:1px solid var(--border); border-radius:7px;
+    background:white; color:var(--text-2); cursor:pointer;
+    font-family:inherit; transition:background .15s,color .15s,border-color .15s;
+}
+.export-btn:hover { background:#eef2ff; color:var(--indigo); border-color:#a5b4fc; }
+.export-btn i { font-size:11px; }
+.export-bar { display:flex; gap:7px; flex-wrap:wrap; margin-top:10px; }
+.chart-wrap { position:relative; width:100%; max-height:300px; margin:10px 0; }
+.output-hint {
+    font-size:11px; color:var(--text-3); background:#f8fafc;
+    border:1px solid var(--border); border-radius:7px;
+    padding:8px 12px; display:flex; align-items:center; gap:7px;
+}
+.output-hint strong { color:var(--indigo); }
+.out-table { width:100%; border-collapse:collapse; font-size:12px; }
+.out-table th { background:#f8fafc; padding:7px 10px; text-align:left;
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
+    color:var(--text-2); border-bottom:2px solid var(--border); }
+.out-table td { padding:6px 10px; border-bottom:1px solid #f8fafc; color:var(--text); }
+.out-table tr:hover td { background:#fafafe; }
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   SPINNER / TOAST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+@keyframes spin { to { transform:rotate(360deg); } }
+.spinner { animation:spin .8s linear infinite; display:inline-block; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════
+     HEADER
+══════════════════════════════════════ -->
+<header class="header">
+    <button class="sidebar-toggle" id="sidebar-toggle" title="Toggle sidebar">
+        <i class="fas fa-bars"></i>
+    </button>
+    <div class="logo">
+        <div class="logo-icon">🧠</div>
+        <div class="logo-text">
+            <div class="logo-name">AI Knowledge Base <span>RAG</span></div>
+            <div class="logo-sub">GRAY'S WMS · SYNC · SEARCH · ASK</div>
+        </div>
+    </div>
+    <div class="header-right">
+        <div class="svc-pill">
+            <span class="svc-dot" id="svc-dot"></span>
+            <span id="svc-text" style="white-space:nowrap">Checking…</span>
+        </div>
+        <button class="hdr-btn green" id="btn-start-svc" onclick="startService()" title="Start RAG Service">
+            <i class="fas fa-play"></i> Start
+        </button>
+        <button class="hdr-btn red" id="btn-stop-svc" onclick="stopService()" style="display:none" title="Stop RAG Service">
+            <i class="fas fa-stop"></i> Stop
+        </button>
+        <a href="../Home/index.html" class="hdr-btn"><i class="fas fa-home"></i> Home</a>
+    </div>
+</header>
+
+<!-- ══════════════════════════════════════
+     APP BODY
+══════════════════════════════════════ -->
+<div class="app-body">
+
+    <!-- ── SIDEBAR ── -->
+    <nav class="sidebar" id="sidebar">
+
+        <div class="sidebar-section">
+            <div class="nav-item active" id="nav-sync" onclick="showPage('sync')">
+                <span class="nav-icon"><i class="fas fa-database"></i></span>
+                <span class="nav-label">Sync Data</span>
+                <span class="nav-badge" id="badge-sync" style="display:none"></span>
+            </div>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="nav-item" id="nav-chat" onclick="showPage('chat')">
+                <span class="nav-icon"><i class="fas fa-robot"></i></span>
+                <span class="nav-label">Chatbot</span>
+            </div>
+        </div>
+
+        <div class="sidebar-section">
+            <div class="nav-item" id="nav-settings" onclick="showPage('settings')">
+                <span class="nav-icon"><i class="fas fa-cog"></i></span>
+                <span class="nav-label">Settings</span>
+            </div>
+        </div>
+
+        <div class="sidebar-footer">AI Knowledge Base v2 · Gray's WMS © 2026</div>
+    </nav>
+
+    <!-- ── MAIN ── -->
+    <main class="main">
+
+        <!-- ════════════════════════════════
+             PAGE: SYNC DATA
+        ════════════════════════════════ -->
+        <div class="page active" id="page-sync">
+
+            <div class="page-head">
+                <div>
+                    <div class="page-title">
+                        <i class="fas fa-database"></i> Sync WMS Data
+                        <span class="api-badge" onclick="openApiInfo()" title="View API configuration">
+                            <i class="fas fa-plug"></i> API
+                        </span>
+                    </div>
+                    <div class="page-sub">Pull trip &amp; order records from APEX into the local knowledge base.</div>
+                </div>
+                <span class="pill" id="doc-count"></span>
+            </div>
+
+            <div class="page-body">
+                <div class="two-col">
+
+                    <!-- LEFT: Controls -->
+                    <div style="display:flex;flex-direction:column;gap:14px;">
+
+                        <!-- Sync config card -->
+                        <div class="card">
+                            <div class="card-header indigo">
+                                <i class="fas fa-sliders-h fa-lg"></i>
+                                <div class="card-header-inner">
+                                    <h3>Sync Configuration</h3>
+                                    <p>Choose date range, instance, and data depth.</p>
+                                </div>
+                            </div>
+                            <div class="card-body">
+
+                                <div>
+                                    <label class="field-label">Quick Range</label>
+                                    <div class="chips" id="range-chips">
+                                        <button class="chip" onclick="applyRange(7,this)">7 days</button>
+                                        <button class="chip active" onclick="applyRange(15,this)">15 days</button>
+                                        <button class="chip" onclick="applyRange(30,this)">30 days</button>
+                                        <button class="chip" onclick="applyRange(60,this)">60 days</button>
+                                        <button class="chip" onclick="applyRange(90,this)">90 days</button>
+                                    </div>
+                                </div>
+
+                                <div class="row-2">
+                                    <div>
+                                        <label class="field-label">From Date</label>
+                                        <input type="date" id="sync-from">
+                                    </div>
+                                    <div>
+                                        <label class="field-label">To Date</label>
+                                        <input type="date" id="sync-to">
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="field-label">Instance</label>
+                                    <select id="sync-instance">
+                                        <option value="PROD">PROD — Production</option>
+                                        <option value="TEST">TEST — Testing</option>
+                                    </select>
+                                </div>
+
+                                <!-- Include details toggle -->
+                                <div class="toggle-row" style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+                                    <div style="flex:1">
+                                        <div class="toggle-label" style="font-size:12px;font-weight:700;color:var(--text);">Include Order Line Details</div>
+                                        <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Fetches per-trip order lines (products, quantities, weights). Slower but richer AI answers.</div>
+                                    </div>
+                                    <label class="toggle">
+                                        <input type="checkbox" id="include-details">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+
+                                <button class="btn btn-primary" id="sync-btn" onclick="startSync()" disabled>
+                                    <i class="fas fa-sync-alt"></i> Start Sync
+                                </button>
+
+                                <!-- Progress -->
+                                <div id="progress-box" style="display:none;">
+                                    <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                                        <span id="progress-detail" style="font-size:11px;color:var(--text-2);"></span>
+                                        <span id="progress-label"  style="font-size:11px;font-weight:700;color:var(--indigo);"></span>
+                                    </div>
+                                    <div class="progress-wrap"><div class="progress-bar" id="progress-bar"></div></div>
+                                    <div style="margin-top:6px;">
+                                        <button class="btn btn-outline" style="width:auto;padding:5px 14px;font-size:12px;" onclick="cancelSync()">
+                                            <i class="fas fa-stop"></i> Cancel
+                                        </button>
+                                    </div>
+                                    <div id="sync-errors" style="display:none;margin-top:6px;background:#fef2f2;border:1px solid #fca5a5;padding:8px 12px;border-radius:6px;font-size:11px;color:#dc2626;"></div>
+                                </div>
+
+                            </div>
+                        </div>
+
+                        <!-- Actions card -->
+                        <div class="card">
+                            <div class="card-header teal">
+                                <i class="fas fa-tools fa-lg"></i>
+                                <div class="card-header-inner">
+                                    <h3>Knowledge Base Actions</h3>
+                                    <p>Preview API data or manage the indexed records.</p>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <button class="btn btn-outline" onclick="openPreview()">
+                                    <i class="fas fa-eye"></i> Preview API Data
+                                </button>
+                                <button class="btn btn-outline" onclick="openBrowse()" id="browse-btn" disabled>
+                                    <i class="fas fa-table"></i> Browse Knowledge Base
+                                </button>
+                                <hr class="divider">
+                                <button class="btn btn-danger" onclick="clearDB()">
+                                    <i class="fas fa-trash-alt"></i> Clear Knowledge Base
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Setup note -->
+                        <div style="background:#fefce8;border:1px solid #fde68a;border-radius:9px;padding:11px 14px;font-size:12px;color:#92400e;">
+                            <strong><i class="fas fa-info-circle"></i> Setup:</strong>
+                            Start <code style="background:#fef9c3;padding:1px 5px;border-radius:3px;">rag_service.exe</code> from the <code style="background:#fef9c3;padding:1px 5px;border-radius:3px;">rag/</code> folder.
+                            Embeddings work offline — AI answers need internet.
+                        </div>
+
+                    </div>
+
+                    <!-- RIGHT: Last sync summary / placeholder -->
+                    <div style="display:flex;flex-direction:column;gap:14px;">
+
+                        <div class="card" style="flex:1;">
+                            <div class="card-header dark">
+                                <i class="fas fa-chart-bar fa-lg"></i>
+                                <div class="card-header-inner">
+                                    <h3>Knowledge Base Status</h3>
+                                    <p>Current state of the local vector store.</p>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div id="kb-status-body" style="color:var(--text-3);font-size:13px;text-align:center;padding:24px 0;">
+                                    <i class="fas fa-spinner spinner" style="font-size:24px;color:var(--indigo);display:block;margin-bottom:12px;"></i>
+                                    Connecting to service…
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Sync log -->
+                        <div class="card">
+                            <div class="card-header" style="background:linear-gradient(135deg,#334155,#475569);">
+                                <i class="fas fa-list-ul fa-lg"></i>
+                                <div class="card-header-inner">
+                                    <h3>Sync Log</h3>
+                                    <p>Activity from the current or last sync run.</p>
+                                </div>
+                            </div>
+                            <div class="card-body" style="padding:10px;">
+                                <div id="sync-log" style="font-family:monospace;font-size:11px;color:var(--text-2);max-height:200px;overflow-y:auto;background:#f8fafc;border-radius:6px;padding:8px 10px;">
+                                    — No sync activity yet —
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+        </div><!-- /page-sync -->
+
+
+        <!-- ════════════════════════════════
+             PAGE: CHATBOT
+        ════════════════════════════════ -->
+        <div class="page" id="page-chat">
+
+            <div class="page-head">
+                <div>
+                    <div class="page-title"><i class="fas fa-robot"></i> AI Chatbot</div>
+                    <div class="page-sub">Ask questions about your synced WMS data — answers grounded in real records.</div>
+                </div>
+                <span class="pill" id="chat-doc-count"></span>
+            </div>
+
+            <div class="page-body">
+                <div class="two-col">
+
+                    <!-- LEFT: Input -->
+                    <div style="display:flex;flex-direction:column;gap:14px;">
+
+                        <div class="card">
+                            <div class="card-header dark">
+                                <i class="fas fa-paper-plane fa-lg"></i>
+                                <div class="card-header-inner">
+                                    <h3>Ask a Question</h3>
+                                    <p>Powered by your chosen AI provider + local embeddings.</p>
+                                </div>
+                            </div>
+                            <div class="card-body">
+
+                                <div>
+                                    <label class="field-label">Quick Prompts</label>
+                                    <div class="prompt-chips">
+                                        <button class="prompt-chip" onclick="fillPrompt('Which trips were delayed in the last 30 days?')">Trip delays</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Who are the top performing pickers by number of orders?')">Top pickers</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('What orders are still pending or open?')">Pending orders</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Summarize trips from last week.')">Last week</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Which customers have the most orders?')">Top customers</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Show me high priority trips.')">High priority</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Which vehicles were used most frequently?')">Vehicle usage</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('List orders with no picker assigned.')">Unassigned</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('How many orders were delivered today?')">Today deliveries</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('What is the average weight per trip?')">Avg weight/trip</button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="field-label"><i class="fas fa-magic" style="color:var(--indigo);"></i> Advanced — Charts &amp; Reports</label>
+                                    <div class="prompt-chips">
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a bar chart of total orders by picker')">📊 Bar: orders by picker</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a pie chart of trips by vehicle')">🥧 Pie: trips by vehicle</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a bar chart of orders by status (delivered, pending, open)')">📊 Bar: by status</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a line chart of daily order volumes')">📈 Line: daily volumes</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Show a table of all trips with trip ID, customer, picker, vehicle, and status')">📋 Table: all trips</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Create a table of top 10 customers by number of orders')">📋 Table: top customers</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Generate an HTML report page for recent deliveries with a summary table and key stats')">🖥️ HTML report</button>
+                                        <button class="prompt-chip" onclick="fillPrompt('Draw a doughnut chart of high vs normal vs low priority trips')">🍩 Doughnut: priority</button>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="field-label">Your Question</label>
+                                    <textarea id="query-input" rows="5"
+                                        placeholder="e.g. Which pickers handled the most orders this month?&#10;(Enter = submit, Shift+Enter = new line)"></textarea>
+                                </div>
+
+                                <button class="btn btn-dark" id="ask-btn" onclick="submitQuery()" disabled>
+                                    <i class="fas fa-paper-plane"></i>
+                                    <i class="fas fa-spinner spinner" id="ask-spinner" style="display:none;"></i>
+                                    Ask AI
+                                </button>
+
+                                <div class="output-hint">
+                                    <i class="fas fa-magic"></i>
+                                    <span><strong>Advanced outputs:</strong> Say "draw a chart", "show a table", or "generate an HTML report" — the AI renders it directly with export options.</span>
+                                </div>
+
+                                <!-- Provider indicator -->
+                                <div id="provider-indicator" style="text-align:center;font-size:11px;color:var(--text-3);margin-top:-4px;">
+                                    Using <strong id="provider-name">Claude</strong> — change in Settings
+                                </div>
+
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- RIGHT: Answer -->
+                    <div style="display:flex;flex-direction:column;gap:14px;">
+                        <div class="card" style="flex:1;">
+                            <div class="card-header" style="background:linear-gradient(135deg,#334155,#475569);">
+                                <i class="fas fa-comment-dots fa-lg"></i>
+                                <div class="card-header-inner">
+                                    <h3>AI Answer</h3>
+                                    <p>Response grounded in your synced WMS records.</p>
+                                </div>
+                            </div>
+                            <div class="card-body" style="flex:1;">
+                                <div class="answer-box" id="answer-box" style="color:var(--text-3);">
+                                    Ask a question on the left — the AI searches your synced WMS data and answers based on real records.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div><!-- /page-chat -->
+
+
+        <!-- ════════════════════════════════
+             PAGE: SETTINGS
+        ════════════════════════════════ -->
+        <div class="page" id="page-settings">
+
+            <div class="page-head">
+                <div>
+                    <div class="page-title"><i class="fas fa-cog"></i> Settings</div>
+                    <div class="page-sub">Configure your AI provider API keys. Keys are saved locally in your browser.</div>
+                </div>
+            </div>
+
+            <div class="page-body" style="max-width:760px;">
+
+                <!-- Provider selection -->
+                <div class="card">
+                    <div class="card-header orange">
+                        <i class="fas fa-robot fa-lg"></i>
+                        <div class="card-header-inner">
+                            <h3>AI Provider</h3>
+                            <p>Choose which AI model answers your chatbot questions.</p>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="provider-cards">
+                            <div class="provider-card selected" id="pc-claude" onclick="selectProvider('claude')">
+                                <div class="provider-card-name">🧠 Claude <span style="font-size:10px;opacity:.6;font-weight:400">(Anthropic)</span></div>
+                                <div class="provider-card-desc">claude-sonnet-4-6 · Excellent reasoning, nuanced answers</div>
+                            </div>
+                            <div class="provider-card" id="pc-openai" onclick="selectProvider('openai')">
+                                <div class="provider-card-name">🤖 OpenAI <span style="font-size:10px;opacity:.6;font-weight:400">(GPT)</span></div>
+                                <div class="provider-card-desc">gpt-4o / gpt-4o-mini · Fast, broad knowledge</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Claude settings -->
+                <div class="card" id="settings-claude">
+                    <div class="card-header indigo">
+                        <i class="fas fa-key fa-lg"></i>
+                        <div class="card-header-inner">
+                            <h3>Claude API Key</h3>
+                            <p>Get your key at console.anthropic.com → Settings → API Keys</p>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div>
+                            <label class="field-label">
+                                API Key
+                                <a href="https://console.anthropic.com/settings/keys" target="_blank">Get key ↗</a>
+                            </label>
+                            <input type="password" id="claude-key" placeholder="sk-ant-api03-…">
+                        </div>
+                        <div style="background:#eef2ff;border-radius:8px;padding:10px 12px;font-size:12px;color:#4338ca;">
+                            <strong><i class="fas fa-info-circle"></i> How to get a Claude API key:</strong><br>
+                            1. Go to <strong>console.anthropic.com</strong> and sign in<br>
+                            2. Click <strong>Settings → API Keys → Create Key</strong><br>
+                            3. Copy the key (starts with <code style="background:#c7d2fe;padding:1px 4px;border-radius:3px;">sk-ant-api03-…</code>) — only shown once<br>
+                            4. Paste it above — saved automatically in your browser
+                        </div>
+                        <div style="font-size:11px;color:var(--text-3);background:#f8fafc;border-radius:6px;padding:8px 10px;">
+                            <i class="fas fa-shield-alt"></i> The key is stored only in localStorage on this machine. It is never sent anywhere except directly to the Anthropic API.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- OpenAI settings -->
+                <div class="card" id="settings-openai" style="display:none;">
+                    <div class="card-header dark">
+                        <i class="fas fa-key fa-lg"></i>
+                        <div class="card-header-inner">
+                            <h3>OpenAI API Key &amp; Model</h3>
+                            <p>Get your key at platform.openai.com → API Keys</p>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div>
+                            <label class="field-label">
+                                API Key
+                                <a href="https://platform.openai.com/api-keys" target="_blank">Get key ↗</a>
+                            </label>
+                            <input type="password" id="openai-key" placeholder="sk-…">
+                        </div>
+                        <div>
+                            <label class="field-label"><i class="fas fa-microchip"></i> Model</label>
+                            <select id="openai-model">
+                                <option value="gpt-4o-mini">gpt-4o-mini — fast &amp; cheap (recommended)</option>
+                                <option value="gpt-4o">gpt-4o — best quality</option>
+                                <option value="gpt-3.5-turbo">gpt-3.5-turbo — legacy / cheapest</option>
+                            </select>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-3);background:#f8fafc;border-radius:6px;padding:8px 10px;">
+                            <i class="fas fa-shield-alt"></i> The key is stored only in localStorage on this machine.
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div><!-- /page-settings -->
+
+    </main><!-- /main -->
+</div><!-- /app-body -->
+
+<!-- ══════════════════════════════════════
+     API INFO MODAL
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="api-info-modal" onclick="closeApiInfoOnOverlay(event)">
+    <div class="modal-box" style="max-width:720px;">
+        <div class="modal-head" style="background:linear-gradient(135deg,#334155,#475569);">
+            <i class="fas fa-plug fa-lg"></i>
+            <h2>API Configuration &amp; Data Being Synced</h2>
+            <button class="modal-close" onclick="closeApiInfo()">✕</button>
+        </div>
+        <div class="modal-body" style="padding:16px;display:flex;flex-direction:column;gap:14px;">
+
+            <!-- Restart warning -->
+            <div id="api-restart-warn" style="display:none;background:#fefce8;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:12px;color:#92400e;">
+                <strong><i class="fas fa-exclamation-triangle"></i> Restart Required:</strong>
+                The service is running an old version that doesn't have some endpoints.
+                Close the terminal and run <code style="background:#fef9c3;padding:1px 4px;border-radius:3px;">py -3.12 rag/rag_service.py</code> again.
+            </div>
+
+            <!-- Endpoints -->
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;"><i class="fas fa-network-wired"></i> APEX Endpoints Being Called</div>
+                <div id="api-endpoints" style="display:flex;flex-direction:column;gap:8px;font-size:12px;">
+                    <div style="color:var(--text-3);">Loading…</div>
+                </div>
+            </div>
+
+            <!-- Embed model -->
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;"><i class="fas fa-brain"></i> Embedding Model</div>
+                <div id="api-embed" style="font-family:monospace;font-size:12px;background:#f8fafc;padding:8px 10px;border-radius:6px;color:var(--indigo);border:1px solid var(--border);"></div>
+            </div>
+
+            <!-- Store dir -->
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;"><i class="fas fa-folder"></i> Vector Store Location</div>
+                <div id="api-store" style="font-family:monospace;font-size:11px;background:#f8fafc;padding:8px 10px;border-radius:6px;color:var(--text-2);border:1px solid var(--border);word-break:break-all;"></div>
+            </div>
+
+            <!-- Sample document -->
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;"><i class="fas fa-file-alt"></i> Sample Indexed Document (what the AI sees)</div>
+                <div class="pre-box" id="api-sample" style="max-height:220px;font-size:11px;">Loading…</div>
+                <div id="api-sample-meta" style="margin-top:6px;font-size:11px;display:flex;flex-wrap:wrap;gap:5px;"></div>
+            </div>
+
+        </div>
+        <div class="modal-foot">
+            <span id="api-version" style="color:var(--text-3);"></span>
+            <span style="color:var(--text-3);">Read-only — no changes made</span>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     BROWSE MODAL
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="browse-modal" onclick="closeBrowseOnOverlay(event)">
+    <div class="modal-box">
+        <div class="modal-head">
+            <i class="fas fa-table fa-lg"></i>
+            <h2>Browse Knowledge Base <span id="browse-title-count" style="font-weight:400;opacity:.75;"></span></h2>
+            <button class="modal-close" onclick="closeBrowse()">✕</button>
+        </div>
+        <div class="modal-toolbar">
+            <input class="search-in" id="browse-search" placeholder="Filter by trip, order, customer…" oninput="browseFilter()">
+            <span style="font-size:12px;color:var(--text-3);flex:1;" id="browse-filter-note"></span>
+            <button class="pager-btn" id="browse-prev" onclick="browsePage(-1)"><i class="fas fa-chevron-left"></i> Prev</button>
+            <span id="browse-pager-text" style="font-size:12px;color:var(--text-2);white-space:nowrap;"></span>
+            <button class="pager-btn" id="browse-next" onclick="browsePage(1)">Next <i class="fas fa-chevron-right"></i></button>
+        </div>
+        <div class="modal-body">
+            <table class="db-table">
+                <thead><tr>
+                    <th>Trip ID</th><th>Date</th><th>Order #</th><th>Customer</th>
+                    <th>Picker</th><th>Vehicle</th><th>Priority</th><th>Status</th>
+                </tr></thead>
+                <tbody id="browse-tbody">
+                    <tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:32px;">Loading…</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="modal-foot">
+            <span id="browse-foot-info"></span>
+            <span>Local vector DB · records synced from APEX</span>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     API PREVIEW MODAL
+══════════════════════════════════════ -->
+<div class="modal-overlay" id="preview-modal" onclick="closePreviewOnOverlay(event)">
+    <div class="modal-box" style="max-width:860px;">
+        <div class="modal-head" style="background:linear-gradient(135deg,#0d9488,#0f766e);">
+            <i class="fas fa-eye fa-lg"></i>
+            <h2>API Data Preview <span id="preview-title" style="font-weight:400;opacity:.75;"></span></h2>
+            <button class="modal-close" onclick="closePreview()">✕</button>
+        </div>
+        <div class="modal-toolbar" style="gap:12px;flex-wrap:wrap;">
+            <span style="font-size:12px;color:var(--text-2);">Date: <strong id="prev-date"></strong></span>
+            <span style="font-size:12px;color:var(--text-2);">Instance: <strong id="prev-instance"></strong></span>
+            <span style="font-size:12px;color:var(--text-2);">Records: <strong id="prev-count"></strong></span>
+            <span style="flex:1;"></span>
+            <label style="display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer;">
+                <input type="checkbox" id="prev-details-toggle" onchange="rePreview()">
+                Show order line details
+            </label>
+        </div>
+        <div class="modal-body" style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">
+                    <i class="fas fa-list"></i> Fields Returned by API
+                </div>
+                <div id="prev-fields" style="display:flex;flex-wrap:wrap;gap:5px;"></div>
+            </div>
+            <div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">
+                    <i class="fas fa-code"></i> Sample Records (first 5)
+                </div>
+                <div class="pre-box" id="prev-json">Loading…</div>
+            </div>
+            <div id="prev-detail-block" style="display:none;">
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">
+                    <i class="fas fa-sitemap"></i> Order Line Detail Fields (first trip)
+                </div>
+                <div id="prev-detail-fields" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;"></div>
+                <div class="pre-box" id="prev-detail-json"></div>
+            </div>
+            <div id="prev-raw-block" style="display:none;">
+                <div style="font-size:11px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">
+                    <i class="fas fa-terminal"></i> Raw API Response (first 4 KB)
+                </div>
+                <div class="pre-box" id="prev-raw-json" style="max-height:200px;"></div>
+            </div>
+        </div>
+        <div class="modal-foot">
+            <span style="color:var(--text-3);">Read-only preview — no data is indexed</span>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════ -->
+<script>
+(function () {
+'use strict';
+
+const RAG_API = 'http://127.0.0.1:8765';
+let syncPollInterval = null;
+let currentProvider  = 'claude';
+
+// ── API helpers ──────────────────────────────────────────────────────────────
+async function apiGet(path) {
+    const r = await fetch(RAG_API + path);
+    return r.json();
+}
+async function apiPost(path, body) {
+    const r = await fetch(RAG_API + path, {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+    });
+    return r.json();
+}
+async function apiDelete(path) {
+    const r = await fetch(RAG_API + path, { method: 'DELETE' });
+    return r.json();
+}
+
+// ── Sidebar navigation ───────────────────────────────────────────────────────
+window.showPage = function (name) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('page-' + name).classList.add('active');
+    document.getElementById('nav-' + name).classList.add('active');
+};
+
+document.getElementById('sidebar-toggle').addEventListener('click', function () {
+    document.getElementById('sidebar').classList.toggle('collapsed');
+});
+
+// ── Health check ─────────────────────────────────────────────────────────────
+async function checkHealth() {
+    const dot      = document.getElementById('svc-dot');
+    const text     = document.getElementById('svc-text');
+    const syncBtn  = document.getElementById('sync-btn');
+    const askBtn   = document.getElementById('ask-btn');
+    const browseBtn= document.getElementById('browse-btn');
+    const btnStart = document.getElementById('btn-start-svc');
+    const btnStop  = document.getElementById('btn-stop-svc');
+    try {
+        const d = await apiGet('/status');
+        dot.style.background = '#10b981';
+        text.textContent = 'Service Online';
+        const n = d.documents_in_db || 0;
+        const countTxt = n > 0 ? `${n.toLocaleString()} records indexed` : 'No records yet';
+        document.getElementById('doc-count').textContent = countTxt;
+        document.getElementById('chat-doc-count').textContent = countTxt;
+        syncBtn.disabled  = false;
+        askBtn.disabled   = false;
+        browseBtn.disabled= n === 0;
+        if (btnStart) btnStart.style.display = 'none';
+        if (btnStop)  btnStop.style.display  = '';
+        updateKbStatus(d);
+    } catch {
+        dot.style.background = '#ef4444';
+        text.textContent = 'Service Offline';
+        document.getElementById('doc-count').textContent = '';
+        document.getElementById('chat-doc-count').textContent = '';
+        syncBtn.disabled  = true;
+        askBtn.disabled   = true;
+        browseBtn.disabled= true;
+        if (btnStart) { btnStart.style.display = ''; btnStart.disabled = false; }
+        if (btnStop)  btnStop.style.display  = 'none';
+        document.getElementById('kb-status-body').innerHTML =
+            '<div style="color:var(--text-3);text-align:center;padding:24px 0;font-size:13px;">' +
+            '<i class="fas fa-plug" style="font-size:28px;display:block;margin-bottom:10px;color:#cbd5e1;"></i>' +
+            'Service offline — start it first.</div>';
+    }
+}
+
+function updateKbStatus(d) {
+    const n    = d.documents_in_db || 0;
+    const sync = d.sync || {};
+    const sinceStart = sync.started_at
+        ? new Date(sync.started_at).toLocaleString()
+        : '—';
+    document.getElementById('kb-status-body').innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;">
+            <div style="background:#eef2ff;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:28px;font-weight:900;color:var(--indigo);">${n.toLocaleString()}</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Records Indexed</div>
+            </div>
+            <div style="background:#f0fdf4;border-radius:10px;padding:14px;text-align:center;">
+                <div style="font-size:22px;font-weight:900;color:var(--success);">${sync.total_docs ? sync.total_docs.toLocaleString() : n.toLocaleString()}</div>
+                <div style="font-size:11px;color:var(--text-3);margin-top:2px;">Last Sync Docs</div>
+            </div>
+        </div>
+        <div style="font-size:11px;color:var(--text-3);background:#f8fafc;border-radius:6px;padding:8px 10px;">
+            Last sync started: ${sinceStart}<br>
+            Include details: ${sync.include_details ? '✅ Yes' : '❌ No (headers only)'}
+        </div>`;
+}
+
+// ── Service control ──────────────────────────────────────────────────────────
+window.startService = function () {
+    const btn = document.getElementById('btn-start-svc');
+    if (btn) btn.disabled = true;
+    if (window.chrome && window.chrome.webview) {
+        notify('Starting RAG Service…', 'info');
+        window.chrome.webview.postMessage({ action:'startRagService', requestId:'rag-start' });
+    } else {
+        notify('Run: py -3.12 rag/rag_service.py', 'info');
+        if (btn) btn.disabled = false;
+    }
+};
+window.stopService = function () {
+    const btn = document.getElementById('btn-stop-svc');
+    if (btn) btn.disabled = true;
+    if (window.chrome && window.chrome.webview) {
+        notify('Stopping RAG Service…', 'info');
+        window.chrome.webview.postMessage({ action:'stopRagService', requestId:'rag-stop' });
+    } else {
+        notify('Close the rag_service terminal to stop it.', 'info');
+        if (btn) btn.disabled = false;
+    }
+};
+window.handleRagServiceResult = function (success, message) {
+    const btnStart = document.getElementById('btn-start-svc');
+    const btnStop  = document.getElementById('btn-stop-svc');
+    if (btnStart) btnStart.disabled = false;
+    if (btnStop)  btnStop.disabled  = false;
+    notify(message, success ? 'success' : 'error');
+    checkHealth();
+};
+
+// ── Provider ─────────────────────────────────────────────────────────────────
+window.selectProvider = function (p) {
+    currentProvider = p;
+    document.getElementById('pc-claude').classList.toggle('selected', p === 'claude');
+    document.getElementById('pc-openai').classList.toggle('selected', p === 'openai');
+    document.getElementById('settings-claude').style.display = p === 'claude' ? '' : 'none';
+    document.getElementById('settings-openai').style.display = p === 'openai' ? '' : 'none';
+    document.getElementById('provider-name').textContent = p === 'claude' ? 'Claude (Anthropic)' : 'OpenAI / GPT';
+    localStorage.setItem('ragProvider', p);
+};
+
+// ── Date helpers ─────────────────────────────────────────────────────────────
+function toInput(d)  { return d.toISOString().split('T')[0]; }
+function toApex(val) { const [y,m,d] = val.split('-'); return `${d}-${m}-${y}`; }
+
+window.applyRange = function (days, el) {
+    const to   = new Date();
+    const from = new Date();
+    from.setDate(to.getDate() - days + 1);
+    document.getElementById('sync-from').value = toInput(from);
+    document.getElementById('sync-to').value   = toInput(to);
+    document.querySelectorAll('#range-chips .chip').forEach(c => c.classList.remove('active'));
+    if (el) el.classList.add('active');
+};
+
+// ── Sync ─────────────────────────────────────────────────────────────────────
+window.startSync = async function () {
+    const f    = document.getElementById('sync-from').value;
+    const t    = document.getElementById('sync-to').value;
+    const inst = document.getElementById('sync-instance').value;
+    const det  = document.getElementById('include-details').checked;
+    if (!f || !t) { notify('Select a date range first.', 'error'); return; }
+    if (f > t)    { notify('From must be before To.', 'error'); return; }
+    try {
+        const r = await apiPost('/sync', {
+            date_from: toApex(f), date_to: toApex(t),
+            instance: inst, include_details: det
+        });
+        if (!r.success) { notify(r.message || 'Failed to start sync.', 'error'); return; }
+        notify('Sync started…', 'info');
+        appendLog(`▶ Sync started ${toApex(f)} → ${toApex(t)} [${inst}]${det ? ' + details' : ''}`);
+        document.getElementById('progress-box').style.display = 'block';
+        if (syncPollInterval) clearInterval(syncPollInterval);
+        syncPollInterval = setInterval(pollProgress, 1500);
+    } catch { notify('Cannot reach RAG service.', 'error'); }
+};
+
+async function pollProgress() {
+    try {
+        const p   = await apiGet('/sync/progress');
+        const pct = p.percent || 0;
+        document.getElementById('progress-bar').style.width      = pct + '%';
+        document.getElementById('progress-label').textContent     = pct + '%';
+        if (p.running) {
+            const det = document.getElementById('include-details').checked ? ' (fetching details…)' : '';
+            document.getElementById('progress-detail').textContent =
+                `Day ${p.done_days}/${p.total_days} · ${p.current_date} · ${p.total_docs.toLocaleString()} records${det}`;
+        }
+        if (p.errors && p.errors.length) {
+            const eb = document.getElementById('sync-errors');
+            eb.style.display = 'block';
+            eb.innerHTML = `<strong>Warnings (${p.errors.length}):</strong><br>` +
+                p.errors.slice(-3).map(e => `• ${e}`).join('<br>');
+        }
+        if (!p.running && p.finished) {
+            clearInterval(syncPollInterval);
+            syncPollInterval = null;
+            document.getElementById('progress-bar').style.background = 'linear-gradient(90deg,#10b981,#059669)';
+            document.getElementById('progress-detail').textContent    = `Done — ${p.total_docs.toLocaleString()} records indexed`;
+            notify(`Sync complete — ${p.total_docs.toLocaleString()} records.`, 'success');
+            appendLog(`✅ Sync complete — ${p.total_docs.toLocaleString()} records indexed`);
+            checkHealth();
+            setTimeout(() => { document.getElementById('progress-box').style.display = 'none'; }, 6000);
+        }
+    } catch { /* brief */ }
+}
+
+window.cancelSync = async function () {
+    try {
+        await apiPost('/sync/cancel', {});
+        clearInterval(syncPollInterval); syncPollInterval = null;
+        document.getElementById('progress-box').style.display = 'none';
+        notify('Sync cancelled.', 'info');
+        appendLog('⛔ Sync cancelled');
+    } catch { notify('Could not cancel.', 'error'); }
+};
+
+window.clearDB = async function () {
+    if (!confirm('Delete ALL synced data from the knowledge base? This cannot be undone.')) return;
+    try {
+        const r = await apiDelete('/collection');
+        notify(r.success ? 'Knowledge base cleared.' : (r.message || 'Failed.'), r.success ? 'success' : 'error');
+        if (r.success) { checkHealth(); appendLog('🗑 Knowledge base cleared'); }
+    } catch { notify('Cannot reach RAG service.', 'error'); }
+};
+
+function appendLog(msg) {
+    const el = document.getElementById('sync-log');
+    const now = new Date().toLocaleTimeString();
+    el.textContent = `[${now}] ${msg}\n` + (el.textContent === '— No sync activity yet —' ? '' : el.textContent);
+}
+
+// ── Query ─────────────────────────────────────────────────────────────────────
+window.fillPrompt = function (text) {
+    document.getElementById('query-input').value = text;
+    document.getElementById('query-input').focus();
+};
+
+window.submitQuery = async function () {
+    const q = document.getElementById('query-input').value.trim();
+    if (!q) { notify('Enter a question first.', 'error'); return; }
+
+    const body = { question: q, top_k: 10, llm_provider: currentProvider };
+    if (currentProvider === 'openai') {
+        body.openai_api_key = document.getElementById('openai-key').value.trim() || localStorage.getItem('openaiApiKey') || '';
+        body.openai_model   = document.getElementById('openai-model').value;
+    } else {
+        body.claude_api_key = document.getElementById('claude-key').value.trim() || localStorage.getItem('claudeApiKey') || '';
+    }
+
+    setLoading(true);
+    document.getElementById('answer-box').innerHTML = '';
+    try {
+        const r = await apiPost('/query', body);
+        if (r.success) renderAnswer(r.answer, r.sources || []);
+        else           renderError(r.answer || 'Query failed.');
+    } catch { renderError('Cannot reach RAG service. Is it running?'); }
+    finally  { setLoading(false); }
+};
+
+function setLoading(on) {
+    document.getElementById('ask-btn').disabled = on;
+    document.getElementById('ask-spinner').style.display = on ? 'inline-block' : 'none';
+}
+
+// ── Structured output parser ───────────────────────────────────────────────────
+function tryParseStructured(raw) {
+    const s = (raw || '').trim();
+    // Direct JSON
+    try { const p = JSON.parse(s); if (p && p.type) return p; } catch {}
+    // Fenced code block: ```json ... ``` or ``` ... ```
+    const fenced = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced) { try { const p = JSON.parse(fenced[1].trim()); if (p && p.type) return p; } catch {} }
+    // Raw JSON object in mixed text
+    const first = s.indexOf('{');
+    const last  = s.lastIndexOf('}');
+    if (first !== -1 && last > first) {
+        try { const p = JSON.parse(s.slice(first, last + 1)); if (p && p.type) return p; } catch {}
+    }
+    return null;
+}
+
+// ── Sources HTML (shared) ─────────────────────────────────────────────────────
+function sourcesHtml(sources) {
+    if (!sources || !sources.length) return '';
+    const rows = sources.slice(0, 8).map(s => `
+        <div class="src-row">
+            <span style="color:var(--indigo);font-weight:700;min-width:64px;">Trip ${esc(s.trip_id)}</span>
+            <span style="color:var(--text-3);">${esc(s.trip_date)}</span>
+            <span>${esc(s.order_number)}</span>
+            <span style="color:var(--text-2);">${esc(s.customer)}</span>
+            ${s.picker ? `<span style="color:var(--success);">👤 ${esc(s.picker)}</span>` : ''}
+            ${s.status ? `<span class="badge">${esc(s.status)}</span>` : ''}
+        </div>`).join('');
+    return `<div class="src-label"><i class="fas fa-database"></i> Sources (${sources.length} records)</div>${rows}`;
+}
+
+// ── Main dispatcher ────────────────────────────────────────────────────────────
+function renderAnswer(rawAnswer, sources) {
+    const parsed = tryParseStructured(rawAnswer);
+    if (parsed) {
+        switch (parsed.type) {
+            case 'chart':  return renderChartOutput(parsed, sources);
+            case 'table':  return renderTableOutput(parsed, sources);
+            case 'html':   return renderHtmlOutput(parsed, sources);
+        }
+    }
+    renderTextOutput(rawAnswer, sources);
+}
+
+// ── TEXT output ────────────────────────────────────────────────────────────────
+function renderTextOutput(answer, sources) {
+    const html = answer
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')
+        .replace(/\n/g,'<br>');
+    document.getElementById('answer-box').innerHTML =
+        `<div class="answer-success">${html}</div>${sourcesHtml(sources)}`;
+}
+
+// ── CHART output (Chart.js) ────────────────────────────────────────────────────
+let _chartInstance = null;
+function renderChartOutput(data, sources) {
+    const canvasId = 'rag-chart-' + Date.now();
+    const expTxt   = data.explanation ? `<div style="margin-bottom:10px;color:var(--text-2);font-size:12px;">${esc(data.explanation)}</div>` : '';
+    document.getElementById('answer-box').innerHTML = `
+        <div class="answer-success">
+            <div style="font-weight:800;font-size:14px;margin-bottom:6px;color:var(--text);">
+                <i class="fas fa-chart-bar" style="color:var(--indigo);"></i> ${esc(data.title || 'Chart')}
+            </div>
+            ${expTxt}
+            <div class="chart-wrap"><canvas id="${canvasId}"></canvas></div>
+            <div class="export-bar">
+                <button class="export-btn" onclick="downloadChartPng('${canvasId}','${esc(data.title||'chart')}')">
+                    <i class="fas fa-image"></i> Save PNG
+                </button>
+                <button class="export-btn" onclick="printChart('${canvasId}','${esc(data.title||'Chart')}')">
+                    <i class="fas fa-print"></i> Print / PDF
+                </button>
+            </div>
+        </div>
+        ${sourcesHtml(sources)}`;
+    // Destroy previous chart to avoid canvas reuse errors
+    if (_chartInstance) { try { _chartInstance.destroy(); } catch {} _chartInstance = null; }
+    try {
+        const cfg = data.chartjs || {};
+        // Ensure responsive
+        cfg.options = cfg.options || {};
+        cfg.options.responsive = true;
+        cfg.options.maintainAspectRatio = true;
+        _chartInstance = new Chart(document.getElementById(canvasId), cfg);
+    } catch(e) {
+        document.getElementById('answer-box').innerHTML +=
+            `<div style="color:var(--danger);font-size:12px;margin-top:6px;"><i class="fas fa-exclamation-circle"></i> Chart render error: ${esc(e.message)}</div>`;
+    }
+}
+
+window.downloadChartPng = function(canvasId, title) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = (title || 'chart').replace(/[^a-z0-9_-]/gi,'_') + '.png';
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+};
+
+window.printChart = function(canvasId, title) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const img   = canvas.toDataURL('image/png');
+    const win   = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head><title>${esc(title)}</title>
+        <style>body{font-family:Segoe UI,sans-serif;padding:24px;}h1{color:#4f46e5;font-size:18px;}img{max-width:100%;}</style>
+        </head><body><h1>${esc(title)}</h1><img src="${img}"><script>window.onload=()=>window.print();<\/script></body></html>`);
+    win.document.close();
+};
+
+// ── TABLE output ───────────────────────────────────────────────────────────────
+window._lastTable = null;
+function renderTableOutput(data, sources) {
+    const cols = data.columns || [];
+    const rows = data.rows    || [];
+    const expTxt = data.explanation ? `<div style="margin-bottom:10px;color:var(--text-2);font-size:12px;">${esc(data.explanation)}</div>` : '';
+    const thead  = `<tr>${cols.map(c => `<th>${esc(c)}</th>`).join('')}</tr>`;
+    const tbody  = rows.map(r => `<tr>${r.map(v => `<td>${esc(String(v??''))}</td>`).join('')}</tr>`).join('');
+    document.getElementById('answer-box').innerHTML = `
+        <div class="answer-success">
+            <div style="font-weight:800;font-size:14px;margin-bottom:6px;color:var(--text);">
+                <i class="fas fa-table" style="color:var(--indigo);"></i> ${esc(data.title || 'Table')}
+            </div>
+            ${expTxt}
+            <div style="overflow-x:auto;margin-bottom:10px;border:1px solid var(--border);border-radius:8px;">
+                <table class="out-table"><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+            </div>
+            <div style="font-size:11px;color:var(--text-3);margin-bottom:8px;">${rows.length} row${rows.length!==1?'s':''}</div>
+            <div class="export-bar">
+                <button class="export-btn" onclick="exportTableCsv()">
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </button>
+                <button class="export-btn" onclick="printTableOutput()">
+                    <i class="fas fa-print"></i> Print / PDF
+                </button>
+            </div>
+        </div>
+        ${sourcesHtml(sources)}`;
+    window._lastTable = { columns: cols, rows: rows, title: data.title || 'report' };
+}
+
+window.exportTableCsv = function() {
+    if (!window._lastTable) return;
+    const { columns, rows, title } = window._lastTable;
+    const csvRow = arr => arr.map(v => `"${String(v??'').replace(/"/g,'""')}"`).join(',');
+    const csv    = [csvRow(columns), ...rows.map(csvRow)].join('\r\n');
+    const blob   = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const a      = document.createElement('a');
+    a.href       = URL.createObjectURL(blob);
+    a.download   = (title || 'report').replace(/[^a-z0-9_-]/gi,'_') + '.csv';
+    a.click();
+};
+
+window.printTableOutput = function() {
+    if (!window._lastTable) return;
+    const { columns, rows, title } = window._lastTable;
+    const thead = `<tr>${columns.map(c => `<th style="background:#f1f5f9;padding:8px;text-align:left;border-bottom:2px solid #e2e8f0;font-size:11px;text-transform:uppercase;">${c}</th>`).join('')}</tr>`;
+    const tbody = rows.map(r => `<tr>${r.map(v => `<td style="padding:7px 8px;border-bottom:1px solid #f1f5f9;">${String(v??'')}</td>`).join('')}</tr>`).join('');
+    const win   = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head><title>${title}</title>
+        <style>body{font-family:Segoe UI,sans-serif;padding:24px;font-size:13px;}
+        h1{color:#4f46e5;font-size:18px;}table{width:100%;border-collapse:collapse;}</style>
+        </head><body><h1>${title}</h1>
+        <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>
+        <p style="color:#94a3b8;font-size:11px;margin-top:16px;">Gray's WMS · ${new Date().toLocaleDateString()}</p>
+        <script>window.onload=()=>window.print();<\/script></body></html>`);
+    win.document.close();
+};
+
+// ── HTML output ────────────────────────────────────────────────────────────────
+function renderHtmlOutput(data, sources) {
+    const iframeId = 'rag-iframe-' + Date.now();
+    document.getElementById('answer-box').innerHTML = `
+        <div class="answer-success">
+            <div style="font-weight:800;font-size:14px;margin-bottom:8px;color:var(--text);">
+                <i class="fas fa-file-code" style="color:var(--indigo);"></i> ${esc(data.title || 'HTML Report')}
+            </div>
+            <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px;">
+                <iframe id="${iframeId}" style="width:100%;min-height:320px;border:none;display:block;" srcdoc=""></iframe>
+            </div>
+            <div class="export-bar">
+                <button class="export-btn" onclick="printIframeContent('${iframeId}')">
+                    <i class="fas fa-print"></i> Print / Save PDF
+                </button>
+                <button class="export-btn" onclick="copyHtmlContent('${iframeId}')">
+                    <i class="fas fa-copy"></i> Copy HTML
+                </button>
+                <button class="export-btn" onclick="openHtmlNewTab('${iframeId}')">
+                    <i class="fas fa-external-link-alt"></i> Open in Tab
+                </button>
+            </div>
+        </div>
+        ${sourcesHtml(sources)}`;
+
+    const fullHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+        <style>
+        body{font-family:'Segoe UI',Tahoma,sans-serif;padding:20px;font-size:13px;color:#1e293b;line-height:1.6;}
+        h1,h2,h3{color:#4f46e5;}
+        table{width:100%;border-collapse:collapse;margin:10px 0;}
+        th{background:#f1f5f9;padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;}
+        td{padding:7px 10px;border-bottom:1px solid #f1f5f9;}
+        tr:hover td{background:#f8fafc;}
+        .badge{background:#eef2ff;color:#4f46e5;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;}
+        .stat{background:#f8fafc;border-radius:8px;padding:12px 16px;display:inline-block;margin:4px;}
+        .stat-num{font-size:24px;font-weight:900;color:#4f46e5;}
+        .stat-lbl{font-size:11px;color:#94a3b8;}
+        </style></head><body>${data.content || ''}</body></html>`;
+    document.getElementById(iframeId).srcdoc = fullHtml;
+}
+
+window.printIframeContent = function(iframeId) {
+    const frame = document.getElementById(iframeId);
+    if (frame && frame.contentWindow) frame.contentWindow.print();
+};
+
+window.copyHtmlContent = function(iframeId) {
+    const frame = document.getElementById(iframeId);
+    if (!frame) return;
+    const html = frame.srcdoc || '';
+    navigator.clipboard.writeText(html).then(() => notify('HTML copied to clipboard!', 'success'))
+        .catch(() => notify('Copy failed — try manually.', 'error'));
+};
+
+window.openHtmlNewTab = function(iframeId) {
+    const frame = document.getElementById(iframeId);
+    if (!frame || !frame.srcdoc) return;
+    const blob = new Blob([frame.srcdoc], { type: 'text/html' });
+    const url  = URL.createObjectURL(blob);
+    const win  = window.open(url, '_blank');
+    if (win) setTimeout(() => URL.revokeObjectURL(url), 5000);
+};
+
+function renderError(msg) {
+    document.getElementById('answer-box').innerHTML =
+        `<div class="answer-error"><i class="fas fa-exclamation-circle"></i> ${msg}</div>`;
+}
+
+// ── Browse modal ─────────────────────────────────────────────────────────────
+let browseCurrentPage = 1, browseTotalPages = 1, browseAllRows = [], browseFilterStr = '';
+
+window.openBrowse = async function () {
+    browseCurrentPage = 1; browseFilterStr = '';
+    document.getElementById('browse-search').value = '';
+    document.getElementById('browse-modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    await loadBrowsePage(1);
+};
+window.closeBrowse = function () {
+    document.getElementById('browse-modal').classList.remove('open');
+    document.body.style.overflow = '';
+};
+window.closeBrowseOnOverlay = function (e) {
+    if (e.target === document.getElementById('browse-modal')) closeBrowse();
+};
+window.browsePage = async function (delta) {
+    const next = browseCurrentPage + delta;
+    if (next < 1 || next > browseTotalPages) return;
+    await loadBrowsePage(next);
+};
+window.browseFilter = function () {
+    browseFilterStr = document.getElementById('browse-search').value.toLowerCase().trim();
+    renderBrowseRows();
+};
+async function loadBrowsePage(page) {
+    document.getElementById('browse-tbody').innerHTML =
+        `<tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:24px;"><i class="fas fa-spinner spinner"></i> Loading…</td></tr>`;
+    try {
+        const d = await apiGet(`/browse?page=${page}&per_page=50`);
+        browseCurrentPage = d.page; browseTotalPages = d.pages; browseAllRows = d.records || [];
+        document.getElementById('browse-title-count').textContent = `— ${d.total.toLocaleString()} records`;
+        document.getElementById('browse-pager-text').textContent   = `Page ${d.page} / ${d.pages}`;
+        document.getElementById('browse-prev').disabled = page <= 1;
+        document.getElementById('browse-next').disabled = page >= d.pages;
+        renderBrowseRows();
+    } catch {
+        document.getElementById('browse-tbody').innerHTML =
+            `<tr><td colspan="8" style="text-align:center;color:var(--danger);padding:24px;">Cannot reach service.</td></tr>`;
+    }
+}
+function renderBrowseRows() {
+    const rows = browseFilterStr
+        ? browseAllRows.filter(r => {
+            const m = r.metadata || {};
+            return [m.trip_id,m.order_number,m.customer,m.picker,m.vehicle,m.trip_date]
+                .some(v => v && String(v).toLowerCase().includes(browseFilterStr));
+          })
+        : browseAllRows;
+    document.getElementById('browse-filter-note').textContent =
+        browseFilterStr ? `${rows.length} of ${browseAllRows.length} shown` : '';
+    document.getElementById('browse-foot-info').textContent =
+        `${rows.length} record${rows.length !== 1 ? 's' : ''} on this page`;
+    if (!rows.length) {
+        document.getElementById('browse-tbody').innerHTML =
+            `<tr><td colspan="8" style="text-align:center;color:var(--text-3);padding:24px;">No records match.</td></tr>`;
+        return;
+    }
+    document.getElementById('browse-tbody').innerHTML = rows.map(r => {
+        const m = r.metadata || {};
+        return `<tr>
+            <td style="color:var(--indigo);font-weight:700;">${esc(m.trip_id)}</td>
+            <td>${esc(m.trip_date)}</td><td>${esc(m.order_number)}</td>
+            <td>${esc(m.customer)}</td>
+            <td style="color:var(--success);">${m.picker ? '👤 '+esc(m.picker) : '<span style="color:#cbd5e1">—</span>'}</td>
+            <td>${esc(m.vehicle)}</td>
+            <td>${m.priority ? `<span class="badge">${esc(m.priority)}</span>` : '—'}</td>
+            <td>${m.status   ? `<span class="badge">${esc(m.status)}</span>`   : '—'}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ── API Preview modal ─────────────────────────────────────────────────────────
+let lastPreviewParams = null;
+
+window.openPreview = async function () {
+    const f    = document.getElementById('sync-from').value;
+    const inst = document.getElementById('sync-instance').value;
+    if (!f) { notify('Set a From Date in the Sync panel first.', 'error'); return; }
+
+    document.getElementById('preview-modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('prev-json').textContent = 'Loading…';
+    document.getElementById('prev-fields').innerHTML = '';
+    document.getElementById('prev-detail-block').style.display = 'none';
+    document.getElementById('prev-raw-block').style.display    = 'none';
+    document.getElementById('prev-raw-json').textContent       = '';
+    document.getElementById('prev-details-toggle').checked     = false;
+    lastPreviewParams = { date: toApex(f), instance: inst };
+    await loadPreview(false);
+};
+window.rePreview = async function () {
+    const det = document.getElementById('prev-details-toggle').checked;
+    document.getElementById('prev-json').textContent = 'Loading…';
+    document.getElementById('prev-detail-block').style.display = 'none';
+    await loadPreview(det);
+};
+async function loadPreview(includeDetails) {
+    const { date, instance } = lastPreviewParams;
+    try {
+        const url = `/preview?date_from=${encodeURIComponent(date)}&instance=${encodeURIComponent(instance)}&include_details=${includeDetails}`;
+        const d   = await apiGet(url);
+
+        // Always show raw response first so user can diagnose issues
+        document.getElementById('prev-raw-json').textContent =
+            d.raw_response || '(no raw response available)';
+
+        if (d.error) {
+            document.getElementById('prev-json').textContent =
+                `Error: ${d.error}\n\nHint: ${d.hint || ''}\n\nRaw API response shown in the "Raw Response" tab below.`;
+            document.getElementById('prev-fields').innerHTML =
+                `<span style="color:var(--danger);font-size:12px;"><i class="fas fa-exclamation-circle"></i> ${esc(d.error)}</span>`;
+            document.getElementById('prev-raw-block').style.display = '';
+            return;
+        }
+
+        document.getElementById('prev-date').textContent     = d.date;
+        document.getElementById('prev-instance').textContent = d.instance;
+        document.getElementById('prev-count').textContent    =
+            d.header_count > 0
+                ? `${d.header_count} records for this date`
+                : '⚠️ 0 records — try a different date';
+        document.getElementById('preview-title').textContent = `— ${d.date}`;
+
+        if (!d.header_count) {
+            document.getElementById('prev-fields').innerHTML =
+                `<span style="color:var(--warning);font-size:12px;font-weight:600;">
+                    <i class="fas fa-calendar-times"></i>
+                    No trip data found for ${esc(d.date)}. Try selecting a weekday with deliveries.
+                </span>`;
+            document.getElementById('prev-json').textContent =
+                `No records returned for ${d.date}.\n\nThe APEX API responded but found no trips.\n` +
+                `Try a different date (weekday, within the last 30-60 days).\n\n` +
+                `Raw API response is shown below.`;
+            document.getElementById('prev-raw-block').style.display = '';
+            return;
+        }
+
+        // Fields chips
+        document.getElementById('prev-fields').innerHTML = (d.header_fields || []).map(f =>
+            `<span style="font-size:11px;font-family:monospace;background:#eef2ff;color:var(--indigo);padding:2px 8px;border-radius:4px;font-weight:600;">${esc(f)}</span>`
+        ).join('');
+        document.getElementById('prev-json').textContent =
+            JSON.stringify(d.header_sample, null, 2);
+        document.getElementById('prev-raw-block').style.display = '';
+
+        // Detail block
+        if (includeDetails && d.detail_count > 0) {
+            document.getElementById('prev-detail-block').style.display = '';
+            document.getElementById('prev-detail-fields').innerHTML = (d.detail_fields || []).map(f =>
+                `<span style="font-size:11px;font-family:monospace;background:#f0fdf4;color:var(--success);padding:2px 8px;border-radius:4px;font-weight:600;">${esc(f)}</span>`
+            ).join('');
+            document.getElementById('prev-detail-json').textContent =
+                JSON.stringify(d.detail_sample, null, 2);
+        } else if (includeDetails) {
+            document.getElementById('prev-detail-block').style.display = '';
+            document.getElementById('prev-detail-json').textContent =
+                'No detail records returned for the first trip ID.';
+        }
+    } catch(e) {
+        document.getElementById('prev-json').textContent = 'Error fetching preview: ' + e.message;
+    }
+}
+window.closePreview = function () {
+    document.getElementById('preview-modal').classList.remove('open');
+    document.body.style.overflow = '';
+};
+window.closePreviewOnOverlay = function (e) {
+    if (e.target === document.getElementById('preview-modal')) closePreview();
+};
+
+// ── API Info modal ────────────────────────────────────────────────────────────
+window.openApiInfo = async function () {
+    document.getElementById('api-info-modal').classList.add('open');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('api-endpoints').innerHTML = '<div style="color:var(--text-3);">Loading…</div>';
+    document.getElementById('api-sample').textContent  = 'Loading…';
+    document.getElementById('api-restart-warn').style.display = 'none';
+
+    try {
+        const d = await apiGet('/info');
+
+        // Restart warning if /info returns error (old service running)
+        if (d.error) {
+            document.getElementById('api-restart-warn').style.display = '';
+            document.getElementById('api-endpoints').innerHTML =
+                `<div style="color:var(--danger);font-size:12px;"><i class="fas fa-exclamation-circle"></i> ${esc(d.error)}<br>
+                ${esc(d.hint || 'Restart the service to load the new version.')}</div>`;
+            return;
+        }
+
+        document.getElementById('api-version').textContent =
+            `${d.service || 'RAG Service'} v${d.version || '?'} · ${d.documents_in_db || 0} records indexed`;
+        document.getElementById('api-embed').textContent  = d.embed_model || '—';
+        document.getElementById('api-store').textContent  = d.store_dir   || '—';
+
+        // Endpoints
+        const ep = d.apex_endpoints || {};
+        document.getElementById('api-endpoints').innerHTML = `
+            <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+                <div style="font-size:10px;font-weight:700;color:var(--text-3);margin-bottom:4px;">TRIP HEADERS (per date)</div>
+                <div style="font-family:monospace;font-size:11px;color:var(--indigo);word-break:break-all;">${esc(ep.trips_header || '—')}</div>
+                <div style="font-size:10px;color:var(--text-3);margin-top:3px;">Params: ${esc(ep.params_header || '—')}</div>
+            </div>
+            <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;">
+                <div style="font-size:10px;font-weight:700;color:var(--text-3);margin-bottom:4px;">ORDER LINE DETAILS (per trip, when toggle is ON)</div>
+                <div style="font-family:monospace;font-size:11px;color:var(--success);word-break:break-all;">${esc(ep.trips_detail || '—')}</div>
+                <div style="font-size:10px;color:var(--text-3);margin-top:3px;">Params: ${esc(ep.params_detail || '—')}</div>
+            </div>`;
+
+        // Sample document
+        const sd = d.sample_document || {};
+        document.getElementById('api-sample').textContent =
+            sd.text || '(no data synced yet — run a sync first)';
+
+        const sm = sd.metadata || {};
+        document.getElementById('api-sample-meta').innerHTML =
+            Object.entries(sm).filter(([,v]) => v).map(([k,v]) =>
+                `<span style="font-size:10px;background:#eef2ff;color:var(--indigo);padding:2px 7px;border-radius:4px;font-family:monospace;">
+                    <strong>${esc(k)}:</strong> ${esc(String(v))}
+                </span>`
+            ).join('');
+
+    } catch(e) {
+        document.getElementById('api-restart-warn').style.display = '';
+        document.getElementById('api-endpoints').innerHTML =
+            `<div style="color:var(--danger);font-size:12px;font-weight:600;">
+                <i class="fas fa-exclamation-circle"></i>
+                Could not load API info: ${esc(e.message)}<br><br>
+                Most likely the running service is an older version.<br>
+                <strong>Stop and restart rag_service.py to apply updates.</strong>
+            </div>`;
+    }
+};
+window.closeApiInfo = function () {
+    document.getElementById('api-info-modal').classList.remove('open');
+    document.body.style.overflow = '';
+};
+window.closeApiInfoOnOverlay = function (e) {
+    if (e.target === document.getElementById('api-info-modal')) closeApiInfo();
+};
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function esc(v) {
+    return v ? String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+}
+
+function notify(msg, type) {
+    const colors = { success:'#10b981', error:'#ef4444', info:'#6366f1' };
+    const icons  = { success:'check-circle', error:'exclamation-circle', info:'info-circle' };
+    const t = document.createElement('div');
+    t.style.cssText = `position:fixed;top:72px;right:18px;z-index:9999;background:${colors[type]||colors.info};
+        color:white;padding:10px 16px;border-radius:9px;font-size:13px;font-weight:600;
+        box-shadow:0 4px 14px rgba(0,0,0,.18);max-width:340px;`;
+    t.innerHTML = `<i class="fas fa-${icons[type]||icons.info}"></i> ${msg}`;
+    document.body.appendChild(t);
+    setTimeout(() => t.remove(), 4000);
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+function init() {
+    // Default range
+    const chip15 = document.querySelector('#range-chips .chip:nth-child(2)');
+    applyRange(15, chip15);
+
+    // Restore provider
+    const savedProvider = localStorage.getItem('ragProvider') || 'claude';
+    selectProvider(savedProvider);
+
+    // Restore keys
+    const claudeKey = document.getElementById('claude-key');
+    claudeKey.value = localStorage.getItem('claudeApiKey') || '';
+    claudeKey.addEventListener('input', () => localStorage.setItem('claudeApiKey', claudeKey.value.trim()));
+
+    const openaiKey = document.getElementById('openai-key');
+    openaiKey.value = localStorage.getItem('openaiApiKey') || '';
+    openaiKey.addEventListener('input', () => localStorage.setItem('openaiApiKey', openaiKey.value.trim()));
+
+    // Enter to ask
+    document.getElementById('query-input').addEventListener('keydown', e => {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitQuery(); }
+    });
+
+    // Esc to close modals
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { closeBrowse(); closePreview(); closeApiInfo(); }
+    });
+
+    checkHealth();
+    setInterval(checkHealth, 15000);
+}
+
+document.addEventListener('DOMContentLoaded', init);
+
+})();
+</script>
+
+</body>
+</html>

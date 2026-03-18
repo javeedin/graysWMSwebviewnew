@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fusion Client</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f7;
+            min-height: 100vh;
+        }
+
+        /* ── Header ── */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0 30px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            height: 64px;
+            box-shadow: 0 2px 12px rgba(102, 126, 234, 0.35);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        /* ── Fusion Logo ── */
+        .fusion-logo {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .fusion-logo-icon {
+            width: 38px;
+            height: 38px;
+            background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            backdrop-filter: blur(4px);
+        }
+
+        .fusion-logo-text {
+            display: flex;
+            flex-direction: column;
+            line-height: 1;
+        }
+
+        .fusion-logo-name {
+            font-size: 1.25rem;
+            font-weight: 800;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }
+
+        .fusion-logo-name span {
+            color: rgba(255,255,255,0.65);
+            font-weight: 400;
+            font-size: 1rem;
+            text-transform: none;
+            letter-spacing: 0.3px;
+        }
+
+        .fusion-logo-tagline {
+            font-size: 0.68rem;
+            opacity: 0.75;
+            letter-spacing: 0.5px;
+            margin-top: 3px;
+        }
+
+        .version-badge {
+            font-size: 0.62rem;
+            font-weight: 700;
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white;
+            padding: 2px 7px;
+            border-radius: 20px;
+            letter-spacing: 0.5px;
+            align-self: flex-start;
+            margin-top: 2px;
+        }
+
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+        }
+
+        .user-avatar {
+            width: 34px;
+            height: 34px;
+            background: rgba(255,255,255,0.25);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .user-details {
+            text-align: right;
+        }
+
+        .user-name {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .user-instance {
+            font-size: 0.72rem;
+            opacity: 0.8;
+        }
+
+        .btn-auth {
+            background: rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.35);
+            color: white;
+            padding: 7px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 0.82rem;
+            font-family: inherit;
+            transition: background 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            text-decoration: none;
+        }
+
+        .btn-auth:hover {
+            background: rgba(255,255,255,0.35);
+        }
+
+        /* ── Main Content ── */
+        .main {
+            padding: 40px 30px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .welcome-section {
+            margin-bottom: 36px;
+        }
+
+        .welcome-section h2 {
+            font-size: 1.6rem;
+            color: #2d3748;
+            font-weight: 700;
+        }
+
+        .welcome-section p {
+            color: #718096;
+            margin-top: 6px;
+            font-size: 0.95rem;
+        }
+
+        /* ── Module Grid ── */
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+            gap: 22px;
+        }
+
+        .module-card {
+            background: white;
+            border-radius: 16px;
+            padding: 28px 24px;
+            cursor: pointer;
+            text-decoration: none;
+            display: block;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.07);
+            transition: transform 0.18s ease, box-shadow 0.18s ease;
+            border: 2px solid transparent;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .module-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--card-color);
+        }
+
+        .module-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+            border-color: var(--card-color);
+        }
+
+        .module-card.disabled {
+            opacity: 0.55;
+            cursor: default;
+            pointer-events: none;
+        }
+
+        .card-icon {
+            width: 54px;
+            height: 54px;
+            border-radius: 14px;
+            background: var(--card-bg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            margin-bottom: 16px;
+        }
+
+        .card-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: #2d3748;
+            margin-bottom: 6px;
+        }
+
+        .card-desc {
+            font-size: 0.82rem;
+            color: #718096;
+            line-height: 1.5;
+        }
+
+        .card-badge {
+            display: inline-block;
+            margin-top: 12px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 20px;
+            background: var(--card-bg);
+            color: var(--card-text);
+        }
+
+        /* ── Footer ── */
+        .footer {
+            text-align: center;
+            padding: 30px;
+            color: #a0aec0;
+            font-size: 0.8rem;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-left">
+            <div class="fusion-logo">
+                <div class="fusion-logo-icon">⚡</div>
+                <div class="fusion-logo-text">
+                    <div class="fusion-logo-name">Fusion <span>Client</span></div>
+                    <div class="fusion-logo-tagline">Oracle Fusion Enterprise Suite</div>
+                </div>
+                <span class="version-badge">v1.0.0</span>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="user-info">
+                <div class="user-avatar">👤</div>
+                <div class="user-details">
+                    <div class="user-name" id="displayUsername">User</div>
+                    <div class="user-instance" id="displayInstance">—</div>
+                </div>
+            </div>
+            <button id="authBtn" class="btn-auth" onclick="handleAuthAction()">
+                <i id="authIcon" class="fa-solid fa-right-to-bracket"></i>
+                <span id="authLabel">Login</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="main">
+        <div class="welcome-section">
+            <h2>Welcome back, <span id="welcomeName">User</span> 👋</h2>
+            <p>Select a module to get started.</p>
+        </div>
+
+        <div class="modules-grid">
+
+            <!-- WMS -->
+            <a href="../wms/index.html" class="module-card"
+               style="--card-color:#667eea; --card-bg:rgba(102,126,234,0.1); --card-text:#667eea;">
+                <div class="card-icon">📦</div>
+                <div class="card-title">Warehouse Management</div>
+                <div class="card-desc">Trip management, print jobs, printer configuration and monitoring.</div>
+                <span class="card-badge">WMS</span>
+            </a>
+
+            <!-- Order Management -->
+            <a href="../om/index.html" class="module-card"
+               style="--card-color:#48bb78; --card-bg:rgba(72,187,120,0.1); --card-text:#48bb78;">
+                <div class="card-icon">🛒</div>
+                <div class="card-title">Order Management</div>
+                <div class="card-desc">Sales orders, order fulfilment and customer order tracking.</div>
+                <span class="card-badge">OM</span>
+            </a>
+
+            <!-- Inventory -->
+            <a href="../Inventory/index.html" class="module-card"
+               style="--card-color:#00b894; --card-bg:rgba(0,184,148,0.1); --card-text:#00b894;">
+                <div class="card-icon">🏪</div>
+                <div class="card-title">Inventory</div>
+                <div class="card-desc">Items list, onhand quantities, inventory transactions and PO receiving.</div>
+                <span class="card-badge">INV</span>
+            </a>
+
+            <!-- AI Knowledge Base (RAG) -->
+            <a href="../rag/index.html" class="module-card"
+               style="--card-color:#6366f1; --card-bg:rgba(99,102,241,0.1); --card-text:#6366f1;">
+                <div class="card-icon">🧠</div>
+                <div class="card-title">AI Knowledge Base</div>
+                <div class="card-desc">Sync WMS trip data and ask AI questions powered by RAG + Claude.</div>
+                <span class="card-badge">RAG</span>
+            </a>
+
+            <!-- Accounts Payable (hidden) -->
+            <!-- Accounts Receivable (hidden) -->
+            <!-- General Ledger (hidden) -->
+            <!-- Fixed Assets (hidden) -->
+            <!-- Cash Management (hidden) -->
+            <!-- POS (hidden) -->
+            <!-- Sync (hidden) -->
+
+        </div>
+    </div>
+
+    <div class="footer">
+        Fusion Client v1.0.0 &copy; 2026 &mdash; Powered by Oracle Fusion
+    </div>
+
+    <script>
+        var _isLoggedIn = false;
+
+        // Check login state and update header on page load
+        (function checkLoginState() {
+            const loggedIn = localStorage.getItem('loggedIn') === 'true';
+            _isLoggedIn = loggedIn;
+
+            const username = localStorage.getItem('username') || localStorage.getItem('fusionUsername') || 'User';
+            const instance = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
+
+            if (loggedIn) {
+                // Show user info and logout button
+                document.getElementById('displayUsername').textContent = username;
+                document.getElementById('welcomeName').textContent = username;
+                document.getElementById('displayInstance').textContent = instance ? 'Instance: ' + instance : '';
+
+                document.getElementById('authIcon').className = 'fa-solid fa-right-from-bracket';
+                document.getElementById('authLabel').textContent = 'Logout';
+            } else {
+                // Not logged in — hide user info, show login button
+                document.getElementById('displayUsername').textContent = 'Guest';
+                document.getElementById('welcomeName').textContent = 'Guest';
+                document.getElementById('displayInstance').textContent = 'Not logged in';
+                document.querySelector('.user-avatar').textContent = '🔒';
+
+                document.getElementById('authIcon').className = 'fa-solid fa-right-to-bracket';
+                document.getElementById('authLabel').textContent = 'Login';
+            }
+        })();
+
+        function handleAuthAction() {
+            if (_isLoggedIn) {
+                logout();
+            } else {
+                window.location.href = '../login.html';
+            }
+        }
+
+        function logout() {
+            // Clear all session data
+            localStorage.removeItem('loggedIn');
+            localStorage.removeItem('username');
+            localStorage.removeItem('fusionUsername');
+            localStorage.removeItem('instanceName');
+            localStorage.removeItem('fusionInstance');
+            localStorage.removeItem('loginTime');
+            localStorage.removeItem('password');
+
+            // Notify C# host if available
+            if (window.chrome && window.chrome.webview) {
+                try {
+                    window.chrome.webview.postMessage({ action: 'logout' });
+                } catch (e) { /* not in WebView2 context */ }
+            }
+
+            window.location.href = '../login.html';
+        }
+    </script>
+
+</body>
+</html>

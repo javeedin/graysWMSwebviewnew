@@ -1,0 +1,1152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Picker View - WMS</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .picker-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .picker-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+
+        .picker-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+
+        .picker-header p {
+            margin: 0;
+            opacity: 0.9;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin: 0 0 20px 0;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+
+        .filters-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 0;
+        }
+
+        .form-group label {
+            display: block;
+            font-weight: 600;
+            color: #555;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.2s;
+            box-sizing: border-box;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .btn-secondary:hover:not(:disabled) {
+            background: #e0e0e0;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+
+        .stats-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .stat-box {
+            background: #f8f9fa;
+            padding: 16px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-box .label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            margin-bottom: 4px;
+        }
+
+        .stat-box .value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #333;
+        }
+
+        .stat-box .value.green { color: #059669; }
+        .stat-box .value.blue { color: #2563eb; }
+        .stat-box .value.orange { color: #d97706; }
+
+        .picker-group {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .picker-group-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .picker-group-header:hover {
+            filter: brightness(1.05);
+        }
+
+        .picker-group-header h3 {
+            margin: 0;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .picker-group-header .stats {
+            display: flex;
+            gap: 10px;
+            font-size: 11px;
+        }
+
+        .picker-group-header .stats span {
+            background: rgba(255,255,255,0.2);
+            padding: 2px 8px;
+            border-radius: 12px;
+        }
+
+        .picker-group-header .collapse-icon {
+            font-size: 10px;
+            transition: transform 0.2s;
+        }
+
+        .picker-group.collapsed .collapse-icon {
+            transform: rotate(-90deg);
+        }
+
+        .picker-group-body {
+            padding: 0;
+        }
+
+        .picker-group.collapsed .picker-group-body {
+            display: none;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+        }
+
+        .data-table th {
+            background: #f8f9fa;
+            padding: 4px 6px;
+            text-align: left;
+            font-weight: 600;
+            color: #555;
+            border-bottom: 1px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+            font-size: 9px;
+            white-space: nowrap;
+        }
+
+        .data-table td {
+            padding: 4px 6px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 150px;
+        }
+
+        .data-table td.desc-col {
+            max-width: 120px;
+        }
+
+        .data-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .priority-badge {
+            display: inline-block;
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 9px;
+            font-weight: 600;
+        }
+
+        .priority-high { background: #fee2e2; color: #dc2626; }
+        .priority-medium { background: #fef3c7; color: #d97706; }
+        .priority-low { background: #d1fae5; color: #059669; }
+
+        .bay-badge {
+            display: inline-block;
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 9px;
+            font-weight: 600;
+            background: #dbeafe;
+            color: #2563eb;
+        }
+
+        .lorry-badge {
+            display: inline-block;
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 9px;
+            font-weight: 600;
+            background: #f3e8ff;
+            color: #7c3aed;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+            margin-bottom: 20px;
+        }
+
+        .back-link:hover {
+            text-decoration: underline;
+        }
+
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.8);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+
+        .loading-overlay.show {
+            display: flex;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid #e0e0e0;
+            border-top-color: #667eea;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 60px 20px;
+            color: #888;
+        }
+
+        .no-data i {
+            font-size: 48px;
+            margin-bottom: 16px;
+            color: #ccc;
+        }
+
+        .disc-badge {
+            display: inline-block;
+            padding: 1px 4px;
+            border-radius: 6px;
+            font-size: 9px;
+            font-weight: 600;
+        }
+
+        .disc-0 { background: #d1fae5; color: #059669; }
+        .disc-low { background: #fef3c7; color: #d97706; }
+        .disc-high { background: #fee2e2; color: #dc2626; }
+
+        .status-icon {
+            font-size: 11px;
+            font-weight: bold;
+        }
+        .status-yes { color: #059669; }
+        .status-no { color: #dc2626; }
+
+        .group-controls {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 11px;
+        }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            gap: 0;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #e0e0e0;
+        }
+
+        .tab-btn {
+            padding: 12px 24px;
+            border: none;
+            background: transparent;
+            font-size: 14px;
+            font-weight: 600;
+            color: #666;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+        }
+
+        .tab-btn:hover {
+            color: #667eea;
+            background: #f8f9fa;
+        }
+
+        .tab-btn.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Summary Table */
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        .summary-table th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 10px 12px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 11px;
+        }
+
+        .summary-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .summary-table tr:hover {
+            background: #f8f9fa;
+        }
+
+        .summary-table .total-row {
+            background: #f0f0f0;
+            font-weight: 700;
+        }
+
+        .summary-table .picker-row {
+            background: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .summary-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+
+        .summary-card-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .summary-card-body {
+            padding: 0;
+        }
+
+        .qty-picked { color: #059669; font-weight: 600; }
+        .qty-not-picked { color: #dc2626; font-weight: 600; }
+    </style>
+</head>
+<body style="background: #f5f7fa; min-height: 100vh;">
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="loading-spinner"></div>
+    </div>
+
+    <div class="picker-container">
+        <a href="index.html" class="back-link">
+            <span>&#8592;</span> Back to WMS
+        </a>
+
+        <div class="picker-header">
+            <h1><i class="fas fa-users"></i> Picker View</h1>
+            <p>View and monitor picker assignments and order status</p>
+        </div>
+
+        <!-- Filters -->
+        <div class="card">
+            <h3 class="card-title">Query Parameters</h3>
+            <div class="filters-row">
+                <div class="form-group">
+                    <label>Assignment Date</label>
+                    <input type="date" id="fromDate" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>Instance</label>
+                    <select id="instance" class="form-control">
+                        <option value="PROD">PROD</option>
+                        <option value="TEST">TEST</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Picker</label>
+                    <select id="filterPicker" class="form-control">
+                        <option value="">All Pickers</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Loading Bay</label>
+                    <select id="filterBay" class="form-control">
+                        <option value="">All Bays</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Lorry</label>
+                    <select id="filterLorry" class="form-control">
+                        <option value="">All Lorries</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Priority</label>
+                    <select id="filterPriority" class="form-control">
+                        <option value="">All Priorities</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Pick Confirmed</label>
+                    <select id="filterConfirmed" class="form-control">
+                        <option value="">All</option>
+                        <option value="YES">Confirmed</option>
+                        <option value="NO">Not Confirmed</option>
+                    </select>
+                </div>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-primary" onclick="loadData()">
+                    <i class="fas fa-search"></i> Load Data
+                </button>
+                <button class="btn btn-secondary" onclick="clearFilters()">
+                    <i class="fas fa-times"></i> Clear Filters
+                </button>
+                <button class="btn btn-secondary" onclick="exportData()">
+                    <i class="fas fa-download"></i> Export
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats-row" id="statsRow" style="display: none;">
+            <div class="stat-box">
+                <div class="label">Total Orders</div>
+                <div class="value blue" id="statOrders">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Total Items</div>
+                <div class="value green" id="statItems">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Total Qty</div>
+                <div class="value orange" id="statQty">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Pickers</div>
+                <div class="value" id="statPickers">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="label">Loading Bays</div>
+                <div class="value" id="statBays">0</div>
+            </div>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-nav" id="tabNav" style="display: none;">
+            <button class="tab-btn active" onclick="switchTab('details')">
+                <i class="fas fa-list"></i> All Picking Details
+            </button>
+            <button class="tab-btn" onclick="switchTab('summary')">
+                <i class="fas fa-chart-bar"></i> Summary
+            </button>
+        </div>
+
+        <!-- Tab Contents -->
+        <div id="tabDetails" class="tab-content active">
+            <div id="resultsContainer">
+                <div class="no-data">
+                    <i class="fas fa-users"></i>
+                    <p>Select a date and click "Load Data" to view picker assignments</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="tabSummary" class="tab-content">
+            <div id="summaryContainer">
+                <div class="no-data">
+                    <i class="fas fa-chart-bar"></i>
+                    <p>Load data to view summary</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = {
+            'PROD': 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT',
+            'TEST': 'https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT'
+        };
+
+        // Check if running in WebView2
+        const isWebView2 = !!(window.chrome && window.chrome.webview);
+        console.log('[PICKER-VIEW] WebView2 available:', isWebView2);
+
+        let allData = [];
+        let filteredData = [];
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            // Set default date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('fromDate').value = today;
+
+            // Load saved instance preference
+            const savedInstance = localStorage.getItem('instanceName');
+            if (savedInstance) {
+                document.getElementById('instance').value = savedInstance;
+            }
+
+            // Add filter change listeners
+            ['filterPicker', 'filterBay', 'filterLorry', 'filterPriority', 'filterConfirmed'].forEach(id => {
+                document.getElementById(id).addEventListener('change', applyFilters);
+            });
+        });
+
+        function showLoading(show) {
+            document.getElementById('loadingOverlay').classList.toggle('show', show);
+        }
+
+        // Global callback function for C# backend response
+        window.handlePickersViewData = function(data, error) {
+            console.log('[PICKER-VIEW] Received data from C# backend');
+            showLoading(false);
+
+            if (error) {
+                console.error('[PICKER-VIEW] Error:', error);
+                alert('Failed to load data: ' + error);
+                document.getElementById('resultsContainer').innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>
+                        <p>Error: ${error}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            allData = data.items || [];
+            console.log('[PICKER-VIEW] Loaded', allData.length, 'items');
+
+            populateFilters();
+            applyFilters();
+        };
+
+        async function loadData() {
+            const fromDate = document.getElementById('fromDate').value;
+            const instance = document.getElementById('instance').value;
+
+            if (!fromDate) {
+                alert('Please select an assignment date');
+                return;
+            }
+
+            showLoading(true);
+
+            if (isWebView2) {
+                // Use C# backend to avoid CORS issues
+                console.log('[PICKER-VIEW] Requesting data via C# backend...');
+                window.chrome.webview.postMessage({
+                    action: 'getPickersView',
+                    requestId: 'pickersview_' + Date.now(),
+                    fromDate: fromDate,
+                    instance: instance
+                });
+                // Response will be handled by window.handlePickersViewData callback
+                return;
+            }
+
+            // Fallback for browser testing (will likely fail due to CORS)
+            try {
+                const baseUrl = API_BASE[instance];
+                const url = `${baseUrl}/trip/getpickersview?fromDate=${fromDate}&instance=${instance}`;
+
+                console.log('[PICKER-VIEW] Fetching directly:', url);
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: { 'Accept': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                allData = data.items || [];
+
+                console.log('[PICKER-VIEW] Loaded', allData.length, 'items');
+
+                populateFilters();
+                applyFilters();
+
+            } catch (error) {
+                console.error('[PICKER-VIEW] Error loading data:', error);
+                alert('Failed to load data: ' + error.message);
+                document.getElementById('resultsContainer').innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-exclamation-triangle" style="color: #dc2626;"></i>
+                        <p>Error: ${error.message}</p>
+                    </div>
+                `;
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        function populateFilters() {
+            // Get unique values for each filter
+            const pickers = [...new Set(allData.map(d => d.picker_name).filter(Boolean))].sort();
+            const bays = [...new Set(allData.map(d => d.loading_bay).filter(Boolean))].sort();
+            const lorries = [...new Set(allData.map(d => d.lorry_number).filter(Boolean))].sort();
+            const priorities = [...new Set(allData.map(d => d.order_priority).filter(Boolean))].sort((a, b) => Number(a) - Number(b));
+
+            populateSelect('filterPicker', pickers, 'All Pickers');
+            populateSelect('filterBay', bays, 'All Bays');
+            populateSelect('filterLorry', lorries, 'All Lorries');
+            populateSelect('filterPriority', priorities, 'All Priorities');
+        }
+
+        function populateSelect(id, values, defaultText) {
+            const select = document.getElementById(id);
+            const currentValue = select.value;
+            select.innerHTML = `<option value="">${defaultText}</option>`;
+            values.forEach(v => {
+                const option = document.createElement('option');
+                option.value = v;
+                option.textContent = v;
+                select.appendChild(option);
+            });
+            select.value = currentValue || '';
+        }
+
+        function applyFilters() {
+            const filterPicker = document.getElementById('filterPicker').value;
+            const filterBay = document.getElementById('filterBay').value;
+            const filterLorry = document.getElementById('filterLorry').value;
+            const filterPriority = document.getElementById('filterPriority').value;
+            const filterConfirmed = document.getElementById('filterConfirmed').value;
+
+            filteredData = allData.filter(item => {
+                if (filterPicker && item.picker_name !== filterPicker) return false;
+                if (filterBay && item.loading_bay !== filterBay) return false;
+                if (filterLorry && item.lorry_number !== filterLorry) return false;
+                if (filterPriority && item.order_priority !== filterPriority) return false;
+                if (filterConfirmed) {
+                    const isConfirmed = (item.pick_confirm_status || '').toUpperCase() === 'YES';
+                    if (filterConfirmed === 'YES' && !isConfirmed) return false;
+                    if (filterConfirmed === 'NO' && isConfirmed) return false;
+                }
+                return true;
+            });
+
+            // Show tab nav if we have data
+            document.getElementById('tabNav').style.display = filteredData.length > 0 ? 'flex' : 'none';
+
+            updateStats();
+            renderResults();
+            renderSummary();
+        }
+
+        function switchTab(tab) {
+            // Update tab buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            event.target.closest('.tab-btn').classList.add('active');
+
+            // Update tab content
+            document.getElementById('tabDetails').classList.toggle('active', tab === 'details');
+            document.getElementById('tabSummary').classList.toggle('active', tab === 'summary');
+        }
+
+        function updateStats() {
+            const statsRow = document.getElementById('statsRow');
+
+            if (filteredData.length === 0) {
+                statsRow.style.display = 'none';
+                return;
+            }
+
+            statsRow.style.display = 'grid';
+
+            const orders = new Set(filteredData.map(d => d.source_order_number)).size;
+            const items = filteredData.length;
+            const qty = filteredData.reduce((sum, d) => sum + (Number(d.qty) || 0), 0);
+            const pickers = new Set(filteredData.map(d => d.picker_name)).size;
+            const bays = new Set(filteredData.map(d => d.loading_bay).filter(Boolean)).size;
+
+            document.getElementById('statOrders').textContent = orders.toLocaleString();
+            document.getElementById('statItems').textContent = items.toLocaleString();
+            document.getElementById('statQty').textContent = qty.toLocaleString();
+            document.getElementById('statPickers').textContent = pickers;
+            document.getElementById('statBays').textContent = bays;
+        }
+
+        function renderResults() {
+            const container = document.getElementById('resultsContainer');
+
+            if (filteredData.length === 0) {
+                container.innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-inbox"></i>
+                        <p>No data found for the selected criteria</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Group by picker
+            const grouped = {};
+            filteredData.forEach(item => {
+                const picker = item.picker_name || 'Unassigned';
+                if (!grouped[picker]) {
+                    grouped[picker] = [];
+                }
+                grouped[picker].push(item);
+            });
+
+            // Sort items within each group by priority (lower number = higher priority)
+            Object.keys(grouped).forEach(picker => {
+                grouped[picker].sort((a, b) => {
+                    const pA = Number(a.order_priority) || 999;
+                    const pB = Number(b.order_priority) || 999;
+                    return pA - pB;
+                });
+            });
+
+            // Sort pickers alphabetically
+            const sortedPickers = Object.keys(grouped).sort();
+
+            // Add expand/collapse controls
+            let html = `
+                <div class="group-controls">
+                    <button class="btn btn-secondary btn-sm" onclick="expandAll()">
+                        <i class="fas fa-expand-alt"></i> Expand All
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="collapseAll()">
+                        <i class="fas fa-compress-alt"></i> Collapse All
+                    </button>
+                </div>
+            `;
+
+            sortedPickers.forEach(picker => {
+                const items = grouped[picker];
+                const totalQty = items.reduce((sum, d) => sum + (Number(d.qty) || 0), 0);
+                const uniqueOrders = new Set(items.map(d => d.source_order_number)).size;
+
+                html += `
+                    <div class="picker-group" id="group-${picker.replace(/\s+/g, '-')}">
+                        <div class="picker-group-header" onclick="toggleGroup(this)">
+                            <h3>
+                                <i class="fas fa-chevron-down collapse-icon"></i>
+                                <i class="fas fa-user"></i>
+                                ${picker}
+                            </h3>
+                            <div class="stats">
+                                <span>${items.length} items</span>
+                                <span>${uniqueOrders} orders</span>
+                                <span>${totalQty.toLocaleString()} qty</span>
+                            </div>
+                        </div>
+                        <div class="picker-group-body">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th style="text-align:center;width:30px">P</th>
+                                        <th>Order</th>
+                                        <th>Item</th>
+                                        <th>Desc</th>
+                                        <th>Qty</th>
+                                        <th>Customer</th>
+                                        <th>Pri</th>
+                                        <th>Bay</th>
+                                        <th>Lorry</th>
+                                        <th>D%</th>
+                                        <th>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${items.map(item => `
+                                        <tr>
+                                            <td style="text-align:center">${getPickedStatus(item.pick_confirm_status)}</td>
+                                            <td><strong>${item.source_order_number || '-'}</strong></td>
+                                            <td>${item.item_number || '-'}</td>
+                                            <td class="desc-col" title="${(item.description || '').replace(/"/g, '&quot;')}">${item.description || '-'}</td>
+                                            <td><strong>${item.qty || 0}</strong></td>
+                                            <td class="desc-col" title="${(item.account_name || '').replace(/"/g, '&quot;')}">${item.account_name || '-'}</td>
+                                            <td>${getPriorityBadge(item.order_priority)}</td>
+                                            <td>${item.loading_bay ? `<span class="bay-badge">${item.loading_bay}</span>` : '-'}</td>
+                                            <td>${item.lorry_number ? `<span class="lorry-badge">${item.lorry_number}</span>` : '-'}</td>
+                                            <td>${getDiscBadge(item.disc_per)}</td>
+                                            <td>${formatDateShort(item.pick_release_date)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        }
+
+        function renderSummary() {
+            const container = document.getElementById('summaryContainer');
+
+            if (filteredData.length === 0) {
+                container.innerHTML = `
+                    <div class="no-data">
+                        <i class="fas fa-chart-bar"></i>
+                        <p>No data found for the selected criteria</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Build picker-wise summary
+            const pickerSummary = {};
+            let grandTotalPicked = 0;
+            let grandTotalNotPicked = 0;
+
+            filteredData.forEach(item => {
+                const picker = item.picker_name || 'Unassigned';
+                const order = item.source_order_number || 'Unknown';
+                const qty = Number(item.qty) || 0;
+                const isPicked = (item.pick_confirm_status || '').toUpperCase() === 'YES';
+
+                if (!pickerSummary[picker]) {
+                    pickerSummary[picker] = { orders: {}, totalPicked: 0, totalNotPicked: 0 };
+                }
+
+                if (!pickerSummary[picker].orders[order]) {
+                    pickerSummary[picker].orders[order] = { pickedQty: 0, notPickedQty: 0 };
+                }
+
+                if (isPicked) {
+                    pickerSummary[picker].orders[order].pickedQty += qty;
+                    pickerSummary[picker].totalPicked += qty;
+                    grandTotalPicked += qty;
+                } else {
+                    pickerSummary[picker].orders[order].notPickedQty += qty;
+                    pickerSummary[picker].totalNotPicked += qty;
+                    grandTotalNotPicked += qty;
+                }
+            });
+
+            // Build HTML
+            let html = '';
+
+            // Picker-wise summary card
+            html += `
+                <div class="summary-card">
+                    <div class="summary-card-header">
+                        <i class="fas fa-user"></i> Picker-wise Summary
+                    </div>
+                    <div class="summary-card-body">
+                        <table class="summary-table">
+                            <thead>
+                                <tr>
+                                    <th>Picker</th>
+                                    <th>Order #</th>
+                                    <th style="text-align:right">Picked Qty</th>
+                                    <th style="text-align:right">Not Picked Qty</th>
+                                    <th style="text-align:right">Total Qty</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+
+            const sortedPickers = Object.keys(pickerSummary).sort();
+            sortedPickers.forEach(picker => {
+                const data = pickerSummary[picker];
+                const sortedOrders = Object.keys(data.orders).sort();
+                const pickerTotal = data.totalPicked + data.totalNotPicked;
+
+                // Picker header row
+                html += `
+                    <tr class="picker-row">
+                        <td><strong>${picker}</strong></td>
+                        <td></td>
+                        <td style="text-align:right" class="qty-picked">${data.totalPicked.toLocaleString()}</td>
+                        <td style="text-align:right" class="qty-not-picked">${data.totalNotPicked.toLocaleString()}</td>
+                        <td style="text-align:right"><strong>${pickerTotal.toLocaleString()}</strong></td>
+                    </tr>
+                `;
+
+                // Order rows for this picker
+                sortedOrders.forEach(order => {
+                    const orderData = data.orders[order];
+                    const orderTotal = orderData.pickedQty + orderData.notPickedQty;
+                    html += `
+                        <tr>
+                            <td></td>
+                            <td>${order}</td>
+                            <td style="text-align:right" class="qty-picked">${orderData.pickedQty > 0 ? orderData.pickedQty.toLocaleString() : '-'}</td>
+                            <td style="text-align:right" class="qty-not-picked">${orderData.notPickedQty > 0 ? orderData.notPickedQty.toLocaleString() : '-'}</td>
+                            <td style="text-align:right">${orderTotal.toLocaleString()}</td>
+                        </tr>
+                    `;
+                });
+            });
+
+            // Grand total row
+            const grandTotal = grandTotalPicked + grandTotalNotPicked;
+            html += `
+                            <tr class="total-row">
+                                <td><strong>GRAND TOTAL</strong></td>
+                                <td></td>
+                                <td style="text-align:right" class="qty-picked"><strong>${grandTotalPicked.toLocaleString()}</strong></td>
+                                <td style="text-align:right" class="qty-not-picked"><strong>${grandTotalNotPicked.toLocaleString()}</strong></td>
+                                <td style="text-align:right"><strong>${grandTotal.toLocaleString()}</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        function toggleGroup(header) {
+            const group = header.closest('.picker-group');
+            group.classList.toggle('collapsed');
+        }
+
+        function expandAll() {
+            document.querySelectorAll('.picker-group').forEach(g => g.classList.remove('collapsed'));
+        }
+
+        function collapseAll() {
+            document.querySelectorAll('.picker-group').forEach(g => g.classList.add('collapsed'));
+        }
+
+        function getPickedStatus(status) {
+            const isYes = (status || '').toUpperCase() === 'YES';
+            if (isYes) {
+                return '<i class="fas fa-check status-icon status-yes"></i>';
+            }
+            return '<i class="fas fa-times status-icon status-no"></i>';
+        }
+
+        function getPriorityBadge(priority) {
+            if (!priority) return '-';
+            const p = Number(priority);
+            let cls = 'priority-low';
+            if (p <= 3) cls = 'priority-high';
+            else if (p <= 6) cls = 'priority-medium';
+            return `<span class="priority-badge ${cls}">${priority}</span>`;
+        }
+
+        function getDiscBadge(disc) {
+            if (!disc) return '-';
+            const val = parseFloat(disc);
+            let cls = 'disc-0';
+            if (val > 10) cls = 'disc-high';
+            else if (val > 0) cls = 'disc-low';
+            return `<span class="disc-badge ${cls}">${disc}</span>`;
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return '-';
+            try {
+                const date = new Date(dateStr);
+                return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+            } catch {
+                return dateStr;
+            }
+        }
+
+        function formatDateShort(dateStr) {
+            if (!dateStr) return '-';
+            try {
+                const date = new Date(dateStr);
+                const d = date.getDate().toString().padStart(2, '0');
+                const m = (date.getMonth() + 1).toString().padStart(2, '0');
+                return `${d}/${m}`;
+            } catch {
+                return dateStr;
+            }
+        }
+
+        function clearFilters() {
+            document.getElementById('filterPicker').value = '';
+            document.getElementById('filterBay').value = '';
+            document.getElementById('filterLorry').value = '';
+            document.getElementById('filterPriority').value = '';
+            document.getElementById('filterConfirmed').value = '';
+            applyFilters();
+        }
+
+        function exportData() {
+            if (filteredData.length === 0) {
+                alert('No data to export');
+                return;
+            }
+
+            // Create CSV
+            const headers = ['Pick Confirmed', 'Picker', 'Order #', 'Item', 'Description', 'Qty', 'Customer', 'Priority', 'Loading Bay', 'Lorry', 'Disc %', 'Pick Date'];
+            const rows = filteredData.map(item => [
+                item.pick_confirm_status || '',
+                item.picker_name || '',
+                item.source_order_number || '',
+                item.item_number || '',
+                item.description || '',
+                item.qty || '',
+                item.account_name || '',
+                item.order_priority || '',
+                item.loading_bay || '',
+                item.lorry_number || '',
+                item.disc_per || '',
+                item.pick_release_date || ''
+            ]);
+
+            let csv = headers.join(',') + '\n';
+            rows.forEach(row => {
+                csv += row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',') + '\n';
+            });
+
+            // Download
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `picker-view-${document.getElementById('fromDate').value}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
