@@ -375,6 +375,21 @@
 <div class="top-bar">
     <h1><i class="fas fa-route"></i> Picker Route Tracker</h1>
     <div class="status-badge live" id="liveStatus">LIVE</div>
+    <div id="ipInfoBox" style="
+        background: rgba(255,255,255,0.12);
+        border: 1px solid rgba(255,255,255,0.25);
+        border-radius: 6px;
+        padding: 4px 12px;
+        font-size: 12px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        title='Click to copy'">
+        <i class="fas fa-wifi"></i>
+        <span id="ipInfoText" style="font-family: monospace; letter-spacing:0.03em;">detecting…</span>
+        <i class="fas fa-copy" style="opacity:0.6; font-size:10px;" id="copyIcon"></i>
+    </div>
     <div class="spacer"></div>
     <button class="btn-top" onclick="refreshRoutes()">
         <i class="fas fa-sync-alt" id="refreshIcon"></i> Refresh
@@ -457,7 +472,7 @@
             <div class="empty-state" id="emptyState">
                 <i class="fas fa-route"></i>
                 <p>Waiting for picker location updates</p>
-                <small>POST to http://&lt;pc-ip&gt;:8766/notify with type "location"</small>
+                <small id="emptyStateUrl">POST to http://&lt;pc-ip&gt;:8766/notify with type "location"</small>
             </div>
         </div>
 
@@ -546,6 +561,9 @@ function init() {
         }
     };
 
+    // Fetch PC IP from C# listener info
+    loadListenerInfo();
+
     // Initial data load
     loadRoutesFromBackend();
 
@@ -603,6 +621,49 @@ function gridCoordToZone(x, y) {
 // ============================================================
 // BACKEND COMMUNICATION
 // ============================================================
+function loadListenerInfo() {
+    if (!(window.chrome && window.chrome.webview)) {
+        document.getElementById('ipInfoText').textContent = 'localhost:8766/notify';
+        return;
+    }
+    const reqId = 'tracker_listenerinfo_' + Date.now();
+    window.pendingRequests = window.pendingRequests || {};
+    window.pendingRequests[reqId] = function(err, data) {
+        if (err) { console.error('[Tracker] getMobileListenerInfo error:', err); return; }
+        try {
+            const info = typeof data === 'string' ? JSON.parse(data) : data;
+            const url  = info.notifyUrl || ('http://localhost:' + (info.port || 8766) + '/notify');
+
+            // Top bar chip
+            document.getElementById('ipInfoText').textContent = url;
+
+            // Empty state
+            document.getElementById('emptyStateUrl').textContent = 'POST to ' + url + '  |  type: "location"';
+
+            // Click chip to copy URL
+            const box = document.getElementById('ipInfoBox');
+            box.title = 'Click to copy: ' + url;
+            box.onclick = function() {
+                navigator.clipboard.writeText(url).then(() => {
+                    const icon = document.getElementById('copyIcon');
+                    icon.className = 'fas fa-check';
+                    icon.style.color = '#6ee7b7';
+                    setTimeout(() => {
+                        icon.className = 'fas fa-copy';
+                        icon.style.color = '';
+                    }, 1500);
+                });
+            };
+
+            // Show all IPs if more than one NIC
+            if (info.ips && info.ips.length > 1) {
+                console.log('[Tracker] All local IPs:', info.ips);
+            }
+        } catch(e) { console.error('[Tracker] Parse listenerInfo:', e); }
+    };
+    window.chrome.webview.postMessage({ action: 'getMobileListenerInfo', requestId: reqId });
+}
+
 function loadRoutesFromBackend() {
     if (window.chrome && window.chrome.webview) {
         const reqId = 'tracker_getroutes_' + Date.now();
