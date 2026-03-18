@@ -60,14 +60,25 @@ namespace WMSApp
             catch (HttpListenerException ex)
             {
                 System.Diagnostics.Debug.WriteLine(
-                    $"[MobileListener] Failed to start on port {Port}: {ex.Message}");
-                // Try loopback-only fallback (no admin required)
+                    $"[MobileListener] Wildcard bind failed ({ex.Message}). Registering specific IPs...");
+
+                // Wildcard (+) requires admin / netsh ACL.
+                // Fall back to explicit localhost + each local IP — no admin needed.
                 _listener = new HttpListener();
                 _listener.Prefixes.Add($"http://localhost:{Port}/notify/");
                 _listener.Prefixes.Add($"http://localhost:{Port}/ping/");
+                _listener.Prefixes.Add($"http://127.0.0.1:{Port}/notify/");
+                _listener.Prefixes.Add($"http://127.0.0.1:{Port}/ping/");
+
+                foreach (var ip in GetLocalIPs())
+                {
+                    _listener.Prefixes.Add($"http://{ip}:{Port}/notify/");
+                    _listener.Prefixes.Add($"http://{ip}:{Port}/ping/");
+                }
+
                 _listener.Start();
                 System.Diagnostics.Debug.WriteLine(
-                    $"[MobileListener] Fallback: listening on localhost:{Port} only.");
+                    $"[MobileListener] Fallback: listening on specific IPs on port {Port}.");
             }
 
             IsRunning = true;
