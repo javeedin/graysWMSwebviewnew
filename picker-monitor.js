@@ -341,11 +341,12 @@ console.log('[PickerMonitor] Loading...');
 
     // ── Picking status detection ─────────────────────────────────────────────
     function pickStatus(row) {
-        const st = (row.LINE_STATUS || row.line_status || '').toUpperCase().trim();
-        if (!st) return 'pending';
-        if (st.includes('PICK') || st === 'CLOSED' || st === 'SHIPPED' || st === 'COMPLETE' || st === 'FULFILLED' || st === 'CONFIRMED') return 'picked';
-        if (st.includes('PROGRESS') || st.includes('STARTED') || st.includes('PARTIAL') || st.includes('ASSIGNED')) return 'inprogress';
-        if (st.includes('CANCEL')) return 'cancelled';
+        const total   = Number(row.total_lines)  || 0;
+        const picked  = Number(row.picked_lines) || 0;
+        const balance = Number(row.balance_lines);
+        if (total === 0) return 'pending';
+        if (picked === total) return 'picked';
+        if (picked > 0) return 'inprogress';
         return 'pending';
     }
 
@@ -383,7 +384,7 @@ console.log('[PickerMonitor] Loading...');
         if (!dateVal) { alert('Please select a date.'); return; }
 
         const apexDate = fmtApex(dateVal);
-        const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS?P_DATE_FROM=${apexDate}&P_DATE_TO=${apexDate}&P_INSTANCE_NAME=${instance}`;
+        const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/getpickersview?P_INSTANCE_NAME=${instance}&P_ASSIGNMENT_DATE=${apexDate}`;
 
         console.log('[PickerMonitor] Fetching:', url);
         pmSetLoading(true);
@@ -422,9 +423,9 @@ console.log('[PickerMonitor] Loading...');
 
     // ── Build filter dropdowns from raw data ──────────────────────────────────
     function pmBuildFilters() {
-        const pickers = [...new Set(pmRawData.map(r => r.PICKER || r.picker || '').filter(Boolean))].sort();
-        const lorries = [...new Set(pmRawData.map(r => r.trip_lorry || r.TRIP_LORRY || '').filter(Boolean))].sort();
-        const bays    = [...new Set(pmRawData.map(r => r.TRIP_LOADING_BAY || r.trip_loading_bay || r.LOADING_BAY || '').filter(Boolean))].sort();
+        const pickers = [...new Set(pmRawData.map(r => r.picker_name  || '').filter(Boolean))].sort();
+        const lorries = [...new Set(pmRawData.map(r => r.lorry_number || '').filter(Boolean))].sort();
+        const bays    = [...new Set(pmRawData.map(r => r.loading_bay  || '').filter(Boolean))].sort();
 
         pmPopulateSelect('pm-filter-picker', pickers, 'All Pickers');
         pmPopulateSelect('pm-filter-lorry',  lorries, 'All Lorries');
@@ -449,12 +450,9 @@ console.log('[PickerMonitor] Loading...');
         const bayF    = (document.getElementById('pm-filter-bay')?.value     || '').trim();
 
         return pmRawData.filter(r => {
-            const rPicker = r.PICKER || r.picker || '';
-            const rLorry  = r.trip_lorry || r.TRIP_LORRY || '';
-            const rBay    = r.TRIP_LOADING_BAY || r.trip_loading_bay || r.LOADING_BAY || '';
-            if (pickerF && rPicker !== pickerF) return false;
-            if (lorryF  && rLorry  !== lorryF)  return false;
-            if (bayF    && rBay    !== bayF)     return false;
+            if (pickerF && (r.picker_name  || '') !== pickerF) return false;
+            if (lorryF  && (r.lorry_number || '') !== lorryF)  return false;
+            if (bayF    && (r.loading_bay  || '') !== bayF)    return false;
             return true;
         });
     }
@@ -501,13 +499,15 @@ console.log('[PickerMonitor] Loading...');
         }
 
         const totalOrders  = data.length;
-        const totalPickers = new Set(data.map(r => r.PICKER || r.picker || '').filter(Boolean)).size;
-        const totalLorries = new Set(data.map(r => r.trip_lorry || r.TRIP_LORRY || '').filter(Boolean)).size;
-        const totalBays    = new Set(data.map(r => r.TRIP_LOADING_BAY || r.trip_loading_bay || r.LOADING_BAY || '').filter(Boolean)).size;
+        const totalPickers = new Set(data.map(r => r.picker_name  || '').filter(Boolean)).size;
+        const totalLorries = new Set(data.map(r => r.lorry_number || '').filter(Boolean)).size;
+        const totalBays    = new Set(data.map(r => r.loading_bay  || '').filter(Boolean)).size;
         const pickedCount  = data.filter(r => pickStatus(r) === 'picked').length;
         const inProgCount  = data.filter(r => pickStatus(r) === 'inprogress').length;
         const pendingCount = data.filter(r => pickStatus(r) === 'pending').length;
-        const pct          = totalOrders ? Math.round(pickedCount / totalOrders * 100) : 0;
+        const totalLines   = data.reduce((s, r) => s + (Number(r.total_lines)  || 0), 0);
+        const pickedLines  = data.reduce((s, r) => s + (Number(r.picked_lines) || 0), 0);
+        const pct          = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
         const progColor    = pct === 100 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444';
 
         summaryEl.innerHTML = `
@@ -525,11 +525,23 @@ console.log('[PickerMonitor] Loading...');
         </div>
         <div class="pm-stat-card" style="border-left-color:#64748b;">
             <div class="pm-stat-val">${totalOrders}</div>
-            <div class="pm-stat-lbl"><i class="fas fa-box"></i> Total Orders</div>
+            <div class="pm-stat-lbl"><i class="fas fa-box"></i> Orders</div>
+        </div>
+        <div class="pm-stat-card" style="border-left-color:#64748b;">
+            <div class="pm-stat-val">${totalLines}</div>
+            <div class="pm-stat-lbl"><i class="fas fa-list"></i> Total Lines</div>
+        </div>
+        <div class="pm-stat-card" style="border-left-color:#10b981;">
+            <div class="pm-stat-val">${pickedLines}</div>
+            <div class="pm-stat-lbl"><i class="fas fa-check-circle"></i> Lines Picked</div>
+        </div>
+        <div class="pm-stat-card" style="border-left-color:#ef4444;">
+            <div class="pm-stat-val">${totalLines - pickedLines}</div>
+            <div class="pm-stat-lbl"><i class="fas fa-clock"></i> Lines Balance</div>
         </div>
         <div class="pm-stat-card" style="border-left-color:#10b981;">
             <div class="pm-stat-val">${pickedCount}</div>
-            <div class="pm-stat-lbl"><i class="fas fa-check-circle"></i> Picked</div>
+            <div class="pm-stat-lbl"><i class="fas fa-check-double"></i> Orders Picked</div>
         </div>
         <div class="pm-stat-card" style="border-left-color:#f59e0b;">
             <div class="pm-stat-val">${inProgCount}</div>
@@ -550,18 +562,17 @@ console.log('[PickerMonitor] Loading...');
 
     // ── By Picker ─────────────────────────────────────────────────────────────
     function renderByPicker(container, data) {
-        const groups = groupBy(data, r => r.PICKER || r.picker || 'Unassigned');
+        const groups = groupBy(data, r => r.picker_name || 'Unassigned');
         container.innerHTML = '';
         Object.entries(groups)
             .sort(([a], [b]) => a.localeCompare(b))
             .forEach(([name, orders]) => {
-                const lorries = [...new Set(orders.map(r => r.trip_lorry || r.TRIP_LORRY || '').filter(Boolean))];
-                const bays    = [...new Set(orders.map(r => r.TRIP_LOADING_BAY || r.trip_loading_bay || r.LOADING_BAY || '').filter(Boolean))];
+                const lorries = [...new Set(orders.map(r => r.lorry_number || '').filter(Boolean))];
+                const bays    = [...new Set(orders.map(r => r.loading_bay  || '').filter(Boolean))];
                 const block = buildGroupBlock(name, orders, {
                     icon:          'fas fa-user-hard-hat',
                     iconBg:        'linear-gradient(135deg,#6366f1,#4f46e5)',
-                    groupSubtitle: `Lorry: ${lorries.join(', ') || '—'} | Bay: ${bays.join(', ') || '—'}`,
-                    subtitleFn:    r => `${r.account_name || r.ACCOUNT_NAME || ''}`.trim()
+                    groupSubtitle: `Lorry: ${lorries.join(', ') || '—'} | Bay: ${bays.join(', ') || '—'}`
                 });
                 container.appendChild(block);
             });
@@ -569,18 +580,17 @@ console.log('[PickerMonitor] Loading...');
 
     // ── By Lorry ──────────────────────────────────────────────────────────────
     function renderByLorry(container, data) {
-        const groups = groupBy(data, r => r.trip_lorry || r.TRIP_LORRY || 'Unknown');
+        const groups = groupBy(data, r => r.lorry_number || 'Unknown');
         container.innerHTML = '';
         Object.entries(groups)
             .sort(([a], [b]) => a.localeCompare(b))
             .forEach(([lorry, orders]) => {
-                const bays    = [...new Set(orders.map(r => r.TRIP_LOADING_BAY || r.trip_loading_bay || r.LOADING_BAY || '').filter(Boolean))];
-                const pickers = [...new Set(orders.map(r => r.PICKER || r.picker || '').filter(Boolean))];
+                const bays    = [...new Set(orders.map(r => r.loading_bay  || '').filter(Boolean))];
+                const pickers = [...new Set(orders.map(r => r.picker_name  || '').filter(Boolean))];
                 const block = buildGroupBlock(lorry, orders, {
                     icon:          'fas fa-truck',
                     iconBg:        'linear-gradient(135deg,#0ea5e9,#0284c7)',
-                    groupSubtitle: `Bay: ${bays.join(', ') || '—'} | Pickers: ${pickers.join(', ') || '—'}`,
-                    subtitleFn:    r => `${r.account_name || r.ACCOUNT_NAME || ''}`.trim()
+                    groupSubtitle: `Bay: ${bays.join(', ') || '—'} | Pickers: ${pickers.join(', ') || '—'}`
                 });
                 container.appendChild(block);
             });
@@ -588,18 +598,17 @@ console.log('[PickerMonitor] Loading...');
 
     // ── By Loading Bay ────────────────────────────────────────────────────────
     function renderByBay(container, data) {
-        const groups = groupBy(data, r => r.TRIP_LOADING_BAY || r.trip_loading_bay || r.LOADING_BAY || 'No Bay');
+        const groups = groupBy(data, r => r.loading_bay || 'No Bay');
         container.innerHTML = '';
         Object.entries(groups)
             .sort(([a], [b]) => a.localeCompare(b))
             .forEach(([bay, orders]) => {
-                const lorries = [...new Set(orders.map(r => r.trip_lorry || r.TRIP_LORRY || '').filter(Boolean))];
-                const pickers = [...new Set(orders.map(r => r.PICKER || r.picker || '').filter(Boolean))];
+                const lorries = [...new Set(orders.map(r => r.lorry_number || '').filter(Boolean))];
+                const pickers = [...new Set(orders.map(r => r.picker_name  || '').filter(Boolean))];
                 const block = buildGroupBlock(bay, orders, {
                     icon:          'fas fa-warehouse',
                     iconBg:        'linear-gradient(135deg,#10b981,#059669)',
-                    groupSubtitle: `Lorries: ${lorries.join(', ') || '—'} | Pickers: ${pickers.join(', ') || '—'}`,
-                    subtitleFn:    r => `${r.account_name || r.ACCOUNT_NAME || ''}`.trim()
+                    groupSubtitle: `Lorries: ${lorries.join(', ') || '—'} | Pickers: ${pickers.join(', ') || '—'}`
                 });
                 container.appendChild(block);
             });
@@ -607,12 +616,13 @@ console.log('[PickerMonitor] Loading...');
 
     // ── Group block ───────────────────────────────────────────────────────────
     function buildGroupBlock(title, orders, opts) {
-        const total     = orders.length;
-        const picked    = orders.filter(r => pickStatus(r) === 'picked').length;
-        const inProg    = orders.filter(r => pickStatus(r) === 'inprogress').length;
-        const pending   = orders.filter(r => pickStatus(r) === 'pending').length;
-        const cancelled = orders.filter(r => pickStatus(r) === 'cancelled').length;
-        const pct       = total ? Math.round(picked / total * 100) : 0;
+        const total       = orders.length;
+        const picked      = orders.filter(r => pickStatus(r) === 'picked').length;
+        const inProg      = orders.filter(r => pickStatus(r) === 'inprogress').length;
+        const pending     = orders.filter(r => pickStatus(r) === 'pending').length;
+        const totalLines  = orders.reduce((s, r) => s + (Number(r.total_lines)  || 0), 0);
+        const pickedLines = orders.reduce((s, r) => s + (Number(r.picked_lines) || 0), 0);
+        const pct         = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
 
         const progGrad = pct === 100
             ? 'linear-gradient(90deg,#10b981,#059669)'
@@ -639,10 +649,11 @@ console.log('[PickerMonitor] Loading...');
             </div>
             <div style="display:flex;gap:0.35rem;align-items:center;flex-wrap:wrap;justify-content:flex-end;margin-top:0.25rem;">
                 <span class="pm-badge pm-badge-total">${total} orders</span>
-                <span class="pm-badge pm-badge-picked">${picked} picked</span>
-                ${inProg    ? `<span class="pm-badge pm-badge-inprog">${inProg} in-prog</span>`  : ''}
-                ${pending   ? `<span class="pm-badge pm-badge-pending">${pending} pending</span>` : ''}
-                ${cancelled ? `<span class="pm-badge pm-badge-cancel">${cancelled} cancel</span>` : ''}
+                <span class="pm-badge pm-badge-total">${totalLines} lines</span>
+                <span class="pm-badge pm-badge-picked">${pickedLines} picked</span>
+                <span class="pm-badge pm-badge-pending">${totalLines - pickedLines} balance</span>
+                ${inProg  ? `<span class="pm-badge pm-badge-inprog">${inProg} in-prog</span>`   : ''}
+                ${pending ? `<span class="pm-badge pm-badge-pending">${pending} pending</span>` : ''}
             </div>
         `;
 
@@ -651,7 +662,7 @@ console.log('[PickerMonitor] Loading...');
         progWrap.style.cssText = 'padding:0.4rem 1rem 0.7rem;background:#fcfcfd;';
         progWrap.innerHTML = `
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.3rem;">
-                <span style="font-size:0.68rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Picking Progress</span>
+                <span style="font-size:0.68rem;color:#64748b;font-weight:600;text-transform:uppercase;letter-spacing:0.04em;">Lines Picked ${pickedLines}/${totalLines}</span>
                 <span style="font-size:0.75rem;font-weight:800;color:${progTextColor};">${pct}%</span>
             </div>
             <div style="height:8px;background:#e2e8f0;border-radius:99px;overflow:hidden;">
@@ -664,30 +675,43 @@ console.log('[PickerMonitor] Loading...');
         cardsGrid.className = 'pm-orders-grid';
 
         orders.forEach(row => {
-            const st       = pickStatus(row);
-            const rawLabel = row.LINE_STATUS || row.line_status || 'Unknown';
-            const orderNum = row.order_number || row.ORDER_NUMBER || row.DELIVERY_NUMBER || row.delivery_number || row.trip_id || '—';
-            const customer = row.account_name || row.ACCOUNT_NAME || row.customer_name || '—';
-            const lorry    = row.trip_lorry   || row.TRIP_LORRY   || '—';
-            const bay      = row.TRIP_LOADING_BAY || row.trip_loading_bay || row.LOADING_BAY || '—';
-            const picker   = row.PICKER       || row.picker       || '—';
-            const tripId   = row.trip_id      || row.TRIP_ID      || '—';
-            const subLine  = opts.subtitleFn ? opts.subtitleFn(row) : '';
+            const st          = pickStatus(row);
+            const orderNum    = row.source_order_number || '—';
+            const lorry       = row.lorry_number   || '—';
+            const bay         = row.loading_bay    || '—';
+            const picker      = row.picker_name    || '—';
+            const priority    = row.order_priority || '';
+            const totalL      = Number(row.total_lines)  || 0;
+            const pickedL     = Number(row.picked_lines) || 0;
+            const balanceL    = Number(row.balance_lines) || 0;
+            const cardPct     = totalL ? Math.round(pickedL / totalL * 100) : 0;
+            const progFill    = cardPct === 100
+                ? 'linear-gradient(90deg,#10b981,#059669)'
+                : cardPct > 0 ? 'linear-gradient(90deg,#f59e0b,#d97706)' : '#ef4444';
+            const stLabel     = st === 'picked' ? 'Picked' : st === 'inprogress' ? 'In Progress' : 'Pending';
 
             const card = document.createElement('div');
             card.className = `pm-order-card pm-order-${st}`;
             card.innerHTML = `
                 <div class="pm-order-header">
                     <span class="pm-order-num" title="${orderNum}">#${orderNum}</span>
-                    ${statusBadge(st, rawLabel)}
+                    ${statusBadge(st, stLabel)}
                 </div>
-                <div class="pm-order-customer" title="${customer}">${customer}</div>
-                ${subLine && pmViewMode !== 'picker' ? '' : ''}
+                <div style="margin-bottom:0.4rem;">
+                    <div style="display:flex;justify-content:space-between;font-size:0.62rem;color:#64748b;margin-bottom:0.15rem;">
+                        <span>${pickedL}/${totalL} lines</span>
+                        <span style="font-weight:700;">${cardPct}%</span>
+                    </div>
+                    <div style="height:4px;background:#e2e8f0;border-radius:99px;overflow:hidden;">
+                        <div style="height:100%;width:${cardPct}%;background:${progFill};border-radius:99px;"></div>
+                    </div>
+                    <div style="font-size:0.6rem;color:#94a3b8;margin-top:0.15rem;">${balanceL} balance</div>
+                </div>
                 <div class="pm-order-meta">
-                    ${pmViewMode !== 'lorry' ? `<div class="pm-meta-row"><i class="fas fa-truck" style="color:#6366f1;width:12px;text-align:center;"></i><span title="${lorry}">${lorry}</span></div>` : ''}
-                    ${pmViewMode !== 'bay'   ? `<div class="pm-meta-row"><i class="fas fa-warehouse" style="color:#10b981;width:12px;text-align:center;"></i><span>Bay ${bay}</span></div>` : ''}
-                    ${pmViewMode !== 'picker'? `<div class="pm-meta-row"><i class="fas fa-user" style="color:#f59e0b;width:12px;text-align:center;"></i><span title="${picker}">${picker}</span></div>` : ''}
-                    <div class="pm-meta-row"><i class="fas fa-route" style="color:#94a3b8;width:12px;text-align:center;"></i><span>Trip ${tripId}</span></div>
+                    ${pmViewMode !== 'lorry'  ? `<div class="pm-meta-row"><i class="fas fa-truck"     style="color:#6366f1;width:12px;text-align:center;"></i><span title="${lorry}">${lorry}</span></div>` : ''}
+                    ${pmViewMode !== 'bay'    ? `<div class="pm-meta-row"><i class="fas fa-warehouse" style="color:#10b981;width:12px;text-align:center;"></i><span>Bay ${bay}</span></div>` : ''}
+                    ${pmViewMode !== 'picker' ? `<div class="pm-meta-row"><i class="fas fa-user"      style="color:#f59e0b;width:12px;text-align:center;"></i><span title="${picker}">${picker}</span></div>` : ''}
+                    ${priority ? `<div class="pm-meta-row"><i class="fas fa-flag" style="color:#94a3b8;width:12px;text-align:center;"></i><span>Priority ${priority}</span></div>` : ''}
                 </div>
             `;
             cardsGrid.appendChild(card);

@@ -820,19 +820,17 @@ document.addEventListener('DOMContentLoaded', function () {
 });
 
 // ── API Modal helpers ─────────────────────────────────────────────────────────
-function getApiBase(instance) {
-    return instance === 'TEST'
-        ? 'https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT'
-        : 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT';
+function getApiBase() {
+    return 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
 }
 
 function updateApiModalInfo() {
     const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
-    const base = getApiBase(instance);
-    const endpoint = `${base}/trip/getpickersview`;
+    const base = getApiBase();
+    const endpoint = `${base}/getpickersview`;
     lastFetchUrl = endpoint;
     const urlEl = document.getElementById('apiEndpointUrl');
-    if (urlEl) urlEl.textContent = endpoint + '?fromDate=<date>&instance=' + instance;
+    if (urlEl) urlEl.textContent = endpoint + '?P_INSTANCE_NAME=' + instance + '&P_ASSIGNMENT_DATE=<DD-MM-YYYY>';
 
     const badge = document.getElementById('apiModeBadge');
     if (badge) {
@@ -872,9 +870,10 @@ function setApiLastStatus(msg, ok) {
 
 async function testApiConnection() {
     const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
-    const base = getApiBase(instance);
-    const today = new Date().toISOString().split('T')[0];
-    const url = `${base}/trip/getpickersview?fromDate=${today}&instance=${instance}`;
+    const base = getApiBase();
+    const d = new Date();
+    const today = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+    const url = `${base}/getpickersview?P_INSTANCE_NAME=${instance}&P_ASSIGNMENT_DATE=${today}`;
 
     const btn = document.querySelector('.api-test-btn');
     const res = document.getElementById('apiTestResult');
@@ -933,37 +932,49 @@ function loadData() {
     const instance = document.getElementById('fpInstance').value;
     if (!fromDate) { alert('Please select a date.'); return; }
 
+    // Format date DD-MM-YYYY for the API
+    const d = new Date(fromDate);
+    const apexDate = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
+
     setLoading(true);
     setApiDot('busy');
     updateApiModalInfo();
 
+    const base = getApiBase();
+    const url = `${base}/getpickersview?P_INSTANCE_NAME=${instance}&P_ASSIGNMENT_DATE=${apexDate}`;
+    lastFetchUrl = url;
+
     if (isWV2) {
+        const reqId = 'pv_' + Date.now();
+        window.pendingRequests = window.pendingRequests || {};
+        window.pendingRequests[reqId] = function(err, data) {
+            if (err) { window.handlePickersViewData(null, err); return; }
+            try {
+                const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                window.handlePickersViewData(parsed, null);
+            } catch(e) {
+                window.handlePickersViewData(null, 'Parse error: ' + e.message);
+            }
+        };
         window.chrome.webview.postMessage({
-            action:    'getPickersView',
-            requestId: 'pv_' + Date.now(),
-            fromDate:  fromDate,
-            instance:  instance
+            action:    'executeGet',
+            requestId: reqId,
+            fullUrl:   url
         });
         return;
     }
 
     // Browser fallback
-    const base = getApiBase(instance);
-    const url = `${base}/trip/getpickersview?fromDate=${fromDate}&instance=${instance}`;
     console.log('[Picker Monitor] Fetching:', url);
 
     fetch(url, { headers: { Accept: 'application/json' } })
         .then(r => {
             console.log('[Picker Monitor] HTTP status:', r.status, r.statusText);
-            if (!r.ok) {
-                return r.text().then(t => {
-                    throw new Error(`HTTP ${r.status} ${r.statusText}: ${t.substring(0,300)}`);
-                });
-            }
+            if (!r.ok) return r.text().then(t => { throw new Error(`HTTP ${r.status}: ${t.substring(0,300)}`); });
             return r.json();
         })
         .then(d => {
-            console.log('[Picker Monitor] Response data:', d);
+            console.log('[Picker Monitor] Response:', d);
             window.handlePickersViewData(d, null);
         })
         .catch(e => {
@@ -972,19 +983,18 @@ function loadData() {
         });
 }
 
-// ── WebView2 callback ─────────────────────────────────────────────────────────
+// ── Data callback ─────────────────────────────────────────────────────────────
 window.handlePickersViewData = function (data, error) {
     setLoading(false);
     if (error) {
         setApiDot('err');
-        setApiLastStatus('Error: ' + error.substring(0, 80), false);
+        setApiLastStatus('Error: ' + String(error).substring(0, 80), false);
         showError(error);
         return;
     }
-    // Support: { items:[...] }  or  { rows:[...] }  or  direct array
-    allData = (data && data.items) ? data.items
-            : (data && data.rows)  ? data.rows
-            : Array.isArray(data)  ? data
+    // API returns a direct array
+    allData = Array.isArray(data) ? data
+            : (data && data.items) ? data.items
             : [];
     console.log('[Picker Monitor] Parsed rows:', allData.length, allData[0] || '(empty)');
     setApiDot(allData.length ? 'ok' : 'err');
@@ -1002,9 +1012,9 @@ window.handlePickersViewData = function (data, error) {
 
 // ── Build filter dropdowns ────────────────────────────────────────────────────
 function buildFilterDropdowns() {
-    const pickers  = uniq(allData.map(r => r.picker_name  || '')).filter(Boolean).sort();
-    const lorries  = uniq(allData.map(r => r.lorry_number || '')).filter(Boolean).sort();
-    const bays     = uniq(allData.map(r => r.loading_bay  || '')).filter(Boolean).sort();
+    const pickers = uniq(allData.map(r => r.picker_name  || '')).filter(Boolean).sort();
+    const lorries = uniq(allData.map(r => r.lorry_number || '')).filter(Boolean).sort();
+    const bays    = uniq(allData.map(r => r.loading_bay  || '')).filter(Boolean).sort();
     populateSel('fPicker', pickers, 'All Pickers');
     populateSel('fLorry',  lorries, 'All Lorries');
     populateSel('fBay',    bays,    'All Bays');
@@ -1052,44 +1062,34 @@ function clearFilters() {
     applyFilters();
 }
 
-// ── Build order map (group items by order) ─────────────────────────────────
+// ── Build order map — each API row is already one order summary ─────────────
 function buildOrderMap(rows) {
     const map = {};
     rows.forEach(r => {
-        const key = r.source_order_number || 'UNKNOWN';
-        if (!map[key]) {
-            map[key] = {
-                orderNum:  key,
-                customer:  r.account_name   || '—',
-                picker:    r.picker_name    || 'Unassigned',
-                lorry:     r.lorry_number   || '—',
-                bay:       r.loading_bay    || '—',
-                priority:  r.order_priority || '',
-                date:      r.pick_release_date || '',
-                items:     [],
-                pickedQty: 0,
-                totalQty:  0
-            };
-        }
-        const qty    = Number(r.qty) || 0;
-        const picked = (r.pick_confirm_status || '').toUpperCase() === 'YES';
-        map[key].items.push({ ...r, qty, picked });
-        map[key].totalQty  += qty;
-        map[key].pickedQty += picked ? qty : 0;
-    });
+        const key        = r.source_order_number || 'UNKNOWN';
+        const totalLines = Number(r.total_lines)  || 0;
+        const pickedLines= Number(r.picked_lines) || 0;
 
-    // Compute pickStatus per order
-    Object.values(map).forEach(o => {
-        if (o.totalQty === 0) {
-            o.pickStatus = 'none';
-        } else if (o.pickedQty === o.totalQty) {
-            o.pickStatus = 'full';
-        } else if (o.pickedQty > 0) {
-            o.pickStatus = 'partial';
-        } else {
-            o.pickStatus = 'none';
-        }
-        o.pickPct = o.totalQty ? Math.round(o.pickedQty / o.totalQty * 100) : 0;
+        map[key] = {
+            orderNum:  key,
+            customer:  '—',
+            picker:    r.picker_name    || 'Unassigned',
+            lorry:     r.lorry_number   || '—',
+            bay:       r.loading_bay    || '—',
+            priority:  r.order_priority || '',
+            date:      r.assignment_date || '',
+            totalQty:  totalLines,
+            pickedQty: pickedLines,
+            balance:   Number(r.balance_lines) || 0,
+            items:     []
+        };
+
+        const o = map[key];
+        if (totalLines === 0)            o.pickStatus = 'none';
+        else if (pickedLines === totalLines) o.pickStatus = 'full';
+        else if (pickedLines > 0)        o.pickStatus = 'partial';
+        else                             o.pickStatus = 'none';
+        o.pickPct = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
     });
 
     return map;
@@ -1107,18 +1107,21 @@ function updateSummary(rows, orders) {
     const pickers  = uniq(rows.map(r => r.picker_name  || '').filter(Boolean)).length;
     const lorries  = uniq(rows.map(r => r.lorry_number || '').filter(Boolean)).length;
     const bays     = uniq(rows.map(r => r.loading_bay  || '').filter(Boolean)).length;
-    const totalQty = rows.reduce((s, r) => s + (Number(r.qty) || 0), 0);
-    const pickedQty= rows.filter(r => (r.pick_confirm_status||'').toUpperCase()==='YES').reduce((s,r)=>s+(Number(r.qty)||0),0);
-    const pct = totalOrders ? Math.round(pickedOrders / totalOrders * 100) : 0;
+    const totalLines  = rows.reduce((s, r) => s + (Number(r.total_lines)  || 0), 0);
+    const pickedLines = rows.reduce((s, r) => s + (Number(r.picked_lines) || 0), 0);
+    const pct = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
 
     el.innerHTML = `
         ${pill('#e0e7ff','#3730a3',pickers,'fas fa-user-tie','Pickers')}
         ${pill('#dbeafe','#1e40af',lorries,'fas fa-truck','Lorries')}
         ${pill('#ede9fe','#5b21b6',bays,'fas fa-warehouse','Bays')}
         ${pill('#f1f5f9','#334155',totalOrders,'fas fa-box','Orders')}
-        ${pill('#d1fae5','#065f46',pickedOrders,'fas fa-check-circle','Picked')}
+        ${pill('#f1f5f9','#334155',totalLines,'fas fa-list','Total Lines')}
+        ${pill('#d1fae5','#065f46',pickedLines,'fas fa-check-circle','Lines Picked')}
+        ${pill('#fee2e2','#991b1b',totalLines - pickedLines,'fas fa-clock','Balance')}
+        ${pill('#d1fae5','#065f46',pickedOrders,'fas fa-check-double','Orders Done')}
         ${pill('#fef3c7','#92400e',partialOrders,'fas fa-adjust','Partial')}
-        ${pill('#fee2e2','#991b1b',pendingOrders,'fas fa-clock','Pending')}
+        ${pill('#fee2e2','#991b1b',pendingOrders,'fas fa-hourglass','Pending')}
         ${pillPct(pct)}
     `;
 }
@@ -1292,7 +1295,7 @@ function buildOrderCard(o, showAll) {
         <div class="card-customer" title="${o.customer}">${o.customer}</div>
         <div class="card-progress">
             <div class="card-prog-nums">
-                <span>${o.pickedQty} / ${o.totalQty} qty picked</span>
+                <span>${o.pickedQty} / ${o.totalQty} lines picked</span>
                 <span style="font-weight:700;">${pPct}%</span>
             </div>
             <div class="card-prog-track">
