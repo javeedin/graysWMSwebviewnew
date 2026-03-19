@@ -619,6 +619,145 @@
         }
         .api-test-result.ok  { background: #d1fae5; color: #065f46; display: block; }
         .api-test-result.err { background: #fee2e2; color: #991b1b; display: block; }
+
+        /* ── Summary View ─────────────────────────────────────── */
+        .summary-view { display: flex; flex-direction: column; gap: 1.1rem; }
+        .sv-lorry {
+            background: #fff;
+            border: 1px solid var(--slate-200);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+        .sv-lorry-header {
+            display: flex;
+            align-items: center;
+            gap: 0.9rem;
+            padding: 0.85rem 1.1rem;
+            background: linear-gradient(135deg,#0ea5e9,#0284c7);
+            color: #fff;
+        }
+        .sv-lorry-icon {
+            width: 36px; height: 36px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1rem;
+            flex-shrink: 0;
+        }
+        .sv-lorry-title { font-weight: 700; font-size: 1rem; letter-spacing: 0.3px; }
+        .sv-lorry-meta  { font-size: 0.75rem; opacity: 0.85; margin-top: 1px; display: flex; gap: 1rem; }
+        .sv-lorry-badge {
+            margin-left: auto;
+            background: rgba(255,255,255,0.2);
+            border-radius: 99px;
+            padding: 0.2rem 0.65rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .sv-lorry-progress-wrap { padding: 0.6rem 1.1rem 0; }
+        .sv-progress-bar-bg {
+            background: rgba(255,255,255,0.25);
+            border-radius: 99px;
+            height: 6px;
+            overflow: hidden;
+        }
+        .sv-lorry-header .sv-progress-bar-bg { margin-top: 0.4rem; }
+        .sv-progress-bar-fill {
+            height: 100%;
+            border-radius: 99px;
+            transition: width 0.4s ease;
+        }
+        .fill-green  { background: #22c55e; }
+        .fill-amber  { background: #f59e0b; }
+        .fill-orange { background: #f97316; }
+        .fill-red    { background: #ef4444; }
+
+        .sv-pickers { padding: 0.6rem 0.9rem 0.9rem; display: flex; flex-direction: column; gap: 0.55rem; }
+        .sv-picker-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0.75rem;
+            background: var(--slate-50);
+            border-radius: 9px;
+            border: 1px solid var(--slate-100);
+        }
+        .sv-picker-avatar {
+            width: 32px; height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg,#6366f1,#4f46e5);
+            color: #fff;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.7rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        .sv-picker-info { flex: 1; min-width: 0; }
+        .sv-picker-name {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--slate-700);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .sv-picker-bar-wrap { margin-top: 0.3rem; position: relative; }
+        .sv-picker-bar-bg {
+            background: var(--slate-200);
+            border-radius: 99px;
+            height: 8px;
+            overflow: hidden;
+        }
+        .sv-picker-pct {
+            min-width: 42px;
+            text-align: right;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--slate-600);
+            flex-shrink: 0;
+        }
+        .sv-picker-lines {
+            min-width: 68px;
+            text-align: right;
+            font-size: 0.7rem;
+            color: var(--slate-400);
+            flex-shrink: 0;
+        }
+        .sv-lorry-aggregate {
+            padding: 0 1.1rem 0.6rem;
+        }
+        .sv-agg-bar-wrap { display: flex; align-items: center; gap: 0.6rem; }
+        .sv-agg-bar-bg {
+            flex: 1;
+            background: var(--slate-100);
+            border-radius: 99px;
+            height: 10px;
+            overflow: hidden;
+        }
+        .sv-agg-pct {
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: var(--slate-600);
+            min-width: 38px;
+            text-align: right;
+        }
+        .sv-no-data {
+            text-align: center;
+            padding: 3rem 1rem;
+            color: var(--slate-400);
+            font-size: 0.88rem;
+        }
+        .sv-no-data i { font-size: 2.5rem; display: block; margin-bottom: 0.75rem; }
+        .sv-lorry-tags { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.3rem; }
+        .sv-tag {
+            background: rgba(255,255,255,0.18);
+            border-radius: 99px;
+            padding: 0.1rem 0.55rem;
+            font-size: 0.7rem;
+            display: flex; align-items: center; gap: 0.3rem;
+        }
     </style>
 </head>
 <body>
@@ -693,6 +832,9 @@
                 </button>
                 <button class="view-btn" id="vbtn-order" onclick="setView('order')">
                     <i class="fas fa-box"></i> Order
+                </button>
+                <button class="view-btn" id="vbtn-summary" onclick="setView('summary')">
+                    <i class="fas fa-chart-bar"></i> Summary
                 </button>
             </div>
 
@@ -802,10 +944,11 @@
 
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
-let allData     = [];   // raw item rows from API
-let viewMode    = 'picker';
-const isWV2     = !!(window.chrome && window.chrome.webview);
-let lastFetchUrl = '';
+let allData        = [];   // raw item rows from getPickersView
+let allSummaryData = [];   // rows from getPickersSummary
+let viewMode       = 'picker';
+const isWV2        = !!(window.chrome && window.chrome.webview);
+let lastFetchUrl   = '';
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', function () {
@@ -910,6 +1053,13 @@ function loadData() {
         assignmentDate: apexDate,
         instance:       instance
     });
+
+    // Fire summary webservice in parallel
+    window.chrome.webview.postMessage({
+        action:         'getPickersSummary',
+        assignmentDate: apexDate,
+        instance:       instance
+    });
 }
 
 // ── Data callback ─────────────────────────────────────────────────────────────
@@ -957,6 +1107,19 @@ window.handlePickersViewData = function (data, error) {
     applyFilters();
 };
 
+// ── Summary data callback ──────────────────────────────────────────────────────
+window.handlePickersSummaryData = function (data, error) {
+    if (error) {
+        console.warn('[Picker Summary] Error:', error);
+        return;
+    }
+    allSummaryData = Array.isArray(data) ? data
+                   : (data && data.items) ? data.items
+                   : [];
+    console.log('[Picker Summary] Rows:', allSummaryData.length, allSummaryData[0] || '(empty)');
+    if (viewMode === 'summary') renderSummaryView();
+};
+
 // ── Build filter dropdowns ────────────────────────────────────────────────────
 function buildFilterDropdowns() {
     const pickers = uniq(allData.map(r => r.picker_name  || '')).filter(Boolean).sort();
@@ -998,6 +1161,7 @@ function applyFilters() {
     }
 
     updateSummary(rows, filteredOrders);
+    if (viewMode === 'summary') { renderSummaryView(); return; }
     renderView(filteredOrders);
 }
 
@@ -1096,7 +1260,11 @@ function setView(mode) {
     viewMode = mode;
     document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('vbtn-' + mode).classList.add('active');
-    if (allData.length) applyFilters();
+    if (mode === 'summary') {
+        renderSummaryView();
+    } else if (allData.length) {
+        applyFilters();
+    }
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
@@ -1275,6 +1443,111 @@ function setLoading(on) {
         document.getElementById('summaryStrip').innerHTML =
             '<span style="font-size:.78rem;color:var(--slate-400);font-style:italic;">Loading…</span>';
     }
+}
+
+// ── Summary View Renderer ─────────────────────────────────────────────────────
+function renderSummaryView() {
+    const area = document.getElementById('cardsArea');
+
+    if (!allSummaryData.length) {
+        area.innerHTML = `<div class="sv-no-data">
+            <i class="fas fa-chart-bar"></i>
+            <strong>No Summary Data</strong>
+            <div style="margin-top:0.4rem;">Fetch data first using the panel on the right.</div>
+        </div>`;
+        return;
+    }
+
+    // Helper: colour class by pct
+    function fillClass(pct) {
+        if (pct >= 100) return 'fill-green';
+        if (pct >= 50)  return 'fill-amber';
+        if (pct > 0)    return 'fill-orange';
+        return 'fill-red';
+    }
+
+    // Helper: initials from name
+    function initials(name) {
+        return name.split(' ').map(w => w[0] || '').join('').substring(0, 2).toUpperCase();
+    }
+
+    // Group rows by lorry_number
+    const lorryMap = {};
+    allSummaryData.forEach(r => {
+        const lorry   = r.lorry_number   || 'UNKNOWN';
+        const bay     = r.loading_bay    || '—';
+        const priority= r.order_priority || '—';
+        const picker  = r.picker_name    || 'Unassigned';
+        const total   = Number(r.total_lines)  || 0;
+        const picked  = Number(r.picked_lines) || 0;
+
+        if (!lorryMap[lorry]) {
+            lorryMap[lorry] = { lorry, bay, priority, totalLines: 0, pickedLines: 0, pickers: {} };
+        }
+        lorryMap[lorry].totalLines  += total;
+        lorryMap[lorry].pickedLines += picked;
+        if (!lorryMap[lorry].pickers[picker]) {
+            lorryMap[lorry].pickers[picker] = { name: picker, totalLines: 0, pickedLines: 0 };
+        }
+        lorryMap[lorry].pickers[picker].totalLines  += total;
+        lorryMap[lorry].pickers[picker].pickedLines += picked;
+    });
+
+    // Sort lorries alphabetically
+    const lorries = Object.values(lorryMap).sort((a, b) => a.lorry.localeCompare(b.lorry));
+
+    const html = lorries.map(lry => {
+        const lryPct = lry.totalLines > 0 ? Math.round(lry.pickedLines / lry.totalLines * 100) : 0;
+        const lryFill = fillClass(lryPct);
+
+        // Sort pickers: incomplete first, then by name
+        const pickerRows = Object.values(lry.pickers).sort((a, b) => {
+            const pa = a.totalLines > 0 ? a.pickedLines / a.totalLines : 0;
+            const pb = b.totalLines > 0 ? b.pickedLines / b.totalLines : 0;
+            return pa - pb || a.name.localeCompare(b.name);
+        });
+
+        const pickerHtml = pickerRows.map(p => {
+            const pct  = p.totalLines > 0 ? Math.round(p.pickedLines / p.totalLines * 100) : 0;
+            const fc   = fillClass(pct);
+            return `
+            <div class="sv-picker-row">
+                <div class="sv-picker-avatar">${initials(p.name)}</div>
+                <div class="sv-picker-info">
+                    <div class="sv-picker-name" title="${p.name}">${p.name}</div>
+                    <div class="sv-picker-bar-wrap">
+                        <div class="sv-picker-bar-bg sv-progress-bar-bg">
+                            <div class="sv-progress-bar-fill ${fc}" style="width:${pct}%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="sv-picker-pct">${pct}%</div>
+                <div class="sv-picker-lines">${p.pickedLines}/${p.totalLines}</div>
+            </div>`;
+        }).join('');
+
+        return `
+        <div class="sv-lorry">
+            <div class="sv-lorry-header">
+                <div class="sv-lorry-icon"><i class="fas fa-truck"></i></div>
+                <div style="flex:1;min-width:0;">
+                    <div class="sv-lorry-title">${lry.lorry}</div>
+                    <div class="sv-lorry-tags">
+                        <span class="sv-tag"><i class="fas fa-warehouse"></i> ${lry.bay}</span>
+                        <span class="sv-tag"><i class="fas fa-sort-numeric-up"></i> Priority ${lry.priority}</span>
+                        <span class="sv-tag"><i class="fas fa-users"></i> ${pickerRows.length} picker${pickerRows.length !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="sv-progress-bar-bg" style="margin-top:0.45rem;background:rgba(255,255,255,0.25);">
+                        <div class="sv-progress-bar-fill ${lryFill}" style="width:${lryPct}%"></div>
+                    </div>
+                </div>
+                <div class="sv-lorry-badge">${lryPct}% &bull; ${lry.pickedLines}/${lry.totalLines} lines</div>
+            </div>
+            <div class="sv-pickers">${pickerHtml}</div>
+        </div>`;
+    }).join('');
+
+    area.innerHTML = `<div class="summary-view">${html}</div>`;
 }
 
 function showError(msg) {

@@ -1843,6 +1843,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleGetPickersView(wv, messageJson, requestId);
                                     break;
 
+                                case "getPickersSummary":
+                                    await HandleGetPickersSummary(wv, messageJson, requestId);
+                                    break;
+
                                 case "postToTeams":
                                     await HandlePostToTeams(wv, messageJson, requestId);
                                     break;
@@ -5203,6 +5207,61 @@ navPanel.Controls.Add(wmsDevButton);
                 await wv.CoreWebView2.ExecuteScriptAsync($@"
                     if (typeof window.handlePickersViewData === 'function') {{
                         window.handlePickersViewData(null, '{escapedError}');
+                    }}
+                ");
+            }
+        }
+
+        private async Task HandleGetPickersSummary(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    string assignmentDate = root.TryGetProperty("assignmentDate", out var ad) ? ad.GetString() : "";
+                    string instance = root.TryGetProperty("instance", out var inst) ? inst.GetString() : "PROD";
+
+                    System.Diagnostics.Debug.WriteLine($"[PICKERS SUMMARY] Loading summary for date: {assignmentDate}, instance: {instance}");
+
+                    string apiUrl = $"https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/pickersviewsummary?P_INSTANCE_NAME={instance}&P_ASSIGNMENT_DATE={assignmentDate}";
+
+                    System.Diagnostics.Debug.WriteLine($"[PICKERS SUMMARY] API URL: {apiUrl}");
+
+                    using (var httpClient = new HttpClient())
+                    {
+                        httpClient.Timeout = TimeSpan.FromSeconds(60);
+                        var response = await httpClient.GetAsync(apiUrl);
+                        string responseContent = await response.Content.ReadAsStringAsync();
+
+                        System.Diagnostics.Debug.WriteLine($"[PICKERS SUMMARY] Response status: {response.StatusCode}, Length: {responseContent.Length}");
+
+                        if (response.IsSuccessStatusCode)
+                        {
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handlePickersSummaryData === 'function') {{
+                                    window.handlePickersSummaryData({responseContent}, null);
+                                }}
+                            ");
+                        }
+                        else
+                        {
+                            await wv.CoreWebView2.ExecuteScriptAsync($@"
+                                if (typeof window.handlePickersSummaryData === 'function') {{
+                                    window.handlePickersSummaryData(null, 'HTTP {(int)response.StatusCode}: {response.ReasonPhrase}');
+                                }}
+                            ");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[PICKERS SUMMARY ERROR] {ex.Message}");
+                string escapedError = ex.Message.Replace("\\", "\\\\").Replace("'", "\\'");
+                await wv.CoreWebView2.ExecuteScriptAsync($@"
+                    if (typeof window.handlePickersSummaryData === 'function') {{
+                        window.handlePickersSummaryData(null, '{escapedError}');
                     }}
                 ");
             }
