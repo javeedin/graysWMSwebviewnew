@@ -883,13 +883,6 @@ async function testApiConnection() {
     if (icon) icon.className = 'fas fa-circle-notch fa-spin';
     if (res)  { res.className = 'api-test-result'; res.textContent = ''; }
 
-    if (isWV2) {
-        if (res) { res.className = 'api-test-result ok'; res.textContent = 'Running in WebView2 — connection routed via desktop app host.'; }
-        if (btn) btn.disabled = false;
-        if (icon) icon.className = 'fas fa-wifi';
-        return;
-    }
-
     try {
         const response = await fetch(url, { headers: { Accept: 'application/json' } });
         const text = await response.text();
@@ -932,7 +925,7 @@ function loadData() {
     const instance = document.getElementById('fpInstance').value;
     if (!fromDate) { alert('Please select a date.'); return; }
 
-    // Format date DD-MM-YYYY for the API
+    // Format date as DD-MM-YYYY for the API
     const d = new Date(fromDate);
     const apexDate = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
 
@@ -944,33 +937,12 @@ function loadData() {
     const url = `${base}/getpickersview?P_INSTANCE_NAME=${instance}&P_ASSIGNMENT_DATE=${apexDate}`;
     lastFetchUrl = url;
 
-    if (isWV2) {
-        const reqId = 'pv_' + Date.now();
-        window.pendingRequests = window.pendingRequests || {};
-        window.pendingRequests[reqId] = function(err, data) {
-            if (err) { window.handlePickersViewData(null, err); return; }
-            try {
-                const parsed = typeof data === 'string' ? JSON.parse(data) : data;
-                window.handlePickersViewData(parsed, null);
-            } catch(e) {
-                window.handlePickersViewData(null, 'Parse error: ' + e.message);
-            }
-        };
-        window.chrome.webview.postMessage({
-            action:    'executeGet',
-            requestId: reqId,
-            fullUrl:   url
-        });
-        return;
-    }
-
-    // Browser fallback
     console.log('[Picker Monitor] Fetching:', url);
 
     fetch(url, { headers: { Accept: 'application/json' } })
         .then(r => {
             console.log('[Picker Monitor] HTTP status:', r.status, r.statusText);
-            if (!r.ok) return r.text().then(t => { throw new Error(`HTTP ${r.status}: ${t.substring(0,300)}`); });
+            if (!r.ok) return r.text().then(t => { throw new Error(`HTTP ${r.status}: ${t.substring(0, 300)}`); });
             return r.json();
         })
         .then(d => {
