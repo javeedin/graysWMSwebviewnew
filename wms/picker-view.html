@@ -868,12 +868,10 @@ function setApiLastStatus(msg, ok) {
     }
 }
 
-async function testApiConnection() {
+function testApiConnection() {
     const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
-    const base = getApiBase();
     const d = new Date();
     const today = `${String(d.getDate()).padStart(2,'0')}-${String(d.getMonth()+1).padStart(2,'0')}-${d.getFullYear()}`;
-    const url = `${base}/getpickersview?P_INSTANCE_NAME=${instance}&P_ASSIGNMENT_DATE=${today}`;
 
     const btn = document.querySelector('.api-test-btn');
     const res = document.getElementById('apiTestResult');
@@ -881,42 +879,12 @@ async function testApiConnection() {
 
     if (btn) btn.disabled = true;
     if (icon) icon.className = 'fas fa-circle-notch fa-spin';
-    if (res)  { res.className = 'api-test-result'; res.textContent = ''; }
+    if (res)  { res.className = 'api-test-result'; res.textContent = 'Testing via C# handler…'; }
 
-    try {
-        const response = await fetch(url, { headers: { Accept: 'application/json' } });
-        const text = await response.text();
-        let parsed = null;
-        try { parsed = JSON.parse(text); } catch(e) { /* not JSON */ }
+    // One-time callback checked by handlePickersViewData
+    window._apiTestPending = { btn, res, icon };
 
-        if (!response.ok) {
-            if (res) {
-                res.className = 'api-test-result err';
-                res.textContent = `HTTP ${response.status} ${response.statusText}. Response: ${text.substring(0,200)}`;
-            }
-            setApiDot('err');
-        } else {
-            const count = parsed && parsed.items ? parsed.items.length
-                        : Array.isArray(parsed) ? parsed.length
-                        : '?';
-            if (res) {
-                res.className = 'api-test-result ok';
-                res.textContent = `Connected! HTTP ${response.status}. Records returned: ${count}.`;
-            }
-            setApiDot('ok');
-        }
-        console.log('[API Test] URL:', url, 'Status:', response.status, 'Response:', text.substring(0, 500));
-    } catch (e) {
-        if (res) {
-            res.className = 'api-test-result err';
-            res.textContent = `Connection failed: ${e.message}. This may be a CORS issue — try using the desktop app instead.`;
-        }
-        setApiDot('err');
-        console.error('[API Test] Error:', e);
-    }
-
-    if (btn) btn.disabled = false;
-    if (icon) icon.className = 'fas fa-wifi';
+    window.chrome.webview.postMessage({ action: 'getPickersView', assignmentDate: today, instance: instance });
 }
 
 // ── Fetch ────────────────────────────────────────────────────────────────────
@@ -933,31 +901,38 @@ function loadData() {
     setApiDot('busy');
     updateApiModalInfo();
 
-    const base = getApiBase();
-    const url = `${base}/getpickersview?P_INSTANCE_NAME=${instance}&P_ASSIGNMENT_DATE=${apexDate}`;
-    lastFetchUrl = url;
+    lastFetchUrl = `${getApiBase()}/getpickersview?P_INSTANCE_NAME=${instance}&P_ASSIGNMENT_DATE=${apexDate}`;
+    console.log('[Picker Monitor] Requesting via C#:', lastFetchUrl);
 
-    console.log('[Picker Monitor] Fetching:', url);
-
-    fetch(url, { headers: { Accept: 'application/json' } })
-        .then(r => {
-            console.log('[Picker Monitor] HTTP status:', r.status, r.statusText);
-            if (!r.ok) return r.text().then(t => { throw new Error(`HTTP ${r.status}: ${t.substring(0, 300)}`); });
-            return r.json();
-        })
-        .then(d => {
-            console.log('[Picker Monitor] Response:', d);
-            window.handlePickersViewData(d, null);
-        })
-        .catch(e => {
-            console.error('[Picker Monitor] Fetch error:', e);
-            window.handlePickersViewData(null, e.message);
-        });
+    // Route through C# to avoid CORS — handler calls window.handlePickersViewData() back
+    window.chrome.webview.postMessage({
+        action:         'getPickersView',
+        assignmentDate: apexDate,
+        instance:       instance
+    });
 }
 
 // ── Data callback ─────────────────────────────────────────────────────────────
 window.handlePickersViewData = function (data, error) {
     setLoading(false);
+
+    // If this came from testApiConnection, resolve the test UI and stop
+    if (window._apiTestPending) {
+        const t = window._apiTestPending;
+        window._apiTestPending = null;
+        if (t.btn)  t.btn.disabled = false;
+        if (t.icon) t.icon.className = 'fas fa-wifi';
+        if (error) {
+            if (t.res) { t.res.className = 'api-test-result err'; t.res.textContent = `Failed: ${error}`; }
+            setApiDot('err');
+        } else {
+            const count = Array.isArray(data) ? data.length : '?';
+            if (t.res) { t.res.className = 'api-test-result ok'; t.res.textContent = `Connected! Records: ${count}.`; }
+            setApiDot('ok');
+        }
+        return;
+    }
+
     if (error) {
         setApiDot('err');
         setApiLastStatus('Error: ' + String(error).substring(0, 80), false);

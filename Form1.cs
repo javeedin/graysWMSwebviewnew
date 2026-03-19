@@ -5158,19 +5158,12 @@ navPanel.Controls.Add(wmsDevButton);
                 using (var doc = JsonDocument.Parse(messageJson))
                 {
                     var root = doc.RootElement;
-                    string fromDate = root.TryGetProperty("fromDate", out var fd) ? fd.GetString() : "";
+                    string assignmentDate = root.TryGetProperty("assignmentDate", out var ad) ? ad.GetString() : "";
                     string instance = root.TryGetProperty("instance", out var inst) ? inst.GetString() : "PROD";
 
-                    System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] Loading data for date: {fromDate}, instance: {instance}");
+                    System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] Loading data for date: {assignmentDate}, instance: {instance}");
 
-                    var instanceUrls = new Dictionary<string, string>
-                    {
-                        { "PROD", "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" },
-                        { "TEST", "https://g09254cbbf8e7af-graystest.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT" }
-                    };
-
-                    string baseUrl = instanceUrls.ContainsKey(instance) ? instanceUrls[instance] : instanceUrls["PROD"];
-                    string apiUrl = $"{baseUrl}/trip/getpickersview?fromDate={fromDate}&instance={instance}";
+                    string apiUrl = $"https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/getpickersview?P_INSTANCE_NAME={instance}&P_ASSIGNMENT_DATE={assignmentDate}";
 
                     System.Diagnostics.Debug.WriteLine($"[PICKERS VIEW] API URL: {apiUrl}");
 
