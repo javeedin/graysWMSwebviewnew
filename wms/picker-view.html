@@ -2555,10 +2555,12 @@ function handleAiSummaryResponse(msg) {
     document.getElementById('aiPdfBtn').style.display = '';
 }
 
-function exportAiSummaryPdf() {
+async function exportAiSummaryPdf() {
     const { instance, date } = _aiCtx;
     const body = document.getElementById('aiModalBody');
+    const fileName = `AiPickerSummary_${instance}_${date||'export'}.pdf`;
 
+    // ── Build printable wrapper ──────────────────────────────────────────────
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'font-family:Inter,system-ui,sans-serif;padding:16px;background:#fff;';
 
@@ -2596,18 +2598,40 @@ function exportAiSummaryPdf() {
 
     wrapper.appendChild(styleTag);
     wrapper.appendChild(titleBar);
-    // Clone only the ai-content div (skip the back-button nav bar)
     const contentDiv = body.querySelector('.ai-content') || body;
     wrapper.appendChild(contentDiv.cloneNode(true));
 
-    html2pdf().set({
-        margin:      [8, 8, 8, 8],
-        filename:    `AiPickerSummary_${instance}_${date||'export'}.pdf`,
-        image:       { type: 'jpeg', quality: 0.97 },
-        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
-        jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }
-    }).from(wrapper).save();
+    // ── Generate blob and open externally via C# (bypasses WebView2 viewer) ─
+    try {
+        const blob = await html2pdf().set({
+            margin:      [8, 8, 8, 8],
+            image:       { type: 'jpeg', quality: 0.97 },
+            html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+            jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }
+        }).from(wrapper).output('blob');
+
+        // Convert blob → base64 and hand off to C# to open externally
+        const reader = new FileReader();
+        reader.onloadend = function() {
+            if (window.chrome && window.chrome.webview) {
+                window.chrome.webview.postMessage({
+                    action:   'openPdfFromBase64',
+                    requestId: 'ai-pdf-' + Date.now(),
+                    base64:    reader.result,   // includes data:application/pdf;base64, prefix
+                    fileName:  fileName
+                });
+            } else {
+                // Fallback for non-WebView2 (plain browser preview/testing)
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank');
+            }
+        };
+        reader.readAsDataURL(blob);
+    } catch(err) {
+        console.error('[AiSummary] PDF generation failed:', err);
+        alert('PDF generation failed: ' + err.message);
+    }
 }
 </script>
 

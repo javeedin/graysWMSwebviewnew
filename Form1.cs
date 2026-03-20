@@ -1794,6 +1794,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleOpenPdfFile(wv, messageJson, requestId);
                                     break;
 
+                                case "openpdffrombase64":
+                                    await HandleOpenPdfFromBase64(wv, messageJson, requestId);
+                                    break;
+
                                 // 🔧 NEW: Print Store Transaction Report
                                 case "printStoreTransaction":
                                     await HandlePrintStoreTransaction(wv, messageJson, requestId);
@@ -3289,6 +3293,49 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Open PDF file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Receives a base64-encoded PDF from JS, writes it to %TEMP%, then opens it
+        /// with the Windows default application (bypasses WebView2 in-browser PDF viewer).
+        /// </summary>
+        private async Task HandleOpenPdfFromBase64(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(messageJson);
+                var root = doc.RootElement;
+
+                string base64Data = root.GetProperty("base64").GetString();
+                string fileName   = root.TryGetProperty("fileName", out var fn) ? fn.GetString() : "report.pdf";
+
+                // Strip data-URI prefix if present
+                int commaIdx = base64Data.IndexOf(',');
+                if (commaIdx >= 0) base64Data = base64Data.Substring(commaIdx + 1);
+
+                byte[] pdfBytes = Convert.FromBase64String(base64Data);
+
+                // Write to %TEMP%
+                string tempPath = Path.Combine(Path.GetTempPath(), fileName);
+                await File.WriteAllBytesAsync(tempPath, pdfBytes);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Saved temp PDF: {tempPath}");
+
+                // Open with default Windows application (Edge, Acrobat, etc.)
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName        = tempPath,
+                    UseShellExecute = true
+                });
+
+                var response = new { action = "openPdfFromBase64Response", requestId, success = true };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(response));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] OpenPdfFromBase64 failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
