@@ -200,6 +200,8 @@
         .export-btn:hover { background: #16a34a; color: white; }
         .export-btn-pdf { border-color: #dc2626; color: #dc2626; background: #fff5f5; margin-left: 0.4rem; }
         .export-btn-pdf:hover { background: #dc2626; color: white; }
+        .export-btn-ai  { border-color: #7c3aed; color: #7c3aed; background: #f5f3ff; margin-left: 0.4rem; }
+        .export-btn-ai:hover  { background: #7c3aed; color: white; }
 
         /* ── Grid table ─────────────────────────────────────── */
         .grid-table-wrap { overflow-x: auto; padding: 1rem; }
@@ -263,7 +265,7 @@
         .group-icon i { color: white; font-size: 1rem; }
         .group-title { font-size: 0.95rem; font-weight: 700; color: var(--slate-800); }
         .group-sub   { font-size: 0.68rem; color: var(--slate-500); margin-top: 1px; white-space: normal; word-break: break-word; }
-        .group-sub b { font-weight: 700; color: rgba(255,255,255,0.95); letter-spacing: 0.2px; }
+        .group-sub b { font-weight: 800; color: #1e293b; background: rgba(255,255,255,0.92); padding: 1px 6px; border-radius: 4px; font-size: 0.66rem; letter-spacing: 0.2px; }
         .group-badges {
             display: flex;
             gap: 0.3rem;
@@ -848,6 +850,146 @@
             font-size: 0.7rem;
             display: flex; align-items: center; gap: 0.3rem;
         }
+        /* ── AI Summary Modal ───────────────────────────────────── */
+        .ai-modal-overlay {
+            display: none;
+            position: fixed; inset: 0;
+            background: rgba(15,23,42,0.65);
+            backdrop-filter: blur(4px);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }
+        .ai-modal-overlay.open { display: flex; }
+        .ai-modal {
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 24px 60px rgba(0,0,0,0.28);
+            width: min(860px, 95vw);
+            max-height: 88vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            animation: aiSlideIn 0.22s ease;
+        }
+        @keyframes aiSlideIn { from { opacity:0; transform:translateY(-18px) scale(0.97); } to { opacity:1; transform:none; } }
+        .ai-modal-header {
+            background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+            color: #fff;
+            padding: 1rem 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-shrink: 0;
+        }
+        .ai-modal-header-icon {
+            width: 36px; height: 36px;
+            background: rgba(255,255,255,0.18);
+            border-radius: 10px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.1rem;
+            flex-shrink: 0;
+        }
+        .ai-modal-title { font-size: 1rem; font-weight: 700; }
+        .ai-modal-sub   { font-size: 0.72rem; opacity: 0.8; margin-top: 1px; }
+        .ai-modal-close {
+            margin-left: auto;
+            background: rgba(255,255,255,0.18);
+            border: none; border-radius: 8px;
+            color: #fff; cursor: pointer;
+            width: 30px; height: 30px;
+            font-size: 1rem;
+            display: flex; align-items: center; justify-content: center;
+            transition: background 0.15s;
+        }
+        .ai-modal-close:hover { background: rgba(255,255,255,0.35); }
+        .ai-modal-key-bar {
+            background: #f8fafc;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 0.65rem 1.4rem;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            flex-shrink: 0;
+        }
+        .ai-modal-key-bar label { font-size: 0.72rem; font-weight: 600; color: #475569; white-space: nowrap; }
+        .ai-modal-key-input {
+            flex: 1;
+            padding: 0.3rem 0.6rem;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-family: monospace;
+            color: #1e293b;
+            background: #fff;
+        }
+        .ai-modal-key-input:focus { outline: none; border-color: #818cf8; box-shadow: 0 0 0 2px rgba(129,140,248,0.2); }
+        .ai-modal-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 1.2rem 1.4rem;
+        }
+        .ai-loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            padding: 3rem 2rem;
+            color: #64748b;
+            text-align: center;
+        }
+        .ai-loading .ai-spinner {
+            width: 48px; height: 48px;
+            border: 4px solid #e0e7ff;
+            border-top-color: #6366f1;
+            border-radius: 50%;
+            animation: spin 0.9s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .ai-loading-title  { font-size: 1rem; font-weight: 700; color: #4f46e5; }
+        .ai-loading-detail { font-size: 0.78rem; color: #94a3b8; }
+        /* Rendered AI content */
+        .ai-content h1 { font-size: 1.3rem; font-weight: 800; color: #1e293b; margin: 0 0 0.4rem; }
+        .ai-content h2 { font-size: 1rem; font-weight: 700; color: #4f46e5; margin: 1.2rem 0 0.4rem; border-bottom: 2px solid #e0e7ff; padding-bottom: 0.25rem; }
+        .ai-content h3 { font-size: 0.88rem; font-weight: 700; color: #1e293b; margin: 0.8rem 0 0.3rem; }
+        .ai-content p  { font-size: 0.82rem; color: #475569; line-height: 1.6; margin: 0 0 0.5rem; }
+        .ai-content ul, .ai-content ol { font-size: 0.82rem; color: #475569; padding-left: 1.2rem; margin: 0 0 0.5rem; line-height: 1.7; }
+        .ai-content table { width: 100%; border-collapse: collapse; font-size: 0.78rem; margin: 0.6rem 0 1rem; }
+        .ai-content th { background: #f1f5f9; color: #1e293b; font-weight: 700; padding: 6px 10px; text-align: left; border: 1px solid #e2e8f0; }
+        .ai-content td { padding: 5px 10px; border: 1px solid #e2e8f0; color: #475569; }
+        .ai-content tr:nth-child(even) td { background: #f8fafc; }
+        .ai-content .badge { display:inline-block; padding:2px 7px; border-radius:99px; font-size:0.68rem; font-weight:700; }
+        .ai-content .badge-green  { background:#d1fae5; color:#065f46; }
+        .ai-content .badge-amber  { background:#fef3c7; color:#92400e; }
+        .ai-content .badge-red    { background:#fee2e2; color:#991b1b; }
+        .ai-content .badge-blue   { background:#dbeafe; color:#1e40af; }
+        .ai-content .badge-purple { background:#ede9fe; color:#5b21b6; }
+        .ai-content .stat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:0.6rem; margin:0.6rem 0 1rem; }
+        .ai-content .stat-card { background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.6rem 0.8rem; }
+        .ai-content .stat-val  { font-size:1.3rem; font-weight:800; color:#4f46e5; }
+        .ai-content .stat-lbl  { font-size:0.68rem; color:#64748b; margin-top:2px; }
+        .ai-content .progress-row { display:flex; align-items:center; gap:0.5rem; margin:3px 0; }
+        .ai-content .progress-row .pr-bar { flex:1; height:8px; background:#e2e8f0; border-radius:99px; overflow:hidden; }
+        .ai-content .progress-row .pr-fill { height:100%; border-radius:99px; }
+        .ai-content .progress-row .pr-label { font-size:0.72rem; color:#475569; min-width:110px; }
+        .ai-content .progress-row .pr-pct   { font-size:0.72rem; font-weight:700; color:#1e293b; min-width:32px; text-align:right; }
+        .ai-modal-footer {
+            border-top: 1px solid #e5e7eb;
+            padding: 0.7rem 1.4rem;
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.6rem;
+            flex-shrink: 0;
+            background: #f8fafc;
+        }
+        .ai-btn { padding:0.38rem 1rem; border-radius:7px; font-size:0.76rem; font-weight:600; cursor:pointer; border:none; display:flex; align-items:center; gap:0.35rem; transition:all 0.15s; }
+        .ai-btn-primary { background:#4f46e5; color:#fff; }
+        .ai-btn-primary:hover { background:#4338ca; }
+        .ai-btn-pdf     { background:#dc2626; color:#fff; }
+        .ai-btn-pdf:hover { background:#b91c1c; }
+        .ai-btn-ghost   { background:#fff; color:#64748b; border:1px solid #e2e8f0; }
+        .ai-btn-ghost:hover { background:#f1f5f9; color:#1e293b; }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -951,6 +1093,9 @@
                 </button>
                 <button class="export-btn export-btn-pdf" onclick="exportToPdf()" title="Export current view to PDF (exactly as shown)">
                     <i class="fas fa-file-pdf"></i> Export PDF
+                </button>
+                <button class="export-btn export-btn-ai" onclick="openAiSummaryModal()" title="Generate an AI-powered summary report">
+                    <i class="fas fa-robot"></i> AI Summary
                 </button>
             </div>
 
@@ -1077,6 +1222,9 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const savedInst = localStorage.getItem('instanceName');
     if (savedInst) document.getElementById('fpInstance').value = savedInst;
+
+    const savedKey = localStorage.getItem('wms_claude_api_key');
+    if (savedKey) document.getElementById('aiApiKey').value = savedKey;
 
     updateApiModalInfo();
     document.getElementById('fpInstance').addEventListener('change', updateApiModalInfo);
@@ -2065,6 +2213,269 @@ function showError(msg) {
 
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function uniq(arr) { return [...new Set(arr)]; }
+
+// ── WebView2 message listener (receives claudeResponse / pickerAiSummaryResponse) ──
+if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', function(evt) {
+        try {
+            const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
+            if (msg.action === 'pickerAiSummaryResponse') {
+                handleAiSummaryResponse(msg);
+            }
+        } catch(e) { console.warn('[AiSummary] message parse error', e); }
+    });
+}
+
+// ── AI Summary ────────────────────────────────────────────────────────────────
+function openAiSummaryModal() {
+    document.getElementById('aiModal').classList.add('open');
+}
+function closeAiSummaryModal() {
+    document.getElementById('aiModal').classList.remove('open');
+}
+
+function generateAiSummary() {
+    const orders = lastRenderedOrders;
+    if (!orders.length) { alert('No data loaded. Fetch data first.'); return; }
+
+    const apiKey = (document.getElementById('aiApiKey').value || '').trim();
+    if (!apiKey) {
+        document.getElementById('aiApiKey').focus();
+        document.getElementById('aiApiKey').style.borderColor = '#ef4444';
+        return;
+    }
+    document.getElementById('aiApiKey').style.borderColor = '';
+    localStorage.setItem('wms_claude_api_key', apiKey);
+
+    // ── Compute statistics ──────────────────────────────────────────────────
+    const instance  = document.getElementById('fpInstance').value || 'PROD';
+    const date      = document.getElementById('fpDate').value     || '';
+
+    const totalOrders  = orders.length;
+    const pickedOrders  = orders.filter(o => o.pickStatus === 'full').length;
+    const partialOrders = orders.filter(o => o.pickStatus === 'partial').length;
+    const pendingOrders = orders.filter(o => o.pickStatus === 'none').length;
+    const totalLines    = orders.reduce((s,o) => s + o.totalQty, 0);
+    const pickedLines   = orders.reduce((s,o) => s + o.pickedQty, 0);
+    const overallPct    = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
+
+    // By Picker
+    const pickerMap = {};
+    orders.forEach(o => {
+        const k = o.picker || 'Unassigned';
+        if (!pickerMap[k]) pickerMap[k] = { name:k, orders:0, totalLines:0, pickedLines:0 };
+        pickerMap[k].orders++;
+        pickerMap[k].totalLines  += o.totalQty;
+        pickerMap[k].pickedLines += o.pickedQty;
+    });
+    const byPicker = Object.values(pickerMap).sort((a,b)=>b.orders-a.orders).map(p=>({
+        ...p, pct: p.totalLines ? Math.round(p.pickedLines/p.totalLines*100) : 0
+    }));
+
+    // By Account
+    const acctMap = {};
+    orders.forEach(o => {
+        const k = o.account || '—';
+        if (!acctMap[k]) acctMap[k] = { name:k, orders:0, totalLines:0, pickedLines:0 };
+        acctMap[k].orders++;
+        acctMap[k].totalLines  += o.totalQty;
+        acctMap[k].pickedLines += o.pickedQty;
+    });
+    const byAccount = Object.values(acctMap).sort((a,b)=>b.orders-a.orders).map(a=>({
+        ...a, pct: a.totalLines ? Math.round(a.pickedLines/a.totalLines*100) : 0
+    }));
+
+    // By Lorry
+    const lorryMap = {};
+    orders.forEach(o => {
+        const k = o.lorry || '—';
+        if (!lorryMap[k]) lorryMap[k] = { lorry:k, orders:0, totalLines:0, pickedLines:0, pickers:new Set() };
+        lorryMap[k].orders++;
+        lorryMap[k].totalLines  += o.totalQty;
+        lorryMap[k].pickedLines += o.pickedQty;
+        if (o.picker) lorryMap[k].pickers.add(o.picker);
+    });
+    const byLorry = Object.values(lorryMap).sort((a,b)=>b.orders-a.orders).map(l=>({
+        lorry:l.lorry, orders:l.orders, totalLines:l.totalLines, pickedLines:l.pickedLines,
+        pickerCount: l.pickers.size,
+        pct: l.totalLines ? Math.round(l.pickedLines/l.totalLines*100) : 0
+    }));
+
+    // By Bay
+    const bayMap = {};
+    orders.forEach(o => {
+        const k = o.bay || '—';
+        if (!bayMap[k]) bayMap[k] = { bay:k, orders:0, totalLines:0, pickedLines:0 };
+        bayMap[k].orders++;
+        bayMap[k].totalLines  += o.totalQty;
+        bayMap[k].pickedLines += o.pickedQty;
+    });
+    const byBay = Object.values(bayMap).sort((a,b)=>b.orders-a.orders).map(b=>({
+        ...b, pct: b.totalLines ? Math.round(b.pickedLines/b.totalLines*100) : 0
+    }));
+
+    // By Priority
+    const priMap = {};
+    orders.forEach(o => {
+        const k = o.priority || 'None';
+        if (!priMap[k]) priMap[k] = { priority:k, orders:0, totalLines:0, pickedLines:0 };
+        priMap[k].orders++;
+        priMap[k].totalLines  += o.totalQty;
+        priMap[k].pickedLines += o.pickedQty;
+    });
+    const byPriority = Object.values(priMap).sort((a,b)=>Number(a.priority||99)-Number(b.priority||99)).map(p=>({
+        ...p, pct: p.totalLines ? Math.round(p.pickedLines/p.totalLines*100) : 0
+    }));
+
+    const statsData = {
+        reportDate: date, instance,
+        totalOrders, pickedOrders, partialOrders, pendingOrders,
+        totalLines, pickedLines, overallPct,
+        byPicker, byAccount, byLorry, byBay, byPriority
+    };
+
+    // ── Show loading state ──────────────────────────────────────────────────
+    openAiSummaryModal();
+    document.getElementById('aiModalBody').innerHTML = `
+        <div class="ai-loading">
+            <div class="ai-spinner"></div>
+            <div class="ai-loading-title">Generating AI Summary…</div>
+            <div class="ai-loading-detail">Claude is analysing ${totalOrders} orders across ${byPicker.length} pickers and ${byLorry.length} lorries</div>
+        </div>`;
+    document.getElementById('aiPdfBtn').style.display = 'none';
+
+    // ── Send to Claude via C# bridge ────────────────────────────────────────
+    const systemPrompt = `You are an expert warehouse operations analyst for a WMS system.
+Your task is to produce a clear, professional, executive-level HTML status report for the picking operations.
+
+IMPORTANT OUTPUT RULES:
+- Return ONLY valid HTML (no markdown, no code fences, no preamble)
+- Use the CSS classes already defined in the page: ai-content, stat-grid, stat-card, stat-val, stat-lbl, badge, badge-green, badge-amber, badge-red, badge-blue, badge-purple, progress-row, pr-bar, pr-fill, pr-label, pr-pct
+- Progress bar fill colours: use inline style background — green #10b981 for ≥80%, amber #f59e0b for 40-79%, red #ef4444 for <40%
+- For tables use standard HTML table tags with no extra classes needed (the page styles them automatically)
+- Use concise language — this is a status report, not a narrative
+- Do NOT list individual order numbers
+- Show counts and percentages only
+- Highlight bottlenecks, top performers, and risks with badge spans`;
+
+    window.chrome.webview.postMessage({
+        action:       'pickeraisummary',
+        requestId:    'ai-summary-' + Date.now(),
+        apiKey:       apiKey,
+        systemPrompt: systemPrompt,
+        userQuery:    'Generate a comprehensive warehouse picking operations status report in HTML using the provided statistics. Include: executive summary with overall health, by-picker performance table with progress bars, by-customer/account breakdown, by-lorry breakdown, by-loading-bay breakdown, by-priority breakdown, and a key observations section highlighting any risks or standout performers.',
+        dataJson:     JSON.stringify(statsData)
+    });
+}
+
+function handleAiSummaryResponse(msg) {
+    if (!msg.success) {
+        document.getElementById('aiModalBody').innerHTML = `
+            <div style="padding:2rem;text-align:center;color:#dc2626;">
+                <i class="fas fa-exclamation-circle" style="font-size:2rem;margin-bottom:0.75rem;display:block;"></i>
+                <strong>Claude API Error</strong><br>
+                <span style="font-size:0.82rem;color:#64748b;margin-top:0.4rem;display:block;">${msg.error || 'Unknown error'}</span>
+            </div>`;
+        return;
+    }
+
+    // Extract text from Claude response JSON
+    let html = '';
+    try {
+        const parsed = (typeof msg.data === 'string') ? JSON.parse(msg.data) : msg.data;
+        html = parsed?.content?.[0]?.text || msg.data;
+    } catch(e) { html = msg.data || ''; }
+
+    document.getElementById('aiModalBody').innerHTML = `<div class="ai-content">${html}</div>`;
+    document.getElementById('aiPdfBtn').style.display = '';
+}
+
+function exportAiSummaryPdf() {
+    const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
+    const date     = document.getElementById('fpDate')     ? document.getElementById('fpDate').value     : '';
+    const body     = document.getElementById('aiModalBody');
+
+    const wrapper = document.createElement('div');
+    wrapper.style.cssText = 'font-family:Inter,system-ui,sans-serif;padding:16px;background:#fff;';
+
+    const titleBar = document.createElement('div');
+    titleBar.style.cssText = 'background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;padding:12px 18px;border-radius:10px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;';
+    titleBar.innerHTML = `
+        <div>
+            <div style="font-size:15px;font-weight:800;">AI Picking Operations Summary — ${instance}</div>
+            <div style="font-size:11px;opacity:0.8;margin-top:3px;">Date: ${date} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString()}</div>
+        </div>
+        <div style="font-size:28px;opacity:0.6;">🤖</div>`;
+
+    const styleTag = document.createElement('style');
+    styleTag.textContent = `
+        h1{font-size:18px;font-weight:800;color:#1e293b;margin:0 0 6px}
+        h2{font-size:14px;font-weight:700;color:#4f46e5;margin:16px 0 5px;border-bottom:2px solid #e0e7ff;padding-bottom:4px}
+        h3{font-size:12px;font-weight:700;color:#1e293b;margin:10px 0 4px}
+        p{font-size:11px;color:#475569;line-height:1.6;margin:0 0 6px}
+        ul,ol{font-size:11px;color:#475569;padding-left:16px;margin:0 0 6px;line-height:1.7}
+        table{width:100%;border-collapse:collapse;font-size:10px;margin:6px 0 12px}
+        th{background:#f1f5f9;color:#1e293b;font-weight:700;padding:5px 8px;text-align:left;border:1px solid #e2e8f0}
+        td{padding:4px 8px;border:1px solid #e2e8f0;color:#475569}
+        tr:nth-child(even) td{background:#f8fafc}
+        .badge{display:inline-block;padding:1px 6px;border-radius:99px;font-size:9px;font-weight:700}
+        .badge-green{background:#d1fae5;color:#065f46}.badge-amber{background:#fef3c7;color:#92400e}
+        .badge-red{background:#fee2e2;color:#991b1b}.badge-blue{background:#dbeafe;color:#1e40af}
+        .badge-purple{background:#ede9fe;color:#5b21b6}
+        .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0 12px}
+        .stat-card{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px}
+        .stat-val{font-size:20px;font-weight:800;color:#4f46e5}.stat-lbl{font-size:9px;color:#64748b;margin-top:2px}
+        .progress-row{display:flex;align-items:center;gap:6px;margin:3px 0}
+        .pr-bar{flex:1;height:7px;background:#e2e8f0;border-radius:99px;overflow:hidden}
+        .pr-fill{height:100%;border-radius:99px}
+        .pr-label{font-size:9px;color:#475569;min-width:100px}.pr-pct{font-size:9px;font-weight:700;color:#1e293b;min-width:28px;text-align:right}`;
+
+    wrapper.appendChild(styleTag);
+    wrapper.appendChild(titleBar);
+    const clone = body.cloneNode(true);
+    wrapper.appendChild(clone);
+
+    html2pdf().set({
+        margin:      [8, 8, 8, 8],
+        filename:    `AiPickerSummary_${instance}_${date||'export'}.pdf`,
+        image:       { type: 'jpeg', quality: 0.97 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
+        jsPDF:       { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        pagebreak:   { mode: ['avoid-all', 'css', 'legacy'] }
+    }).from(wrapper).save();
+}
 </script>
+
+<!-- ── AI Summary Modal ──────────────────────────────────────────────────── -->
+<div class="ai-modal-overlay" id="aiModal" onclick="if(event.target===this)closeAiSummaryModal()">
+    <div class="ai-modal">
+        <div class="ai-modal-header">
+            <div class="ai-modal-header-icon"><i class="fas fa-robot"></i></div>
+            <div>
+                <div class="ai-modal-title">AI Picking Operations Summary</div>
+                <div class="ai-modal-sub">Powered by Claude AI &nbsp;·&nbsp; Summaries by picker, account, lorry, bay &amp; priority</div>
+            </div>
+            <button class="ai-modal-close" onclick="closeAiSummaryModal()"><i class="fas fa-times"></i></button>
+        </div>
+        <div class="ai-modal-key-bar">
+            <label><i class="fas fa-key" style="margin-right:4px;color:#818cf8;"></i>Claude API Key</label>
+            <input type="password" id="aiApiKey" class="ai-modal-key-input" placeholder="sk-ant-…" />
+            <button class="ai-btn ai-btn-primary" onclick="generateAiSummary()">
+                <i class="fas fa-magic"></i> Generate Summary
+            </button>
+        </div>
+        <div class="ai-modal-body" id="aiModalBody">
+            <div class="ai-loading" style="color:#94a3b8;">
+                <i class="fas fa-robot" style="font-size:2.5rem;color:#c7d2fe;"></i>
+                <div class="ai-loading-title" style="color:#4f46e5;">Ready to Analyse</div>
+                <div class="ai-loading-detail">Enter your Claude API key above and click <strong>Generate Summary</strong></div>
+            </div>
+        </div>
+        <div class="ai-modal-footer">
+            <button class="ai-btn ai-btn-ghost" onclick="closeAiSummaryModal()"><i class="fas fa-times"></i> Close</button>
+            <button class="ai-btn ai-btn-pdf" id="aiPdfBtn" onclick="exportAiSummaryPdf()" style="display:none;"><i class="fas fa-file-pdf"></i> Export PDF</button>
+        </div>
+    </div>
+</div>
 </body>
 </html>

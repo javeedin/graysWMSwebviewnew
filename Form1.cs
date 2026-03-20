@@ -1847,6 +1847,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleGetPickersSummary(wv, messageJson, requestId);
                                     break;
 
+                                case "pickeraisummary":
+                                    await HandlePickerAiSummary(wv, messageJson, requestId);
+                                    break;
+
                                 case "postToTeams":
                                     await HandlePostToTeams(wv, messageJson, requestId);
                                     break;
@@ -2836,6 +2840,55 @@ navPanel.Controls.Add(wmsDevButton);
 
                 string errorJson = JsonSerializer.Serialize(errorMessage);
                 wv.CoreWebView2.PostWebMessageAsJson(errorJson);
+            }
+        }
+
+        /// <summary>
+        /// Picker View AI Summary — calls Claude and returns result without the save-prompt dialog
+        /// </summary>
+        private async Task HandlePickerAiSummary(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                var message = JsonSerializer.Deserialize<ClaudeApiRequestMessage>(
+                    messageJson,
+                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true }
+                );
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Picker AI Summary request...");
+
+                var queryResult = await _claudeApiHandler.QueryClaudeAsync(
+                    message.ApiKey,
+                    message.UserQuery,
+                    message.SystemPrompt,
+                    message.DataJson
+                );
+
+                var resultMessage = new
+                {
+                    action = "pickerAiSummaryResponse",
+                    requestId = requestId,
+                    success = queryResult.Success,
+                    data = queryResult.Success ? queryResult.ResponseJson : null,
+                    error = queryResult.Success ? null : queryResult.Error
+                };
+
+                string resultJson = JsonSerializer.Serialize(resultMessage);
+                wv.CoreWebView2.PostWebMessageAsJson(resultJson);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Picker AI Summary completed: {queryResult.Success}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] Picker AI Summary failed: {ex.Message}");
+                var errorMessage = new
+                {
+                    action = "pickerAiSummaryResponse",
+                    requestId = requestId,
+                    success = false,
+                    error = ex.Message
+                };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorMessage));
             }
         }
 
