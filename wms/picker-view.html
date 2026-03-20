@@ -1223,9 +1223,6 @@ document.addEventListener('DOMContentLoaded', function () {
     const savedInst = localStorage.getItem('instanceName');
     if (savedInst) document.getElementById('fpInstance').value = savedInst;
 
-    const savedKey = localStorage.getItem('wms_claude_api_key');
-    if (savedKey) document.getElementById('aiApiKey').value = savedKey;
-
     updateApiModalInfo();
     document.getElementById('fpInstance').addEventListener('change', updateApiModalInfo);
 });
@@ -2227,13 +2224,157 @@ if (window.chrome && window.chrome.webview) {
 }
 
 // ── AI Summary ────────────────────────────────────────────────────────────────
+
+// Context for the currently displayed summary (used by Export PDF)
+let _aiCtx = { date: '', instance: 'PROD' };
+
 function openAiSummaryModal() {
     document.getElementById('aiModal').classList.add('open');
+    // Pre-fill API key from localStorage
+    const saved = localStorage.getItem('wms_claude_api_key');
+    if (saved) document.getElementById('aiApiKey').value = saved;
+    renderAiSavedList();
 }
 function closeAiSummaryModal() {
     document.getElementById('aiModal').classList.remove('open');
 }
 
+// ── Saved-summary list ─────────────────────────────────────────────────────
+function _getAiSummaryKey(instance, date) {
+    return `wms_ai_summary_${instance}_${date}`;
+}
+
+function _loadAllSavedSummaries() {
+    const list = [];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k || !k.startsWith('wms_ai_summary_')) continue;
+        try { list.push({ key: k, ...JSON.parse(localStorage.getItem(k)) }); } catch(e) {}
+    }
+    return list.sort((a,b) => new Date(b.generatedAt) - new Date(a.generatedAt));
+}
+
+function renderAiSavedList() {
+    const date     = (document.getElementById('fpDate')     || {}).value || '';
+    const instance = (document.getElementById('fpInstance') || {}).value || 'PROD';
+    const saved    = _loadAllSavedSummaries();
+
+    document.getElementById('aiPdfBtn').style.display = 'none';
+
+    if (!saved.length) {
+        document.getElementById('aiModalBody').innerHTML = `
+            <div class="ai-loading" style="color:#94a3b8;">
+                <i class="fas fa-robot" style="font-size:2.5rem;color:#c7d2fe;"></i>
+                <div class="ai-loading-title" style="color:#4f46e5;">Ready to Analyse</div>
+                <div class="ai-loading-detail">Enter your Claude API key above and click <strong>Generate Summary</strong></div>
+            </div>`;
+        return;
+    }
+
+    const currentMatch = saved.find(s => s.date === date && s.instance === instance);
+
+    let html = '';
+
+    // ── Banner when a summary already exists for current date/instance ──────
+    if (currentMatch) {
+        const ago = _timeAgo(currentMatch.generatedAt);
+        html += `
+        <div style="background:#f0fdf4;border:1.5px solid #86efac;border-radius:10px;padding:0.65rem 1rem;margin-bottom:1rem;display:flex;align-items:center;gap:0.75rem;">
+            <i class="fas fa-check-circle" style="color:#22c55e;font-size:1.4rem;flex-shrink:0;"></i>
+            <div style="flex:1;">
+                <div style="font-size:0.8rem;font-weight:700;color:#166534;">Summary already exists for <strong>${instance}</strong> — <strong>${date}</strong></div>
+                <div style="font-size:0.7rem;color:#4ade80;margin-top:1px;">Generated ${ago}</div>
+            </div>
+            <button onclick="loadSavedAiSummary('${currentMatch.key}')"
+                style="background:#22c55e;color:#fff;border:none;border-radius:7px;padding:0.38rem 0.9rem;cursor:pointer;font-size:0.75rem;font-weight:700;display:flex;align-items:center;gap:5px;flex-shrink:0;">
+                <i class="fas fa-eye"></i> View Summary
+            </button>
+        </div>`;
+    }
+
+    // ── Previous summaries list ──────────────────────────────────────────────
+    html += `<div style="font-size:0.7rem;font-weight:700;color:#94a3b8;letter-spacing:0.6px;text-transform:uppercase;margin-bottom:0.5rem;padding:0 0.1rem;">
+        <i class="fas fa-history" style="margin-right:4px;"></i>Previously Generated Summaries (${saved.length})
+    </div>`;
+    html += `<div style="display:flex;flex-direction:column;gap:0.35rem;">`;
+
+    saved.forEach(s => {
+        const isCurrent = s.date === date && s.instance === instance;
+        const ago = _timeAgo(s.generatedAt);
+        const genTime = new Date(s.generatedAt).toLocaleString();
+        html += `
+        <div style="display:flex;align-items:center;gap:0.65rem;background:${isCurrent?'#f0fdf4':'#f8fafc'};border:1.5px solid ${isCurrent?'#86efac':'#e2e8f0'};border-radius:9px;padding:0.55rem 0.8rem;transition:border-color .15s;">
+            <i class="fas fa-file-alt" style="color:${isCurrent?'#22c55e':'#818cf8'};font-size:1.1rem;flex-shrink:0;"></i>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:0.78rem;font-weight:700;color:#1e293b;">
+                    ${s.instance} &nbsp;<span style="color:#94a3b8;font-weight:400;">·</span>&nbsp; ${s.date}
+                    ${isCurrent ? '<span style="background:#dcfce7;color:#166534;font-size:0.65rem;font-weight:700;padding:1px 6px;border-radius:99px;margin-left:5px;">Current</span>' : ''}
+                </div>
+                <div style="font-size:0.68rem;color:#94a3b8;" title="${genTime}">Generated ${ago}</div>
+            </div>
+            <button onclick="loadSavedAiSummary('${s.key}')"
+                style="background:#4f46e5;color:#fff;border:none;border-radius:6px;padding:0.32rem 0.8rem;cursor:pointer;font-size:0.72rem;font-weight:600;display:flex;align-items:center;gap:4px;flex-shrink:0;"
+                onmouseover="this.style.background='#4338ca'" onmouseout="this.style.background='#4f46e5'">
+                <i class="fas fa-eye"></i> View
+            </button>
+            <button onclick="deleteSavedAiSummary('${s.key}')"
+                style="background:#fff0f0;color:#dc2626;border:1px solid #fecaca;border-radius:6px;padding:0.32rem 0.6rem;cursor:pointer;font-size:0.72rem;flex-shrink:0;"
+                title="Delete this saved summary"
+                onmouseover="this.style.background='#fee2e2'" onmouseout="this.style.background='#fff0f0'">
+                <i class="fas fa-trash"></i>
+            </button>
+        </div>`;
+    });
+
+    html += `</div>
+    <div style="border-top:2px dashed #e2e8f0;margin:1rem 0 0.5rem;"></div>
+    <div style="font-size:0.72rem;color:#94a3b8;text-align:center;">
+        <i class="fas fa-magic"></i>&nbsp; To generate a fresh summary for <strong>${instance} — ${date}</strong>, enter your API key above and click <strong>Generate Summary</strong>
+    </div>`;
+
+    document.getElementById('aiModalBody').innerHTML = html;
+}
+
+function loadSavedAiSummary(key) {
+    try {
+        const saved = JSON.parse(localStorage.getItem(key));
+        if (!saved || !saved.html) return;
+        _aiCtx = { date: saved.date, instance: saved.instance };
+        document.getElementById('aiModalBody').innerHTML = `
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;padding-bottom:0.6rem;border-bottom:1px solid #e2e8f0;">
+                <button onclick="renderAiSavedList()"
+                    style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:7px;padding:0.3rem 0.7rem;cursor:pointer;font-size:0.72rem;font-weight:600;display:flex;align-items:center;gap:4px;"
+                    onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                    <i class="fas fa-arrow-left"></i> Back to List
+                </button>
+                <span style="font-size:0.75rem;color:#64748b;">
+                    <i class="fas fa-file-alt" style="color:#818cf8;"></i>
+                    &nbsp;<strong>${saved.instance}</strong> — ${saved.date}
+                    &nbsp;·&nbsp; Generated ${_timeAgo(saved.generatedAt)}
+                </span>
+            </div>
+            <div class="ai-content">${saved.html}</div>`;
+        document.getElementById('aiPdfBtn').style.display = '';
+    } catch(e) { console.warn('[AiSummary] Failed to load saved summary', e); }
+}
+
+function deleteSavedAiSummary(key) {
+    if (!confirm('Delete this saved summary? This cannot be undone.')) return;
+    localStorage.removeItem(key);
+    renderAiSavedList();
+}
+
+function _timeAgo(isoStr) {
+    const diff = Date.now() - new Date(isoStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins <  1)  return 'just now';
+    if (mins <  60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs  < 24)  return `${hrs}h ago`;
+    return `${Math.floor(hrs/24)}d ago`;
+}
+
+// ── Generate (calls Claude) ────────────────────────────────────────────────
 function generateAiSummary() {
     const orders = lastRenderedOrders;
     if (!orders.length) { alert('No data loaded. Fetch data first.'); return; }
@@ -2250,8 +2391,9 @@ function generateAiSummary() {
     // ── Compute statistics ──────────────────────────────────────────────────
     const instance  = document.getElementById('fpInstance').value || 'PROD';
     const date      = document.getElementById('fpDate').value     || '';
+    _aiCtx = { date, instance };
 
-    const totalOrders  = orders.length;
+    const totalOrders   = orders.length;
     const pickedOrders  = orders.filter(o => o.pickStatus === 'full').length;
     const partialOrders = orders.filter(o => o.pickStatus === 'partial').length;
     const pendingOrders = orders.filter(o => o.pickStatus === 'none').length;
@@ -2335,7 +2477,6 @@ function generateAiSummary() {
     };
 
     // ── Show loading state ──────────────────────────────────────────────────
-    openAiSummaryModal();
     document.getElementById('aiModalBody').innerHTML = `
         <div class="ai-loading">
             <div class="ai-spinner"></div>
@@ -2386,14 +2527,37 @@ function handleAiSummaryResponse(msg) {
         html = parsed?.content?.[0]?.text || msg.data;
     } catch(e) { html = msg.data || ''; }
 
-    document.getElementById('aiModalBody').innerHTML = `<div class="ai-content">${html}</div>`;
+    // ── Save to localStorage ─────────────────────────────────────────────────
+    const storageKey = _getAiSummaryKey(_aiCtx.instance, _aiCtx.date);
+    try {
+        localStorage.setItem(storageKey, JSON.stringify({
+            html,
+            date:        _aiCtx.date,
+            instance:    _aiCtx.instance,
+            generatedAt: new Date().toISOString()
+        }));
+    } catch(e) { console.warn('[AiSummary] Failed to save to localStorage', e); }
+
+    document.getElementById('aiModalBody').innerHTML = `
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.75rem;padding-bottom:0.6rem;border-bottom:1px solid #e2e8f0;">
+            <button onclick="renderAiSavedList()"
+                style="background:#f1f5f9;color:#475569;border:1px solid #e2e8f0;border-radius:7px;padding:0.3rem 0.7rem;cursor:pointer;font-size:0.72rem;font-weight:600;display:flex;align-items:center;gap:4px;"
+                onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                <i class="fas fa-arrow-left"></i> Back to List
+            </button>
+            <span style="font-size:0.75rem;color:#64748b;">
+                <i class="fas fa-check-circle" style="color:#22c55e;"></i>
+                &nbsp;<strong>${_aiCtx.instance}</strong> — ${_aiCtx.date}
+                &nbsp;·&nbsp; Saved automatically
+            </span>
+        </div>
+        <div class="ai-content">${html}</div>`;
     document.getElementById('aiPdfBtn').style.display = '';
 }
 
 function exportAiSummaryPdf() {
-    const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
-    const date     = document.getElementById('fpDate')     ? document.getElementById('fpDate').value     : '';
-    const body     = document.getElementById('aiModalBody');
+    const { instance, date } = _aiCtx;
+    const body = document.getElementById('aiModalBody');
 
     const wrapper = document.createElement('div');
     wrapper.style.cssText = 'font-family:Inter,system-ui,sans-serif;padding:16px;background:#fff;';
@@ -2403,7 +2567,7 @@ function exportAiSummaryPdf() {
     titleBar.innerHTML = `
         <div>
             <div style="font-size:15px;font-weight:800;">AI Picking Operations Summary — ${instance}</div>
-            <div style="font-size:11px;opacity:0.8;margin-top:3px;">Date: ${date} &nbsp;|&nbsp; Generated: ${new Date().toLocaleString()}</div>
+            <div style="font-size:11px;opacity:0.8;margin-top:3px;">Date: ${date} &nbsp;|&nbsp; Exported: ${new Date().toLocaleString()}</div>
         </div>
         <div style="font-size:28px;opacity:0.6;">🤖</div>`;
 
@@ -2432,8 +2596,9 @@ function exportAiSummaryPdf() {
 
     wrapper.appendChild(styleTag);
     wrapper.appendChild(titleBar);
-    const clone = body.cloneNode(true);
-    wrapper.appendChild(clone);
+    // Clone only the ai-content div (skip the back-button nav bar)
+    const contentDiv = body.querySelector('.ai-content') || body;
+    wrapper.appendChild(contentDiv.cloneNode(true));
 
     html2pdf().set({
         margin:      [8, 8, 8, 8],
