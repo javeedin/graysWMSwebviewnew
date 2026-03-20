@@ -263,6 +263,7 @@
         .group-icon i { color: white; font-size: 1rem; }
         .group-title { font-size: 0.95rem; font-weight: 700; color: var(--slate-800); }
         .group-sub   { font-size: 0.68rem; color: var(--slate-500); margin-top: 1px; white-space: normal; word-break: break-word; }
+        .group-sub b { font-weight: 700; color: rgba(255,255,255,0.95); letter-spacing: 0.2px; }
         .group-badges {
             display: flex;
             gap: 0.3rem;
@@ -1816,20 +1817,20 @@ function renderGrouped(area, orders, keyFn, iconCfg) {
         if (viewMode === 'picker') {
             const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
             const bays    = uniq(gOrders.map(o=>o.bay).filter(Boolean));
-            sub = `Lorry: ${lorries.join(', ')||'—'} | Bay: ${bays.join(', ')||'—'}`;
+            sub = `<b>Lorry:</b> ${lorries.join(', ')||'—'} &nbsp;|&nbsp; <b>Bay:</b> ${bays.join(', ')||'—'}`;
         } else if (viewMode === 'lorry') {
             const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
             const bays    = uniq(gOrders.map(o=>o.bay).filter(Boolean));
-            sub = `Pickers: ${pickers.join(', ')||'—'} | Bay: ${bays.join(', ')||'—'}`;
+            sub = `<b>Pickers:</b> ${pickers.join(', ')||'—'} &nbsp;|&nbsp; <b>Bay:</b> ${bays.join(', ')||'—'}`;
         } else if (viewMode === 'priority') {
             const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
             const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
             const bays    = uniq(gOrders.map(o=>o.bay).filter(Boolean));
-            sub = `Pickers: ${pickers.join(', ')||'—'} | Lorry: ${lorries.join(', ')||'—'} | Bay: ${bays.join(', ')||'—'}`;
+            sub = `<b>Pickers:</b> ${pickers.join(', ')||'—'} &nbsp;|&nbsp; <b>Lorry:</b> ${lorries.join(', ')||'—'} &nbsp;|&nbsp; <b>Bay:</b> ${bays.join(', ')||'—'}`;
         } else {
             const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
             const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
-            sub = `Pickers: ${pickers.join(', ')||'—'} | Lorry: ${lorries.join(', ')||'—'}`;
+            sub = `<b>Pickers:</b> ${pickers.join(', ')||'—'} &nbsp;|&nbsp; <b>Lorry:</b> ${lorries.join(', ')||'—'}`;
         }
 
         const block = document.createElement('div');
