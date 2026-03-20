@@ -168,7 +168,8 @@
         }
         .group-icon i { color: white; font-size: 1rem; }
         .group-title { font-size: 0.95rem; font-weight: 700; color: var(--slate-800); }
-        .group-sub   { font-size: 0.68rem; color: var(--slate-500); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
+        .group-sub   { font-size: 0.68rem; color: var(--slate-500); margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; cursor: default; transition: max-width 0.2s, white-space 0.2s; }
+        .group-sub:hover { white-space: normal; max-width: 100%; overflow: visible; }
         .group-badges {
             display: flex;
             gap: 0.3rem;
@@ -1337,7 +1338,8 @@ function renderGrouped(area, orders, keyFn, iconCfg) {
         } else if (viewMode === 'priority') {
             const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
             const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
-            sub = `Pickers: ${pickers.join(', ')||'—'} | Lorry: ${lorries.join(', ')||'—'}`;
+            const bays    = uniq(gOrders.map(o=>o.bay).filter(Boolean));
+            sub = `Pickers: ${pickers.join(', ')||'—'} | Lorry: ${lorries.join(', ')||'—'} | Bay: ${bays.join(', ')||'—'}`;
         } else {
             const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
             const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
@@ -1353,7 +1355,7 @@ function renderGrouped(area, orders, keyFn, iconCfg) {
                 </div>
                 <div style="flex:1;min-width:0;">
                     <div class="group-title">${gKey}</div>
-                    <div class="group-sub">${sub}</div>
+                    <div class="group-sub" title="${sub}">${sub}</div>
                 </div>
                 <div class="group-badges">
                     <span class="gbadge gbadge-total">${total} orders</span>
