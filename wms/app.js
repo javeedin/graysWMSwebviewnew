@@ -4784,6 +4784,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn" onclick="showTripLines('${tripId}', '${instanceName}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
                                 <i class="fas fa-list-alt"></i> Show Lines
                             </button>
+                            <button class="btn" onclick="getTripProfitCenters('${tripId}', '${tabId}')" id="btn-profit-centers-${tabId}" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-tags"></i> Get Profit Centers
+                            </button>
                             <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-plus"></i> Add Orders
                             </button>
@@ -4827,6 +4830,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 console.log('[JS] Creating grid with', tripData.length, 'records');
                 const first = tripData[0];
+
+                // Initialize PROFIT_CENTER field on every row so the column always exists
+                tripData.forEach(item => { item.PROFIT_CENTER = item.PROFIT_CENTER || ''; });
+
                 const columns = Object.keys(first).map(key => {
                 let col = { dataField: key, caption: key.replace(/_/g, ' ') };
                 if (key === 'ORDER_NUMBER' || key === 'order_number') {
@@ -4860,6 +4867,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 return col;
             });
+
+            // Insert PROFIT_CENTER column right after ORDER_NUMBER
+            const orderNumIdx = columns.findIndex(c => c.dataField === 'ORDER_NUMBER' || c.dataField === 'order_number');
+            const profitCenterCol = {
+                dataField: 'PROFIT_CENTER',
+                caption: 'Profit Center',
+                width: 180,
+                cellTemplate: function(container, options) {
+                    const val = options.value || '';
+                    const style = val ? 'color: #0891b2; font-weight: 600;' : 'color: #9ca3af; font-style: italic;';
+                    $(container).html(`<span style="${style}">${val || '—'}</span>`);
+                }
+            };
+            if (orderNumIdx >= 0) {
+                columns.splice(orderNumIdx + 1, 0, profitCenterCol);
+            } else {
+                columns.push(profitCenterCol);
+            }
 
             // Add PICKER column explicitly if not returned by API
             const hasPickerColumn = columns.some(col =>
@@ -5415,6 +5440,72 @@ document.addEventListener('DOMContentLoaded', function() {
                 summaryIcon.style.transform = 'rotate(-90deg)';
             }
         }
+    };
+
+    // Get Profit Centers for all orders in a trip and populate the PROFIT_CENTER column
+    window.getTripProfitCenters = function(tripId, tabId) {
+        const btn = document.getElementById(`btn-profit-centers-${tabId}`);
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+        }
+
+        const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettripprofitcenters?P_TRIP_ID=${encodeURIComponent(tripId)}`;
+
+        sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(error, data) {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-tags"></i> Get Profit Centers';
+            }
+
+            if (error) {
+                alert('Failed to load profit centers: ' + error);
+                return;
+            }
+
+            let items;
+            try {
+                const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                items = parsed.items || parsed || [];
+            } catch (e) {
+                alert('Invalid response from profit centers API: ' + e.message);
+                return;
+            }
+
+            if (!items.length) {
+                alert('No profit center data returned for trip ' + tripId);
+                return;
+            }
+
+            // Build order number → profit_centers map (case-insensitive key)
+            const pcMap = {};
+            items.forEach(function(row) {
+                const key = (row.order_number || row.ORDER_NUMBER || '').toString().trim();
+                if (key) pcMap[key] = row.profit_centers || row.PROFIT_CENTERS || '';
+            });
+
+            // Update the grid data source
+            const gridContainer = $(`#grid-${tabId}`);
+            const gridInstance = gridContainer.dxDataGrid('instance');
+            if (!gridInstance) {
+                alert('Grid not found. Please reload the trip and try again.');
+                return;
+            }
+
+            const dataSource = gridInstance.option('dataSource');
+            if (Array.isArray(dataSource)) {
+                dataSource.forEach(function(row) {
+                    const orderNum = (row.ORDER_NUMBER || row.order_number || '').toString().trim();
+                    if (pcMap[orderNum] !== undefined) {
+                        row.PROFIT_CENTER = pcMap[orderNum];
+                    }
+                });
+                gridInstance.option('dataSource', dataSource);
+                gridInstance.refresh();
+            }
+
+            console.log('[Profit Centers] Updated', Object.keys(pcMap).length, 'orders for trip', tripId);
+        });
     };
 
     // Assign Picker to selected orders in a trip
