@@ -1377,6 +1377,12 @@ function setView(mode) {
     viewMode = mode;
     document.querySelectorAll('.view-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('vbtn-' + mode).classList.add('active');
+
+    // Reset to card view on every view switch
+    displayMode = 'card';
+    document.querySelectorAll('.disp-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('dbtn-card').classList.add('active');
+
     if (mode === 'summary') {
         renderSummaryView();
     } else if (allData.length) {
