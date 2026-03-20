@@ -6173,6 +6173,24 @@ navPanel.Controls.Add(wmsDevButton);
             }
             return base.ProcessCmdKey(ref msg, keyData);
         }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            var result = MessageBox.Show(
+                "Are you sure you want to close the application?",
+                "Confirm Exit",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2);
+
+            if (result == DialogResult.No)
+            {
+                e.Cancel = true;
+                return;
+            }
+
+            base.OnFormClosing(e);
+        }
     }
 
     // ========== CUSTOM TAB BUTTON ==========
