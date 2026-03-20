@@ -852,6 +852,8 @@
             display: flex; align-items: center; gap: 0.3rem;
         }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 </head>
 <body>
 
@@ -1524,8 +1526,8 @@ function sortGrid(col) {
     renderViewRaw(lastRenderedOrders);
 }
 
-// ── Export to Excel ───────────────────────────────────────────────────────────
-function exportToExcel() {
+// ── Export to Excel (ExcelJS — styled with progress bar) ─────────────────────
+async function exportToExcel() {
     const orders = lastRenderedOrders;
     if (!orders.length) { alert('No data to export. Load data first.'); return; }
 
@@ -1538,24 +1540,128 @@ function exportToExcel() {
         (o.priority + '').toLowerCase().includes(q)
     ) : orders;
 
-    const headers = ['Order #','Picker','Lorry','Loading Bay','Priority','Total Lines','Picked Lines','Balance','% Done','Status'];
-    const statusLbl = { full: 'Picked', partial: 'Partial', none: 'Pending' };
-
-    const tsvRows = [headers, ...rows.map(o => [
-        o.orderNum, o.picker, o.lorry, o.bay, o.priority||'',
-        o.totalQty, o.pickedQty, o.balance, o.pickPct + '%',
-        statusLbl[o.pickStatus]||'Pending'
-    ])].map(r => r.join('\t')).join('\n');
-
-    const blob = new Blob([tsvRows], { type: 'text/tab-separated-values' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
     const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
-    const date     = document.getElementById('fpDate') ? document.getElementById('fpDate').value : '';
-    a.download = `PickerMonitor_${instance}_${date||'export'}.xls`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const date     = document.getElementById('fpDate')     ? document.getElementById('fpDate').value     : '';
+
+    const wb = new ExcelJS.Workbook();
+    wb.creator = 'WMS Picker Monitor';
+    wb.created = new Date();
+
+    const ws = wb.addWorksheet('Picker Monitor', { views: [{ state: 'frozen', ySplit: 2 }] });
+
+    // ── Title row ──────────────────────────────────────────────────────────────
+    ws.mergeCells('A1:L1');
+    const titleCell = ws.getCell('A1');
+    titleCell.value = `Picker Monitor — ${instance}  |  Date: ${date}  |  View: ${viewMode.charAt(0).toUpperCase()+viewMode.slice(1)}  |  ${rows.length} orders`;
+    titleCell.font  = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+    titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4F46E5' } };
+    titleCell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
+    ws.getRow(1).height = 24;
+
+    // ── Header row ────────────────────────────────────────────────────────────
+    const headers = [
+        { header: 'Order #',      key: 'orderNum',  width: 18 },
+        { header: 'Picker',       key: 'picker',    width: 22 },
+        { header: 'Lorry',        key: 'lorry',     width: 14 },
+        { header: 'Loading Bay',  key: 'bay',       width: 14 },
+        { header: 'Priority',     key: 'priority',  width: 10 },
+        { header: 'Total Lines',  key: 'totalQty',  width: 13 },
+        { header: 'Picked Lines', key: 'pickedQty', width: 14 },
+        { header: 'Balance',      key: 'balance',   width: 11 },
+        { header: 'Progress Bar', key: 'bar',       width: 30 },
+        { header: '% Done',       key: 'pickPct',   width: 10 },
+        { header: 'Status',       key: 'status',    width: 12 },
+    ];
+    ws.columns = headers;
+
+    const hdrRow = ws.getRow(2);
+    hdrRow.values = ['', ...headers.map(h => h.header)]; // col A is row-number label
+    ws.columns.forEach((col, i) => {
+        const cell = hdrRow.getCell(i + 1);
+        cell.value  = headers[i] ? headers[i].header : '';
+        cell.font   = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10 };
+        cell.fill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } };
+        cell.alignment = { vertical: 'middle', horizontal: 'center' };
+        cell.border = { bottom: { style: 'thin', color: { argb: 'FF6366f1' } } };
+    });
+    hdrRow.height = 20;
+
+    // ── Status colours ────────────────────────────────────────────────────────
+    const statusCfg = {
+        full:    { label: 'Picked',  fill: 'FFD1FAE5', font: 'FF065F46' },
+        partial: { label: 'Partial', fill: 'FFFEF3C7', font: 'FF92400E' },
+        none:    { label: 'Pending', fill: 'FFFEE2E2', font: 'FF991B1B' },
+    };
+    const progColor = pct => pct === 100 ? 'FF10B981' : pct > 0 ? 'FFF59E0B' : 'FFEF4444';
+    const altFill   = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } };
+
+    // ── Data rows ─────────────────────────────────────────────────────────────
+    rows.forEach((o, i) => {
+        const rowIdx = i + 3;   // rows 1=title, 2=header, 3+= data
+        const pct    = o.pickPct || 0;
+        const cfg    = statusCfg[o.pickStatus] || statusCfg.none;
+
+        // Build a text-art progress bar: ████████░░░░ 80%
+        const filled  = Math.round(pct / 5);   // out of 20 blocks
+        const empty   = 20 - filled;
+        const barText = '█'.repeat(filled) + '░'.repeat(empty) + `  ${pct}%`;
+
+        const dataRow = ws.getRow(rowIdx);
+        dataRow.values = [
+            o.orderNum,
+            o.picker,
+            o.lorry,
+            o.bay,
+            o.priority || '—',
+            o.totalQty,
+            o.pickedQty,
+            o.balance,
+            barText,
+            pct / 100,          // stored as decimal so Excel shows as %
+            cfg.label,
+        ];
+        dataRow.height = 18;
+
+        // Zebra striping
+        const rowFill = i % 2 === 0 ? null : altFill;
+
+        dataRow.eachCell({ includeEmpty: true }, (cell, colNum) => {
+            cell.font      = { size: 9 };
+            cell.alignment = { vertical: 'middle', horizontal: colNum <= 2 ? 'left' : 'center' };
+            if (rowFill) cell.fill = rowFill;
+            cell.border = { bottom: { style: 'hair', color: { argb: 'FFE5E7EB' } } };
+        });
+
+        // Order # — bold + indigo
+        const orderCell = dataRow.getCell(1);
+        orderCell.font  = { bold: true, size: 9, color: { argb: 'FF4F46E5' } };
+
+        // Numeric columns — right-align
+        [6, 7, 8].forEach(c => { dataRow.getCell(c).alignment = { horizontal: 'right', vertical: 'middle' }; });
+
+        // Progress bar cell — coloured text matching fill %
+        const barCell  = dataRow.getCell(9);
+        barCell.font   = { size: 9, color: { argb: progColor(pct) }, name: 'Courier New' };
+        barCell.alignment = { horizontal: 'left', vertical: 'middle' };
+
+        // % Done — percentage format
+        const pctCell  = dataRow.getCell(10);
+        pctCell.numFmt = '0%';
+        pctCell.font   = { bold: true, size: 9, color: { argb: progColor(pct) } };
+
+        // Status — coloured badge look
+        const stCell   = dataRow.getCell(11);
+        stCell.font    = { bold: true, size: 9, color: { argb: 'FF' + cfg.font.slice(2) } };
+        stCell.fill    = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + cfg.fill.slice(2) } };
+    });
+
+    // ── Auto-filter on header row ─────────────────────────────────────────────
+    ws.autoFilter = { from: { row: 2, column: 1 }, to: { row: 2, column: headers.length } };
+
+    // ── Download ──────────────────────────────────────────────────────────────
+    const buffer = await wb.xlsx.writeBuffer();
+    saveAs(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+        `PickerMonitor_${instance}_${date || 'export'}.xlsx`);
 }
 
 // ── Grouped render ────────────────────────────────────────────────────────────
