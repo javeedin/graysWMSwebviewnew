@@ -134,6 +134,98 @@
             box-shadow: 0 2px 8px rgba(99,102,241,0.35);
         }
 
+        /* ── Toolbar (search + display toggle + export) ─────── */
+        .data-toolbar {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.55rem 1rem;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--slate-200);
+            flex-shrink: 0;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .search-box {
+            flex: 1;
+            min-width: 180px;
+            max-width: 340px;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            background: white;
+            border: 1px solid var(--slate-200);
+            border-radius: 7px;
+            padding: 0.35rem 0.7rem;
+        }
+        .search-box i { color: var(--slate-400); font-size: 0.8rem; }
+        .search-box input {
+            border: none;
+            outline: none;
+            font-size: 0.78rem;
+            width: 100%;
+            color: var(--slate-700);
+            background: transparent;
+        }
+        .disp-btn {
+            padding: 0.38rem 0.8rem;
+            border: 1px solid var(--slate-200);
+            border-radius: 7px;
+            background: var(--slate-50);
+            color: var(--slate-500);
+            font-size: 0.76rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: all 0.15s;
+        }
+        .disp-btn:hover  { border-color: var(--indigo); color: var(--indigo); background: #eef2ff; }
+        .disp-btn.active { background: linear-gradient(135deg,var(--indigo),var(--indigo-d)); color: white; border-color: transparent; box-shadow: 0 2px 6px rgba(99,102,241,.3); }
+        .export-btn {
+            padding: 0.38rem 0.9rem;
+            border: 1px solid #16a34a;
+            border-radius: 7px;
+            background: #f0fdf4;
+            color: #16a34a;
+            font-size: 0.76rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+            transition: all 0.15s;
+            margin-left: auto;
+        }
+        .export-btn:hover { background: #16a34a; color: white; }
+
+        /* ── Grid table ─────────────────────────────────────── */
+        .grid-table-wrap { overflow-x: auto; padding: 1rem; }
+        .grid-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.78rem;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .grid-table thead tr { background: linear-gradient(135deg,#6366f1,#4f46e5); color: white; }
+        .grid-table th { padding: 0.6rem 0.85rem; text-align: left; font-weight: 700; font-size: 0.72rem; letter-spacing: 0.03em; white-space: nowrap; cursor: pointer; user-select: none; }
+        .grid-table th:hover { background: rgba(255,255,255,0.15); }
+        .grid-table th .sort-icon { margin-left: 4px; opacity: 0.6; }
+        .grid-table tbody tr { border-bottom: 1px solid #f1f5f9; transition: background 0.1s; }
+        .grid-table tbody tr:hover { background: #eef2ff; }
+        .grid-table tbody tr:last-child { border-bottom: none; }
+        .grid-table td { padding: 0.5rem 0.85rem; color: var(--slate-700); vertical-align: middle; }
+        .grid-table td.num { text-align: right; font-weight: 600; }
+        .gt-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 99px; font-size: 0.67rem; font-weight: 700; }
+        .gt-full    { background: #d1fae5; color: #065f46; }
+        .gt-partial { background: #fef3c7; color: #92400e; }
+        .gt-none    { background: #fee2e2; color: #991b1b; }
+        .gt-prog { width: 80px; height: 6px; background: #e2e8f0; border-radius: 4px; display: inline-block; vertical-align: middle; overflow: hidden; }
+        .gt-prog-fill { height: 100%; border-radius: 4px; }
+
         /* ── Cards scroll area ──────────────────────────────── */
         .cards-area {
             flex: 1;
@@ -842,6 +934,23 @@
                 </button>
             </div>
 
+            <!-- Toolbar: search + display toggle + export -->
+            <div class="data-toolbar">
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="globalSearch" placeholder="Search orders, pickers, lorry…" oninput="applySearch()">
+                </div>
+                <button class="disp-btn active" id="dbtn-card" onclick="setDisplayMode('card')" title="Card View">
+                    <i class="fas fa-th-large"></i> Cards
+                </button>
+                <button class="disp-btn" id="dbtn-grid" onclick="setDisplayMode('grid')" title="Grid View">
+                    <i class="fas fa-table"></i> Grid
+                </button>
+                <button class="export-btn" onclick="exportToExcel()" title="Export visible data to Excel">
+                    <i class="fas fa-file-excel"></i> Export Excel
+                </button>
+            </div>
+
             <!-- Cards -->
             <div class="cards-area" id="cardsArea">
                 <div class="placeholder">
@@ -951,6 +1060,10 @@
 let allData        = [];   // raw item rows from getPickersView
 let allSummaryData = [];   // rows from getPickersSummary
 let viewMode       = 'picker';
+let displayMode    = 'card';   // 'card' | 'grid'
+let lastRenderedOrders = [];   // kept for search & export
+let gridSortCol    = null;
+let gridSortAsc    = true;
 const isWV2        = !!(window.chrome && window.chrome.webview);
 let lastFetchUrl   = '';
 
@@ -1271,8 +1384,36 @@ function setView(mode) {
     }
 }
 
+// ── Display mode (card / grid) ────────────────────────────────────────────────
+function setDisplayMode(mode) {
+    displayMode = mode;
+    document.querySelectorAll('.disp-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('dbtn-' + mode).classList.add('active');
+    if (lastRenderedOrders.length) renderView(lastRenderedOrders);
+}
+
+// ── Search ────────────────────────────────────────────────────────────────────
+function applySearch() {
+    if (!lastRenderedOrders.length) return;
+    const q = (document.getElementById('globalSearch').value || '').toLowerCase().trim();
+    if (!q) { renderView(lastRenderedOrders); return; }
+    const filtered = lastRenderedOrders.filter(o =>
+        o.orderNum.toLowerCase().includes(q)  ||
+        o.picker.toLowerCase().includes(q)    ||
+        o.lorry.toLowerCase().includes(q)     ||
+        o.bay.toLowerCase().includes(q)       ||
+        (o.priority + '').toLowerCase().includes(q)
+    );
+    renderViewRaw(filtered);
+}
+
 // ── Render ────────────────────────────────────────────────────────────────────
 function renderView(orders) {
+    lastRenderedOrders = orders;
+    renderViewRaw(orders);
+}
+
+function renderViewRaw(orders) {
     const area = document.getElementById('cardsArea');
     if (!orders.length) {
         area.innerHTML = `<div class="placeholder">
@@ -1280,6 +1421,11 @@ function renderView(orders) {
             <h3>No Results</h3>
             <p>No orders match the selected filters. Try clearing some filters.</p>
         </div>`;
+        return;
+    }
+
+    if (displayMode === 'grid') {
+        renderGridView(area, orders);
         return;
     }
 
@@ -1300,6 +1446,110 @@ function renderView(orders) {
         }[viewMode];
         renderGrouped(area, orders, keyFn, iconCfg);
     }
+}
+
+// ── Grid view (HTML table) ────────────────────────────────────────────────────
+function renderGridView(area, orders) {
+    const cols = [
+        { key: 'orderNum',   label: 'Order #' },
+        { key: 'picker',     label: 'Picker' },
+        { key: 'lorry',      label: 'Lorry' },
+        { key: 'bay',        label: 'Loading Bay' },
+        { key: 'priority',   label: 'Priority' },
+        { key: 'totalQty',   label: 'Total Lines' },
+        { key: 'pickedQty',  label: 'Picked Lines' },
+        { key: 'balance',    label: 'Balance' },
+        { key: 'pickPct',    label: '% Done' },
+        { key: 'pickStatus', label: 'Status' },
+    ];
+
+    let sorted = [...orders];
+    if (gridSortCol) {
+        sorted.sort((a, b) => {
+            let va = a[gridSortCol], vb = b[gridSortCol];
+            if (!isNaN(Number(va)) && !isNaN(Number(vb))) { va = Number(va); vb = Number(vb); }
+            else { va = String(va||'').toLowerCase(); vb = String(vb||'').toLowerCase(); }
+            return gridSortAsc ? (va > vb ? 1 : va < vb ? -1 : 0) : (va < vb ? 1 : va > vb ? -1 : 0);
+        });
+    }
+
+    const statusCls = { full: 'gt-full', partial: 'gt-partial', none: 'gt-none' };
+    const statusLbl = { full: 'Picked',  partial: 'Partial',    none: 'Pending' };
+    const progCol   = pct => pct === 100 ? '#10b981' : pct > 0 ? '#f59e0b' : '#ef4444';
+
+    const headerHtml = cols.map(c => {
+        const isSort = gridSortCol === c.key;
+        const arrow  = isSort ? (gridSortAsc ? ' ▲' : ' ▼') : ' ↕';
+        return `<th onclick="sortGrid('${c.key}')">${c.label}<span class="sort-icon">${arrow}</span></th>`;
+    }).join('');
+
+    const rowsHtml = sorted.map(o => `
+        <tr>
+            <td><strong>${o.orderNum}</strong></td>
+            <td>${o.picker}</td>
+            <td>${o.lorry}</td>
+            <td>${o.bay}</td>
+            <td>${o.priority || '—'}</td>
+            <td class="num">${o.totalQty}</td>
+            <td class="num">${o.pickedQty}</td>
+            <td class="num">${o.balance}</td>
+            <td class="num">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <div class="gt-prog"><div class="gt-prog-fill" style="width:${o.pickPct}%;background:${progCol(o.pickPct)};"></div></div>
+                    <span>${o.pickPct}%</span>
+                </div>
+            </td>
+            <td><span class="gt-badge ${statusCls[o.pickStatus]||'gt-none'}">${statusLbl[o.pickStatus]||'Pending'}</span></td>
+        </tr>`).join('');
+
+    area.innerHTML = `
+        <div class="grid-table-wrap">
+            <div style="padding:0 0 0.5rem 0;font-size:0.75rem;color:var(--slate-500);">${sorted.length} orders</div>
+            <table class="grid-table">
+                <thead><tr>${headerHtml}</tr></thead>
+                <tbody>${rowsHtml}</tbody>
+            </table>
+        </div>`;
+}
+
+function sortGrid(col) {
+    if (gridSortCol === col) gridSortAsc = !gridSortAsc;
+    else { gridSortCol = col; gridSortAsc = true; }
+    renderViewRaw(lastRenderedOrders);
+}
+
+// ── Export to Excel ───────────────────────────────────────────────────────────
+function exportToExcel() {
+    const orders = lastRenderedOrders;
+    if (!orders.length) { alert('No data to export. Load data first.'); return; }
+
+    const q = (document.getElementById('globalSearch').value || '').toLowerCase().trim();
+    const rows = q ? orders.filter(o =>
+        o.orderNum.toLowerCase().includes(q)  ||
+        o.picker.toLowerCase().includes(q)    ||
+        o.lorry.toLowerCase().includes(q)     ||
+        o.bay.toLowerCase().includes(q)       ||
+        (o.priority + '').toLowerCase().includes(q)
+    ) : orders;
+
+    const headers = ['Order #','Picker','Lorry','Loading Bay','Priority','Total Lines','Picked Lines','Balance','% Done','Status'];
+    const statusLbl = { full: 'Picked', partial: 'Partial', none: 'Pending' };
+
+    const tsvRows = [headers, ...rows.map(o => [
+        o.orderNum, o.picker, o.lorry, o.bay, o.priority||'',
+        o.totalQty, o.pickedQty, o.balance, o.pickPct + '%',
+        statusLbl[o.pickStatus]||'Pending'
+    ])].map(r => r.join('\t')).join('\n');
+
+    const blob = new Blob([tsvRows], { type: 'text/tab-separated-values' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    const instance = document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD';
+    const date     = document.getElementById('fpDate') ? document.getElementById('fpDate').value : '';
+    a.download = `PickerMonitor_${instance}_${date||'export'}.xls`;
+    a.click();
+    URL.revokeObjectURL(url);
 }
 
 // ── Grouped render ────────────────────────────────────────────────────────────
