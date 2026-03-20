@@ -112,6 +112,29 @@ function initializePslGrid() {
             enabled: true,
             fileName: 'PendingShipmentLines'
         },
+        onExporting: function(e) {
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet('Pending Shipment Lines');
+
+            DevExpress.excelExporter.exportDataGrid({
+                component: e.component,
+                worksheet: worksheet,
+                autoFilterEnabled: true,
+                customizeCell: function(options) {
+                    const { gridCell, excelCell } = options;
+                    if (gridCell.rowType === 'header') {
+                        excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF667EEA' } };
+                        excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                    }
+                }
+            }).then(function() {
+                workbook.xlsx.writeBuffer().then(function(buffer) {
+                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'PendingShipmentLines.xlsx');
+                });
+            });
+
+            e.cancel = true;
+        },
         columns: [
             { dataField: 'source_order_number', caption: 'Order Number', width: 180 },
             { dataField: 'account_number', caption: 'Account #', width: 100 },
@@ -354,9 +377,27 @@ window.refreshPslGrid = function() {
 
 window.exportPslToExcel = function() {
     console.log('[PSL] Exporting to Excel...');
-    if (pslGrid) {
-        pslGrid.exportToExcel(false);
-    }
+    if (!pslGrid) { alert('Grid not ready. Please load data first.'); return; }
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Pending Shipment Lines');
+
+    DevExpress.excelExporter.exportDataGrid({
+        component: pslGrid,
+        worksheet: worksheet,
+        autoFilterEnabled: true,
+        customizeCell: function(options) {
+            const { gridCell, excelCell } = options;
+            if (gridCell.rowType === 'header') {
+                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF667EEA' } };
+                excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+            }
+        }
+    }).then(function() {
+        workbook.xlsx.writeBuffer().then(function(buffer) {
+            saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'PendingShipmentLines.xlsx');
+        });
+    });
 };
 
 // ============================================================================
