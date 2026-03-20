@@ -1343,12 +1343,36 @@ async function previewPdf(filePath, orderNumber, tripId) {
 function closePdfPreview() {
     const modal = document.getElementById('pdf-preview-modal');
     modal.style.display = 'none';
-    
+
     const iframe = document.getElementById('pdf-preview-iframe');
     iframe.src = '';
-    
+
     currentPdfPath = null;
 }
+
+// Global Escape key handler — intercepts Escape before it can reach
+// the WinForms host and close the application window.
+document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+
+    // pdf-preview-modal (monitor printing)
+    const pdfModal = document.getElementById('pdf-preview-modal');
+    if (pdfModal && pdfModal.style.display !== 'none') {
+        e.stopPropagation();
+        e.preventDefault();
+        closePdfPreview();
+        return;
+    }
+
+    // pdf-viewer-modal (inventory / dynamic modal)
+    const pdfViewerModal = document.getElementById('pdf-viewer-modal');
+    if (pdfViewerModal) {
+        e.stopPropagation();
+        e.preventDefault();
+        pdfViewerModal.remove();
+        return;
+    }
+}, true); // capture phase so it runs before any iframe can absorb it
 
 /**
  * Download current PDF from preview
@@ -8730,7 +8754,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <button onclick="window.open('file:///${pdfPath.replace(/\\/g, '/')}')" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
                             <i class="fas fa-external-link-alt"></i> Open External
                         </button>
-                        <button onclick="document.getElementById('pdf-viewer-modal').remove()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(255,255,255,0.3)'" onmouseout="this.style.background='rgba(255,255,255,0.2)'">
+                        <button onclick="document.getElementById('pdf-viewer-modal').remove()" title="Close PDF Viewer (Esc)" style="background: rgba(255,255,255,0.2); border: 2px solid rgba(255,255,255,0.5); color: white; padding: 0.45rem 1.1rem; border-radius: 8px; cursor: pointer; font-size: 0.85rem; font-weight: 700; display: flex; align-items: center; gap: 0.5rem;" onmouseover="this.style.background='rgba(220,38,38,0.85)';this.style.borderColor='rgba(220,38,38,0.9)'" onmouseout="this.style.background='rgba(255,255,255,0.2)';this.style.borderColor='rgba(255,255,255,0.5)'">
                             <i class="fas fa-times"></i> Close
                         </button>
                     </div>
