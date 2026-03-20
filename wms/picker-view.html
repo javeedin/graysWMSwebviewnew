@@ -827,6 +827,9 @@
                 <button class="view-btn" id="vbtn-lorry" onclick="setView('lorry')">
                     <i class="fas fa-truck"></i> Lorry
                 </button>
+                <button class="view-btn" id="vbtn-priority" onclick="setView('priority')">
+                    <i class="fas fa-flag"></i> Priority
+                </button>
                 <button class="view-btn" id="vbtn-bay" onclick="setView('bay')">
                     <i class="fas fa-warehouse"></i> Loading Bay
                 </button>
@@ -1283,14 +1286,16 @@ function renderView(orders) {
         renderFlatOrders(area, orders);
     } else {
         const keyFn = {
-            picker: o => o.picker,
-            lorry:  o => o.lorry,
-            bay:    o => o.bay,
+            picker:   o => o.picker,
+            lorry:    o => o.lorry,
+            bay:      o => o.bay,
+            priority: o => o.priority || '—',
         }[viewMode];
         const iconCfg = {
-            picker: { icon:'fas fa-user-hard-hat', grad:'linear-gradient(135deg,#6366f1,#4f46e5)' },
-            lorry:  { icon:'fas fa-truck',          grad:'linear-gradient(135deg,#0ea5e9,#0284c7)' },
-            bay:    { icon:'fas fa-warehouse',       grad:'linear-gradient(135deg,#10b981,#059669)' },
+            picker:   { icon:'fas fa-user-hard-hat', grad:'linear-gradient(135deg,#6366f1,#4f46e5)' },
+            lorry:    { icon:'fas fa-truck',          grad:'linear-gradient(135deg,#0ea5e9,#0284c7)' },
+            bay:      { icon:'fas fa-warehouse',       grad:'linear-gradient(135deg,#10b981,#059669)' },
+            priority: { icon:'fas fa-flag',            grad:'linear-gradient(135deg,#f59e0b,#d97706)' },
         }[viewMode];
         renderGrouped(area, orders, keyFn, iconCfg);
     }
@@ -1305,7 +1310,14 @@ function renderGrouped(area, orders, keyFn, iconCfg) {
     });
 
     area.innerHTML = '';
-    Object.entries(groups).sort(([a],[b]) => a.localeCompare(b)).forEach(([gKey, gOrders]) => {
+    const sortedEntries = Object.entries(groups).sort(([a],[b]) => {
+        if (viewMode === 'priority') {
+            const na = Number(a), nb = Number(b);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        }
+        return a.localeCompare(b);
+    });
+    sortedEntries.forEach(([gKey, gOrders]) => {
         const full    = gOrders.filter(o => o.pickStatus === 'full').length;
         const partial = gOrders.filter(o => o.pickStatus === 'partial').length;
         const none    = gOrders.filter(o => o.pickStatus === 'none').length;
@@ -1322,6 +1334,10 @@ function renderGrouped(area, orders, keyFn, iconCfg) {
             const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
             const bays    = uniq(gOrders.map(o=>o.bay).filter(Boolean));
             sub = `Pickers: ${pickers.join(', ')||'—'} | Bay: ${bays.join(', ')||'—'}`;
+        } else if (viewMode === 'priority') {
+            const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
+            const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
+            sub = `Pickers: ${pickers.join(', ')||'—'} | Lorry: ${lorries.join(', ')||'—'}`;
         } else {
             const pickers = uniq(gOrders.map(o=>o.picker).filter(Boolean));
             const lorries = uniq(gOrders.map(o=>o.lorry).filter(Boolean));
@@ -1418,9 +1434,10 @@ function buildOrderCard(o, showAll) {
             </div>
         </div>
         <div class="card-meta">
-            ${viewMode !== 'lorry'  || showAll ? `<div class="card-meta-row"><i class="fas fa-truck"     style="color:var(--sky);"></i><span>${o.lorry}</span></div>`  : ''}
-            ${viewMode !== 'bay'    || showAll ? `<div class="card-meta-row"><i class="fas fa-warehouse" style="color:var(--green);"></i><span>Bay ${o.bay}</span></div>` : ''}
-            ${viewMode !== 'picker' || showAll ? `<div class="card-meta-row"><i class="fas fa-user"      style="color:var(--amber);"></i><span>${o.picker}</span></div>` : ''}
+            ${viewMode !== 'lorry'    || showAll ? `<div class="card-meta-row"><i class="fas fa-truck"     style="color:var(--sky);"></i><span>${o.lorry}</span></div>`  : ''}
+            ${viewMode !== 'bay'      || showAll ? `<div class="card-meta-row"><i class="fas fa-warehouse" style="color:var(--green);"></i><span>Bay ${o.bay}</span></div>` : ''}
+            ${viewMode !== 'picker'   || showAll ? `<div class="card-meta-row"><i class="fas fa-user"      style="color:var(--amber);"></i><span>${o.picker}</span></div>` : ''}
+            ${viewMode !== 'priority' || showAll ? `<div class="card-meta-row"><i class="fas fa-flag"      style="color:var(--rose,#f43f5e);"></i><span>Priority ${o.priority||'—'}</span></div>` : ''}
             ${priLbl ? `<div class="card-meta-row"><i class="fas fa-flag" style="color:var(--slate-400);"></i><span><span class="pri-badge ${priCls}">P${priLbl}</span></span></div>` : ''}
             <div class="card-meta-row"><i class="fas fa-layer-group" style="color:var(--slate-400);"></i><span>${o.items.length} item lines</span></div>
         </div>
