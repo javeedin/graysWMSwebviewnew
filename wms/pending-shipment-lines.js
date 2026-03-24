@@ -7,6 +7,7 @@ console.log('[PSL] Pending Shipment Lines module loading...');
 // API Endpoints
 const PSL_PENDING_ORDERS_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/getpendingorders';
 const PSL_SHIPMENT_LINES_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/getpendingshipmentlines';
+const PSL_ORDER_VOLUME_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume';
 
 // Global variables
 let pslGrid = null;
@@ -144,7 +145,67 @@ function initializePslGrid() {
             { dataField: 'order_type_code', caption: 'Order Type', width: 130 },
             { dataField: 'salesrep_name', caption: 'Sales Rep', width: 150 },
             { dataField: 'added_to_trip', caption: 'Added to Trip', width: 110 },
-            { dataField: 'instance', caption: 'Instance', width: 80 }
+            { dataField: 'instance', caption: 'Instance', width: 80 },
+            {
+                caption: 'Order Volume',
+                columns: [
+                    {
+                        dataField: 'vol_total_volume',
+                        caption: 'Volume (CBM)',
+                        width: 110,
+                        dataType: 'number',
+                        format: { type: 'fixedPoint', precision: 3 },
+                        cssClass: 'volume-cell',
+                        cellTemplate: function(container, options) {
+                            if (options.value !== undefined && options.value !== null) {
+                                $('<span>').text(parseFloat(options.value).toFixed(3)).css({ color: '#7c3aed', fontWeight: '600' }).appendTo(container);
+                            } else {
+                                $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
+                            }
+                        }
+                    },
+                    {
+                        dataField: 'vol_total_weight',
+                        caption: 'Weight (KG)',
+                        width: 110,
+                        dataType: 'number',
+                        format: { type: 'fixedPoint', precision: 2 },
+                        cellTemplate: function(container, options) {
+                            if (options.value !== undefined && options.value !== null) {
+                                $('<span>').text(parseFloat(options.value).toFixed(2)).css({ color: '#0369a1', fontWeight: '600' }).appendTo(container);
+                            } else {
+                                $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
+                            }
+                        }
+                    },
+                    {
+                        dataField: 'vol_item_count',
+                        caption: 'Item Count',
+                        width: 90,
+                        dataType: 'number',
+                        cellTemplate: function(container, options) {
+                            if (options.value !== undefined && options.value !== null) {
+                                $('<span>').text(options.value).css({ color: '#065f46', fontWeight: '600' }).appendTo(container);
+                            } else {
+                                $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
+                            }
+                        }
+                    },
+                    {
+                        dataField: 'vol_pallet_count',
+                        caption: 'Pallets',
+                        width: 80,
+                        dataType: 'number',
+                        cellTemplate: function(container, options) {
+                            if (options.value !== undefined && options.value !== null) {
+                                $('<span>').text(options.value).css({ color: '#92400e', fontWeight: '600' }).appendTo(container);
+                            } else {
+                                $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
+                            }
+                        }
+                    }
+                ]
+            }
         ],
         onSelectionChanged: function(e) {
             const count = e.selectedRowsData.length;
@@ -360,6 +421,107 @@ function handlePslData(data, source) {
         `Last fetched: ${now.toLocaleTimeString()}`;
 
     console.log('[PSL] Loaded', pslData.length, 'records');
+}
+
+// ============================================================================
+// GET ORDER VOLUME
+// ============================================================================
+
+window.getPslOrderVolume = async function() {
+    if (!pslGrid) {
+        alert('Please load data first.');
+        return;
+    }
+
+    const selectedRows = pslGrid.getSelectedRowsData();
+    if (selectedRows.length === 0) {
+        alert('Please select at least one order to fetch volume data.');
+        return;
+    }
+
+    const instanceDropdown = document.getElementById('psl-instance-name');
+    const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
+
+    const btn = document.getElementById('psl-get-volume-btn');
+    const btnIcon = document.getElementById('psl-volume-btn-icon');
+    if (btn) btn.disabled = true;
+    if (btnIcon) btnIcon.className = 'fas fa-spinner fa-spin';
+
+    console.log('[PSL] Fetching order volume for', selectedRows.length, 'orders...');
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const row of selectedRows) {
+        const orderNumber = row.source_order_number;
+        if (!orderNumber) continue;
+
+        const apiUrl = `${PSL_ORDER_VOLUME_API}?p_instance_name=${encodeURIComponent(instance)}&source_order_number=${encodeURIComponent(orderNumber)}&p_trip_id=`;
+
+        try {
+            const volumeData = await callOrderVolumeApi(apiUrl);
+            if (volumeData) {
+                // Merge volume data into pslData row
+                const dataRow = pslData.find(r => r.source_order_number === orderNumber);
+                if (dataRow) {
+                    dataRow.vol_total_volume = volumeData.total_volume_cbm ?? volumeData.total_volume ?? volumeData.volume_cbm ?? volumeData.volume ?? null;
+                    dataRow.vol_total_weight = volumeData.total_weight_kg ?? volumeData.total_weight ?? volumeData.weight_kg ?? volumeData.weight ?? null;
+                    dataRow.vol_item_count   = volumeData.item_count ?? volumeData.total_items ?? volumeData.items ?? null;
+                    dataRow.vol_pallet_count = volumeData.pallet_count ?? volumeData.total_pallets ?? volumeData.pallets ?? null;
+                }
+                successCount++;
+            }
+        } catch (err) {
+            console.error('[PSL] Volume fetch error for', orderNumber, err);
+            failCount++;
+        }
+    }
+
+    // Refresh grid with updated data
+    if (pslGrid) {
+        pslGrid.option('dataSource', [...pslData]);
+        pslGrid.refresh();
+    }
+
+    if (btn) btn.disabled = false;
+    if (btnIcon) btnIcon.className = 'fas fa-cube';
+
+    const msg = `Order Volume fetched: ${successCount} succeeded${failCount > 0 ? ', ' + failCount + ' failed' : ''}.`;
+    console.log('[PSL]', msg);
+    if (failCount > 0) alert(msg);
+};
+
+function callOrderVolumeApi(apiUrl) {
+    return new Promise(function(resolve, reject) {
+        if (window.chrome && window.chrome.webview) {
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: '{}'
+            }, function(error, data) {
+                if (error) {
+                    reject(error);
+                } else {
+                    try {
+                        const json = typeof data === 'string' ? JSON.parse(data) : data;
+                        // Unwrap if wrapped in items/data array
+                        const result = Array.isArray(json) ? json[0] : (json.items ? json.items[0] : json);
+                        resolve(result || null);
+                    } catch (e) {
+                        reject(e);
+                    }
+                }
+            });
+        } else {
+            fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(r => r.json())
+                .then(json => {
+                    const result = Array.isArray(json) ? json[0] : (json.items ? json.items[0] : json);
+                    resolve(result || null);
+                })
+                .catch(reject);
+        }
+    });
 }
 
 // ============================================================================
