@@ -13,6 +13,7 @@ const PSL_ORDER_VOLUME_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt
 let pslGrid = null;
 let pslData = [];
 let pslInitialized = false;
+let pslVolumeCancelRequested = false;
 
 // ============================================================================
 // INITIALIZATION
@@ -443,24 +444,40 @@ window.getPslOrderVolume = async function() {
     const instanceDropdown = document.getElementById('psl-instance-name');
     const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
 
-    const btn = document.getElementById('psl-get-volume-btn');
-    const btnIcon = document.getElementById('psl-volume-btn-icon');
-    const progressBar = document.getElementById('psl-volume-progress');
+    const btn        = document.getElementById('psl-get-volume-btn');
+    const btnIcon    = document.getElementById('psl-volume-btn-icon');
+    const cancelBtn  = document.getElementById('psl-volume-cancel-btn');
+    const progressBar  = document.getElementById('psl-volume-progress');
     const progressText = document.getElementById('psl-volume-progress-text');
     const progressIcon = document.getElementById('psl-volume-progress-icon');
 
-    // Show progress, disable button
+    // Reset cancel flag, show progress, show cancel button
+    pslVolumeCancelRequested = false;
     if (btn) btn.disabled = true;
     if (btnIcon) btnIcon.className = 'fas fa-spinner fa-spin';
-    if (progressBar) { progressBar.style.display = 'inline-flex'; }
+    if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+    if (progressBar) {
+        progressBar.style.display = 'inline-flex';
+        progressBar.style.color = '#7c3aed';
+        progressBar.style.background = '#f3e8ff';
+        progressBar.style.borderColor = '#d8b4fe';
+    }
     if (progressText) progressText.textContent = `0 / ${total} fetched`;
+    if (progressIcon) progressIcon.className = 'fas fa-spinner fa-spin';
 
     console.log('[PSL] Fetching order volume for', total, 'orders...');
 
     let successCount = 0;
     let failCount = 0;
+    let cancelled = false;
 
     for (const row of selectedRows) {
+        // Check cancel flag before each request
+        if (pslVolumeCancelRequested) {
+            cancelled = true;
+            break;
+        }
+
         const orderNumber = row.source_order_number;
         if (!orderNumber) { failCount++; continue; }
 
@@ -483,7 +500,7 @@ window.getPslOrderVolume = async function() {
             failCount++;
         }
 
-        // Update progress after each order
+        // Update live progress after each order
         const done = successCount + failCount;
         if (progressText) {
             progressText.textContent = failCount > 0
@@ -492,28 +509,142 @@ window.getPslOrderVolume = async function() {
         }
     }
 
-    // Refresh grid with updated data
+    // Refresh grid with whatever was fetched so far
     if (pslGrid) {
         pslGrid.option('dataSource', [...pslData]);
         pslGrid.refresh();
     }
 
-    // Restore button, update progress to done state
+    // Hide cancel button, restore fetch button
     if (btn) btn.disabled = false;
     if (btnIcon) btnIcon.className = 'fas fa-cube';
-    if (progressIcon) progressIcon.className = failCount > 0 ? 'fas fa-exclamation-triangle' : 'fas fa-check-circle';
-    if (progressBar) {
-        progressBar.style.color = failCount > 0 ? '#b45309' : '#059669';
-        progressBar.style.background = failCount > 0 ? '#fef3c7' : '#d1fae5';
-        progressBar.style.borderColor = failCount > 0 ? '#fcd34d' : '#6ee7b7';
-    }
-    if (progressText) {
-        progressText.textContent = failCount > 0
-            ? `${successCount} / ${total} fetched  (${failCount} failed)`
-            : `${successCount} / ${total} fetched`;
+    if (cancelBtn) cancelBtn.style.display = 'none';
+
+    // Final progress badge state
+    if (cancelled) {
+        if (progressIcon) progressIcon.className = 'fas fa-ban';
+        if (progressBar) {
+            progressBar.style.color = '#6b7280';
+            progressBar.style.background = '#f3f4f6';
+            progressBar.style.borderColor = '#d1d5db';
+        }
+        if (progressText) progressText.textContent = `Cancelled — ${successCount} / ${total} fetched`;
+    } else if (failCount > 0) {
+        if (progressIcon) progressIcon.className = 'fas fa-exclamation-triangle';
+        if (progressBar) {
+            progressBar.style.color = '#b45309';
+            progressBar.style.background = '#fef3c7';
+            progressBar.style.borderColor = '#fcd34d';
+        }
+        if (progressText) progressText.textContent = `${successCount} / ${total} fetched  (${failCount} failed)`;
+    } else {
+        if (progressIcon) progressIcon.className = 'fas fa-check-circle';
+        if (progressBar) {
+            progressBar.style.color = '#059669';
+            progressBar.style.background = '#d1fae5';
+            progressBar.style.borderColor = '#6ee7b7';
+        }
+        if (progressText) progressText.textContent = `${successCount} / ${total} fetched`;
     }
 
-    console.log(`[PSL] Volume fetch complete: ${successCount} ok, ${failCount} failed`);
+    console.log(`[PSL] Volume fetch done: ${successCount} ok, ${failCount} failed${cancelled ? ', cancelled' : ''}`);
+};
+
+window.cancelPslOrderVolume = function() {
+    pslVolumeCancelRequested = true;
+    const cancelBtn = document.getElementById('psl-volume-cancel-btn');
+    if (cancelBtn) cancelBtn.disabled = true;
+    console.log('[PSL] Volume fetch cancel requested');
+};
+
+window.showPslVolumeApiInfo = function() {
+    const instanceDropdown = document.getElementById('psl-instance-name');
+    const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
+
+    const popup = document.createElement('div');
+    popup.id = 'psl-volume-api-popup';
+    popup.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10002; display: flex; justify-content: center; align-items: center;';
+    popup.innerHTML = `
+        <div style="background: white; width: 90%; max-width: 640px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+            <div style="padding: 1.25rem 1.5rem; border-bottom: 2px solid #f3e8ff; display: flex; justify-content: space-between; align-items: center;">
+                <h4 style="margin: 0; color: #5b21b6; display: flex; align-items: center; gap: 0.5rem;">
+                    <i class="fas fa-cube"></i> Get Order Volume — API Info
+                </h4>
+                <button onclick="document.getElementById('psl-volume-api-popup').remove()" style="background: none; border: none; font-size: 16px; cursor: pointer; color: #94a3b8;">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div style="padding: 1.25rem 1.5rem; overflow-y: auto; max-height: 70vh;">
+
+                <!-- Endpoint -->
+                <div style="background: #fce7f3; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #ec4899;">
+                    <div style="font-weight: 600; color: #9d174d; margin-bottom: 0.6rem;">Endpoint</div>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.4rem;">
+                        <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700;">POST</span>
+                        <code style="font-size: 11px; color: #4a5568;">TRIPMANAGEMENT/fetchordervolume</code>
+                    </div>
+                    <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 0.5rem;">
+                        ${PSL_ORDER_VOLUME_API}
+                    </code>
+                </div>
+
+                <!-- Parameters -->
+                <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                    <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.6rem;">Query Parameters</div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <tr style="background: #dbeafe;">
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bfdbfe;">Parameter</th>
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bfdbfe;">Value</th>
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bfdbfe;">Source</th>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe; font-family: monospace;">p_instance_name</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${currentInstance}</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Instance dropdown</span></td>
+                        </tr>
+                        <tr style="background: #eff6ff;">
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe; font-family: monospace;">source_order_number</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe; font-style: italic;">e.g. SO-00012345</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe;"><span style="background: #e9d5ff; color: #6b21a8; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Selected row</span></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe; font-family: monospace;">p_trip_id</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe; color: #94a3b8;">(empty)</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bfdbfe; color: #94a3b8; font-size: 11px;">Not yet in a trip</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <!-- Response Fields -->
+                <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; border-left: 4px solid #22c55e;">
+                    <div style="font-weight: 600; color: #166534; margin-bottom: 0.6rem;">Response → Grid Columns</div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                        <tr style="background: #dcfce7;">
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bbf7d0;">API Field</th>
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bbf7d0;">Grid Column</th>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">total_volume_cbm / total_volume</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #7c3aed; font-weight: 600;">Volume (CBM)</td>
+                        </tr>
+                        <tr style="background: #f0fdf4;">
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">total_weight_kg / total_weight</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #0369a1; font-weight: 600;">Weight (KG)</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">item_count / total_items</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #065f46; font-weight: 600;">Item Count</td>
+                        </tr>
+                        <tr style="background: #f0fdf4;">
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">pallet_count / total_pallets</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #92400e; font-weight: 600;">Pallets</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(popup);
 };
 
 function callOrderVolumeApi(apiUrl) {
