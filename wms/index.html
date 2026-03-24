@@ -3085,6 +3085,10 @@
                         <button id="psl-get-volume-btn" onclick="getPslOrderVolume()" style="background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%); color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;" title="Select orders then click to fetch Volume, Weight, Item Count and Pallet Count">
                             <i class="fas fa-cube" id="psl-volume-btn-icon"></i> Get Order Volume
                         </button>
+                        <span id="psl-volume-progress" style="display: none; font-size: 11px; font-weight: 600; color: #7c3aed; background: #f3e8ff; border: 1px solid #d8b4fe; border-radius: 6px; padding: 0.35rem 0.75rem; align-items: center; gap: 0.4rem;">
+                            <i class="fas fa-spinner fa-spin" id="psl-volume-progress-icon" style="font-size: 10px;"></i>
+                            <span id="psl-volume-progress-text">0 / 0 fetched</span>
+                        </span>
                         <div style="margin-left: auto; font-size: 11px; color: #64748b;">
                             <span id="psl-last-fetch">Last fetched: Never</span>
                         </div>

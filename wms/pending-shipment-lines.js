@@ -439,29 +439,36 @@ window.getPslOrderVolume = async function() {
         return;
     }
 
+    const total = selectedRows.length;
     const instanceDropdown = document.getElementById('psl-instance-name');
     const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
 
     const btn = document.getElementById('psl-get-volume-btn');
     const btnIcon = document.getElementById('psl-volume-btn-icon');
+    const progressBar = document.getElementById('psl-volume-progress');
+    const progressText = document.getElementById('psl-volume-progress-text');
+    const progressIcon = document.getElementById('psl-volume-progress-icon');
+
+    // Show progress, disable button
     if (btn) btn.disabled = true;
     if (btnIcon) btnIcon.className = 'fas fa-spinner fa-spin';
+    if (progressBar) { progressBar.style.display = 'inline-flex'; }
+    if (progressText) progressText.textContent = `0 / ${total} fetched`;
 
-    console.log('[PSL] Fetching order volume for', selectedRows.length, 'orders...');
+    console.log('[PSL] Fetching order volume for', total, 'orders...');
 
     let successCount = 0;
     let failCount = 0;
 
     for (const row of selectedRows) {
         const orderNumber = row.source_order_number;
-        if (!orderNumber) continue;
+        if (!orderNumber) { failCount++; continue; }
 
         const apiUrl = `${PSL_ORDER_VOLUME_API}?p_instance_name=${encodeURIComponent(instance)}&source_order_number=${encodeURIComponent(orderNumber)}&p_trip_id=`;
 
         try {
             const volumeData = await callOrderVolumeApi(apiUrl);
             if (volumeData) {
-                // Merge volume data into pslData row
                 const dataRow = pslData.find(r => r.source_order_number === orderNumber);
                 if (dataRow) {
                     dataRow.vol_total_volume = volumeData.total_volume_cbm ?? volumeData.total_volume ?? volumeData.volume_cbm ?? volumeData.volume ?? null;
@@ -475,6 +482,14 @@ window.getPslOrderVolume = async function() {
             console.error('[PSL] Volume fetch error for', orderNumber, err);
             failCount++;
         }
+
+        // Update progress after each order
+        const done = successCount + failCount;
+        if (progressText) {
+            progressText.textContent = failCount > 0
+                ? `${done} / ${total} fetched  (${failCount} failed)`
+                : `${done} / ${total} fetched`;
+        }
     }
 
     // Refresh grid with updated data
@@ -483,12 +498,22 @@ window.getPslOrderVolume = async function() {
         pslGrid.refresh();
     }
 
+    // Restore button, update progress to done state
     if (btn) btn.disabled = false;
     if (btnIcon) btnIcon.className = 'fas fa-cube';
+    if (progressIcon) progressIcon.className = failCount > 0 ? 'fas fa-exclamation-triangle' : 'fas fa-check-circle';
+    if (progressBar) {
+        progressBar.style.color = failCount > 0 ? '#b45309' : '#059669';
+        progressBar.style.background = failCount > 0 ? '#fef3c7' : '#d1fae5';
+        progressBar.style.borderColor = failCount > 0 ? '#fcd34d' : '#6ee7b7';
+    }
+    if (progressText) {
+        progressText.textContent = failCount > 0
+            ? `${successCount} / ${total} fetched  (${failCount} failed)`
+            : `${successCount} / ${total} fetched`;
+    }
 
-    const msg = `Order Volume fetched: ${successCount} succeeded${failCount > 0 ? ', ' + failCount + ' failed' : ''}.`;
-    console.log('[PSL]', msg);
-    if (failCount > 0) alert(msg);
+    console.log(`[PSL] Volume fetch complete: ${successCount} ok, ${failCount} failed`);
 };
 
 function callOrderVolumeApi(apiUrl) {
