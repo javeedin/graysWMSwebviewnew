@@ -8,7 +8,7 @@ let updateConfig = {
     autoUpdateHTML: true,
     autoUpdateEXE: false,
     checkIntervalMinutes: 60,
-currentVersion: '1.2.9'
+currentVersion: '1.0.2'
 };
 
 let updateCheckTimer = null;
@@ -31,7 +31,7 @@ async function initUpdateManager() {
             autoUpdateHTML: config.AUTO_UPDATE_HTML !== false,
             autoUpdateEXE: config.AUTO_UPDATE_EXE === true,
             checkIntervalMinutes: config.UPDATE_CHECK_INTERVAL_MINUTES || 60,
-currentVersion: config.APP_VERSION || '1.2.9'
+currentVersion: config.APP_VERSION || '1.0.2'
         };
 
         console.log('[UpdateManager] Configuration loaded:', updateConfig);
