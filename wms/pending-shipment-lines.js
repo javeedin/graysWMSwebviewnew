@@ -139,6 +139,19 @@ function initializePslGrid() {
         },
         columns: [
             { dataField: 'source_order_number', caption: 'Order Number', width: 180 },
+            {
+                dataField: 'order_volume',
+                caption: 'Order Volume',
+                width: 120,
+                dataType: 'number',
+                cellTemplate: function(container, options) {
+                    if (options.value !== undefined && options.value !== null) {
+                        $('<span>').text(parseFloat(options.value).toFixed(3)).css({ color: '#7c3aed', fontWeight: '600' }).appendTo(container);
+                    } else {
+                        $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
+                    }
+                }
+            },
             { dataField: 'account_number', caption: 'Account #', width: 100 },
             { dataField: 'account_name', caption: 'Customer Name', width: 220 },
             { dataField: 'order_date', caption: 'Order Date', dataType: 'date', format: 'yyyy-MM-dd', width: 120 },
@@ -146,67 +159,7 @@ function initializePslGrid() {
             { dataField: 'order_type_code', caption: 'Order Type', width: 130 },
             { dataField: 'salesrep_name', caption: 'Sales Rep', width: 150 },
             { dataField: 'added_to_trip', caption: 'Added to Trip', width: 110 },
-            { dataField: 'instance', caption: 'Instance', width: 80 },
-            {
-                caption: 'Order Volume',
-                columns: [
-                    {
-                        dataField: 'vol_total_volume',
-                        caption: 'Volume (CBM)',
-                        width: 110,
-                        dataType: 'number',
-                        format: { type: 'fixedPoint', precision: 3 },
-                        cssClass: 'volume-cell',
-                        cellTemplate: function(container, options) {
-                            if (options.value !== undefined && options.value !== null) {
-                                $('<span>').text(parseFloat(options.value).toFixed(3)).css({ color: '#7c3aed', fontWeight: '600' }).appendTo(container);
-                            } else {
-                                $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
-                            }
-                        }
-                    },
-                    {
-                        dataField: 'vol_total_weight',
-                        caption: 'Weight (KG)',
-                        width: 110,
-                        dataType: 'number',
-                        format: { type: 'fixedPoint', precision: 2 },
-                        cellTemplate: function(container, options) {
-                            if (options.value !== undefined && options.value !== null) {
-                                $('<span>').text(parseFloat(options.value).toFixed(2)).css({ color: '#0369a1', fontWeight: '600' }).appendTo(container);
-                            } else {
-                                $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
-                            }
-                        }
-                    },
-                    {
-                        dataField: 'vol_item_count',
-                        caption: 'Item Count',
-                        width: 90,
-                        dataType: 'number',
-                        cellTemplate: function(container, options) {
-                            if (options.value !== undefined && options.value !== null) {
-                                $('<span>').text(options.value).css({ color: '#065f46', fontWeight: '600' }).appendTo(container);
-                            } else {
-                                $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
-                            }
-                        }
-                    },
-                    {
-                        dataField: 'vol_pallet_count',
-                        caption: 'Pallets',
-                        width: 80,
-                        dataType: 'number',
-                        cellTemplate: function(container, options) {
-                            if (options.value !== undefined && options.value !== null) {
-                                $('<span>').text(options.value).css({ color: '#92400e', fontWeight: '600' }).appendTo(container);
-                            } else {
-                                $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
-                            }
-                        }
-                    }
-                ]
-            }
+            { dataField: 'instance', caption: 'Instance', width: 80 }
         ],
         onSelectionChanged: function(e) {
             const count = e.selectedRowsData.length;
@@ -488,10 +441,7 @@ window.getPslOrderVolume = async function() {
             if (volumeData) {
                 const dataRow = pslData.find(r => r.source_order_number === orderNumber);
                 if (dataRow) {
-                    dataRow.vol_total_volume = volumeData.total_volume_cbm ?? volumeData.total_volume ?? volumeData.volume_cbm ?? volumeData.volume ?? null;
-                    dataRow.vol_total_weight = volumeData.total_weight_kg ?? volumeData.total_weight ?? volumeData.weight_kg ?? volumeData.weight ?? null;
-                    dataRow.vol_item_count   = volumeData.item_count ?? volumeData.total_items ?? volumeData.items ?? null;
-                    dataRow.vol_pallet_count = volumeData.pallet_count ?? volumeData.total_pallets ?? volumeData.pallets ?? null;
+                    dataRow.order_volume = volumeData.order_volume ?? null;
                 }
                 successCount++;
             }
@@ -617,27 +567,21 @@ window.showPslVolumeApiInfo = function() {
 
                 <!-- Response Fields -->
                 <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; border-left: 4px solid #22c55e;">
-                    <div style="font-weight: 600; color: #166534; margin-bottom: 0.6rem;">Response → Grid Columns</div>
+                    <div style="font-weight: 600; color: #166534; margin-bottom: 0.6rem;">Response JSON</div>
+                    <pre style="background: #1e293b; color: #e2e8f0; padding: 0.75rem 1rem; border-radius: 6px; font-size: 11px; margin: 0 0 0.75rem 0; overflow-x: auto;">{
+  "status": "success",
+  "order_volume": 1.702,
+  "source_order_number": "78426000275",
+  "instance_name": "PROD"
+}</pre>
                     <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
                         <tr style="background: #dcfce7;">
-                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bbf7d0;">API Field</th>
+                            <th style="padding: 6px 8px; text-align: left; border: 1px solid #bbf7d0;">Response Field</th>
                             <th style="padding: 6px 8px; text-align: left; border: 1px solid #bbf7d0;">Grid Column</th>
                         </tr>
                         <tr>
-                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">total_volume_cbm / total_volume</td>
-                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #7c3aed; font-weight: 600;">Volume (CBM)</td>
-                        </tr>
-                        <tr style="background: #f0fdf4;">
-                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">total_weight_kg / total_weight</td>
-                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #0369a1; font-weight: 600;">Weight (KG)</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">item_count / total_items</td>
-                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #065f46; font-weight: 600;">Item Count</td>
-                        </tr>
-                        <tr style="background: #f0fdf4;">
-                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">pallet_count / total_pallets</td>
-                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #92400e; font-weight: 600;">Pallets</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; font-family: monospace;">order_volume</td>
+                            <td style="padding: 6px 8px; border: 1px solid #bbf7d0; color: #7c3aed; font-weight: 600;">Order Volume</td>
                         </tr>
                     </table>
                 </div>
@@ -660,9 +604,7 @@ function callOrderVolumeApi(apiUrl) {
                 } else {
                     try {
                         const json = typeof data === 'string' ? JSON.parse(data) : data;
-                        // Unwrap if wrapped in items/data array
-                        const result = Array.isArray(json) ? json[0] : (json.items ? json.items[0] : json);
-                        resolve(result || null);
+                        resolve(json && json.status === 'success' ? json : null);
                     } catch (e) {
                         reject(e);
                     }
@@ -671,10 +613,7 @@ function callOrderVolumeApi(apiUrl) {
         } else {
             fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
                 .then(r => r.json())
-                .then(json => {
-                    const result = Array.isArray(json) ? json[0] : (json.items ? json.items[0] : json);
-                    resolve(result || null);
-                })
+                .then(json => resolve(json && json.status === 'success' ? json : null))
                 .catch(reject);
         }
     });
