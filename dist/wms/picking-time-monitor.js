@@ -73,7 +73,7 @@ function ptmInitGrids() {
 // LOAD DATA
 // ============================================================================
 
-window.ptmLoadData = async function () {
+window.ptmLoadData = function () {
     const fromDate = document.getElementById('ptm-date-from').value;
     const toDate = document.getElementById('ptm-date-to').value;
 
@@ -82,7 +82,7 @@ window.ptmLoadData = async function () {
         return;
     }
 
-    const btn = document.getElementById('ptm-load-btn');
+    const btn  = document.getElementById('ptm-load-btn');
     const icon = document.getElementById('ptm-load-icon');
     const text = document.getElementById('ptm-load-text');
 
@@ -90,41 +90,43 @@ window.ptmLoadData = async function () {
     icon.classList.add('fa-spin');
     text.textContent = 'Loading...';
 
-    try {
-        const url = `${PTM_API}?FROM_DATE=${fromDate}&TO_DATE=${toDate}`;
-        console.log('[PickingTimeMonitor] Fetching:', url);
+    const url = PTM_API + '?FROM_DATE=' + fromDate + '&TO_DATE=' + toDate;
+    console.log('[PickingTimeMonitor] Fetching:', url);
 
-        const response = await fetch(url, {
-            method: 'GET',
-            headers: { 'Content-Type': 'application/json' }
-        });
-
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-
-        const result = await response.json();
-        ptmRawData = result.data || [];
-        console.log('[PickingTimeMonitor] Loaded', ptmRawData.length, 'records');
-
-        ptmUpdateSummaryCards();
-        ptmUpdateAllGrids();
-        ptmUpdateCharts();
-
-        if (typeof showNotification === 'function') {
-            showNotification(`Loaded ${ptmRawData.length} records`, 'success');
-        }
-
-    } catch (error) {
-        console.error('[PickingTimeMonitor] Error:', error);
-        if (typeof showNotification === 'function') {
-            showNotification('Error loading data: ' + error.message, 'error');
-        } else {
-            alert('Error loading data: ' + error.message);
-        }
-    } finally {
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function (error, data) {
         btn.disabled = false;
         icon.classList.remove('fa-spin');
         text.textContent = 'Load Data';
-    }
+
+        if (error) {
+            console.error('[PickingTimeMonitor] Error:', error);
+            if (typeof showNotification === 'function') {
+                showNotification('Error loading data: ' + error, 'error');
+            } else {
+                alert('Error loading data: ' + error);
+            }
+            return;
+        }
+
+        try {
+            const result = typeof data === 'string' ? JSON.parse(data) : data;
+            ptmRawData = result.data || [];
+            console.log('[PickingTimeMonitor] Loaded', ptmRawData.length, 'records');
+
+            ptmUpdateSummaryCards();
+            ptmUpdateAllGrids();
+            ptmUpdateCharts();
+
+            if (typeof showNotification === 'function') {
+                showNotification('Loaded ' + ptmRawData.length + ' records', 'success');
+            }
+        } catch (parseError) {
+            console.error('[PickingTimeMonitor] Parse error:', parseError);
+            if (typeof showNotification === 'function') {
+                showNotification('Error parsing response: ' + parseError.message, 'error');
+            }
+        }
+    });
 };
 
 // ============================================================================
