@@ -701,3 +701,99 @@ window.ptmExportPdf = function (viewName) {
     </body></html>`);
     printWin.document.close();
 };
+
+// ============================================================================
+// API INFO MODAL
+// ============================================================================
+
+window.ptmShowApiInfo = function () {
+    const fromDate = document.getElementById('ptm-date-from').value;
+    const toDate = document.getElementById('ptm-date-to').value;
+
+    const fullUrl = fromDate && toDate
+        ? `${PTM_API}?FROM_DATE=${fromDate}&TO_DATE=${toDate}`
+        : PTM_API + '?FROM_DATE=YYYY-MM-DD&TO_DATE=YYYY-MM-DD';
+
+    const urlDisplay = document.getElementById('ptm-api-url-display');
+    if (urlDisplay) urlDisplay.textContent = fullUrl;
+
+    const fromDisplay = document.getElementById('ptm-api-from-display');
+    if (fromDisplay) fromDisplay.textContent = fromDate || '(not set)';
+
+    const toDisplay = document.getElementById('ptm-api-to-display');
+    if (toDisplay) toDisplay.textContent = toDate || '(not set)';
+
+    // Hide previous test result
+    const result = document.getElementById('ptm-api-result');
+    if (result) result.style.display = 'none';
+
+    const modal = document.getElementById('ptm-api-modal');
+    if (modal) modal.style.display = 'flex';
+};
+
+window.ptmCloseApiModal = function () {
+    const modal = document.getElementById('ptm-api-modal');
+    if (modal) modal.style.display = 'none';
+};
+
+window.ptmCopyApiUrl = function () {
+    const fromDate = document.getElementById('ptm-date-from').value;
+    const toDate = document.getElementById('ptm-date-to').value;
+    const url = fromDate && toDate
+        ? `${PTM_API}?FROM_DATE=${fromDate}&TO_DATE=${toDate}`
+        : PTM_API;
+
+    navigator.clipboard.writeText(url).then(function () {
+        if (typeof DevExpress !== 'undefined') {
+            DevExpress.ui.notify({ message: 'API URL copied to clipboard!', type: 'success', displayTime: 2000 });
+        } else {
+            if (typeof showNotification === 'function') showNotification('URL copied to clipboard!', 'success');
+        }
+    }).catch(function () {
+        alert('URL: ' + url);
+    });
+};
+
+window.ptmTestApi = function () {
+    const fromDate = document.getElementById('ptm-date-from').value || new Date().toISOString().split('T')[0];
+    const toDate = document.getElementById('ptm-date-to').value || new Date().toISOString().split('T')[0];
+    const url = `${PTM_API}?FROM_DATE=${fromDate}&TO_DATE=${toDate}`;
+
+    const resultDiv = document.getElementById('ptm-api-result');
+    const resultBox = document.getElementById('ptm-api-result-box');
+    const responseEl = document.getElementById('ptm-api-response');
+    const iconEl = document.getElementById('ptm-api-result-icon');
+    const labelEl = document.getElementById('ptm-api-result-label');
+
+    resultDiv.style.display = 'block';
+    responseEl.textContent = 'Testing API...';
+    resultBox.style.background = '#f3f4f6';
+    resultBox.style.borderColor = '#e5e7eb';
+    iconEl.className = 'fas fa-spinner fa-spin';
+    iconEl.style.color = '#667eea';
+    labelEl.textContent = 'Testing...';
+
+    fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
+        .then(function (response) {
+            return response.json().then(function (data) {
+                return { ok: response.ok, status: response.status, data: data };
+            });
+        })
+        .then(function (result) {
+            const count = result.data && result.data.data ? result.data.data.length : '?';
+            resultBox.style.background = '#f0fdf4';
+            resultBox.style.borderColor = '#bbf7d0';
+            iconEl.className = 'fas fa-check-circle';
+            iconEl.style.color = '#10b981';
+            labelEl.textContent = `API Response (HTTP ${result.status} — ${count} records)`;
+            responseEl.textContent = JSON.stringify(result.data, null, 2);
+        })
+        .catch(function (err) {
+            resultBox.style.background = '#fef2f2';
+            resultBox.style.borderColor = '#fecaca';
+            iconEl.className = 'fas fa-times-circle';
+            iconEl.style.color = '#ef4444';
+            labelEl.textContent = 'API Error';
+            responseEl.textContent = 'Error: ' + err.message;
+        });
+};

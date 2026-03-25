@@ -820,6 +820,9 @@
                             <h2 class="page-title" style="margin: 0 0 4px 0;">Picking Time Monitor</h2>
                             <p style="margin: 0; color: #6b7280; font-size: 13px;">Track and analyse picker performance — pick times, throughput and efficiency</p>
                         </div>
+                        <button class="btn btn-secondary" onclick="ptmShowApiInfo()" title="View API Endpoint" style="font-size: 12px;">
+                            <i class="fas fa-code"></i> API
+                        </button>
                     </div>
 
                     <!-- Parameters -->
@@ -1008,6 +1011,106 @@
                                 </div>
                             </div>
                             <div id="ptm-bay-grid" style="height: 580px;"></div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Picking Time Monitor — API Info Modal -->
+            <div id="ptm-api-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10000; justify-content: center; align-items: center;">
+                <div style="background: white; border-radius: 12px; width: 90%; max-width: 720px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div class="modal-header">
+                        <h3 style="margin: 0; font-size: 1.1rem;"><i class="fas fa-code" style="margin-right: 0.5rem; color: #667eea;"></i> Picking Time Monitor — API Endpoint</h3>
+                        <button class="close-modal" onclick="ptmCloseApiModal()">&times;</button>
+                    </div>
+                    <div class="modal-body" style="padding: 1.5rem;">
+
+                        <!-- Method + Base URL -->
+                        <div style="margin-bottom: 1.25rem;">
+                            <label style="font-weight: 600; color: #374151; display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-link" style="color: #667eea; margin-right: 0.5rem;"></i> GET Endpoint URL
+                            </label>
+                            <div style="background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 8px; padding: 1rem; font-family: 'Courier New', monospace; font-size: 12px; word-break: break-all; color: #1f2937;">
+                                <span id="ptm-api-url-display"></span>
+                            </div>
+                        </div>
+
+                        <!-- Parameters Table -->
+                        <div style="margin-bottom: 1.25rem;">
+                            <label style="font-weight: 600; color: #374151; display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-sliders-h" style="color: #667eea; margin-right: 0.5rem;"></i> Query Parameters
+                            </label>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                                <thead>
+                                    <tr style="background: #f9fafb;">
+                                        <th style="padding: 8px 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151;">Parameter</th>
+                                        <th style="padding: 8px 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151;">Type</th>
+                                        <th style="padding: 8px 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151;">Current Value</th>
+                                        <th style="padding: 8px 12px; text-align: left; border-bottom: 2px solid #e5e7eb; color: #374151;">Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6;"><code style="background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;">FROM_DATE</code></td>
+                                        <td style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6; color: #6b7280;">date</td>
+                                        <td style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6;" id="ptm-api-from-display">—</td>
+                                        <td style="padding: 8px 12px; border-bottom: 1px solid #f3f4f6; color: #6b7280;">Start date for pick data (YYYY-MM-DD)</td>
+                                    </tr>
+                                    <tr>
+                                        <td style="padding: 8px 12px;"><code style="background:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;">TO_DATE</code></td>
+                                        <td style="padding: 8px 12px; color: #6b7280;">date</td>
+                                        <td style="padding: 8px 12px;" id="ptm-api-to-display">—</td>
+                                        <td style="padding: 8px 12px; color: #6b7280;">End date for pick data (YYYY-MM-DD)</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Response fields -->
+                        <div style="margin-bottom: 1.25rem;">
+                            <label style="font-weight: 600; color: #374151; display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-table" style="color: #667eea; margin-right: 0.5rem;"></i> Response Fields
+                            </label>
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">source_order</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">picker_name</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">total_lines</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">trip_id</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">trip_date</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">trip_lorry</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">trip_loading_bay</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">trip_priority</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">first_pick_time</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">last_ship_time</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">total_minutes</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">instance_name</span>
+                                <span style="background:#f0fdf4;color:#166534;padding:3px 8px;border-radius:4px;font-size:11px;font-family:monospace;">trip_release_date</span>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div style="display: flex; gap: 0.5rem; margin-top: 0.5rem;">
+                            <button class="btn btn-primary" onclick="ptmCopyApiUrl()" style="flex: 1;">
+                                <i class="fas fa-copy"></i> Copy URL
+                            </button>
+                            <button class="btn btn-secondary" onclick="ptmTestApi()" style="flex: 1;">
+                                <i class="fas fa-play"></i> Test API
+                            </button>
+                            <button class="btn btn-secondary" onclick="ptmCloseApiModal()" style="flex: 1;">
+                                <i class="fas fa-times"></i> Close
+                            </button>
+                        </div>
+
+                        <!-- API Test Result -->
+                        <div id="ptm-api-result" style="display: none; margin-top: 1rem;">
+                            <label style="font-weight: 600; color: #374151; display: block; margin-bottom: 0.5rem;">
+                                <i class="fas fa-check-circle" style="color: #10b981; margin-right: 0.5rem;" id="ptm-api-result-icon"></i>
+                                <span id="ptm-api-result-label">API Response</span>
+                            </label>
+                            <div id="ptm-api-result-box" style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 1rem; max-height: 220px; overflow-y: auto;">
+                                <pre id="ptm-api-response" style="margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-word;"></pre>
+                            </div>
                         </div>
 
                     </div>
