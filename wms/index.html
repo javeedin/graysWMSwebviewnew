@@ -168,6 +168,10 @@
                 <i class="fas fa-users"></i>
                 <span>Pickers</span>
             </div>
+            <div class="menu-item" data-page="picking-time-monitor">
+                <i class="fas fa-stopwatch"></i>
+                <span>Picking Time Monitor</span>
+            </div>
             <div class="menu-item" onclick="window.location.href='picker-view.html'">
                 <i class="fas fa-eye"></i>
                 <span>Picker View</span>
@@ -805,6 +809,208 @@
                         <div id="pickers-count-display" style="color: #666; font-size: 14px;">0 pickers</div>
                     </div>
                     <div id="pickers-grid" style="height: 600px;"></div>
+                </div>
+            </div>
+
+            <!-- Picking Time Monitor Page -->
+            <div id="picking-time-monitor" class="page-content" style="display: none;">
+                <div style="margin-bottom: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
+                        <div>
+                            <h2 class="page-title" style="margin: 0 0 4px 0;">Picking Time Monitor</h2>
+                            <p style="margin: 0; color: #6b7280; font-size: 13px;">Track and analyse picker performance — pick times, throughput and efficiency</p>
+                        </div>
+                    </div>
+
+                    <!-- Parameters -->
+                    <div class="parameters-section">
+                        <div class="parameters-header" id="ptm-parameters-toggle">
+                            <h3>Query Parameters</h3>
+                            <i class="fas fa-chevron-down collapse-icon" id="ptm-collapse-icon"></i>
+                        </div>
+                        <div class="parameters-content" id="ptm-parameters-content">
+                            <div class="form-group" style="margin-bottom: 0; min-width: 160px;">
+                                <label for="ptm-date-from">From Date</label>
+                                <input type="date" id="ptm-date-from" class="form-control">
+                            </div>
+                            <div class="form-group" style="margin-bottom: 0; min-width: 160px;">
+                                <label for="ptm-date-to">To Date</label>
+                                <input type="date" id="ptm-date-to" class="form-control">
+                            </div>
+                            <button id="ptm-load-btn" class="btn" style="height: 34px;" onclick="ptmLoadData()">
+                                <i class="fas fa-sync-alt" id="ptm-load-icon"></i>
+                                <span id="ptm-load-text">Load Data</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Summary Cards -->
+                <div class="print-stats-grid" style="grid-template-columns: repeat(7, 1fr); margin-bottom: 1.5rem;">
+                    <div class="print-stat-card">
+                        <div class="print-stat-value" id="ptm-stat-orders">0</div>
+                        <div class="print-stat-label">Total Orders</div>
+                    </div>
+                    <div class="print-stat-card">
+                        <div class="print-stat-value" id="ptm-stat-pickers">0</div>
+                        <div class="print-stat-label">Pickers</div>
+                    </div>
+                    <div class="print-stat-card">
+                        <div class="print-stat-value" id="ptm-stat-lorries">0</div>
+                        <div class="print-stat-label">Lorries</div>
+                    </div>
+                    <div class="print-stat-card">
+                        <div class="print-stat-value" id="ptm-stat-lines">0</div>
+                        <div class="print-stat-label">Total Lines</div>
+                    </div>
+                    <div class="print-stat-card">
+                        <div class="print-stat-value" id="ptm-stat-avg">0 min</div>
+                        <div class="print-stat-label">Avg Pick Time</div>
+                    </div>
+                    <div class="print-stat-card" style="border-top: 3px solid #10b981;">
+                        <div class="print-stat-value" style="color: #10b981;" id="ptm-stat-fastest">0 min</div>
+                        <div class="print-stat-label">Fastest Order</div>
+                    </div>
+                    <div class="print-stat-card" style="border-top: 3px solid #ef4444;">
+                        <div class="print-stat-value" style="color: #ef4444;" id="ptm-stat-slowest">0 min</div>
+                        <div class="print-stat-label">Slowest Order</div>
+                    </div>
+                </div>
+
+                <!-- Tabs -->
+                <div class="grid-container">
+                    <div class="grid-header" style="padding: 0;">
+                        <div id="ptm-tabs" class="tab-header" style="width: 100%;">
+                            <div class="tab-item active" data-tab="summary" onclick="ptmSwitchTab('summary')">
+                                <i class="fas fa-chart-pie"></i> <span>Summary</span>
+                            </div>
+                            <div class="tab-item" data-tab="by-order" onclick="ptmSwitchTab('by-order')">
+                                <i class="fas fa-list-alt"></i> <span>By Order</span>
+                            </div>
+                            <div class="tab-item" data-tab="by-picker" onclick="ptmSwitchTab('by-picker')">
+                                <i class="fas fa-hard-hat"></i> <span>By Picker</span>
+                            </div>
+                            <div class="tab-item" data-tab="by-lorry" onclick="ptmSwitchTab('by-lorry')">
+                                <i class="fas fa-truck"></i> <span>By Lorry</span>
+                            </div>
+                            <div class="tab-item" data-tab="by-priority" onclick="ptmSwitchTab('by-priority')">
+                                <i class="fas fa-flag"></i> <span>By Priority</span>
+                            </div>
+                            <div class="tab-item" data-tab="by-bay" onclick="ptmSwitchTab('by-bay')">
+                                <i class="fas fa-warehouse"></i> <span>By Loading Bay</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="ptm-tab-content" class="tab-content">
+
+                        <!-- Summary Tab -->
+                        <div id="ptm-tab-summary" class="tab-pane active" data-tab-content="summary">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; padding: 1.5rem;">
+                                <div style="background: white; border-radius: 8px; padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
+                                    <div style="height: 290px; position: relative;">
+                                        <canvas id="ptm-chart-picker"></canvas>
+                                    </div>
+                                </div>
+                                <div style="background: white; border-radius: 8px; padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
+                                    <div style="height: 290px; position: relative;">
+                                        <canvas id="ptm-chart-lorry"></canvas>
+                                    </div>
+                                </div>
+                                <div style="background: white; border-radius: 8px; padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
+                                    <div style="height: 290px; position: relative;">
+                                        <canvas id="ptm-chart-priority"></canvas>
+                                    </div>
+                                </div>
+                                <div style="background: white; border-radius: 8px; padding: 1rem; box-shadow: 0 1px 4px rgba(0,0,0,0.08);">
+                                    <div style="height: 290px; position: relative;">
+                                        <canvas id="ptm-chart-bay"></canvas>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- Top Performers -->
+                            <div style="padding: 0 1.5rem 1.5rem;">
+                                <div style="background: white; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); overflow: hidden;">
+                                    <div style="padding: 1rem 1.5rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                                        <h3 style="margin: 0; font-size: 15px;"><i class="fas fa-trophy"></i> Top Performers</h3>
+                                        <p style="margin: 4px 0 0; font-size: 12px; opacity: 0.85;">Ranked by average pick time — fastest first</p>
+                                    </div>
+                                    <div id="ptm-top-performers">
+                                        <div style="padding: 2rem; text-align: center; color: #9ca3af; font-size: 14px;">
+                                            <i class="fas fa-chart-bar" style="font-size: 24px; display: block; margin-bottom: 8px;"></i>
+                                            Load data to see top performers
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- By Order Tab -->
+                        <div id="ptm-tab-by-order" class="tab-pane" data-tab-content="by-order">
+                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">Pick Time by Order</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 12px;" onclick="ptmExportPdf('order')">
+                                        <i class="fas fa-file-pdf"></i> PDF
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="ptm-order-grid" style="height: 580px;"></div>
+                        </div>
+
+                        <!-- By Picker Tab -->
+                        <div id="ptm-tab-by-picker" class="tab-pane" data-tab-content="by-picker">
+                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">Pick Time by Picker</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 12px;" onclick="ptmExportPdf('picker')">
+                                        <i class="fas fa-file-pdf"></i> PDF
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="ptm-picker-grid" style="height: 580px;"></div>
+                        </div>
+
+                        <!-- By Lorry Tab -->
+                        <div id="ptm-tab-by-lorry" class="tab-pane" data-tab-content="by-lorry">
+                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">Pick Time by Lorry</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 12px;" onclick="ptmExportPdf('lorry')">
+                                        <i class="fas fa-file-pdf"></i> PDF
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="ptm-lorry-grid" style="height: 580px;"></div>
+                        </div>
+
+                        <!-- By Priority Tab -->
+                        <div id="ptm-tab-by-priority" class="tab-pane" data-tab-content="by-priority">
+                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">Pick Time by Priority</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 12px;" onclick="ptmExportPdf('priority')">
+                                        <i class="fas fa-file-pdf"></i> PDF
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="ptm-priority-grid" style="height: 580px;"></div>
+                        </div>
+
+                        <!-- By Loading Bay Tab -->
+                        <div id="ptm-tab-by-bay" class="tab-pane" data-tab-content="by-bay">
+                            <div style="padding: 1rem 1.5rem; background: white; border-bottom: 2px solid #f0f0f0; display: flex; justify-content: space-between; align-items: center;">
+                                <div class="grid-title">Pick Time by Loading Bay</div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button class="btn btn-secondary" style="font-size: 12px; padding: 5px 12px;" onclick="ptmExportPdf('bay')">
+                                        <i class="fas fa-file-pdf"></i> PDF
+                                    </button>
+                                </div>
+                            </div>
+                            <div id="ptm-bay-grid" style="height: 580px;"></div>
+                        </div>
+
+                    </div>
                 </div>
             </div>
 
@@ -7222,6 +7428,7 @@
         document.write('<script src="copilot.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="vehicles.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="pickers.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="picking-time-monitor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="trip-details.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-processor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
