@@ -756,44 +756,61 @@ window.ptmCopyApiUrl = function () {
 
 window.ptmTestApi = function () {
     const fromDate = document.getElementById('ptm-date-from').value || new Date().toISOString().split('T')[0];
-    const toDate = document.getElementById('ptm-date-to').value || new Date().toISOString().split('T')[0];
-    const url = `${PTM_API}?FROM_DATE=${fromDate}&TO_DATE=${toDate}`;
+    const toDate   = document.getElementById('ptm-date-to').value   || new Date().toISOString().split('T')[0];
+    const url = PTM_API + '?FROM_DATE=' + fromDate + '&TO_DATE=' + toDate;
 
     const resultDiv = document.getElementById('ptm-api-result');
     const resultBox = document.getElementById('ptm-api-result-box');
     const responseEl = document.getElementById('ptm-api-response');
-    const iconEl = document.getElementById('ptm-api-result-icon');
+    const iconEl  = document.getElementById('ptm-api-result-icon');
     const labelEl = document.getElementById('ptm-api-result-label');
 
     resultDiv.style.display = 'block';
-    responseEl.textContent = 'Testing API...';
+    responseEl.textContent = 'Loading...';
     resultBox.style.background = '#f3f4f6';
     resultBox.style.borderColor = '#e5e7eb';
     iconEl.className = 'fas fa-spinner fa-spin';
     iconEl.style.color = '#667eea';
     labelEl.textContent = 'Testing...';
 
-    fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
-        .then(function (response) {
-            return response.json().then(function (data) {
-                return { ok: response.ok, status: response.status, data: data };
-            });
-        })
-        .then(function (result) {
-            const count = result.data && result.data.data ? result.data.data.length : '?';
-            resultBox.style.background = '#f0fdf4';
-            resultBox.style.borderColor = '#bbf7d0';
-            iconEl.className = 'fas fa-check-circle';
-            iconEl.style.color = '#10b981';
-            labelEl.textContent = `API Response (HTTP ${result.status} — ${count} records)`;
-            responseEl.textContent = JSON.stringify(result.data, null, 2);
-        })
-        .catch(function (err) {
-            resultBox.style.background = '#fef2f2';
-            resultBox.style.borderColor = '#fecaca';
-            iconEl.className = 'fas fa-times-circle';
-            iconEl.style.color = '#ef4444';
-            labelEl.textContent = 'API Error';
-            responseEl.textContent = 'Error: ' + err.message;
+    function onSuccess(jsonData) {
+        var count = jsonData && jsonData.data ? jsonData.data.length : 0;
+        resultBox.style.background = '#f0fdf4';
+        resultBox.style.borderColor = '#bbf7d0';
+        iconEl.className = 'fas fa-check-circle';
+        iconEl.style.color = '#10b981';
+        labelEl.textContent = 'API Response (' + count + ' records)';
+        responseEl.textContent = JSON.stringify(jsonData, null, 2);
+    }
+
+    function onError(msg) {
+        resultBox.style.background = '#fef2f2';
+        resultBox.style.borderColor = '#fecaca';
+        iconEl.className = 'fas fa-times-circle';
+        iconEl.style.color = '#ef4444';
+        labelEl.textContent = 'API Error';
+        responseEl.textContent = 'Error: ' + msg;
+    }
+
+    if (window.chrome && window.chrome.webview) {
+        // Use C# REST handler to avoid CORS restrictions
+        sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function (error, data) {
+            if (error) {
+                onError(error);
+            } else {
+                try {
+                    var parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                    onSuccess(parsed);
+                } catch (e) {
+                    responseEl.textContent = 'Raw response:\n' + data;
+                }
+            }
         });
+    } else {
+        // Fallback for browser dev (CORS may block)
+        fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
+            .then(function (r) { return r.json(); })
+            .then(function (data) { onSuccess(data); })
+            .catch(function (err) { onError(err.message + '\n\n(CORS may block direct browser access — use the app for full functionality.)'); });
+    }
 };
