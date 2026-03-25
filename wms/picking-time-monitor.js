@@ -200,37 +200,66 @@ function ptmUpdateAllGrids() {
 // ============================================================================
 
 function ptmAggregateByPicker() {
+    // Group by picker → lorry so we compute span per lorry then sum.
+    // This prevents idle time between lorry trips being counted.
     const groups = {};
     ptmRawData.forEach(r => {
-        const key = r.picker_name || 'Unknown';
-        if (!groups[key]) {
-            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, lorries: new Set(), first_pick: null, last_ship: null };
+        const pickerKey = r.picker_name || 'Unknown';
+        const lorryKey  = r.trip_lorry  || 'Unknown';
+        if (!groups[pickerKey]) {
+            groups[pickerKey] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, lorries: new Set(), lorrySpans: {} };
         }
-        groups[key].orders++;
-        groups[key].total_lines += r.total_lines || 0;
-        groups[key].sum_minutes += r.total_minutes || 0;
-        groups[key].min_minutes = Math.min(groups[key].min_minutes, r.total_minutes || 0);
-        groups[key].max_minutes = Math.max(groups[key].max_minutes, r.total_minutes || 0);
-        groups[key].lorries.add(r.trip_lorry);
-        // Track earliest first_pick and latest last_ship across all orders
-        if (r.first_pick_time && (!groups[key].first_pick || r.first_pick_time < groups[key].first_pick)) {
-            groups[key].first_pick = r.first_pick_time;
-        }
-        if (r.last_ship_time && (!groups[key].last_ship || r.last_ship_time > groups[key].last_ship)) {
-            groups[key].last_ship = r.last_ship_time;
+        groups[pickerKey].orders++;
+        groups[pickerKey].total_lines  += r.total_lines  || 0;
+        groups[pickerKey].sum_minutes  += r.total_minutes || 0;
+        groups[pickerKey].min_minutes   = Math.min(groups[pickerKey].min_minutes, r.total_minutes || 0);
+        groups[pickerKey].max_minutes   = Math.max(groups[pickerKey].max_minutes, r.total_minutes || 0);
+        groups[pickerKey].lorries.add(lorryKey);
+
+        // Per-lorry span: MIN(first_pick_ms) and MAX(first_pick_ms + total_minutes)
+        // Using first_pick + total_minutes as effective end avoids relying on
+        // last_ship_time which may reflect lorry departure time, not per-order ship.
+        const startMs = ptmParseTimeMs(r.first_pick_time);
+        if (startMs !== null) {
+            const endMs = startMs + (r.total_minutes || 0) * 60000;
+            if (!groups[pickerKey].lorrySpans[lorryKey]) {
+                groups[pickerKey].lorrySpans[lorryKey] = { minStart: startMs, maxEnd: endMs, firstPickVal: r.first_pick_time };
+            } else {
+                const span = groups[pickerKey].lorrySpans[lorryKey];
+                if (startMs < span.minStart) { span.minStart = startMs; span.firstPickVal = r.first_pick_time; }
+                if (endMs   > span.maxEnd)   { span.maxEnd   = endMs; }
+            }
         }
     });
+
     return Object.entries(groups).map(([key, val]) => {
         const avg = Math.round(val.sum_minutes / val.orders * 10) / 10;
-        const total_time = ptmTimeDiffMinutes(val.first_pick, val.last_ship);
+
+        // Sum spans across all lorries (excludes idle time between lorry trips)
+        let totalTimeMs = 0;
+        let overallMinStart = null;
+        let overallMaxEnd   = null;
+        Object.values(val.lorrySpans).forEach(span => {
+            totalTimeMs += (span.maxEnd - span.minStart);
+            if (overallMinStart === null || span.minStart < overallMinStart) overallMinStart = span.minStart;
+            if (overallMaxEnd   === null || span.maxEnd   > overallMaxEnd)   overallMaxEnd   = span.maxEnd;
+        });
+        const total_time = Math.round(totalTimeMs / 60000 * 10) / 10;
+
+        // Derive readable time strings from ms values
+        const firstPickStr = overallMinStart !== null ? new Date(overallMinStart).toTimeString().slice(0,5) : '-';
+        const lastShipStr  = overallMaxEnd   !== null ? new Date(overallMaxEnd).toTimeString().slice(0,5)   : '-';
+
+        console.log('[PTM Picker]', key, '| first_pick:', firstPickStr, '| last_ship:', lastShipStr, '| total_time_minutes:', total_time, '| lorries:', val.lorries.size);
+
         return {
             picker_name: key,
             total_orders: val.orders,
-            total_lines: val.total_lines,
-            first_pick: val.first_pick || '-',
-            last_ship: val.last_ship || '-',
+            total_lines:  val.total_lines,
+            first_pick:   firstPickStr,
+            last_ship:    lastShipStr,
             total_time_minutes: total_time,
-            avg_minutes: avg,
+            avg_minutes:  avg,
             fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
             slowest_order: val.max_minutes,
             lorries_count: val.lorries.size,
@@ -267,12 +296,26 @@ function ptmTimeDiffMinutes(startVal, endVal) {
     return Math.round((e - s) / 60000 * 10) / 10;
 }
 
+// Convert ms offset back to a displayable time string "HH:MM"
+// based on an anchor time string (e.g. "08:30:00" or "2026-03-25T08:30:00").
+function ptmMsToTimeStr(anchorVal, extraMs) {
+    var base = ptmParseTimeMs(anchorVal);
+    if (base === null) return '-';
+    var ms = base + extraMs;
+    var d = new Date(ms);
+    // If anchor was time-only (1970-01-01), return just "HH:MM"
+    // If anchor was full date, return "HH:MM"
+    var h = String(d.getHours()).padStart(2, '0');
+    var m = String(d.getMinutes()).padStart(2, '0');
+    return h + ':' + m;
+}
+
 function ptmAggregateByLorry() {
     const groups = {};
     ptmRawData.forEach(r => {
         const key = r.trip_lorry || 'Unknown';
         if (!groups[key]) {
-            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), trip_id: r.trip_id, loading_bay: r.trip_loading_bay, first_pick: null, last_ship: null };
+            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), trip_id: r.trip_id, loading_bay: r.trip_loading_bay, minStart: null, maxEnd: null };
         }
         groups[key].orders++;
         groups[key].total_lines += r.total_lines || 0;
@@ -280,27 +323,32 @@ function ptmAggregateByLorry() {
         groups[key].min_minutes = Math.min(groups[key].min_minutes, r.total_minutes || 0);
         groups[key].max_minutes = Math.max(groups[key].max_minutes, r.total_minutes || 0);
         groups[key].pickers.add(r.picker_name);
-        if (r.first_pick_time && (!groups[key].first_pick || r.first_pick_time < groups[key].first_pick)) {
-            groups[key].first_pick = r.first_pick_time;
-        }
-        if (r.last_ship_time && (!groups[key].last_ship || r.last_ship_time > groups[key].last_ship)) {
-            groups[key].last_ship = r.last_ship_time;
+        const startMs = ptmParseTimeMs(r.first_pick_time);
+        if (startMs !== null) {
+            const endMs = startMs + (r.total_minutes || 0) * 60000;
+            if (groups[key].minStart === null || startMs < groups[key].minStart) groups[key].minStart = startMs;
+            if (groups[key].maxEnd   === null || endMs   > groups[key].maxEnd)   groups[key].maxEnd   = endMs;
         }
     });
-    return Object.entries(groups).map(([key, val]) => ({
-        trip_lorry: key,
-        trip_id: val.trip_id,
-        loading_bay: val.loading_bay,
-        total_orders: val.orders,
-        total_lines: val.total_lines,
-        unique_pickers: val.pickers.size,
-        first_pick: val.first_pick || '-',
-        last_ship: val.last_ship || '-',
-        total_time_minutes: ptmTimeDiffMinutes(val.first_pick, val.last_ship),
-        avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
-        fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
-        slowest_order: val.max_minutes
-    })).sort((a, b) => a.total_time_minutes - b.total_time_minutes);
+    return Object.entries(groups).map(([key, val]) => {
+        const totalTime = val.minStart !== null ? Math.round((val.maxEnd - val.minStart) / 60000 * 10) / 10 : 0;
+        const firstPickStr = val.minStart !== null ? new Date(val.minStart).toTimeString().slice(0,5) : '-';
+        const lastShipStr  = val.maxEnd   !== null ? new Date(val.maxEnd).toTimeString().slice(0,5)   : '-';
+        return {
+            trip_lorry: key,
+            trip_id: val.trip_id,
+            loading_bay: val.loading_bay,
+            total_orders: val.orders,
+            total_lines: val.total_lines,
+            unique_pickers: val.pickers.size,
+            first_pick: firstPickStr,
+            last_ship:  lastShipStr,
+            total_time_minutes: totalTime,
+            avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
+            fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
+            slowest_order: val.max_minutes
+        };
+    }).sort((a, b) => a.total_time_minutes - b.total_time_minutes);
 }
 
 function ptmAggregateByPriority() {
@@ -308,7 +356,7 @@ function ptmAggregateByPriority() {
     ptmRawData.forEach(r => {
         const key = r.trip_priority || 'Unknown';
         if (!groups[key]) {
-            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), lorries: new Set(), first_pick: null, last_ship: null };
+            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), lorries: new Set(), minStart: null, maxEnd: null };
         }
         groups[key].orders++;
         groups[key].total_lines += r.total_lines || 0;
@@ -317,26 +365,29 @@ function ptmAggregateByPriority() {
         groups[key].max_minutes = Math.max(groups[key].max_minutes, r.total_minutes || 0);
         groups[key].pickers.add(r.picker_name);
         groups[key].lorries.add(r.trip_lorry);
-        if (r.first_pick_time && (!groups[key].first_pick || r.first_pick_time < groups[key].first_pick)) {
-            groups[key].first_pick = r.first_pick_time;
-        }
-        if (r.last_ship_time && (!groups[key].last_ship || r.last_ship_time > groups[key].last_ship)) {
-            groups[key].last_ship = r.last_ship_time;
+        const startMs = ptmParseTimeMs(r.first_pick_time);
+        if (startMs !== null) {
+            const endMs = startMs + (r.total_minutes || 0) * 60000;
+            if (groups[key].minStart === null || startMs < groups[key].minStart) groups[key].minStart = startMs;
+            if (groups[key].maxEnd   === null || endMs   > groups[key].maxEnd)   groups[key].maxEnd   = endMs;
         }
     });
-    return Object.entries(groups).map(([key, val]) => ({
-        trip_priority: key,
-        total_orders: val.orders,
-        total_lines: val.total_lines,
-        unique_pickers: val.pickers.size,
-        unique_lorries: val.lorries.size,
-        first_pick: val.first_pick || '-',
-        last_ship: val.last_ship || '-',
-        total_time_minutes: ptmTimeDiffMinutes(val.first_pick, val.last_ship),
-        avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
-        fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
-        slowest_order: val.max_minutes
-    })).sort((a, b) => (a.trip_priority || '').localeCompare(b.trip_priority || ''));
+    return Object.entries(groups).map(([key, val]) => {
+        const totalTime = val.minStart !== null ? Math.round((val.maxEnd - val.minStart) / 60000 * 10) / 10 : 0;
+        return {
+            trip_priority: key,
+            total_orders: val.orders,
+            total_lines: val.total_lines,
+            unique_pickers: val.pickers.size,
+            unique_lorries: val.lorries.size,
+            first_pick: val.minStart !== null ? new Date(val.minStart).toTimeString().slice(0,5) : '-',
+            last_ship:  val.maxEnd   !== null ? new Date(val.maxEnd).toTimeString().slice(0,5)   : '-',
+            total_time_minutes: totalTime,
+            avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
+            fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
+            slowest_order: val.max_minutes
+        };
+    }).sort((a, b) => (a.trip_priority || '').localeCompare(b.trip_priority || ''));
 }
 
 function ptmAggregateByBay() {
@@ -344,7 +395,7 @@ function ptmAggregateByBay() {
     ptmRawData.forEach(r => {
         const key = r.trip_loading_bay || 'Unknown';
         if (!groups[key]) {
-            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), lorries: new Set(), first_pick: null, last_ship: null };
+            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), lorries: new Set(), minStart: null, maxEnd: null };
         }
         groups[key].orders++;
         groups[key].total_lines += r.total_lines || 0;
@@ -353,26 +404,29 @@ function ptmAggregateByBay() {
         groups[key].max_minutes = Math.max(groups[key].max_minutes, r.total_minutes || 0);
         groups[key].pickers.add(r.picker_name);
         groups[key].lorries.add(r.trip_lorry);
-        if (r.first_pick_time && (!groups[key].first_pick || r.first_pick_time < groups[key].first_pick)) {
-            groups[key].first_pick = r.first_pick_time;
-        }
-        if (r.last_ship_time && (!groups[key].last_ship || r.last_ship_time > groups[key].last_ship)) {
-            groups[key].last_ship = r.last_ship_time;
+        const startMs = ptmParseTimeMs(r.first_pick_time);
+        if (startMs !== null) {
+            const endMs = startMs + (r.total_minutes || 0) * 60000;
+            if (groups[key].minStart === null || startMs < groups[key].minStart) groups[key].minStart = startMs;
+            if (groups[key].maxEnd   === null || endMs   > groups[key].maxEnd)   groups[key].maxEnd   = endMs;
         }
     });
-    return Object.entries(groups).map(([key, val]) => ({
-        trip_loading_bay: key,
-        total_orders: val.orders,
-        total_lines: val.total_lines,
-        unique_pickers: val.pickers.size,
-        unique_lorries: val.lorries.size,
-        first_pick: val.first_pick || '-',
-        last_ship: val.last_ship || '-',
-        total_time_minutes: ptmTimeDiffMinutes(val.first_pick, val.last_ship),
-        avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
-        fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
-        slowest_order: val.max_minutes
-    })).sort((a, b) => (a.trip_loading_bay || '').localeCompare(b.trip_loading_bay || ''));
+    return Object.entries(groups).map(([key, val]) => {
+        const totalTime = val.minStart !== null ? Math.round((val.maxEnd - val.minStart) / 60000 * 10) / 10 : 0;
+        return {
+            trip_loading_bay: key,
+            total_orders: val.orders,
+            total_lines: val.total_lines,
+            unique_pickers: val.pickers.size,
+            unique_lorries: val.lorries.size,
+            first_pick: val.minStart !== null ? new Date(val.minStart).toTimeString().slice(0,5) : '-',
+            last_ship:  val.maxEnd   !== null ? new Date(val.maxEnd).toTimeString().slice(0,5)   : '-',
+            total_time_minutes: totalTime,
+            avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
+            fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
+            slowest_order: val.max_minutes
+        };
+    }).sort((a, b) => (a.trip_loading_bay || '').localeCompare(b.trip_loading_bay || ''));
 }
 
 // ============================================================================
