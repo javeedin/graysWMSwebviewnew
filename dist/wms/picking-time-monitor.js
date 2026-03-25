@@ -204,29 +204,39 @@ function ptmAggregateByPicker() {
     ptmRawData.forEach(r => {
         const key = r.picker_name || 'Unknown';
         if (!groups[key]) {
-            groups[key] = { orders: 0, total_lines: 0, total_minutes: 0, min_minutes: Infinity, max_minutes: 0, lorries: new Set() };
+            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, lorries: new Set(), first_pick: null, last_ship: null };
         }
         groups[key].orders++;
         groups[key].total_lines += r.total_lines || 0;
-        groups[key].total_minutes += r.total_minutes || 0;
+        groups[key].sum_minutes += r.total_minutes || 0;
         groups[key].min_minutes = Math.min(groups[key].min_minutes, r.total_minutes || 0);
         groups[key].max_minutes = Math.max(groups[key].max_minutes, r.total_minutes || 0);
         groups[key].lorries.add(r.trip_lorry);
+        // Track earliest first_pick and latest last_ship across all orders
+        if (r.first_pick_time && (!groups[key].first_pick || r.first_pick_time < groups[key].first_pick)) {
+            groups[key].first_pick = r.first_pick_time;
+        }
+        if (r.last_ship_time && (!groups[key].last_ship || r.last_ship_time > groups[key].last_ship)) {
+            groups[key].last_ship = r.last_ship_time;
+        }
     });
     return Object.entries(groups).map(([key, val]) => {
-        const avg = Math.round(val.total_minutes / val.orders * 10) / 10;
+        const avg = Math.round(val.sum_minutes / val.orders * 10) / 10;
+        const total_time = ptmTimeDiffMinutes(val.first_pick, val.last_ship);
         return {
             picker_name: key,
             total_orders: val.orders,
             total_lines: val.total_lines,
+            first_pick: val.first_pick || '-',
+            last_ship: val.last_ship || '-',
+            total_time_minutes: total_time,
             avg_minutes: avg,
             fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
             slowest_order: val.max_minutes,
-            total_minutes: val.total_minutes,
             lorries_count: val.lorries.size,
             performance_score: ptmCalcScore(avg, val.orders, val.total_lines)
         };
-    }).sort((a, b) => a.avg_minutes - b.avg_minutes);
+    }).sort((a, b) => a.total_time_minutes - b.total_time_minutes);
 }
 
 function ptmCalcScore(avgTime, orders, lines) {
@@ -235,19 +245,47 @@ function ptmCalcScore(avgTime, orders, lines) {
     return Math.min(100, Math.round(timeScore * 0.6 + volumeScore * 0.4));
 }
 
+// Parse a time/datetime value to a comparable number (ms since epoch).
+// Handles full datetime strings ("2026-03-25T08:30:00"), time-only strings
+// ("08:30:00", "08:30"), and Oracle compact formats.
+function ptmParseTimeMs(val) {
+    if (!val) return null;
+    var d = new Date(val);
+    if (!isNaN(d.getTime())) return d.getTime();
+    // Time-only: prefix a dummy date so Date can parse it
+    d = new Date('1970-01-01T' + val);
+    if (!isNaN(d.getTime())) return d.getTime();
+    return null;
+}
+
+// Total minutes between two time values (last_ship - first_pick).
+// Returns 0 if either value is missing or unparseable.
+function ptmTimeDiffMinutes(startVal, endVal) {
+    var s = ptmParseTimeMs(startVal);
+    var e = ptmParseTimeMs(endVal);
+    if (s === null || e === null) return 0;
+    return Math.round((e - s) / 60000 * 10) / 10;
+}
+
 function ptmAggregateByLorry() {
     const groups = {};
     ptmRawData.forEach(r => {
         const key = r.trip_lorry || 'Unknown';
         if (!groups[key]) {
-            groups[key] = { orders: 0, total_lines: 0, total_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), trip_id: r.trip_id, loading_bay: r.trip_loading_bay };
+            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), trip_id: r.trip_id, loading_bay: r.trip_loading_bay, first_pick: null, last_ship: null };
         }
         groups[key].orders++;
         groups[key].total_lines += r.total_lines || 0;
-        groups[key].total_minutes += r.total_minutes || 0;
+        groups[key].sum_minutes += r.total_minutes || 0;
         groups[key].min_minutes = Math.min(groups[key].min_minutes, r.total_minutes || 0);
         groups[key].max_minutes = Math.max(groups[key].max_minutes, r.total_minutes || 0);
         groups[key].pickers.add(r.picker_name);
+        if (r.first_pick_time && (!groups[key].first_pick || r.first_pick_time < groups[key].first_pick)) {
+            groups[key].first_pick = r.first_pick_time;
+        }
+        if (r.last_ship_time && (!groups[key].last_ship || r.last_ship_time > groups[key].last_ship)) {
+            groups[key].last_ship = r.last_ship_time;
+        }
     });
     return Object.entries(groups).map(([key, val]) => ({
         trip_lorry: key,
@@ -256,10 +294,13 @@ function ptmAggregateByLorry() {
         total_orders: val.orders,
         total_lines: val.total_lines,
         unique_pickers: val.pickers.size,
-        avg_minutes: Math.round(val.total_minutes / val.orders * 10) / 10,
+        first_pick: val.first_pick || '-',
+        last_ship: val.last_ship || '-',
+        total_time_minutes: ptmTimeDiffMinutes(val.first_pick, val.last_ship),
+        avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
         fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
         slowest_order: val.max_minutes
-    })).sort((a, b) => a.avg_minutes - b.avg_minutes);
+    })).sort((a, b) => a.total_time_minutes - b.total_time_minutes);
 }
 
 function ptmAggregateByPriority() {
@@ -267,15 +308,21 @@ function ptmAggregateByPriority() {
     ptmRawData.forEach(r => {
         const key = r.trip_priority || 'Unknown';
         if (!groups[key]) {
-            groups[key] = { orders: 0, total_lines: 0, total_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), lorries: new Set() };
+            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), lorries: new Set(), first_pick: null, last_ship: null };
         }
         groups[key].orders++;
         groups[key].total_lines += r.total_lines || 0;
-        groups[key].total_minutes += r.total_minutes || 0;
+        groups[key].sum_minutes += r.total_minutes || 0;
         groups[key].min_minutes = Math.min(groups[key].min_minutes, r.total_minutes || 0);
         groups[key].max_minutes = Math.max(groups[key].max_minutes, r.total_minutes || 0);
         groups[key].pickers.add(r.picker_name);
         groups[key].lorries.add(r.trip_lorry);
+        if (r.first_pick_time && (!groups[key].first_pick || r.first_pick_time < groups[key].first_pick)) {
+            groups[key].first_pick = r.first_pick_time;
+        }
+        if (r.last_ship_time && (!groups[key].last_ship || r.last_ship_time > groups[key].last_ship)) {
+            groups[key].last_ship = r.last_ship_time;
+        }
     });
     return Object.entries(groups).map(([key, val]) => ({
         trip_priority: key,
@@ -283,7 +330,10 @@ function ptmAggregateByPriority() {
         total_lines: val.total_lines,
         unique_pickers: val.pickers.size,
         unique_lorries: val.lorries.size,
-        avg_minutes: Math.round(val.total_minutes / val.orders * 10) / 10,
+        first_pick: val.first_pick || '-',
+        last_ship: val.last_ship || '-',
+        total_time_minutes: ptmTimeDiffMinutes(val.first_pick, val.last_ship),
+        avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
         fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
         slowest_order: val.max_minutes
     })).sort((a, b) => (a.trip_priority || '').localeCompare(b.trip_priority || ''));
@@ -294,15 +344,21 @@ function ptmAggregateByBay() {
     ptmRawData.forEach(r => {
         const key = r.trip_loading_bay || 'Unknown';
         if (!groups[key]) {
-            groups[key] = { orders: 0, total_lines: 0, total_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), lorries: new Set() };
+            groups[key] = { orders: 0, total_lines: 0, sum_minutes: 0, min_minutes: Infinity, max_minutes: 0, pickers: new Set(), lorries: new Set(), first_pick: null, last_ship: null };
         }
         groups[key].orders++;
         groups[key].total_lines += r.total_lines || 0;
-        groups[key].total_minutes += r.total_minutes || 0;
+        groups[key].sum_minutes += r.total_minutes || 0;
         groups[key].min_minutes = Math.min(groups[key].min_minutes, r.total_minutes || 0);
         groups[key].max_minutes = Math.max(groups[key].max_minutes, r.total_minutes || 0);
         groups[key].pickers.add(r.picker_name);
         groups[key].lorries.add(r.trip_lorry);
+        if (r.first_pick_time && (!groups[key].first_pick || r.first_pick_time < groups[key].first_pick)) {
+            groups[key].first_pick = r.first_pick_time;
+        }
+        if (r.last_ship_time && (!groups[key].last_ship || r.last_ship_time > groups[key].last_ship)) {
+            groups[key].last_ship = r.last_ship_time;
+        }
     });
     return Object.entries(groups).map(([key, val]) => ({
         trip_loading_bay: key,
@@ -310,10 +366,13 @@ function ptmAggregateByBay() {
         total_lines: val.total_lines,
         unique_pickers: val.pickers.size,
         unique_lorries: val.lorries.size,
-        avg_minutes: Math.round(val.total_minutes / val.orders * 10) / 10,
+        first_pick: val.first_pick || '-',
+        last_ship: val.last_ship || '-',
+        total_time_minutes: ptmTimeDiffMinutes(val.first_pick, val.last_ship),
+        avg_minutes: Math.round(val.sum_minutes / val.orders * 10) / 10,
         fastest_order: val.min_minutes === Infinity ? 0 : val.min_minutes,
         slowest_order: val.max_minutes
-    })).sort((a, b) => a.trip_loading_bay.localeCompare(b.trip_loading_bay));
+    })).sort((a, b) => (a.trip_loading_bay || '').localeCompare(b.trip_loading_bay || ''));
 }
 
 // ============================================================================
@@ -410,10 +469,12 @@ function ptmInitPickerGrid() {
             { dataField: 'picker_name', caption: 'Picker Name', width: 200, fixed: true },
             { dataField: 'total_orders', caption: 'Total Orders', width: 120, dataType: 'number' },
             { dataField: 'total_lines', caption: 'Total Lines', width: 110, dataType: 'number' },
-            { dataField: 'avg_minutes', caption: 'Avg Time (min)', width: 140, dataType: 'number', sortOrder: 'asc', cellTemplate: ptmMinutesCellTemplate },
+            { dataField: 'first_pick', caption: 'First Pick', width: 110 },
+            { dataField: 'last_ship', caption: 'Last Ship', width: 110 },
+            { dataField: 'total_time_minutes', caption: 'Total Time (min)', width: 150, dataType: 'number', sortOrder: 'asc', cellTemplate: ptmMinutesCellTemplate },
+            { dataField: 'avg_minutes', caption: 'Avg/Order (min)', width: 140, dataType: 'number', cellTemplate: ptmMinutesCellTemplate },
             { dataField: 'fastest_order', caption: 'Fastest (min)', width: 130, dataType: 'number' },
             { dataField: 'slowest_order', caption: 'Slowest (min)', width: 130, dataType: 'number' },
-            { dataField: 'total_minutes', caption: 'Total Min', width: 110, dataType: 'number' },
             { dataField: 'lorries_count', caption: 'Lorries', width: 90, dataType: 'number' },
             {
                 dataField: 'performance_score', caption: 'Score', width: 110, dataType: 'number',
@@ -430,6 +491,7 @@ function ptmInitPickerGrid() {
             totalItems: [
                 { column: 'total_orders', summaryType: 'sum', displayFormat: 'Total: {0}' },
                 { column: 'total_lines', summaryType: 'sum', displayFormat: 'Total: {0}' },
+                { column: 'total_time_minutes', summaryType: 'avg', valueFormat: '#0.0', displayFormat: 'Avg: {0} min' },
                 { column: 'avg_minutes', summaryType: 'avg', valueFormat: '#0.0', displayFormat: 'Avg: {0} min' }
             ]
         }
@@ -447,7 +509,10 @@ function ptmInitLorryGrid() {
             { dataField: 'total_orders', caption: 'Total Orders', width: 120, dataType: 'number' },
             { dataField: 'total_lines', caption: 'Total Lines', width: 110, dataType: 'number' },
             { dataField: 'unique_pickers', caption: 'Pickers', width: 90, dataType: 'number' },
-            { dataField: 'avg_minutes', caption: 'Avg Time (min)', width: 140, dataType: 'number', sortOrder: 'asc', cellTemplate: ptmMinutesCellTemplate },
+            { dataField: 'first_pick', caption: 'First Pick', width: 110 },
+            { dataField: 'last_ship', caption: 'Last Ship', width: 110 },
+            { dataField: 'total_time_minutes', caption: 'Total Time (min)', width: 150, dataType: 'number', sortOrder: 'asc', cellTemplate: ptmMinutesCellTemplate },
+            { dataField: 'avg_minutes', caption: 'Avg/Order (min)', width: 140, dataType: 'number', cellTemplate: ptmMinutesCellTemplate },
             { dataField: 'fastest_order', caption: 'Fastest (min)', width: 130, dataType: 'number' },
             { dataField: 'slowest_order', caption: 'Slowest (min)', width: 130, dataType: 'number' }
         ]
@@ -464,7 +529,10 @@ function ptmInitPriorityGrid() {
             { dataField: 'total_lines', caption: 'Total Lines', width: 110, dataType: 'number' },
             { dataField: 'unique_pickers', caption: 'Pickers', width: 90, dataType: 'number' },
             { dataField: 'unique_lorries', caption: 'Lorries', width: 90, dataType: 'number' },
-            { dataField: 'avg_minutes', caption: 'Avg Time (min)', width: 140, dataType: 'number', cellTemplate: ptmMinutesCellTemplate },
+            { dataField: 'first_pick', caption: 'First Pick', width: 110 },
+            { dataField: 'last_ship', caption: 'Last Ship', width: 110 },
+            { dataField: 'total_time_minutes', caption: 'Total Time (min)', width: 150, dataType: 'number', cellTemplate: ptmMinutesCellTemplate },
+            { dataField: 'avg_minutes', caption: 'Avg/Order (min)', width: 140, dataType: 'number', cellTemplate: ptmMinutesCellTemplate },
             { dataField: 'fastest_order', caption: 'Fastest (min)', width: 130, dataType: 'number' },
             { dataField: 'slowest_order', caption: 'Slowest (min)', width: 130, dataType: 'number' }
         ]
@@ -481,7 +549,10 @@ function ptmInitBayGrid() {
             { dataField: 'total_lines', caption: 'Total Lines', width: 110, dataType: 'number' },
             { dataField: 'unique_pickers', caption: 'Pickers', width: 90, dataType: 'number' },
             { dataField: 'unique_lorries', caption: 'Lorries', width: 90, dataType: 'number' },
-            { dataField: 'avg_minutes', caption: 'Avg Time (min)', width: 140, dataType: 'number', cellTemplate: ptmMinutesCellTemplate },
+            { dataField: 'first_pick', caption: 'First Pick', width: 110 },
+            { dataField: 'last_ship', caption: 'Last Ship', width: 110 },
+            { dataField: 'total_time_minutes', caption: 'Total Time (min)', width: 150, dataType: 'number', cellTemplate: ptmMinutesCellTemplate },
+            { dataField: 'avg_minutes', caption: 'Avg/Order (min)', width: 140, dataType: 'number', cellTemplate: ptmMinutesCellTemplate },
             { dataField: 'fastest_order', caption: 'Fastest (min)', width: 130, dataType: 'number' },
             { dataField: 'slowest_order', caption: 'Slowest (min)', width: 130, dataType: 'number' }
         ]
@@ -518,10 +589,10 @@ function ptmUpdatePickerChart() {
             labels: data.map(p => p.picker_name),
             datasets: [
                 {
-                    label: 'Avg Pick Time (min)',
-                    data: data.map(p => p.avg_minutes),
-                    backgroundColor: data.map(p => p.avg_minutes <= 15 ? 'rgba(5,150,105,0.75)' : p.avg_minutes <= 30 ? 'rgba(217,119,6,0.75)' : 'rgba(220,38,38,0.75)'),
-                    borderColor: data.map(p => p.avg_minutes <= 15 ? '#059669' : p.avg_minutes <= 30 ? '#d97706' : '#dc2626'),
+                    label: 'Total Time (min)',
+                    data: data.map(p => p.total_time_minutes),
+                    backgroundColor: data.map(p => p.total_time_minutes <= 30 ? 'rgba(5,150,105,0.75)' : p.total_time_minutes <= 60 ? 'rgba(217,119,6,0.75)' : 'rgba(220,38,38,0.75)'),
+                    borderColor: data.map(p => p.total_time_minutes <= 30 ? '#059669' : p.total_time_minutes <= 60 ? '#d97706' : '#dc2626'),
                     borderWidth: 1,
                     yAxisID: 'y'
                 },
@@ -541,11 +612,11 @@ function ptmUpdatePickerChart() {
             responsive: true, maintainAspectRatio: false,
             plugins: {
                 legend: { position: 'top' },
-                title: { display: true, text: 'Picker Performance — Top 10 (fastest first)' }
+                title: { display: true, text: 'Picker Performance — Top 10 (fastest total time first)' }
             },
             scales: {
                 x: { ticks: { maxRotation: 40, font: { size: 10 } } },
-                y: { type: 'linear', position: 'left', title: { display: true, text: 'Avg Time (min)' } },
+                y: { type: 'linear', position: 'left', title: { display: true, text: 'Total Time (min)' } },
                 y1: { type: 'linear', position: 'right', title: { display: true, text: 'Total Orders' }, grid: { drawOnChartArea: false } }
             }
         }
@@ -562,13 +633,13 @@ function ptmUpdateLorryChart() {
         data: {
             labels: data.map(l => l.trip_lorry),
             datasets: [
-                { label: 'Avg Time (min)', data: data.map(l => l.avg_minutes), backgroundColor: 'rgba(102,126,234,0.75)', borderColor: '#667eea', borderWidth: 1 },
+                { label: 'Total Time (min)', data: data.map(l => l.total_time_minutes), backgroundColor: 'rgba(102,126,234,0.75)', borderColor: '#667eea', borderWidth: 1 },
                 { label: 'Total Orders', data: data.map(l => l.total_orders), backgroundColor: 'rgba(16,185,129,0.75)', borderColor: '#10b981', borderWidth: 1 }
             ]
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Performance by Lorry' } },
+            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Total Picking Time by Lorry (last ship − first pick)' } },
             scales: { x: { ticks: { maxRotation: 40, font: { size: 10 } } } }
         }
     });
@@ -600,7 +671,7 @@ function ptmUpdatePriorityChart() {
                     callbacks: {
                         label: function (ctx) {
                             const d = data[ctx.dataIndex];
-                            return ['Orders: ' + d.total_orders, 'Avg Time: ' + d.avg_minutes + ' min'];
+                            return ['Orders: ' + d.total_orders, 'Total Time: ' + d.total_time_minutes + ' min', 'Avg/Order: ' + d.avg_minutes + ' min'];
                         }
                     }
                 }
@@ -619,13 +690,13 @@ function ptmUpdateBayChart() {
         data: {
             labels: data.map(b => b.trip_loading_bay),
             datasets: [
-                { label: 'Avg Time (min)', data: data.map(b => b.avg_minutes), backgroundColor: 'rgba(139,92,246,0.75)', borderColor: '#8b5cf6', borderWidth: 1 },
+                { label: 'Total Time (min)', data: data.map(b => b.total_time_minutes), backgroundColor: 'rgba(139,92,246,0.75)', borderColor: '#8b5cf6', borderWidth: 1 },
                 { label: 'Total Orders', data: data.map(b => b.total_orders), backgroundColor: 'rgba(251,191,36,0.75)', borderColor: '#fbbf24', borderWidth: 1 }
             ]
         },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Performance by Loading Bay' } }
+            plugins: { legend: { position: 'top' }, title: { display: true, text: 'Total Picking Time by Loading Bay (last ship − first pick)' } }
         }
     });
 }
@@ -644,7 +715,7 @@ function ptmUpdateTopPerformers() {
     }
     const medals = ['🥇', '🥈', '🥉', '4.', '5.'];
     container.innerHTML = top5.map((p, i) => {
-        const fg = p.avg_minutes <= 15 ? '#059669' : p.avg_minutes <= 30 ? '#d97706' : '#dc2626';
+        const fg = p.total_time_minutes <= 30 ? '#059669' : p.total_time_minutes <= 60 ? '#d97706' : '#dc2626';
         const scoreFg = p.performance_score >= 70 ? '#059669' : p.performance_score >= 40 ? '#d97706' : '#dc2626';
         return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-bottom:1px solid #f3f4f6;${i === 0 ? 'background:#f0fdf4;' : ''}">
             <div style="display:flex;align-items:center;gap:12px;">
@@ -652,10 +723,12 @@ function ptmUpdateTopPerformers() {
                 <div>
                     <div style="font-weight:600;color:#1f2937;font-size:14px;">${p.picker_name}</div>
                     <div style="font-size:12px;color:#6b7280;">${p.total_orders} orders &bull; ${p.total_lines} lines &bull; ${p.lorries_count} lorr${p.lorries_count === 1 ? 'y' : 'ies'}</div>
+                    <div style="font-size:11px;color:#9ca3af;">${p.first_pick} &rarr; ${p.last_ship}</div>
                 </div>
             </div>
             <div style="text-align:right;">
-                <div style="font-weight:700;color:${fg};font-size:15px;">${p.avg_minutes} min avg</div>
+                <div style="font-weight:700;color:${fg};font-size:15px;">${p.total_time_minutes} min total</div>
+                <div style="font-size:11px;color:#6b7280;">Avg/order: ${p.avg_minutes} min</div>
                 <div style="font-size:11px;color:${scoreFg};font-weight:600;">Score: ${p.performance_score}/100</div>
             </div>
         </div>`;
