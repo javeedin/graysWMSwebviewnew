@@ -291,6 +291,22 @@ function initializePstGrid(data) {
                 { dataField: 'total_items', caption: 'Items', width: 70, dataType: 'number', alignment: 'center' },
                 { dataField: 'transaction_status', caption: 'Status', width: 100 },
                 {
+                    dataField: 'order_volume',
+                    caption: 'Volume (m³)',
+                    width: 110,
+                    dataType: 'number',
+                    alignment: 'right',
+                    format: { type: 'fixedPoint', precision: 3 },
+                    cellTemplate: function(cellElement, cellInfo) {
+                        const val = cellInfo.value;
+                        if (val === null || val === undefined || val === '') {
+                            $(cellElement).html('<span style="color: #94a3b8; font-size: 10px;">—</span>');
+                        } else {
+                            $(cellElement).html(`<span style="color: #0369a1; font-weight: 600;">${parseFloat(val).toFixed(3)}</span>`);
+                        }
+                    }
+                },
+                {
                     caption: 'Actions',
                     width: 120,
                     alignment: 'center',
@@ -991,6 +1007,130 @@ function exportPstToExcel() {
         alert('Error exporting to Excel: ' + error.message);
     }
 }
+
+// ============================================================================
+// GET VOLUME DETAILS
+// ============================================================================
+
+// Fetch volume for selected orders using TRIPMANAGEMENT/fetchordervolume API
+function getVolumeForSelected() {
+    let selectedOrders = [];
+
+    if (pstGridInstance) {
+        selectedOrders = pstGridInstance.getSelectedRowsData();
+    } else {
+        const selectedIndices = Array.from(pstSelectedRows);
+        selectedOrders = selectedIndices.map(idx => pstData[parseInt(idx)]).filter(Boolean);
+    }
+
+    if (selectedOrders.length === 0) {
+        alert('Please select at least one order to fetch volume details.');
+        return;
+    }
+
+    // Deduplicate by trx_number
+    const seen = new Set();
+    const uniqueOrders = selectedOrders.filter(o => {
+        const key = o.trx_number;
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    pstLog(`Fetching volume for ${uniqueOrders.length} order(s)`, 'info');
+
+    const instance = window.currentTripInstance || localStorage.getItem('fusionInstance') || localStorage.getItem('instanceName') || 'PROD';
+
+    // Show progress bar
+    const progressEl = document.getElementById('pst-volume-progress');
+    const progressBar = document.getElementById('pst-volume-progress-bar');
+    const progressText = document.getElementById('pst-volume-progress-text');
+    const progressCount = document.getElementById('pst-volume-progress-count');
+    const volumeIcon = document.getElementById('pst-volume-icon');
+
+    if (progressEl) progressEl.style.display = 'block';
+    if (volumeIcon) volumeIcon.className = 'fas fa-spinner fa-spin';
+
+    let completed = 0;
+
+    function updateProgress() {
+        completed++;
+        const pct = Math.round((completed / uniqueOrders.length) * 100);
+        if (progressBar) progressBar.style.width = pct + '%';
+        if (progressCount) progressCount.textContent = `${completed} / ${uniqueOrders.length}`;
+        if (progressText) progressText.textContent = completed < uniqueOrders.length
+            ? `Fetching volume... (${uniqueOrders.length - completed} remaining)`
+            : 'Volume fetch complete!';
+
+        if (completed === uniqueOrders.length) {
+            if (volumeIcon) volumeIcon.className = 'fas fa-cube';
+            // Refresh grid to show updated volume values
+            if (pstGridInstance) {
+                pstGridInstance.option('dataSource', pstData);
+                pstGridInstance.refresh();
+            }
+            pstLog(`Volume fetch complete for ${uniqueOrders.length} order(s)`, 'success');
+            // Hide progress after 3 seconds
+            setTimeout(() => {
+                if (progressEl) progressEl.style.display = 'none';
+                if (progressBar) progressBar.style.width = '0%';
+            }, 3000);
+        }
+    }
+
+    // Fetch each order sequentially to avoid overwhelming the API
+    function fetchNext(index) {
+        if (index >= uniqueOrders.length) return;
+
+        const order = uniqueOrders[index];
+        const orderNumber = order.trx_number;
+
+        if (progressText) progressText.textContent = `Fetching volume for ${orderNumber}...`;
+
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume?p_instance_name=${encodeURIComponent(instance)}&source_order_number=${encodeURIComponent(orderNumber)}`;
+
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: apiUrl,
+            body: JSON.stringify({})
+        }, function(error, data) {
+            if (!error && data) {
+                try {
+                    const resp = typeof data === 'string' ? JSON.parse(data) : data;
+                    // Extract volume — API may return ORDER_VOLUME, ORDER_VOLUME1, or items array
+                    let volumeVal = null;
+                    if (resp.items && resp.items.length > 0) {
+                        const r = resp.items[0];
+                        volumeVal = r.ORDER_VOLUME1 ?? r.ORDER_VOLUME ?? r.order_volume ?? r.total_volume ?? null;
+                    } else {
+                        volumeVal = resp.ORDER_VOLUME1 ?? resp.ORDER_VOLUME ?? resp.order_volume ?? resp.total_volume ?? null;
+                    }
+
+                    // Write volume back to all matching rows in pstData
+                    pstData.forEach(row => {
+                        if (row.trx_number === orderNumber) {
+                            row.order_volume = volumeVal;
+                        }
+                    });
+
+                    pstLog(`Volume for ${orderNumber}: ${volumeVal}`, 'info');
+                } catch (e) {
+                    pstLog(`Parse error for ${orderNumber}: ${e.message}`, 'error');
+                }
+            } else {
+                pstLog(`Error fetching volume for ${orderNumber}: ${error}`, 'error');
+            }
+
+            updateProgress();
+            // Fetch next order after short delay
+            setTimeout(() => fetchNext(index + 1), 200);
+        });
+    }
+
+    fetchNext(0);
+}
+
+window.getVolumeForSelected = getVolumeForSelected;
 
 // Expose functions globally
 window.assignPickerForPst = assignPickerForPst;

@@ -2877,6 +2877,9 @@
 
                     <!-- Action Buttons -->
                     <div style="background: white; border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08); display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;">
+                        <button onclick="getVolumeForSelected()" style="background: #0ea5e9; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;" title="Fetch volume from Oracle for selected orders">
+                            <i class="fas fa-cube" id="pst-volume-icon"></i> Get Volume Details
+                        </button>
                         <button onclick="assignPickerForPst()" style="background: #8b5cf6; color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
                             <i class="fas fa-user-check"></i> Assign Picker
                         </button>
@@ -2897,6 +2900,17 @@
                         </button>
                         <div style="margin-left: auto; font-size: 11px; color: #64748b;">
                             <span id="pst-last-fetch">Last fetched: Never</span>
+                        </div>
+                    </div>
+
+                    <!-- Volume Fetch Progress (hidden by default) -->
+                    <div id="pst-volume-progress" style="display: none; background: white; border-radius: 10px; padding: 0.75rem 1rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span style="font-size: 11px; font-weight: 600; color: #0369a1;" id="pst-volume-progress-text">Fetching volume...</span>
+                            <span style="font-size: 11px; color: #64748b;" id="pst-volume-progress-count"></span>
+                        </div>
+                        <div style="background: #e2e8f0; border-radius: 4px; height: 6px; overflow: hidden;">
+                            <div id="pst-volume-progress-bar" style="background: linear-gradient(90deg, #0ea5e9, #0284c7); height: 100%; width: 0%; transition: width 0.3s;"></div>
                         </div>
                     </div>
 
