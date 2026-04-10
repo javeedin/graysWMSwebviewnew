@@ -8,7 +8,7 @@ let updateConfig = {
     autoUpdateHTML: true,
     autoUpdateEXE: false,
     checkIntervalMinutes: 60,
-currentVersion: '1.0.2'
+currentVersion: '1.0.3'
 };
 
 let updateCheckTimer = null;
