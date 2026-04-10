@@ -4,10 +4,13 @@
 // View and manage pending S2V transactions with DevExpress Grid
 // ============================================================================
 
+const PST_ORDER_VOLUME_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume';
+
 // Global state
 let pstData = [];
 let pstSelectedRows = new Set();
 let pstGridInstance = null;
+let pstVolumeCancelRequested = false;
 
 // Initialize page on load
 document.addEventListener('DOMContentLoaded', function() {
@@ -292,6 +295,22 @@ function initializePstGrid(data) {
                 { dataField: 'total_items', caption: 'Items', width: 70, dataType: 'number', alignment: 'center' },
                 { dataField: 'transaction_status', caption: 'Status', width: 100 },
                 {
+                    dataField: 'order_volume',
+                    caption: 'Volume',
+                    width: 90,
+                    dataType: 'number',
+                    alignment: 'center',
+                    format: { type: 'fixedPoint', precision: 3 },
+                    cellTemplate: function(cellElement, cellInfo) {
+                        const val = cellInfo.value;
+                        if (val !== null && val !== undefined) {
+                            $(cellElement).html(`<span style="font-weight:600; color:#7c3aed;">${parseFloat(val).toFixed(3)}</span>`);
+                        } else {
+                            $(cellElement).html(`<span style="color:#94a3b8; font-size:10px;">—</span>`);
+                        }
+                    }
+                },
+                {
                     caption: 'Actions',
                     width: 120,
                     alignment: 'center',
@@ -354,6 +373,7 @@ function renderFallbackTable(data) {
                         <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">To</th>
                         <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #e2e8f0;">Items</th>
                         <th style="padding: 0.6rem; text-align: left; border-bottom: 2px solid #e2e8f0;">Status</th>
+                        <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #e2e8f0;">Volume</th>
                         <th style="padding: 0.6rem; text-align: center; border-bottom: 2px solid #e2e8f0;">Actions</th>
                     </tr>
                 </thead>
@@ -377,6 +397,7 @@ function renderFallbackTable(data) {
                 <td style="padding: 0.5rem; color: #475569;">${item.dest_sub_inv || ''}</td>
                 <td style="padding: 0.5rem; text-align: center; font-weight: 700; color: #1e293b;">${item.total_items || 0}</td>
                 <td style="padding: 0.5rem; color: #475569;">${item.transaction_status || ''}</td>
+                <td style="padding: 0.5rem; text-align: center; font-weight: 600; color: #7c3aed;">${item.order_volume !== null && item.order_volume !== undefined ? parseFloat(item.order_volume).toFixed(3) : '<span style="color:#94a3b8;font-size:10px;">—</span>'}</td>
                 <td style="padding: 0.5rem; text-align: center;">
                     <button onclick="addSingleToTrip(pstData[${index}])" style="background: #10b981; color: white; border: none; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 10px; margin-right: 4px;" title="Add to Trip">
                         <i class="fas fa-plus"></i>
@@ -509,6 +530,157 @@ function openStoreTransactionsFromPst(rowData) {
 
 // Expose function globally
 window.openStoreTransactionsFromPst = openStoreTransactionsFromPst;
+
+// ============================================================================
+// GET ORDER VOLUME FOR PST
+// ============================================================================
+
+window.getPstOrderVolume = async function() {
+    if (!pstData || pstData.length === 0) {
+        alert('Please load data first.');
+        return;
+    }
+
+    let selectedRows = [];
+    if (pstGridInstance) {
+        selectedRows = pstGridInstance.getSelectedRowsData();
+    } else {
+        const selectedIndices = Array.from(pstSelectedRows);
+        selectedRows = selectedIndices.map(idx => pstData[parseInt(idx)]).filter(Boolean);
+    }
+
+    if (selectedRows.length === 0) {
+        alert('Please select at least one row to fetch volume data.');
+        return;
+    }
+
+    const total = selectedRows.length;
+    const instance = document.getElementById('current-instance-display')?.textContent?.trim()
+        || localStorage.getItem('fusionInstance')
+        || 'PROD';
+
+    const btn          = document.getElementById('pst-get-volume-btn');
+    const btnIcon      = document.getElementById('pst-volume-btn-icon');
+    const cancelBtn    = document.getElementById('pst-volume-cancel-btn');
+    const progressBar  = document.getElementById('pst-volume-progress');
+    const progressText = document.getElementById('pst-volume-progress-text');
+    const progressIcon = document.getElementById('pst-volume-progress-icon');
+
+    pstVolumeCancelRequested = false;
+    if (btn) btn.disabled = true;
+    if (btnIcon) btnIcon.className = 'fas fa-spinner fa-spin';
+    if (cancelBtn) { cancelBtn.disabled = false; cancelBtn.style.display = 'inline-flex'; }
+    if (progressBar) {
+        progressBar.style.display = 'inline-flex';
+        progressBar.style.color = '#7c3aed';
+        progressBar.style.background = '#f3e8ff';
+        progressBar.style.borderColor = '#d8b4fe';
+    }
+    if (progressText) progressText.textContent = `0 / ${total} fetched`;
+    if (progressIcon) progressIcon.className = 'fas fa-spinner fa-spin';
+
+    pstLog(`Fetching volume for ${total} orders...`);
+
+    let successCount = 0;
+    let failCount = 0;
+    let cancelled = false;
+
+    for (const row of selectedRows) {
+        if (pstVolumeCancelRequested) {
+            cancelled = true;
+            break;
+        }
+
+        const orderNumber = row.trx_number;
+        if (!orderNumber) { failCount++; continue; }
+
+        const apiUrl = `${PST_ORDER_VOLUME_API}?p_instance_name=${encodeURIComponent(instance)}&source_order_number=${encodeURIComponent(orderNumber)}&p_trip_id=`;
+
+        try {
+            const volumeData = await pstCallOrderVolumeApi(apiUrl);
+            if (volumeData) {
+                const dataRow = pstData.find(r => r.trx_number === orderNumber);
+                if (dataRow) {
+                    dataRow.order_volume = volumeData.order_volume ?? null;
+                }
+                successCount++;
+            } else {
+                failCount++;
+            }
+        } catch (err) {
+            pstLog(`Volume fetch error for ${orderNumber}: ${err}`, 'error');
+            failCount++;
+        }
+
+        const done = successCount + failCount;
+        if (progressText) {
+            progressText.textContent = failCount > 0
+                ? `${done} / ${total} fetched  (${failCount} failed)`
+                : `${done} / ${total} fetched`;
+        }
+    }
+
+    // Refresh grid
+    if (pstGridInstance) {
+        pstGridInstance.option('dataSource', [...pstData]);
+        pstGridInstance.refresh();
+    }
+
+    if (btn) btn.disabled = false;
+    if (btnIcon) btnIcon.className = 'fas fa-cube';
+    if (cancelBtn) cancelBtn.style.display = 'none';
+
+    if (cancelled) {
+        if (progressIcon) progressIcon.className = 'fas fa-ban';
+        if (progressBar) { progressBar.style.color = '#6b7280'; progressBar.style.background = '#f3f4f6'; progressBar.style.borderColor = '#d1d5db'; }
+        if (progressText) progressText.textContent = `Cancelled — ${successCount} / ${total} fetched`;
+    } else if (failCount > 0) {
+        if (progressIcon) progressIcon.className = 'fas fa-exclamation-triangle';
+        if (progressBar) { progressBar.style.color = '#b45309'; progressBar.style.background = '#fef3c7'; progressBar.style.borderColor = '#fcd34d'; }
+        if (progressText) progressText.textContent = `${successCount} / ${total} fetched  (${failCount} failed)`;
+    } else {
+        if (progressIcon) progressIcon.className = 'fas fa-check-circle';
+        if (progressBar) { progressBar.style.color = '#059669'; progressBar.style.background = '#d1fae5'; progressBar.style.borderColor = '#6ee7b7'; }
+        if (progressText) progressText.textContent = `${successCount} / ${total} fetched`;
+    }
+
+    pstLog(`Volume fetch done: ${successCount} ok, ${failCount} failed${cancelled ? ', cancelled' : ''}`);
+};
+
+window.cancelPstOrderVolume = function() {
+    pstVolumeCancelRequested = true;
+    const cancelBtn = document.getElementById('pst-volume-cancel-btn');
+    if (cancelBtn) cancelBtn.disabled = true;
+    pstLog('Volume fetch cancel requested');
+};
+
+function pstCallOrderVolumeApi(apiUrl) {
+    return new Promise(function(resolve, reject) {
+        if (typeof sendMessageToCSharp === 'function') {
+            sendMessageToCSharp({
+                action: 'executePost',
+                fullUrl: apiUrl,
+                body: '{}'
+            }, function(error, data) {
+                if (error) {
+                    reject(error);
+                } else {
+                    try {
+                        const json = typeof data === 'string' ? JSON.parse(data) : data;
+                        resolve(json && json.status === 'success' ? json : null);
+                    } catch (e) {
+                        reject(e);
+                    }
+                }
+            });
+        } else {
+            fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+                .then(r => r.json())
+                .then(json => resolve(json && json.status === 'success' ? json : null))
+                .catch(reject);
+        }
+    });
+}
 
 // ============================================================================
 // ASSIGN PICKER FOR PST
