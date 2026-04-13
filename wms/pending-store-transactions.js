@@ -1105,7 +1105,8 @@ function exportPstToExcel() {
             { header: 'Dest Org', key: 'dest_org_code', width: 12 },
             { header: 'To', key: 'dest_sub_inv', width: 15 },
             { header: 'Items', key: 'total_items', width: 10 },
-            { header: 'Status', key: 'transaction_status', width: 15 }
+            { header: 'Status', key: 'transaction_status', width: 15 },
+            { header: 'Volume', key: 'order_volume', width: 12 }
         ];
 
         // Style header row
@@ -1128,7 +1129,8 @@ function exportPstToExcel() {
                 dest_org_code: item.dest_org_code || '',
                 dest_sub_inv: item.dest_sub_inv || '',
                 total_items: item.total_items || 0,
-                transaction_status: item.transaction_status || ''
+                transaction_status: item.transaction_status || '',
+                order_volume: item.order_volume !== null && item.order_volume !== undefined ? parseFloat(item.order_volume) : ''
             });
         });
 
