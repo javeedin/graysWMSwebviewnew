@@ -2173,6 +2173,8 @@ document.addEventListener('DOMContentLoaded', function() {
         } else if (pageId === 'printer-setup') {
             loadInstalledPrinters();
             loadPrinterConfiguration();
+        } else if (pageId === 'bi-dashboard') {
+            if (typeof biDashboardInit === 'function') biDashboardInit();
         }
 
         console.log(`[Navigation] Navigated to: ${pageId}`);

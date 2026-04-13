@@ -156,7 +156,7 @@
                 <i class="fas fa-car"></i>
                 <span>Vehicles Dashboard</span>
             </div>
-            <div class="menu-item" data-page="vehicle-management">
+            <div class="menu-item" data-page="bi-dashboard">
                 <i class="fas fa-chart-line"></i>
                 <span>Analytics</span>
             </div>
@@ -7162,6 +7162,177 @@
                 </div><!-- end training-page-container -->
             </div><!-- end training-center -->
 
+            <!-- ============================================================
+                 BI DASHBOARD PAGE
+                 ============================================================ -->
+            <div id="bi-dashboard" class="page-content" style="display: none;">
+                <div style="padding: 1rem;">
+
+                    <!-- Page Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem;">
+                        <div>
+                            <h2 style="margin: 0 0 4px 0; font-size: 1.4rem; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="fas fa-chart-line" style="color: #667eea;"></i>
+                                Analytics / BI Dashboard
+                            </h2>
+                            <p style="margin: 0; color: #6b7280; font-size: 13px;">Connect to any API, explore and visualise data interactively</p>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <span id="bi-version-badge" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;">v1.0</span>
+                        </div>
+                    </div>
+
+                    <!-- API Connector Section -->
+                    <div class="parameters-section" style="margin-bottom: 1rem;">
+                        <div class="parameters-header" id="bi-api-toggle" onclick="biToggleSection('bi-api-body', 'bi-api-icon')" style="cursor: pointer;">
+                            <h3><i class="fas fa-plug"></i> API Connector</h3>
+                            <i class="fas fa-chevron-down collapse-icon" id="bi-api-icon"></i>
+                        </div>
+                        <div class="parameters-content" id="bi-api-body">
+                            <!-- Saved Configs Row -->
+                            <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                                <div class="form-group" style="min-width: 220px; margin-bottom: 0;">
+                                    <label>Saved API Configs</label>
+                                    <select id="bi-saved-configs" class="form-control" onchange="biLoadSavedConfig(this.value)" style="font-size: 13px;">
+                                        <option value="">-- select saved config --</option>
+                                    </select>
+                                </div>
+                                <button onclick="biSaveConfig()" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; height: 34px;">
+                                    <i class="fas fa-save"></i> Save Config
+                                </button>
+                                <button onclick="biDeleteConfig()" style="background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; height: 34px;">
+                                    <i class="fas fa-trash"></i> Delete
+                                </button>
+                                <div class="form-group" style="min-width: 180px; margin-bottom: 0;">
+                                    <label>Config Name</label>
+                                    <input type="text" id="bi-config-name" class="form-control" placeholder="e.g. Trip Summary" style="font-size: 13px;">
+                                </div>
+                            </div>
+
+                            <!-- URL + Method Row -->
+                            <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                                <div class="form-group" style="flex: 1; min-width: 320px; margin-bottom: 0;">
+                                    <label>API URL</label>
+                                    <input type="text" id="bi-api-url" class="form-control" placeholder="https://..." style="font-size: 13px; font-family: monospace;">
+                                </div>
+                                <div class="form-group" style="min-width: 100px; margin-bottom: 0;">
+                                    <label>Method</label>
+                                    <select id="bi-api-method" class="form-control" style="font-size: 13px;">
+                                        <option value="GET">GET</option>
+                                        <option value="POST">POST</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="min-width: 160px; margin-bottom: 0;">
+                                    <label>Data Path (optional)</label>
+                                    <input type="text" id="bi-data-path" class="form-control" placeholder="e.g. items or data.rows" style="font-size: 13px;">
+                                </div>
+                            </div>
+
+                            <!-- Query Params Builder -->
+                            <div style="margin-bottom: 0.75rem;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem;">
+                                    <label style="margin: 0; font-size: 12px; font-weight: 600; color: #374151;">Query Parameters</label>
+                                    <button onclick="biAddParam()" style="background: #667eea; color: white; border: none; padding: 3px 8px; border-radius: 5px; font-size: 11px; cursor: pointer;">
+                                        <i class="fas fa-plus"></i> Add Param
+                                    </button>
+                                </div>
+                                <div id="bi-params-list" style="display: flex; flex-direction: column; gap: 0.4rem;"></div>
+                            </div>
+
+                            <!-- Fetch Actions -->
+                            <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+                                <button id="bi-fetch-btn" onclick="biFetchData()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 18px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                    <i class="fas fa-download" id="bi-fetch-icon"></i> Fetch Data
+                                </button>
+                                <button onclick="biClearData()" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 8px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;">
+                                    <i class="fas fa-times"></i> Clear
+                                </button>
+                                <span id="bi-fetch-status" style="font-size: 12px; color: #6b7280;"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KPI Cards -->
+                    <div id="bi-kpi-row" style="display: none; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem;"></div>
+
+                    <!-- Chart Builder Section -->
+                    <div class="parameters-section" id="bi-chart-section" style="display: none; margin-bottom: 1rem;">
+                        <div class="parameters-header" id="bi-chart-toggle" onclick="biToggleSection('bi-chart-body', 'bi-chart-icon')" style="cursor: pointer;">
+                            <h3><i class="fas fa-chart-bar"></i> Chart Builder</h3>
+                            <i class="fas fa-chevron-down collapse-icon" id="bi-chart-icon"></i>
+                        </div>
+                        <div class="parameters-content" id="bi-chart-body">
+                            <div style="display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; margin-bottom: 0.75rem;">
+                                <div class="form-group" style="min-width: 160px; margin-bottom: 0;">
+                                    <label>Chart Type</label>
+                                    <select id="bi-chart-type" class="form-control" style="font-size: 13px;">
+                                        <option value="bar">Bar</option>
+                                        <option value="line">Line</option>
+                                        <option value="pie">Pie</option>
+                                        <option value="doughnut">Doughnut</option>
+                                        <option value="horizontalBar">Horizontal Bar</option>
+                                    </select>
+                                </div>
+                                <div class="form-group" style="min-width: 180px; margin-bottom: 0;">
+                                    <label>X Axis / Label Field</label>
+                                    <select id="bi-x-field" class="form-control" style="font-size: 13px;"></select>
+                                </div>
+                                <div class="form-group" style="min-width: 180px; margin-bottom: 0;">
+                                    <label>Y Axis / Value Field</label>
+                                    <select id="bi-y-field" class="form-control" style="font-size: 13px;"></select>
+                                </div>
+                                <div class="form-group" style="min-width: 160px; margin-bottom: 0;">
+                                    <label>Aggregation</label>
+                                    <select id="bi-aggregation" class="form-control" style="font-size: 13px;">
+                                        <option value="none">None (raw)</option>
+                                        <option value="sum">Sum</option>
+                                        <option value="count">Count</option>
+                                        <option value="avg">Average</option>
+                                        <option value="max">Max</option>
+                                        <option value="min">Min</option>
+                                    </select>
+                                </div>
+                                <button onclick="biRenderChart()" style="background: #7c3aed; color: white; border: none; padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; height: 34px;">
+                                    <i class="fas fa-chart-bar"></i> Render Chart
+                                </button>
+                                <button onclick="biClearChart()" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 8px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; height: 34px;">
+                                    <i class="fas fa-times"></i> Clear
+                                </button>
+                            </div>
+                            <!-- Chart Canvas -->
+                            <div id="bi-chart-container" style="display: none; background: white; border-radius: 8px; padding: 1rem; border: 1px solid #e2e8f0; max-height: 400px;">
+                                <canvas id="bi-chart-canvas"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Data Grid Section -->
+                    <div id="bi-grid-section" style="display: none;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                            <span style="font-size: 13px; font-weight: 600; color: #374151;">
+                                <i class="fas fa-table" style="color: #667eea;"></i>
+                                Data Grid &nbsp;
+                                <span id="bi-row-count" style="background: #e0e7ff; color: #4338ca; padding: 2px 8px; border-radius: 10px; font-size: 11px;"></span>
+                            </span>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button onclick="biExportExcel()" style="background: #10b981; color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                    <i class="fas fa-file-excel"></i> Export Excel
+                                </button>
+                            </div>
+                        </div>
+                        <div id="bi-grid"></div>
+                    </div>
+
+                    <!-- Empty State -->
+                    <div id="bi-empty-state" style="text-align: center; padding: 4rem 2rem; color: #94a3b8;">
+                        <i class="fas fa-chart-line" style="font-size: 3rem; margin-bottom: 1rem; color: #cbd5e1;"></i>
+                        <h3 style="margin: 0 0 0.5rem 0; color: #64748b;">No Data Yet</h3>
+                        <p style="margin: 0; font-size: 13px;">Enter an API URL above and click <strong>Fetch Data</strong> to get started</p>
+                    </div>
+
+                </div>
+            </div><!-- end bi-dashboard -->
+
         </main>
     </div>
 
@@ -7829,6 +8000,11 @@
     <!-- Pending Shipment Lines Script -->
     <script>
         document.write('<script src="pending-shipment-lines.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+    </script>
+
+    <!-- BI Dashboard Script -->
+    <script>
+        document.write('<script src="bi-dashboard.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 
     <!-- Floating Current Processing Status Icon -->
