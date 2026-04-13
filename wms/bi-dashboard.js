@@ -36,6 +36,37 @@ window.biToggleSection = function(bodyId, iconId) {
 };
 
 // ============================================================================
+// BASIC AUTH HELPERS
+// ============================================================================
+
+window.biToggleAuth = function(enabled) {
+    const fields = document.getElementById('bi-auth-fields');
+    if (fields) fields.style.display = enabled ? 'flex' : 'none';
+};
+
+window.biTogglePasswordVisibility = function() {
+    const pwd = document.getElementById('bi-auth-password');
+    const eye = document.getElementById('bi-pwd-eye');
+    if (!pwd) return;
+    const isHidden = pwd.type === 'password';
+    pwd.type = isHidden ? 'text' : 'password';
+    if (eye) eye.className = isHidden ? 'fas fa-eye-slash' : 'fas fa-eye';
+};
+
+function biGetAuthCredentials() {
+    const enabled = document.getElementById('bi-auth-enabled')?.checked;
+    if (!enabled) return null;
+    const username = document.getElementById('bi-auth-username')?.value?.trim();
+    const password = document.getElementById('bi-auth-password')?.value;
+    if (!username) return null;
+    return { username, password: password || '' };
+}
+
+function biMakeAuthHeader(username, password) {
+    return 'Basic ' + btoa(`${username}:${password}`);
+}
+
+// ============================================================================
 // PARAM BUILDER
 // ============================================================================
 
@@ -103,6 +134,20 @@ window.biLoadSavedConfig = function(name) {
     if (cfg.params) {
         Object.entries(cfg.params).forEach(([k, v]) => biAddParam(k, v));
     }
+
+    // Restore auth
+    const authEnabled = document.getElementById('bi-auth-enabled');
+    if (authEnabled) {
+        authEnabled.checked = !!cfg.authEnabled;
+        biToggleAuth(!!cfg.authEnabled);
+    }
+    if (cfg.authEnabled) {
+        const u = document.getElementById('bi-auth-username');
+        const p = document.getElementById('bi-auth-password');
+        if (u) u.value = cfg.authUsername || '';
+        if (p) p.value = cfg.authPassword || '';
+    }
+
     biLog(`Loaded config: ${name}`);
 };
 
@@ -110,11 +155,15 @@ window.biSaveConfig = function() {
     const name = document.getElementById('bi-config-name')?.value?.trim();
     if (!name) { alert('Enter a config name first.'); return; }
 
+    const authEnabled = document.getElementById('bi-auth-enabled')?.checked || false;
     const cfg = {
         url: document.getElementById('bi-api-url')?.value?.trim(),
         method: document.getElementById('bi-api-method')?.value,
         dataPath: document.getElementById('bi-data-path')?.value?.trim(),
-        params: biGetParams()
+        params: biGetParams(),
+        authEnabled,
+        authUsername: authEnabled ? (document.getElementById('bi-auth-username')?.value?.trim() || '') : '',
+        authPassword: authEnabled ? (document.getElementById('bi-auth-password')?.value || '') : ''
     };
 
     const configs = biGetConfigs();
@@ -157,28 +206,30 @@ window.biFetchData = async function() {
     }
 
     const body = method === 'POST' && Object.keys(params).length > 0 ? JSON.stringify(params) : '{}';
+    const auth = biGetAuthCredentials();
 
     biSetFetchState(true);
     biSetStatus('Fetching data...');
-    biLog(`Fetching: ${method} ${fullUrl}`);
+    biLog(`Fetching: ${method} ${fullUrl}${auth ? ' [Basic Auth]' : ''}`);
 
     try {
         let json;
 
         if (typeof sendMessageToCSharp === 'function') {
+            const msg = { action: method === 'POST' ? 'executePost' : 'executeGet', fullUrl, body };
+            if (auth) { msg.username = auth.username; msg.password = auth.password; }
             json = await new Promise((resolve, reject) => {
-                sendMessageToCSharp(
-                    { action: method === 'POST' ? 'executePost' : 'executeGet', fullUrl, body },
-                    (err, data) => {
-                        if (err) return reject(err);
-                        try {
-                            resolve(typeof data === 'string' ? JSON.parse(data) : data);
-                        } catch (e) { reject(e); }
-                    }
-                );
+                sendMessageToCSharp(msg, (err, data) => {
+                    if (err) return reject(err);
+                    try {
+                        resolve(typeof data === 'string' ? JSON.parse(data) : data);
+                    } catch (e) { reject(e); }
+                });
             });
         } else {
-            const opts = { method, headers: { 'Content-Type': 'application/json' } };
+            const headers = { 'Content-Type': 'application/json' };
+            if (auth) headers['Authorization'] = biMakeAuthHeader(auth.username, auth.password);
+            const opts = { method, headers };
             if (method === 'POST') opts.body = body;
             const res = await fetch(fullUrl, opts);
             json = await res.json();

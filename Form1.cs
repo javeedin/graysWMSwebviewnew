@@ -2032,9 +2032,21 @@ navPanel.Controls.Add(wmsDevButton);
                 System.Diagnostics.Debug.WriteLine($"[C#] Processing {method} request: {message.FullUrl}");
                 System.Diagnostics.Debug.WriteLine($"[C#] Body: {message.Body}");
 
+                bool hasCredentials = !string.IsNullOrEmpty(message.Username) && !string.IsNullOrEmpty(message.Password);
+                if (hasCredentials)
+                    System.Diagnostics.Debug.WriteLine($"[C#] Using Basic Authentication for user: {message.Username}");
+
                 using (var httpClient = new HttpClient())
                 {
                     httpClient.Timeout = TimeSpan.FromSeconds(30);
+
+                    if (hasCredentials)
+                    {
+                        string credentials = Convert.ToBase64String(
+                            System.Text.Encoding.ASCII.GetBytes($"{message.Username}:{message.Password}")
+                        );
+                        httpClient.DefaultRequestHeaders.Add("Authorization", $"Basic {credentials}");
+                    }
 
                     HttpResponseMessage response;
 
@@ -6433,6 +6445,12 @@ navPanel.Controls.Add(wmsDevButton);
 
         [JsonPropertyName("method")]
         public string Method { get; set; }
+
+        [JsonPropertyName("username")]
+        public string Username { get; set; }
+
+        [JsonPropertyName("password")]
+        public string Password { get; set; }
     }
 
 }
