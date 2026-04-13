@@ -1993,6 +1993,8 @@ navPanel.Controls.Add(wmsDevButton);
                     {
                         action = "restResponse",
                         requestId = requestId,
+                        statusCode = (int)response.StatusCode,
+                        success = response.IsSuccessStatusCode,
                         data = responseContent
                     };
 
@@ -2086,6 +2088,8 @@ navPanel.Controls.Add(wmsDevButton);
                     {
                         action = "restResponse",
                         requestId = requestId,
+                        statusCode = (int)response.StatusCode,
+                        success = response.IsSuccessStatusCode,
                         data = responseContent
                     };
 

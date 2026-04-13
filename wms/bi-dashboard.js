@@ -219,11 +219,26 @@ window.biFetchData = async function() {
             const msg = { action: method === 'POST' ? 'executePost' : 'executeGet', fullUrl, body };
             if (auth) { msg.username = auth.username; msg.password = auth.password; }
             json = await new Promise((resolve, reject) => {
-                sendMessageToCSharp(msg, (err, data) => {
-                    if (err) return reject(err);
-                    try {
-                        resolve(typeof data === 'string' ? JSON.parse(data) : data);
-                    } catch (e) { reject(e); }
+                sendMessageToCSharp(msg, (err, data, statusCode) => {
+                    if (err) {
+                        const code = err.statusCode || statusCode;
+                        const body = err.body || '';
+                        return reject(new Error(
+                            `HTTP ${code || 'error'}${body ? ': ' + body.substring(0, 200) : ''}`
+                        ));
+                    }
+                    if (!data || data === '') {
+                        return reject(new Error('API returned an empty response body'));
+                    }
+                    if (typeof data === 'string') {
+                        try {
+                            resolve(JSON.parse(data));
+                        } catch (e) {
+                            reject(new Error(`Invalid JSON response: ${data.substring(0, 200)}`));
+                        }
+                    } else {
+                        resolve(data);
+                    }
                 });
             });
         } else {
@@ -232,7 +247,17 @@ window.biFetchData = async function() {
             const opts = { method, headers };
             if (method === 'POST') opts.body = body;
             const res = await fetch(fullUrl, opts);
-            json = await res.json();
+            if (!res.ok) {
+                const errBody = await res.text();
+                throw new Error(`HTTP ${res.status} ${res.statusText}${errBody ? ': ' + errBody.substring(0, 200) : ''}`);
+            }
+            const text = await res.text();
+            if (!text) throw new Error('API returned an empty response body');
+            try {
+                json = JSON.parse(text);
+            } catch (e) {
+                throw new Error(`Invalid JSON response: ${text.substring(0, 200)}`);
+            }
         }
 
         // Resolve data path

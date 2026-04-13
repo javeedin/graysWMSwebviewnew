@@ -2068,8 +2068,12 @@ if (window.chrome?.webview) {
                 console.log('[JS] 📋 Handling as error response');
                 callback(response.message || response.data?.message, null);
             } else if (response.action === "restResponse") {
-                console.log('[JS] 📋 Handling as restResponse');
-                callback(null, response.data);
+                console.log('[JS] 📋 Handling as restResponse, statusCode:', response.statusCode, 'success:', response.success);
+                if (response.success === false) {
+                    callback({ message: `HTTP ${response.statusCode}`, statusCode: response.statusCode, body: response.data }, null);
+                } else {
+                    callback(null, response.data, response.statusCode);
+                }
             } else if (response.action === "printSalesOrderResponse" || response.action === "salesOrderPdfResponse") {
                 // Handle Sales Order print response
                 console.log('[JS] 📋 Handling as printSalesOrderResponse');
