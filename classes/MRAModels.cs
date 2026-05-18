@@ -113,6 +113,9 @@ namespace WMSApp.MRA
 
         [JsonProperty("buyerType")]
         public string BuyerType { get; set; }
+
+        [JsonProperty("tan")]
+        public string Tan { get; set; }
     }
 
     public class InvoiceItem

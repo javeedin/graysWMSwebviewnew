@@ -495,44 +495,62 @@ namespace WMSApp.MRA
                 DateTime orderDate = Convert.ToDateTime(headerRow["ORDER_DATE"]);
                 string formattedDate = orderDate.ToString("yyyyMMdd HH:mm:ss");
                 double totalOrderAmount = Convert.ToDouble(headerRow["ORDER_AMOUNT"]);
+                string mraTan = headerRow["MRA_TAN"]?.ToString();
+                string mraBrn = headerRow["MRA_BRN"]?.ToString();
+                string mraId = headerRow["MRA_ID"]?.ToString();
 
                 string invoiceTypeDesc = "STD";
+                string reasonStated = "";
+                string invoiceRefIdentifier = "";
+
                 if (totalOrderAmount < 0)
                 {
                     invoiceTypeDesc = "CRN";
+                    reasonStated = "RETURN ORDER";
+                    invoiceRefIdentifier = headerRow["REFERENCE_NO"]?.ToString();
+                    if (string.IsNullOrEmpty(invoiceRefIdentifier))
+                    {
+                        invoiceRefIdentifier = headerRow["SOURCE_ORDER_NUMBER"]?.ToString();
+                    }
                 }
+
                 if (orderType == "PRO-FORMA INVOICE")
                 {
                     invoiceTypeDesc = "PRF";
                 }
 
+                string buname = Properties.Settings.Default.businessunitname;
+
+                string pVatRegNo = "";
+                try { pVatRegNo = headerRow["VATREGNO"]?.ToString(); } catch { }
+
                 var invoice = new Invoice
                 {
-                    EbsMraId = headerRow["MRA_ID"]?.ToString(),
+                    EbsMraId = mraId,
                     InvoiceCounter = headerRow["HEADER_ID"]?.ToString(),
-                    TransactionType = "B2C",
+                    TransactionType = headerRow["MRA_CUSTOMER_CAT"]?.ToString(),
                     PreviousNoteHash = "prevNote",
                     PersonType = "VATR",
                     InvoiceTypeDesc = invoiceTypeDesc,
                     Currency = "MUR",
                     InvoiceIdentifier = headerRow["SOURCE_ORDER_NUMBER"]?.ToString(),
-                    TotalVatAmount = Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])),
-                    TotalAmtWoVatCur = Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])),
-                    TotalAmtWoVatMur = Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])),
-                    InvoiceTotal = Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])),
-                    DiscountTotalAmount = Math.Abs(Convert.ToDouble(headerRow["DISCOUNT_AMOUNT"])),
-                    TotalAmtPaid = Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])),
+                    TotalVatAmount = Math.Round(Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])), 3),
+                    TotalAmtWoVatCur = Math.Round(Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])) - Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])), 3),
+                    TotalAmtWoVatMur = Math.Round(Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])) - Math.Abs(Convert.ToDouble(headerRow["TAX_AMOUNT"])), 3),
+                    InvoiceTotal = Math.Round(Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])), 3),
+                    DiscountTotalAmount = Math.Round(Math.Abs(Convert.ToDouble(headerRow["DISCOUNT_AMOUNT"])), 3),
+                    TotalAmtPaid = Math.Round(Math.Abs(Convert.ToDouble(headerRow["ORDER_AMOUNT"])), 3),
                     DateTimeInvoiceIssued = formattedDate,
                     SalesTransactions = "CASH",
-                    ReasonStated = "RETURN ORDER",
-                    InvoiceRefIdentifier = headerRow["SOURCE_ORDER_NUMBER"]?.ToString(),
+                    ReasonStated = reasonStated,
+                    InvoiceRefIdentifier = invoiceRefIdentifier,
 
                     Seller = new Seller
                     {
-                        Name = "GRAYS INC",
-                        TradeName = "GRAYS INC",
-                        Tan = "20349131",
-                        Brn = "C06061754",
+                        Name = buname,
+                        TradeName = buname,
+                        Tan = mraTan,
+                        Brn = mraBrn,
                         BusinessAddr = "BEAU-PLAN",
                         BusinessPhoneNo = "2093000",
                         EbsCounterNo = "20"
@@ -543,7 +561,8 @@ namespace WMSApp.MRA
                         Name = headerRow["ACCOUNT_NAME"]?.ToString(),
                         Brn = headerRow["BRN"]?.ToString() ?? "",
                         BusinessAddr = headerRow["CUSTOMER_MAIN_CAT"]?.ToString(),
-                        BuyerType = "VATR"
+                        BuyerType = "VATR",
+                        Tan = pVatRegNo
                     },
 
                     ItemList = new List<InvoiceItem>()
@@ -554,24 +573,29 @@ namespace WMSApp.MRA
                 foreach (DataRow itemRow in orderDetails.Rows)
                 {
                     string taxCode = itemRow["TAX_CLASSIFICATION_CODE"]?.ToString();
-                    string finalTaxCode = taxCode == "6004" ? "TC01" : (taxCode == "23006" ? "TC02" : "TC01");
+                    string finalTaxCode;
+                    if (taxCode == "6004") finalTaxCode = "TC01";
+                    else if (taxCode == "23006") finalTaxCode = "TC03";
+                    else finalTaxCode = "TC01";
+
+                    string nature = itemRow["ITEM_NUMBER"]?.ToString().Contains("SGG") == true ? "SERVICES" : "GOODS";
 
                     invoice.ItemList.Add(new InvoiceItem
                     {
                         ItemNo = rowNumber.ToString(),
                         TaxCode = finalTaxCode,
-                        Nature = "GOODS",
+                        Nature = nature,
                         ProductCodeMra = rowNumber.ToString(),
                         ProductCodeOwn = itemRow["ITEM_NUMBER"]?.ToString(),
                         ItemDesc = itemRow["DESCRIPTION"]?.ToString(),
                         Quantity = Convert.ToInt32(itemRow["ORIGINAL_QTY"]),
                         UnitPrice = Convert.ToDouble(itemRow["UNIT_LIST_PRICE"]),
-                        Discount = Math.Abs(Convert.ToDouble(itemRow["DISCOUNT_AMOUNT"])),
-                        DiscountedValue = Math.Abs(Convert.ToDouble(itemRow["DISCOUNT_AMOUNT"])),
-                        AmtWoVatCur = Convert.ToDouble(itemRow["TAX_AMOUNT"]),
-                        AmtWoVatMur = Convert.ToDouble(itemRow["TAX_AMOUNT"]),
-                        VatAmt = Convert.ToDouble(itemRow["TAX_AMOUNT"]),
-                        TotalPrice = Convert.ToDouble(itemRow["NET_AMOUNT"])
+                        Discount = Math.Round(Math.Abs(Convert.ToDouble(itemRow["DISCOUNT_AMOUNT"])), 3),
+                        DiscountedValue = Math.Round(Math.Abs(Convert.ToDouble(itemRow["DISCOUNT_AMOUNT"])), 3),
+                        AmtWoVatCur = Math.Round(Convert.ToDouble(itemRow["NET_AMOUNT"]) - Convert.ToDouble(itemRow["TAX_AMOUNT"]), 3),
+                        AmtWoVatMur = Math.Round(Convert.ToDouble(itemRow["NET_AMOUNT"]) - Convert.ToDouble(itemRow["TAX_AMOUNT"]), 3),
+                        VatAmt = Math.Round(Convert.ToDouble(itemRow["TAX_AMOUNT"]), 3),
+                        TotalPrice = Math.Round(Convert.ToDouble(itemRow["NET_AMOUNT"]), 3)
                     });
                     rowNumber++;
                 }
