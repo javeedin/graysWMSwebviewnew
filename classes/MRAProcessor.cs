@@ -519,7 +519,7 @@ namespace WMSApp.MRA
                     invoiceTypeDesc = "PRF";
                 }
 
-                string buname = Properties.Settings.Default.businessunitname;
+                string buname = "GRAYS INC BU";
 
                 string pVatRegNo = "";
                 try { pVatRegNo = headerRow["VATREGNO"]?.ToString(); } catch { }
