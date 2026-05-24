@@ -9955,16 +9955,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Update header fields from API data (needed when opened from Co-Pilot with minimal rowData)
                 const firstItem = items[0];
                 const headerMap = {
-                    'otr-trip-id':       firstItem.TRIP_ID        || firstItem.trip_id        || '',
-                    'otr-trip-date':     firstItem.TRIP_DATE       || firstItem.trip_date       || '',
-                    'otr-picker':        firstItem.PICKER_NAME     || firstItem.picker_name     || firstItem.PICKER || firstItem.picker || '',
-                    'otr-lorry':         firstItem.LORRY_NUMBER    || firstItem.lorry_number    || firstItem.LORRY  || firstItem.lorry  || '',
-                    'otr-priority':      firstItem.TRIP_PRIORITY   || firstItem.trip_priority   || firstItem.PRIORITY || firstItem.priority || '',
-                    'otr-line-status':   firstItem.LINE_STATUS     || firstItem.line_status     || '',
-                    'otr-account-number':firstItem.ACCOUNT_NUMBER  || firstItem.account_number  || '',
-                    'otr-account-name':  firstItem.ACCOUNT_NAME    || firstItem.account_name    || firstItem.CUSTOMER_NAME || firstItem.customer_name || '',
-                    'otr-order-date':    firstItem.ORDER_DATE      || firstItem.order_date      || firstItem.ORDERED_DATE || firstItem.ordered_date || '',
-                    'otr-order-type':    firstItem.ORDER_TYPE      || firstItem.order_type      || firstItem.ORDER_TYPE_CODE || firstItem.order_type_code || ''
+                    'otr-trip-id':        firstItem.TRIP_ID        || firstItem.trip_id        || '',
+                    'otr-trip-date':      firstItem.TRIP_DATE       || firstItem.trip_date       || '',
+                    'otr-picker':         firstItem.PICKER_NAME     || firstItem.picker_name     || firstItem.PICKER || firstItem.picker || '',
+                    'otr-lorry':          firstItem.LORRY_NUMBER    || firstItem.lorry_number    || firstItem.LORRY  || firstItem.lorry  || '',
+                    'otr-priority':       firstItem.TRIP_PRIORITY   || firstItem.trip_priority   || firstItem.PRIORITY || firstItem.priority || '',
+                    'otr-line-status':    firstItem.LINE_STATUS     || firstItem.line_status     || '',
+                    'otr-account-number': firstItem.ACCOUNT_NUMBER  || firstItem.account_number  || '',
+                    'otr-account-name':   firstItem.ACCOUNT_NAME    || firstItem.account_name    || firstItem.CUSTOMER_NAME || firstItem.customer_name || '',
+                    'otr-order-date':     firstItem.RELEASE_DATE    || firstItem.release_date    || firstItem.ORDER_DATE || firstItem.order_date || '',
+                    'otr-order-type':     firstItem.ORDER_TYPE      || firstItem.order_type      || firstItem.ORDER_TYPE_CODE || firstItem.order_type_code || ''
                 };
                 Object.entries(headerMap).forEach(function([id, val]) {
                     const el = document.getElementById(id);
