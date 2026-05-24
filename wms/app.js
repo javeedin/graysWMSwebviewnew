@@ -9579,17 +9579,17 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         <!-- Collapsible Header Details (Default: Collapsed) -->
                         <div id="order-trans-header-details" style="display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0.4rem; padding: 0.5rem; background: white; border-radius: 6px; border: 1px solid #e2e8f0; margin-top: 0.5rem; transition: all 0.3s;">
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderNumber}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Date:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderDate}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Type:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${orderType}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Number:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountNumber}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Name:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${accountName}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip ID:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripId}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip Date:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${tripDate}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Picker:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${picker}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lorry}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${priority}</strong></div>
-                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Status:</span><br><strong style="color: #1e293b; font-size: 0.75rem;">${lineStatus}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Number:</span><br><strong id="otr-order-number" style="color: #1e293b; font-size: 0.75rem;">${orderNumber}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Date:</span><br><strong id="otr-order-date" style="color: #1e293b; font-size: 0.75rem;">${orderDate || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Order Type:</span><br><strong id="otr-order-type" style="color: #1e293b; font-size: 0.75rem;">${orderType || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Number:</span><br><strong id="otr-account-number" style="color: #1e293b; font-size: 0.75rem;">${accountNumber || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Account Name:</span><br><strong id="otr-account-name" style="color: #1e293b; font-size: 0.75rem;">${accountName || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip ID:</span><br><strong id="otr-trip-id" style="color: #1e293b; font-size: 0.75rem;">${tripId || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Trip Date:</span><br><strong id="otr-trip-date" style="color: #1e293b; font-size: 0.75rem;">${tripDate || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Picker:</span><br><strong id="otr-picker" style="color: #1e293b; font-size: 0.75rem;">${picker || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Lorry:</span><br><strong id="otr-lorry" style="color: #1e293b; font-size: 0.75rem;">${lorry || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Priority:</span><br><strong id="otr-priority" style="color: #1e293b; font-size: 0.75rem;">${priority || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
+                            <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Status:</span><br><strong id="otr-line-status" style="color: #1e293b; font-size: 0.75rem;">${lineStatus || '<span style="color:#9ca3af;font-style:italic;font-size:0.7rem;">Loading...</span>'}</strong></div>
                             <div><span style="color: #64748b; font-size: 0.6rem; font-weight: 600;">Instance:</span><br><strong style="color: #7c3aed; font-size: 0.75rem;">${instance}</strong></div>
                         </div>
                     </div>
@@ -9952,8 +9952,26 @@ document.addEventListener('DOMContentLoaded', function() {
                 // Log first item to see available fields
                 console.log('[Order Transactions] Pick Release first item:', items[0]);
 
-                // Build columns dynamically from first item
+                // Update header fields from API data (needed when opened from Co-Pilot with minimal rowData)
                 const firstItem = items[0];
+                const headerMap = {
+                    'otr-trip-id':       firstItem.TRIP_ID        || firstItem.trip_id        || '',
+                    'otr-trip-date':     firstItem.TRIP_DATE       || firstItem.trip_date       || '',
+                    'otr-picker':        firstItem.PICKER_NAME     || firstItem.picker_name     || firstItem.PICKER || firstItem.picker || '',
+                    'otr-lorry':         firstItem.LORRY_NUMBER    || firstItem.lorry_number    || firstItem.LORRY  || firstItem.lorry  || '',
+                    'otr-priority':      firstItem.TRIP_PRIORITY   || firstItem.trip_priority   || firstItem.PRIORITY || firstItem.priority || '',
+                    'otr-line-status':   firstItem.LINE_STATUS     || firstItem.line_status     || '',
+                    'otr-account-number':firstItem.ACCOUNT_NUMBER  || firstItem.account_number  || '',
+                    'otr-account-name':  firstItem.ACCOUNT_NAME    || firstItem.account_name    || firstItem.CUSTOMER_NAME || firstItem.customer_name || '',
+                    'otr-order-date':    firstItem.ORDER_DATE      || firstItem.order_date      || firstItem.ORDERED_DATE || firstItem.ordered_date || '',
+                    'otr-order-type':    firstItem.ORDER_TYPE      || firstItem.order_type      || firstItem.ORDER_TYPE_CODE || firstItem.order_type_code || ''
+                };
+                Object.entries(headerMap).forEach(function([id, val]) {
+                    const el = document.getElementById(id);
+                    if (el && val) el.textContent = val;
+                });
+
+                // Build columns dynamically from first item
                 const columns = Object.keys(firstItem).map(key => {
                     return {
                         dataField: key,
