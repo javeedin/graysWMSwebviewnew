@@ -9954,17 +9954,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 // Update header fields from API data (needed when opened from Co-Pilot with minimal rowData)
                 const firstItem = items[0];
+                const fmtDate = function(val) {
+                    if (!val) return '';
+                    // Trim ISO datetime "2026-05-25T00:00:00Z" -> "2026-05-25"
+                    return String(val).split('T')[0];
+                };
                 const headerMap = {
-                    'otr-trip-id':        firstItem.TRIP_ID        || firstItem.trip_id        || '',
-                    'otr-trip-date':      firstItem.TRIP_DATE       || firstItem.trip_date       || '',
-                    'otr-picker':         firstItem.PICKER_NAME     || firstItem.picker_name     || firstItem.PICKER || firstItem.picker || '',
-                    'otr-lorry':          firstItem.LORRY_NUMBER    || firstItem.lorry_number    || firstItem.LORRY  || firstItem.lorry  || '',
-                    'otr-priority':       firstItem.TRIP_PRIORITY   || firstItem.trip_priority   || firstItem.PRIORITY || firstItem.priority || '',
-                    'otr-line-status':    firstItem.LINE_STATUS     || firstItem.line_status     || '',
-                    'otr-account-number': firstItem.ACCOUNT_NUMBER  || firstItem.account_number  || '',
-                    'otr-account-name':   firstItem.ACCOUNT_NAME    || firstItem.account_name    || firstItem.CUSTOMER_NAME || firstItem.customer_name || '',
-                    'otr-order-date':     firstItem.RELEASE_DATE    || firstItem.release_date    || firstItem.ORDER_DATE || firstItem.order_date || '',
-                    'otr-order-type':     firstItem.ORDER_TYPE      || firstItem.order_type      || firstItem.ORDER_TYPE_CODE || firstItem.order_type_code || ''
+                    'otr-trip-id':        String(firstItem.trip_id        || firstItem.TRIP_ID        || ''),
+                    'otr-trip-date':      fmtDate(firstItem.trip_date      || firstItem.TRIP_DATE      || ''),
+                    'otr-picker':         firstItem.picker_name  || firstItem.PICKER_NAME  || firstItem.picker  || firstItem.PICKER  || '',
+                    'otr-lorry':          firstItem.lorry_number || firstItem.LORRY_NUMBER || firstItem.lorry   || firstItem.LORRY   || '',
+                    'otr-priority':       firstItem.trip_priority|| firstItem.TRIP_PRIORITY|| firstItem.priority|| firstItem.PRIORITY|| '',
+                    'otr-line-status':    firstItem.line_status  || firstItem.LINE_STATUS  || '',
+                    'otr-account-number': firstItem.account_number|| firstItem.ACCOUNT_NUMBER || '',
+                    'otr-account-name':   firstItem.account_name || firstItem.ACCOUNT_NAME || firstItem.customer_name || firstItem.CUSTOMER_NAME || '',
+                    'otr-order-date':     fmtDate(firstItem.release_date   || firstItem.RELEASE_DATE   || firstItem.order_date || firstItem.ORDER_DATE || ''),
+                    'otr-order-type':     firstItem.order_type   || firstItem.ORDER_TYPE   || firstItem.order_type_code || firstItem.ORDER_TYPE_CODE || ''
                 };
                 Object.entries(headerMap).forEach(function([id, val]) {
                     const el = document.getElementById(id);
