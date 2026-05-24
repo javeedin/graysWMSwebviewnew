@@ -126,10 +126,10 @@ if exist "%OUTPUT%" (
     del "%OUTPUT%"
 )
 
-REM --- Create zip using PowerShell ---
+REM --- Create zip using .NET ZipFile (streams to disk, avoids OutOfMemoryException) ---
 echo.
 echo Creating %ZIP_NAME%...
-powershell -NoProfile -Command "Compress-Archive -Path '%STAGE_DIR%\graysWMSwebviewnew' -DestinationPath '%OUTPUT%' -CompressionLevel Optimal"
+powershell -NoProfile -Command "Add-Type -Assembly 'System.IO.Compression.FileSystem'; [System.IO.Compression.ZipFile]::CreateFromDirectory('%STAGE_DIR%\graysWMSwebviewnew', '%OUTPUT%', [System.IO.Compression.CompressionLevel]::Optimal, $true)"
 if errorlevel 1 (
     echo ERROR: Failed to create zip file
     goto :error
