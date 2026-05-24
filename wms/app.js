@@ -5058,8 +5058,60 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 export: {
                     enabled: true,
-                    allowExportSelectedData: true,
-                    fileName: `Trip_${tripId}`
+                    allowExportSelectedData: true
+                },
+                onExporting: function(e) {
+                    const workbook = new ExcelJS.Workbook();
+                    const worksheet = workbook.addWorksheet('Trip Details');
+
+                    DevExpress.excelExporter.exportDataGrid({
+                        component: e.component,
+                        worksheet: worksheet,
+                        autoFilterEnabled: true,
+                        selectedRowsOnly: e.selectedRowsOnly,
+                        customizeCell: function(options) {
+                            const { gridCell, excelCell } = options;
+                            if (gridCell.rowType === 'header') {
+                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A3A5C' } };
+                                excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 10, name: 'Calibri' };
+                                excelCell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: false };
+                                excelCell.border = {
+                                    top: { style: 'thin', color: { argb: 'FF1A3A5C' } },
+                                    left: { style: 'thin', color: { argb: 'FF1A3A5C' } },
+                                    bottom: { style: 'medium', color: { argb: 'FF000000' } },
+                                    right: { style: 'thin', color: { argb: 'FF1A3A5C' } }
+                                };
+                            } else if (gridCell.rowType === 'data') {
+                                excelCell.font = { size: 10, name: 'Calibri' };
+                                excelCell.border = {
+                                    top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+                                    left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+                                    bottom: { style: 'thin', color: { argb: 'FFCCCCCC' } },
+                                    right: { style: 'thin', color: { argb: 'FFCCCCCC' } }
+                                };
+                                if (excelCell.row % 2 === 0) {
+                                    excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F4F8' } };
+                                }
+                            }
+                        }
+                    }).then(function() {
+                        worksheet.columns.forEach(function(column) {
+                            let maxLen = 12;
+                            column.eachCell({ includeEmpty: false }, function(cell) {
+                                if (cell.value != null) {
+                                    const len = String(cell.value).length;
+                                    if (len > maxLen) maxLen = len;
+                                }
+                            });
+                            column.width = Math.min(maxLen + 2, 45);
+                        });
+                        const date = new Date().toISOString().split('T')[0];
+                        const label = e.selectedRowsOnly ? 'Selected' : 'All';
+                        workbook.xlsx.writeBuffer().then(function(buffer) {
+                            saveAs(new Blob([buffer], { type: 'application/octet-stream' }), `Trip_${tripId}_${label}_${date}.xlsx`);
+                        });
+                    });
+                    e.cancel = true;
                 },
                 height: '100%'
             });
