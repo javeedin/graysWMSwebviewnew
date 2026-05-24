@@ -6037,8 +6037,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                         });
                                     });
 
-                                    // Repaint grid to show updated picker names
-                                    gridInstance.repaint();
+                                    // Clear selection so stale rows don't re-appear in next dialog open
+                                    gridInstance.deselectAll();
+                                    // Refresh grid to re-render PICKER column with updated values
+                                    gridInstance.refresh();
                                 }
                             }
                         } else {
@@ -6109,8 +6111,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 });
                             });
 
-                            // Repaint grid to show updated picker names
-                            gridInstance.repaint();
+                            // Clear selection so stale rows don't re-appear in next dialog open
+                            gridInstance.deselectAll();
+                            // Refresh grid to re-render PICKER column with updated values
+                            gridInstance.refresh();
                         }
                     }
                 } else {
