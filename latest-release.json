@@ -1,8 +1,8 @@
 {
-    "version":  "1.0.3",
-    "release_date":  "2026-05-25T00:05:37Z",
-    "html_package_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/download/v1.0.3/wms-webview-html-1.0.3.zip",
+    "version":  "1.0.4",
+    "release_date":  "2026-05-25T00:11:16Z",
+    "html_package_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/download/v1.0.4/wms-webview-html-1.0.4.zip",
     "exe_url":  "",
-    "changelog_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/tag/v1.0.3",
+    "changelog_url":  "https://github.com/javeedin/graysWMSwebviewnew/releases/tag/v1.0.4",
     "changelog":  "Feature: Pick Release All - Smart button handles both S2V (Store to Van) and Sales Orders. S2V uses existing allocateLots logic, Sales Orders call new REST API. Added Assignment Date field to Picker Assignment modal."
 }
