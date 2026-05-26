@@ -3181,4 +3181,14 @@ function updateTripOrdersGridSelection() {
 // Call this after grid initialization
 setTimeout(updateTripOrdersGridSelection, 500);
 
+function clearTripOrdersSelection() {
+    if (tripOrdersGrid) {
+        tripOrdersGrid.deselectAll();
+    }
+    const countEl = document.getElementById('selected-trip-orders-num');
+    if (countEl) countEl.textContent = '0';
+    const floatBtn = document.getElementById('action-floating-btn');
+    if (floatBtn) floatBtn.style.display = 'none';
+}
+
 console.log('[Trip Details] ✅ Module loaded');
