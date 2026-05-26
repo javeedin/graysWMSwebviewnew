@@ -15527,7 +15527,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Show API info for Fetch Sales Order Lines action
     window.showFetchLinesApiInfo = function() {
-        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+        const selectedOrders = getSelectedOrdersFromGrid();
+        const firstOrder = selectedOrders && selectedOrders[0];
+        const instance = (firstOrder && (firstOrder.INSTANCE_NAME || firstOrder.instance_name || firstOrder.INSTANCE || firstOrder.instance)) || window.currentTripInstance || 'TEST';
         const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number={ORDER_NUMBER}`;
 
         const existing = document.getElementById('fetch-lines-api-info-popup');
@@ -15567,11 +15569,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Action: Fetch Sales Order Lines — shows confirmation popup then runs POST + GET
     async function executeActionFetchLines(orders) {
-        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
         const sampleOrder = orders[0];
         const sampleOrderNum = sampleOrder.SOURCE_ORDER_NUMBER || sampleOrder.source_order_number || sampleOrder.ORDER_NUMBER || sampleOrder.order_number || 'N/A';
-        const samplePostUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${sampleOrderNum}`;
-        const sampleGetUrl  = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${sampleOrderNum}?P_INSTANCE_NAME=${instance}`;
+        const sampleInstance = sampleOrder.INSTANCE_NAME || sampleOrder.instance_name || sampleOrder.INSTANCE || sampleOrder.instance || window.currentTripInstance || 'TEST';
+        const samplePostUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${sampleInstance}&p_order_number=${sampleOrderNum}`;
+        const sampleGetUrl  = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${sampleOrderNum}?P_INSTANCE_NAME=${sampleInstance}`;
 
         const existing = document.getElementById('fetch-lines-confirm-popup');
         if (existing) existing.remove();
@@ -15636,9 +15638,10 @@ document.addEventListener('DOMContentLoaded', function() {
             const order = orders[i];
             const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
             const tripId = order.TRIP_ID || order.trip_id || null;
+            const instance = order.INSTANCE_NAME || order.instance_name || order.INSTANCE || order.instance || window.currentTripInstance || 'TEST';
 
             // Step 1: POST — fetch from Fusion into WMS DB
-            window.actionProcessingState.currentStep = `[${i + 1}/${orders.length}] POST: fetchfusionorderlines for ${orderNumber}`;
+            window.actionProcessingState.currentStep = `[${i + 1}/${orders.length}] POST: fetchfusionorderlines for ${orderNumber} (${instance})`;
             updateActionProcessingIndicator();
 
             let postSuccess = false;
@@ -15650,7 +15653,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
 
             // Step 2: GET — read results from WMS DB
-            window.actionProcessingState.currentStep = `[${i + 1}/${orders.length}] GET: getsalesorderlines for ${orderNumber}`;
+            window.actionProcessingState.currentStep = `[${i + 1}/${orders.length}] GET: getsalesorderlines for ${orderNumber} (${instance})`;
             updateActionProcessingIndicator();
 
             let lineCount = 0;
