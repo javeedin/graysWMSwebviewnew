@@ -15280,10 +15280,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 <i class="fas fa-tasks"></i> Actions
             </div>
             <div style="padding: 8px 0;">
-                <button onclick="executeFloatingAction('fetchLines')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
-                    <i class="fas fa-list-ol" style="color: #3b82f6; width: 20px;"></i>
-                    <span style="font-size: 13px;">Fetch Sales Order Lines</span>
-                </button>
+                <div style="display: flex; align-items: center;">
+                    <button onclick="executeFloatingAction('fetchLines')" style="flex: 1; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                        <i class="fas fa-list-ol" style="color: #3b82f6; width: 20px;"></i>
+                        <span style="font-size: 13px;">Fetch Sales Order Lines</span>
+                    </button>
+                    <button onclick="event.stopPropagation(); showFetchLinesApiInfo()" title="View API Info" style="padding: 8px 12px; border: none; background: none; cursor: pointer; color: #6366f1; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
+                        <i class="fas fa-code" style="font-size: 13px;"></i>
+                    </button>
+                </div>
                 <button onclick="executeFloatingAction('releasePicks')" style="width: 100%; padding: 12px 16px; border: none; background: none; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 12px; transition: background 0.2s;" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='none'">
                     <i class="fas fa-play-circle" style="color: #10b981; width: 20px;"></i>
                     <span style="font-size: 13px;">Release Picks</span>
@@ -15464,9 +15469,93 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     };
 
-    // Action: Fetch Sales Order Lines
+    // Show API info for Fetch Sales Order Lines action
+    window.showFetchLinesApiInfo = function() {
+        const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number={ORDER_NUMBER}`;
+
+        const existing = document.getElementById('fetch-lines-api-info-popup');
+        if (existing) existing.remove();
+
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="fetch-lines-api-info-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 580px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;"><i class="fas fa-code"></i> Fetch Sales Order Lines — API Info</h3>
+                        <button onclick="document.getElementById('fetch-lines-api-info-popup').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 16px;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #3b82f6; margin-bottom: 1rem;">
+                            <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">API Details</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Method:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe;"><span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span></td></tr>
+                                <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td></tr>
+                                <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Endpoint:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-size: 11px;">TRIPMANAGEMENT/trip/order/fetchfusionorderlines</td></tr>
+                            </table>
+                        </div>
+                        <div>
+                            <strong style="color: #4a5568; font-size: 12px;">URL Pattern:</strong>
+                            <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">${apiUrl}</code>
+                        </div>
+                        <div style="margin-top: 1rem; background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 12px; color: #78350f;">
+                            <strong><i class="fas fa-info-circle"></i> Same webservice as</strong> the "Fetch Order Lines From Fusion" button in the Order Transactions popup.
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 1px solid #f0f0f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('fetch-lines-api-info-popup').remove()" style="padding: 8px 20px; background: #6366f1; color: white; border: none; border-radius: 6px; cursor: pointer;">Close</button>
+                    </div>
+                </div>
+            </div>
+        `);
+    };
+
+    // Action: Fetch Sales Order Lines — shows confirmation popup before running
     async function executeActionFetchLines(orders) {
         const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
+        const sampleOrder = orders[0];
+        const sampleOrderNum = sampleOrder.SOURCE_ORDER_NUMBER || sampleOrder.source_order_number || sampleOrder.ORDER_NUMBER || sampleOrder.order_number || 'N/A';
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${sampleOrderNum}${orders.length > 1 ? '&...' : ''}`;
+
+        const existing = document.getElementById('fetch-lines-confirm-popup');
+        if (existing) existing.remove();
+
+        await new Promise((resolve) => {
+            document.body.insertAdjacentHTML('beforeend', `
+                <div id="fetch-lines-confirm-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                    <div style="background: white; width: 90%; max-width: 580px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                        <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 1rem 1.5rem;">
+                            <h3 style="margin: 0; font-size: 1.1rem;"><i class="fas fa-list-ol"></i> Fetch Sales Order Lines</h3>
+                        </div>
+                        <div style="padding: 1.5rem;">
+                            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #3b82f6; margin-bottom: 1rem;">
+                                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">API Details</div>
+                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                    <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Method:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe;"><span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span></td></tr>
+                                    <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td></tr>
+                                    <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Orders selected:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${orders.length}</td></tr>
+                                    <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Endpoint:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-size: 11px;">TRIPMANAGEMENT/trip/order/fetchfusionorderlines</td></tr>
+                                </table>
+                            </div>
+                            <div style="margin-bottom: 1rem;">
+                                <strong style="color: #4a5568; font-size: 12px;">Sample URL (1st order):</strong>
+                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">${apiUrl}</code>
+                            </div>
+                            <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 12px; color: #78350f;">
+                                <strong><i class="fas fa-info-circle"></i> Note:</strong> Calls the same webservice as "Fetch Order Lines From Fusion" in the Order Transactions popup. Runs once per selected order.
+                            </div>
+                        </div>
+                        <div style="padding: 1rem 1.5rem; border-top: 1px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
+                            <button onclick="document.getElementById('fetch-lines-confirm-popup').remove()" style="padding: 8px 20px; background: #e2e8f0; color: #475569; border: none; border-radius: 6px; cursor: pointer;"><i class="fas fa-times"></i> Cancel</button>
+                            <button id="fetch-lines-run-btn" onclick="document.getElementById('fetch-lines-confirm-popup').remove(); window._fetchLinesConfirmed && window._fetchLinesConfirmed();" style="padding: 8px 20px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;"><i class="fas fa-cloud-download-alt"></i> Fetch Now</button>
+                        </div>
+                    </div>
+                </div>
+            `);
+
+            window._fetchLinesConfirmed = resolve;
+        });
+
+        delete window._fetchLinesConfirmed;
 
         window.actionProcessingState = {
             isProcessing: true,
