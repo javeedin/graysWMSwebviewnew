@@ -2368,7 +2368,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const params = new URLSearchParams({
             P_DATE_FROM: formatDate(dateFrom),
             P_DATE_TO: formatDate(dateTo),
-            P_INSTANCE_NAME: instanceName
+            P_INSTANCE_NAME: instanceName,
+            limit: '500'
         });
         const fullUrl = `${baseUrl}?${params.toString()}`;
 
@@ -2432,7 +2433,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const tripDetailsBaseUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/ALL';
         const tripDetailsParams = new URLSearchParams({
             P_FROM_DATE: dateFrom,  // YYYY-MM-DD format
-            P_TO_DATE: dateTo       // YYYY-MM-DD format
+            P_TO_DATE: dateTo,      // YYYY-MM-DD format
+            limit: '500'
         });
         const tripDetailsFullUrl = `${tripDetailsBaseUrl}?${tripDetailsParams.toString()}`;
 
@@ -3781,7 +3783,7 @@ document.addEventListener('DOMContentLoaded', function() {
             || 'PROD';
 
         // Call the allocate lots API
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/materialtrx/allocatelots?p_trx_number=${encodeURIComponent(orderNumber)}&p_instance_name=${encodeURIComponent(instance)}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/materialtrx/allocatelots?p_trx_number=${encodeURIComponent(orderNumber)}&p_instance_name=${encodeURIComponent(instance)}&limit=500`;
 
         if (logEl) logEl.innerHTML += `<div style="color:#64748b;"><i class="fas fa-spinner fa-spin"></i> ${orderNumber}: Allocating...</div>`;
 
@@ -4470,7 +4472,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.body.appendChild(loadingDiv);
 
         // Call GETTRIPDETAILS API
-        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${instance}`;
+        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${instance}&limit=500`;
 
         console.log('[JS] Calling GETTRIPDETAILS API:', GET_TRIP_DETAILS_API);
 
@@ -5532,7 +5534,7 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
         }
 
-        const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettripprofitcenters?P_TRIP_ID=${encodeURIComponent(tripId)}`;
+        const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettripprofitcenters?P_TRIP_ID=${encodeURIComponent(tripId)}&limit=500`;
 
         sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(error, data) {
             if (btn) {
@@ -7354,7 +7356,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function callGetPicksAPI(orderNumber, warehouse, instance) {
         return new Promise((resolve) => {
-            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/getopenpicksbyorder?organization_code=${warehouse}&order_number=${orderNumber}&p_instance_name=${instance}`;
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/getopenpicksbyorder?organization_code=${warehouse}&order_number=${orderNumber}&p_instance_name=${instance}&limit=500`;
 
             console.log('[With Lots] Calling Total Picks:', apiUrl);
 
@@ -7379,7 +7381,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function callGetPickLotsAPI(orderNumber, instance) {
         return new Promise((resolve) => {
-            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/getlotsforpicks?source_order_number=${orderNumber}&p_instance_name=${instance}`;
+            const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/getlotsforpicks?source_order_number=${orderNumber}&p_instance_name=${instance}&limit=500`;
 
             console.log('[With Lots] Calling Lots in the Pick:', apiUrl);
 
@@ -8096,7 +8098,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function fetchTripLines(tripId, instanceName) {
         const instance = instanceName || window.currentTripInstance || 'PROD';
-        const TRIP_LINES_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettrillines?P_TRIP_ID=${tripId}&P_INSTANCE_NAME=${instance}`;
+        const TRIP_LINES_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/gettrillines?P_TRIP_ID=${tripId}&P_INSTANCE_NAME=${instance}&limit=500`;
 
         console.log('[Show Trip Lines] Fetching from:', TRIP_LINES_API);
 
@@ -9009,7 +9011,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${instance}`;
+        const GET_TRIP_DETAILS_API = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/GETTRIPDETAILS/${tripId}?P_INSTANCE_NAME=${instance}&limit=500`;
 
         console.log('[Refresh Trip] API URL:', GET_TRIP_DETAILS_API);
 
@@ -9923,7 +9925,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Pick Release Details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}?P_INSTANCE_NAME=${instance}&limit=500`;
 
         console.log('[Order Transactions] Fetching Pick Release Details from:', apiUrl);
 
@@ -10056,7 +10058,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Sales Order Lines...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}&limit=500`;
 
         console.log('[Order Transactions] Fetching Sales Order Lines from:', apiUrl);
 
@@ -10778,7 +10780,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Show loading state
         gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Lot Details...</p></div>';
 
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getlotdetails/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trips/orders/getlotdetails/${orderNumber}?P_INSTANCE_NAME=${instance}&limit=500`;
 
         console.log('[Order Transactions] Fetching Lot Details from:', apiUrl);
 
@@ -12144,7 +12146,7 @@ document.addEventListener('DOMContentLoaded', function() {
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading transaction details...</p></div>';
 
         const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}?p_instance_name=${currentInstance}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/s2vdetails/${orderNumber}?p_instance_name=${currentInstance}&limit=500`;
 
         // Log debug info
         logDebugInfo('Refresh Transaction Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
@@ -12624,7 +12626,7 @@ document.addEventListener('DOMContentLoaded', function() {
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading allocated lots...</p></div>';
 
         const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fetchlotdetails?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}&limit=500`;
 
         // Log debug info
         logDebugInfo('Refresh Allocated Lots', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
@@ -12851,7 +12853,7 @@ document.addEventListener('DOMContentLoaded', function() {
         gridContainer.innerHTML = '<div style="text-align: center; padding: 2rem;"><i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: #667eea;"></i><p style="margin-top: 1rem; color: #64748b;">Loading QOH details...</p></div>';
 
         const currentInstance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}`;
+        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/tripqoh?v_trx_number=${orderNumber}&p_instance_name=${currentInstance}&limit=500`;
 
         // Log debug info
         logDebugInfo('Refresh QOH Details', apiUrl, { orderNumber, instance: currentInstance }, null, null, 'GET');
