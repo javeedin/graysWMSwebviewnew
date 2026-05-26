@@ -754,7 +754,7 @@ window.loadPendingOrders = async function() {
     console.log('[Trip Details] Using instance:', currentInstance);
 
     // Add instance parameter to API URL
-    const apiUrl = `${PENDING_ORDERS_API}?instance=${currentInstance}&limit=500`;
+    const apiUrl = `${PENDING_ORDERS_API}?instance=${currentInstance}`;
     console.log('[Trip Details] API URL:', apiUrl);
 
     try {
@@ -2772,22 +2772,22 @@ function loadOrderTransPopupData() {
     console.log('[Trip Details] Loading order transaction data for:', orderNumber);
 
     // Load Pick Release Details
-    const pickReleaseUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}?instance=${instance}&limit=500`;
+    const pickReleaseUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getpickreleasedetails/${orderNumber}?instance=${instance}`;
 
     callApiAndPopulateGrid(pickReleaseUrl, orderTransPickReleaseGrid);
 
     // Load Sales Lines
-    const salesLinesUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getsalesorderlines/${orderNumber}?instance=${instance}&limit=500`;
+    const salesLinesUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getsalesorderlines/${orderNumber}?instance=${instance}`;
 
     callApiAndPopulateGrid(salesLinesUrl, orderTransSalesLinesGrid);
 
     // Load Lot Details
-    const lotDetailsUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getlotdetails/${orderNumber}?instance=${instance}&limit=500`;
+    const lotDetailsUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getlotdetails/${orderNumber}?instance=${instance}`;
 
     callApiAndPopulateGrid(lotDetailsUrl, orderTransLotDetailsGrid);
 
     // Load Shipment Details
-    const shipmentUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getshipmentdetails/${orderNumber}?instance=${instance}&limit=500`;
+    const shipmentUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/orders/getshipmentdetails/${orderNumber}?instance=${instance}`;
 
     callApiAndPopulateGrid(shipmentUrl, orderTransShipmentGrid);
 }
@@ -2998,12 +2998,12 @@ function loadStoreTransPopupData() {
     console.log('[Trip Details] Loading store transaction data for:', orderNumber);
 
     // Load Transaction Details
-    const transUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/storetrans/gettransactiondetails/${orderNumber}?instance=${instance}&limit=500`;
+    const transUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/storetrans/gettransactiondetails/${orderNumber}?instance=${instance}`;
 
     callApiAndPopulateGrid(transUrl, storeTransTransactionsGrid);
 
     // Load QOH Details
-    const qohUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/storetrans/getqohdetails/${orderNumber}?instance=${instance}&limit=500`;
+    const qohUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/storetrans/getqohdetails/${orderNumber}?instance=${instance}`;
 
     callApiAndPopulateGrid(qohUrl, storeTransQohGrid);
 
