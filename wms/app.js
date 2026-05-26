@@ -9645,6 +9645,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <button class="btn btn-primary" onclick="fetchFusionOrderLines('${orderNumber}')" style="background: #2563eb; color: white;">
                                     <i class="fas fa-cloud-download-alt"></i> Fetch Order Lines from Fusion
                                 </button>
+                                <button onclick="showFetchFusionOrderLinesApiInfo('${orderNumber}', '${instance}')" title="View API Info" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 6px 10px; border-radius: 6px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px;">
+                                    <i class="fas fa-code"></i> API
+                                </button>
                             </div>
                             <div id="sales-order-lines-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
                                 <div id="sales-order-lines-grid" style="height: 100%;"></div>
@@ -10176,6 +10179,59 @@ document.addEventListener('DOMContentLoaded', function() {
         row.querySelector('input[type="radio"]').checked = true;
         window.selectedSalesOrderLine = window.salesOrderLinesData ? window.salesOrderLinesData[index] : null;
         console.log('[Order Transactions] Selected Sales Order Line:', window.selectedSalesOrderLine);
+    };
+
+    // API Info popup for Fetch Order Lines from Fusion
+    window.showFetchFusionOrderLinesApiInfo = function(orderNumber, instance) {
+        const postUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${orderNumber}`;
+        const getUrl  = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+
+        const existing = document.getElementById('fetch-fusion-api-info-popup');
+        if (existing) existing.remove();
+
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="fetch-fusion-api-info-popup" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:40000;display:flex;justify-content:center;align-items:center;">
+                <div style="background:white;width:90%;max-width:640px;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+                    <div style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;">
+                        <h3 style="margin:0;font-size:1.1rem;"><i class="fas fa-code"></i> API Info — Fetch Order Lines From Fusion</h3>
+                        <button onclick="document.getElementById('fetch-fusion-api-info-popup').remove()" style="background:rgba(255,255,255,0.2);border:none;color:white;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:16px;">&times;</button>
+                    </div>
+                    <div style="padding:1.5rem;">
+                        <p style="color:#475569;font-size:12px;margin:0 0 1rem;">When you click <strong>Fetch Order Lines From Fusion</strong>, two API calls run in sequence:</p>
+
+                        <!-- Call 1 -->
+                        <div style="background:#fff7ed;padding:1rem;border-radius:8px;border-left:4px solid #f97316;margin-bottom:1rem;">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.5rem;">
+                                <span style="background:#f97316;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">STEP 1 — POST</span>
+                                <span style="font-weight:600;color:#9a3412;font-size:12px;">Fetch from Oracle Fusion into WMS DB</span>
+                            </div>
+                            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                                <tr><td style="padding:3px 8px;border:1px solid #fed7aa;color:#64748b;width:100px;">Endpoint:</td><td style="padding:3px 8px;border:1px solid #fed7aa;font-weight:600;">TRIPMANAGEMENT/trip/order/fetchfusionorderlines</td></tr>
+                                <tr><td style="padding:3px 8px;border:1px solid #fed7aa;color:#64748b;">Instance:</td><td style="padding:3px 8px;border:1px solid #fed7aa;color:#7c3aed;font-weight:600;">${instance}</td></tr>
+                                <tr><td style="padding:3px 8px;border:1px solid #fed7aa;color:#64748b;">Order:</td><td style="padding:3px 8px;border:1px solid #fed7aa;font-weight:600;">${orderNumber}</td></tr>
+                            </table>
+                            <code style="background:#fef3c7;padding:5px 8px;border-radius:4px;font-size:9px;word-break:break-all;display:block;margin-top:6px;">${postUrl}</code>
+                        </div>
+
+                        <!-- Call 2 -->
+                        <div style="background:#eff6ff;padding:1rem;border-radius:8px;border-left:4px solid #3b82f6;">
+                            <div style="display:flex;align-items:center;gap:8px;margin-bottom:0.5rem;">
+                                <span style="background:#3b82f6;color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">STEP 2 — GET</span>
+                                <span style="font-weight:600;color:#1e40af;font-size:12px;">Load results into Sales Order Lines grid</span>
+                            </div>
+                            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                                <tr><td style="padding:3px 8px;border:1px solid #bfdbfe;color:#64748b;width:100px;">Endpoint:</td><td style="padding:3px 8px;border:1px solid #bfdbfe;font-weight:600;">TRIPMANAGEMENT/trip/orders/getsalesorderlines/{ORDER}</td></tr>
+                                <tr><td style="padding:3px 8px;border:1px solid #bfdbfe;color:#64748b;">Instance:</td><td style="padding:3px 8px;border:1px solid #bfdbfe;color:#7c3aed;font-weight:600;">${instance}</td></tr>
+                            </table>
+                            <code style="background:#dbeafe;padding:5px 8px;border-radius:4px;font-size:9px;word-break:break-all;display:block;margin-top:6px;">${getUrl}</code>
+                        </div>
+                    </div>
+                    <div style="padding:1rem 1.5rem;border-top:1px solid #f0f0f0;display:flex;justify-content:flex-end;">
+                        <button onclick="document.getElementById('fetch-fusion-api-info-popup').remove()" style="padding:8px 20px;background:#6366f1;color:white;border:none;border-radius:6px;cursor:pointer;">Close</button>
+                    </div>
+                </div>
+            </div>
+        `);
     };
 
     // Fetch Order Lines from Fusion function
@@ -15509,53 +15565,60 @@ document.addEventListener('DOMContentLoaded', function() {
         `);
     };
 
-    // Action: Fetch Sales Order Lines — shows confirmation popup before running
+    // Action: Fetch Sales Order Lines — shows confirmation popup then runs POST + GET
     async function executeActionFetchLines(orders) {
         const instance = document.getElementById('instanceDropdown')?.value || 'TEST';
         const sampleOrder = orders[0];
         const sampleOrderNum = sampleOrder.SOURCE_ORDER_NUMBER || sampleOrder.source_order_number || sampleOrder.ORDER_NUMBER || sampleOrder.order_number || 'N/A';
-        const apiUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${sampleOrderNum}${orders.length > 1 ? '&...' : ''}`;
+        const samplePostUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instance}&p_order_number=${sampleOrderNum}`;
+        const sampleGetUrl  = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${sampleOrderNum}?P_INSTANCE_NAME=${instance}`;
 
         const existing = document.getElementById('fetch-lines-confirm-popup');
         if (existing) existing.remove();
 
-        await new Promise((resolve) => {
+        const confirmed = await new Promise((resolve) => {
             document.body.insertAdjacentHTML('beforeend', `
-                <div id="fetch-lines-confirm-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
-                    <div style="background: white; width: 90%; max-width: 580px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
-                        <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); color: white; padding: 1rem 1.5rem;">
-                            <h3 style="margin: 0; font-size: 1.1rem;"><i class="fas fa-list-ol"></i> Fetch Sales Order Lines</h3>
+                <div id="fetch-lines-confirm-popup" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:30000;display:flex;justify-content:center;align-items:center;">
+                    <div style="background:white;width:90%;max-width:620px;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+                        <div style="background:linear-gradient(135deg,#3b82f6 0%,#2563eb 100%);color:white;padding:1rem 1.5rem;">
+                            <h3 style="margin:0;font-size:1.1rem;"><i class="fas fa-list-ol"></i> Fetch Sales Order Lines</h3>
                         </div>
-                        <div style="padding: 1.5rem;">
-                            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; border-left: 4px solid #3b82f6; margin-bottom: 1rem;">
-                                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">API Details</div>
-                                <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
-                                    <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Method:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe;"><span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span></td></tr>
-                                    <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: #7c3aed;">${instance}</td></tr>
-                                    <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Orders selected:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${orders.length}</td></tr>
-                                    <tr><td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Endpoint:</td><td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-size: 11px;">TRIPMANAGEMENT/trip/order/fetchfusionorderlines</td></tr>
-                                </table>
+                        <div style="padding:1.5rem;">
+                            <p style="color:#475569;font-size:12px;margin:0 0 1rem;">Two API calls will run per order (<strong>${orders.length} order${orders.length > 1 ? 's' : ''} selected</strong>):</p>
+                            <div style="background:#fff7ed;padding:0.75rem 1rem;border-radius:8px;border-left:4px solid #f97316;margin-bottom:0.75rem;">
+                                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                    <span style="background:#f97316;color:white;padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;">STEP 1 — POST</span>
+                                    <span style="font-weight:600;color:#9a3412;font-size:12px;">Fetch from Oracle Fusion → WMS DB</span>
+                                </div>
+                                <code style="background:#fef3c7;padding:4px 8px;border-radius:4px;font-size:9px;word-break:break-all;display:block;">${samplePostUrl}${orders.length > 1 ? ' (+' + (orders.length - 1) + ' more)' : ''}</code>
                             </div>
-                            <div style="margin-bottom: 1rem;">
-                                <strong style="color: #4a5568; font-size: 12px;">Sample URL (1st order):</strong>
-                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">${apiUrl}</code>
-                            </div>
-                            <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b; font-size: 12px; color: #78350f;">
-                                <strong><i class="fas fa-info-circle"></i> Note:</strong> Calls the same webservice as "Fetch Order Lines From Fusion" in the Order Transactions popup. Runs once per selected order.
+                            <div style="background:#eff6ff;padding:0.75rem 1rem;border-radius:8px;border-left:4px solid #3b82f6;">
+                                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                                    <span style="background:#3b82f6;color:white;padding:1px 8px;border-radius:4px;font-size:10px;font-weight:700;">STEP 2 — GET</span>
+                                    <span style="font-weight:600;color:#1e40af;font-size:12px;">Read results from WMS DB</span>
+                                </div>
+                                <code style="background:#dbeafe;padding:4px 8px;border-radius:4px;font-size:9px;word-break:break-all;display:block;">${sampleGetUrl}${orders.length > 1 ? ' (+' + (orders.length - 1) + ' more)' : ''}</code>
                             </div>
                         </div>
-                        <div style="padding: 1rem 1.5rem; border-top: 1px solid #f0f0f0; display: flex; justify-content: flex-end; gap: 0.5rem;">
-                            <button onclick="document.getElementById('fetch-lines-confirm-popup').remove()" style="padding: 8px 20px; background: #e2e8f0; color: #475569; border: none; border-radius: 6px; cursor: pointer;"><i class="fas fa-times"></i> Cancel</button>
-                            <button id="fetch-lines-run-btn" onclick="document.getElementById('fetch-lines-confirm-popup').remove(); window._fetchLinesConfirmed && window._fetchLinesConfirmed();" style="padding: 8px 20px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;"><i class="fas fa-cloud-download-alt"></i> Fetch Now</button>
+                        <div style="padding:1rem 1.5rem;border-top:1px solid #f0f0f0;display:flex;justify-content:flex-end;gap:0.5rem;">
+                            <button id="fetch-lines-cancel-btn" style="padding:8px 20px;background:#e2e8f0;color:#475569;border:none;border-radius:6px;cursor:pointer;"><i class="fas fa-times"></i> Cancel</button>
+                            <button id="fetch-lines-run-btn" style="padding:8px 20px;background:#3b82f6;color:white;border:none;border-radius:6px;cursor:pointer;"><i class="fas fa-cloud-download-alt"></i> Fetch Now</button>
                         </div>
                     </div>
                 </div>
             `);
 
-            window._fetchLinesConfirmed = resolve;
+            document.getElementById('fetch-lines-run-btn').addEventListener('click', function() {
+                document.getElementById('fetch-lines-confirm-popup').remove();
+                resolve(true);
+            });
+            document.getElementById('fetch-lines-cancel-btn').addEventListener('click', function() {
+                document.getElementById('fetch-lines-confirm-popup').remove();
+                resolve(false);
+            });
         });
 
-        delete window._fetchLinesConfirmed;
+        if (!confirmed) return;
 
         window.actionProcessingState = {
             isProcessing: true,
@@ -15572,31 +15635,51 @@ document.addEventListener('DOMContentLoaded', function() {
         for (let i = 0; i < orders.length; i++) {
             const order = orders[i];
             const orderNumber = order.SOURCE_ORDER_NUMBER || order.source_order_number || order.ORDER_NUMBER || order.order_number;
+            const tripId = order.TRIP_ID || order.trip_id || null;
 
-            window.actionProcessingState.currentStep = `Processing ${orderNumber} (${i + 1}/${orders.length})`;
-            window.actionProcessingState.completedOrders = i;
+            // Step 1: POST — fetch from Fusion into WMS DB
+            window.actionProcessingState.currentStep = `[${i + 1}/${orders.length}] POST: fetchfusionorderlines for ${orderNumber}`;
             updateActionProcessingIndicator();
 
+            let postSuccess = false;
             try {
-                const tripId = order.TRIP_ID || order.trip_id || null;
-                const result = await fetchFusionOrderLinesAPI(orderNumber, instance, tripId);
-                window.actionProcessingState.results.push({
-                    orderNumber,
-                    success: result.success,
-                    count: result.count || 0
+                const postResult = await fetchFusionOrderLinesAPI(orderNumber, instance, tripId);
+                postSuccess = postResult.success !== false;
+            } catch (err) {
+                console.error('[Action Float] POST error for', orderNumber, err);
+            }
+
+            // Step 2: GET — read results from WMS DB
+            window.actionProcessingState.currentStep = `[${i + 1}/${orders.length}] GET: getsalesorderlines for ${orderNumber}`;
+            updateActionProcessingIndicator();
+
+            let lineCount = 0;
+            try {
+                const getUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/trip/orders/getsalesorderlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+                lineCount = await new Promise((resolve) => {
+                    sendMessageToCSharp({ action: 'executeGet', fullUrl: getUrl }, function(err, data) {
+                        if (err) { resolve(0); return; }
+                        try {
+                            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+                            const items = Array.isArray(parsed) ? parsed : (parsed?.items || []);
+                            resolve(items.length);
+                        } catch (e) { resolve(0); }
+                    });
                 });
             } catch (err) {
-                console.error('[Action Float] Error fetching lines for', orderNumber, err);
-                window.actionProcessingState.results.push({
-                    orderNumber,
-                    success: false,
-                    error: err.message
-                });
+                console.error('[Action Float] GET error for', orderNumber, err);
             }
+
+            window.actionProcessingState.results.push({
+                orderNumber,
+                success: postSuccess,
+                count: lineCount
+            });
+            window.actionProcessingState.completedOrders = i + 1;
+            updateActionProcessingIndicator();
         }
 
         window.actionProcessingState.isProcessing = false;
-        window.actionProcessingState.completedOrders = orders.length;
         window.actionProcessingState.currentStep = 'Complete';
         updateActionProcessingIndicator();
     }
