@@ -9280,26 +9280,45 @@
     }
 
     /* ── advance / back ── */
+    /* ── find next text element in document order ── */
+    function findNextTarget(currentEl) {
+        const candidates = Array.from(
+            document.body.querySelectorAll('p,h1,h2,h3,h4,h5,h6,li,td,th')
+        ).filter(el => {
+            if (el.closest('#present-toolbar,#present-hl-panel,#present-toggle-btn,#present-mode-badge')) return false;
+            if (el.textContent.trim().length < 8) return false;
+            return true;
+        });
+        const i = candidates.indexOf(currentEl);
+        return (i >= 0 && i < candidates.length - 1) ? candidates[i + 1] : null;
+    }
+
     window.hlAdvance = function () {
         if (!hl.words.length) return;
+
+        /* at end of current element — jump to next text block */
+        if (hl.idx >= hl.words.length - 1) {
+            const next = findNextTarget(hl.targetEl);
+            hlClearInternal(true);
+            if (next) { hlActivate(next); }
+            else { setHint('end of page'); }
+            return;
+        }
+
+        /* remove current highlight (no trail — audience sees only ONE word) */
         if (hl.idx >= 0 && hl.words[hl.idx]) {
             hl.words[hl.idx].classList.remove('wms-hl-current');
-            hl.words[hl.idx].classList.add('wms-hl-done');
         }
-        hl.idx = Math.min(hl.idx + 1, hl.words.length - 1);
+        hl.idx++;
         hl.words[hl.idx].classList.add('wms-hl-current');
         hl.words[hl.idx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         updateCounter();
-        if (hl.idx === hl.words.length - 1) setHint('end of text');
     };
 
     window.hlBack = function () {
         if (!hl.words.length) return;
-        if (hl.words[hl.idx]) hl.words[hl.idx].classList.remove('wms-hl-current', 'wms-hl-done');
+        if (hl.words[hl.idx]) hl.words[hl.idx].classList.remove('wms-hl-current');
         hl.idx = Math.max(hl.idx - 1, 0);
-        /* reset all from idx onwards */
-        for (let i = hl.idx + 1; i < hl.words.length; i++)
-            hl.words[i].classList.remove('wms-hl-current', 'wms-hl-done');
         hl.words[hl.idx].classList.add('wms-hl-current');
         updateCounter();
     };
@@ -9353,7 +9372,7 @@
             for (let i = e.resultIndex; i < e.results.length; i++) {
                 if (e.results[i].isFinal) {
                     const count = e.results[i][0].transcript.trim().split(/\s+/).filter(Boolean).length;
-                    for (let w = 0; w < count; w++) window.hlAdvance();
+                    for (let w = 0; w < count; w++) window.hlAdvance(); // each word spoken = advance once
                 }
             }
         };
