@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solution Design — Warehouse Structure & Locations</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  :root {
+    --primary:   #3b82f6;
+    --purple:    #8b5cf6;
+    --green:     #10b981;
+    --amber:     #f59e0b;
+    --red:       #ef4444;
+    --ink:       #0f172a;
+    --ink2:      #1e293b;
+    --ink3:      #334155;
+    --muted:     #64748b;
+    --border:    #e2e8f0;
+    --bg:        #f8fafc;
+    --card:      #ffffff;
+    --option-a:  #ef4444;
+    --option-b:  #10b981;
+    --radius:    14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--ink3); font-size: 14px; line-height: 1.6; }
+
+  /* ── Page header ── */
+  .doc-header {
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #1e3a5f 100%);
+    color: white; padding: 3rem 3rem 2.5rem;
+    position: relative; overflow: hidden;
+  }
+  .doc-header::before {
+    content: ''; position: absolute; top: -60px; right: -60px;
+    width: 300px; height: 300px; border-radius: 50%;
+    background: rgba(99,102,241,0.15); pointer-events: none;
+  }
+  .doc-header::after {
+    content: ''; position: absolute; bottom: -80px; left: 30%;
+    width: 400px; height: 400px; border-radius: 50%;
+    background: rgba(16,185,129,0.08); pointer-events: none;
+  }
+  .doc-meta { display: flex; gap: 1.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .doc-meta span { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15); border-radius: 20px; padding: 3px 12px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.5px; color: rgba(255,255,255,0.8); }
+  .doc-header h1 { font-size: 2.2rem; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 0.4rem; }
+  .doc-header h1 span { color: #60a5fa; }
+  .doc-header p { color: rgba(255,255,255,0.65); font-size: 0.95rem; max-width: 680px; }
+  .doc-header .status-badge { display: inline-flex; align-items: center; gap: 6px; background: rgba(16,185,129,0.2); border: 1px solid rgba(16,185,129,0.4); color: #34d399; padding: 4px 12px; border-radius: 20px; font-size: 0.72rem; font-weight: 700; margin-top: 1rem; }
+
+  /* ── Layout ── */
+  .container { max-width: 1200px; margin: 0 auto; padding: 2.5rem 2rem; }
+  section { margin-bottom: 2.5rem; }
+  .section-title {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 1.1rem; font-weight: 800; color: var(--ink2);
+    margin-bottom: 1.25rem; padding-bottom: 0.6rem;
+    border-bottom: 2px solid var(--border);
+  }
+  .section-title .icon { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; color: white; flex-shrink: 0; }
+
+  /* ── Cards ── */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+  .card-grid { display: grid; gap: 1.25rem; }
+  .card-grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+  .card-grid.cols-3 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .card-grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+
+  /* ── Summary strip ── */
+  .summary-strip { background: linear-gradient(135deg, #eff6ff, #f0fdf4); border: 1px solid #bfdbfe; border-radius: var(--radius); padding: 1.25rem 1.5rem; display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 2rem; }
+  .summary-item { text-align: center; }
+  .summary-item .val { font-size: 1.6rem; font-weight: 800; color: var(--ink2); line-height: 1; }
+  .summary-item .lbl { font-size: 0.7rem; color: var(--muted); font-weight: 600; letter-spacing: 0.5px; margin-top: 2px; }
+  .summary-divider { width: 1px; height: 40px; background: #bfdbfe; }
+
+  /* ── Option cards ── */
+  .option-card { border-radius: var(--radius); border: 2px solid; overflow: hidden; box-shadow: 0 2px 12px rgba(0,0,0,0.07); }
+  .option-card.opt-a { border-color: #fca5a5; }
+  .option-card.opt-b { border-color: #6ee7b7; }
+  .option-header { padding: 1.25rem 1.5rem; display: flex; align-items: center; gap: 1rem; }
+  .opt-a .option-header { background: linear-gradient(135deg, #fef2f2, #fee2e2); }
+  .opt-b .option-header { background: linear-gradient(135deg, #f0fdf4, #dcfce7); }
+  .option-num { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; font-weight: 900; color: white; flex-shrink: 0; }
+  .opt-a .option-num { background: var(--option-a); }
+  .opt-b .option-num { background: var(--option-b); }
+  .option-header h3 { font-size: 1rem; font-weight: 800; color: var(--ink2); }
+  .option-header p { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .option-body { background: var(--card); padding: 1.5rem; }
+
+  /* ── Flowchart ── */
+  .flow { display: flex; flex-direction: column; gap: 0; }
+  .flow-row { display: flex; align-items: center; gap: 0; flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .flow-box {
+    background: #eff6ff; border: 2px solid #93c5fd; border-radius: 10px;
+    padding: 8px 14px; font-size: 0.75rem; font-weight: 600; color: #1e40af;
+    text-align: center; white-space: nowrap; flex-shrink: 0; min-width: 100px;
+    position: relative;
+  }
+  .flow-box.fusion { background: #fef9c3; border-color: #fbbf24; color: #92400e; }
+  .flow-box.wms    { background: #ede9fe; border-color: #a78bfa; color: #4c1d95; }
+  .flow-box.mobile { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+  .flow-box.action { background: #fff7ed; border-color: #fb923c; color: #7c2d12; }
+  .flow-box.end    { background: #dcfce7; border-color: #4ade80; color: #14532d; }
+  .flow-box.start  { background: #e0f2fe; border-color: #38bdf8; color: #0c4a6e; }
+  .flow-box.decision { background: #fef3c7; border-color: #f59e0b; color: #78350f;
+    border-radius: 0; transform: rotate(45deg); width: 80px; height: 80px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 10px; flex-shrink: 0;
+    font-size: 0.65rem; text-align: center; padding: 4px;
+  }
+  .flow-box.decision span { display: block; transform: rotate(-45deg); }
+  .flow-arrow { color: #94a3b8; font-size: 1.1rem; padding: 0 4px; flex-shrink: 0; }
+  .flow-arrow.down { transform: rotate(90deg); margin: 2px auto; display: block; }
+  .flow-gap { margin: 6px 0; }
+  .flow-label { font-size: 0.65rem; color: var(--muted); text-align: center; font-weight: 600; margin-top: 2px; }
+
+  /* ── Pro/Con lists ── */
+  .pro-con { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem; }
+  .pro-list, .con-list { background: var(--bg); border-radius: 10px; padding: 1rem; }
+  .pro-list h5 { color: var(--green); font-size: 0.78rem; font-weight: 700; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 5px; }
+  .con-list h5 { color: var(--red); font-size: 0.78rem; font-weight: 700; margin-bottom: 0.6rem; display: flex; align-items: center; gap: 5px; }
+  .pro-list li, .con-list li { list-style: none; font-size: 0.78rem; color: var(--ink3); padding: 4px 0; border-bottom: 1px solid var(--border); display: flex; gap: 6px; align-items: flex-start; }
+  .pro-list li:last-child, .con-list li:last-child { border: none; }
+  .pro-list li::before { content: '✓'; color: var(--green); font-weight: 700; flex-shrink: 0; }
+  .con-list li::before { content: '✗'; color: var(--red); font-weight: 700; flex-shrink: 0; }
+
+  /* ── Risk badge ── */
+  .risk-badge { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 20px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.5px; }
+  .risk-high   { background: #fee2e2; color: #b91c1c; }
+  .risk-medium { background: #fef3c7; color: #92400e; }
+  .risk-low    { background: #dcfce7; color: #14532d; }
+
+  /* ── Comparison table ── */
+  .compare-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+  .compare-table th, .compare-table td { padding: 10px 14px; border: 1px solid var(--border); text-align: left; }
+  .compare-table thead th { background: var(--ink2); color: white; font-weight: 700; }
+  .compare-table thead th:first-child { background: var(--ink2); }
+  .compare-table thead th.col-a { background: #b91c1c; }
+  .compare-table thead th.col-b { background: #065f46; }
+  .compare-table tr:nth-child(even) td { background: #f8fafc; }
+  .compare-table td.criteria { font-weight: 600; color: var(--ink2); }
+  .compare-table td.bad  { color: #b91c1c; font-weight: 600; }
+  .compare-table td.good { color: #065f46; font-weight: 600; }
+  .compare-table td.ok   { color: #92400e; font-weight: 600; }
+  .compare-table td.winner { background: #dcfce7 !important; font-weight: 700; color: #065f46; }
+
+  /* ── Recommendation box ── */
+  .rec-box { background: linear-gradient(135deg, #0f172a, #1e293b); color: white; border-radius: var(--radius); padding: 2rem; position: relative; overflow: hidden; }
+  .rec-box::before { content: ''; position: absolute; top: -40px; right: -40px; width: 200px; height: 200px; border-radius: 50%; background: rgba(16,185,129,0.15); }
+  .rec-box h3 { font-size: 1.2rem; font-weight: 800; color: #34d399; margin-bottom: 0.75rem; display: flex; align-items: center; gap: 8px; }
+  .rec-box p { color: rgba(255,255,255,0.8); font-size: 0.85rem; line-height: 1.7; }
+  .rec-box .rationale { margin-top: 1rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.75rem; }
+  .rat-item { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; padding: 0.75rem 1rem; font-size: 0.78rem; color: rgba(255,255,255,0.85); }
+  .rat-item strong { display: block; color: #60a5fa; font-size: 0.72rem; font-weight: 700; margin-bottom: 3px; letter-spacing: 0.5px; text-transform: uppercase; }
+
+  /* ── Roadmap steps ── */
+  .roadmap-steps { counter-reset: step; }
+  .rs-item { display: flex; gap: 1rem; margin-bottom: 1rem; }
+  .rs-num { width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: white; font-size: 0.85rem; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; }
+  .rs-body h4 { font-size: 0.88rem; font-weight: 700; color: var(--ink2); }
+  .rs-body p  { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .rs-body ul { margin-top: 0.4rem; padding-left: 1rem; }
+  .rs-body ul li { font-size: 0.75rem; color: var(--ink3); padding: 1px 0; }
+  .rs-duration { display: inline-block; background: #eff6ff; color: #1d4ed8; border-radius: 10px; padding: 1px 8px; font-size: 0.68rem; font-weight: 700; margin-left: 8px; }
+
+  /* ── Data model ── */
+  .db-table { background: #0f172a; border-radius: 10px; padding: 1rem; font-family: 'Consolas', monospace; font-size: 0.72rem; color: #94a3b8; overflow-x: auto; }
+  .db-table .t-name { color: #60a5fa; font-weight: 700; font-size: 0.8rem; }
+  .db-table .col { color: #34d399; }
+  .db-table .type { color: #f59e0b; }
+  .db-table .comment { color: #64748b; }
+
+  /* ── Architecture diagram ── */
+  .arch-diagram { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; overflow-x: auto; }
+  .arch-layer { display: flex; align-items: center; justify-content: center; gap: 1rem; margin-bottom: 0.5rem; flex-wrap: wrap; }
+  .arch-box { background: #eff6ff; border: 2px solid #93c5fd; border-radius: 10px; padding: 10px 18px; font-size: 0.78rem; font-weight: 700; color: #1e40af; text-align: center; min-width: 140px; }
+  .arch-box.fusion-box { background: #fef9c3; border-color: #fbbf24; color: #78350f; }
+  .arch-box.wms-box    { background: #ede9fe; border-color: #8b5cf6; color: #4c1d95; }
+  .arch-box.mobile-box { background: #ecfdf5; border-color: #10b981; color: #064e3b; }
+  .arch-box.db-box     { background: #fff7ed; border-color: #fb923c; color: #7c2d12; }
+  .arch-connector { text-align: center; color: #94a3b8; font-size: 0.65rem; margin: 4px 0; }
+  .arch-connector i { display: block; font-size: 1rem; color: #94a3b8; }
+  .arch-label { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.5px; color: var(--muted); text-transform: uppercase; text-align: center; margin-bottom: 6px; }
+
+  /* ── Effort bar ── */
+  .effort-bar { height: 8px; border-radius: 4px; background: #e2e8f0; margin-top: 6px; overflow: hidden; }
+  .effort-bar .fill { height: 100%; border-radius: 4px; }
+
+  /* print / export */
+  @media print { body { background: white; } .doc-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════ HEADER ═══════════════════════════════ -->
+<div class="doc-header">
+  <div class="doc-meta">
+    <span><i class="fas fa-warehouse"></i> WMS Architecture</span>
+    <span><i class="fas fa-calendar"></i> May 2026</span>
+    <span><i class="fas fa-code-branch"></i> v1.0 Draft</span>
+    <span><i class="fas fa-user"></i> Gray's Operations & IT</span>
+  </div>
+  <h1>Warehouse <span>Structure &amp; Locations</span></h1>
+  <h1 style="font-size:1rem;font-weight:400;color:rgba(255,255,255,0.6);margin-top:4px;">Solution Design &amp; Architecture Decision</h1>
+  <p style="margin-top:0.75rem;">This document analyses two architectural approaches for enabling physical bin-level location tracking in Gray's warehouse, evaluates complexity and risk, and provides a recommended implementation path.</p>
+  <div class="status-badge"><i class="fas fa-circle" style="font-size:7px;"></i> DRAFT — FOR REVIEW</div>
+</div>
+
+<!-- ═══════════════════════════════ BODY ═══════════════════════════════ -->
+<div class="container">
+
+  <!-- 1 · EXECUTIVE SUMMARY ──────────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--primary);"><i class="fas fa-file-alt"></i></div>
+      1 · Executive Summary
+    </div>
+
+    <div class="summary-strip">
+      <div class="summary-item"><div class="val">0</div><div class="lbl">Locators Active<br>in Fusion Today</div></div>
+      <div class="summary-divider"></div>
+      <div class="summary-item"><div class="val">2</div><div class="lbl">Architecture<br>Options</div></div>
+      <div class="summary-divider"></div>
+      <div class="summary-item"><div class="val" style="color:var(--option-a);">8 mo</div><div class="lbl">Option A<br>Time-to-Live</div></div>
+      <div class="summary-divider"></div>
+      <div class="summary-item"><div class="val" style="color:var(--option-b);">4 mo</div><div class="lbl">Option B<br>Time-to-Live</div></div>
+      <div class="summary-divider"></div>
+      <div class="summary-item"><div class="val" style="color:var(--option-b);">B</div><div class="lbl">Recommended<br>Option</div></div>
+    </div>
+
+    <div class="card">
+      <p style="color:var(--ink3);line-height:1.8;font-size:0.85rem;">
+        Gray's warehouse currently operates with <strong>Oracle Fusion ERP managing inventory at subinventory level only</strong> — locator control is not enabled. Inventory is tracked at the organisation → subinventory layer (e.g., <code style="background:#f1f5f9;padding:1px 5px;border-radius:4px;">DUTY_PAID</code>), with no physical bin, shelf, or aisle assignment. As the WMS evolves to support guided picking, putaway rules, cycle counting, and route optimisation, a mechanism for tracking <strong>physical stock locations</strong> is required. Two architecture options exist — enabling Oracle Fusion locators, or maintaining a parallel locator database inside WMS. This document analyses both and recommends the lower-risk path.
+      </p>
+    </div>
+  </section>
+
+  <!-- 2 · CURRENT STATE ──────────────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--muted);"><i class="fas fa-map"></i></div>
+      2 · Current State
+    </div>
+    <div class="card-grid cols-3">
+      <div class="card">
+        <div style="font-weight:700;color:var(--ink2);margin-bottom:0.6rem;font-size:0.88rem;"><i class="fas fa-database" style="color:#f59e0b;margin-right:6px;"></i>Oracle Fusion Inventory</div>
+        <ul style="list-style:none;font-size:0.78rem;color:var(--ink3);">
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-check-circle" style="color:var(--green);margin-right:6px;"></i>Organisation defined</li>
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-check-circle" style="color:var(--green);margin-right:6px;"></i>Subinventories defined (DUTY_PAID etc)</li>
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-times-circle" style="color:var(--red);margin-right:6px;"></i>Locator control — <strong>NOT enabled</strong></li>
+          <li style="padding:4px 0;"><i class="fas fa-times-circle" style="color:var(--red);margin-right:6px;"></i>No physical bin / shelf data</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;color:var(--ink2);margin-bottom:0.6rem;font-size:0.88rem;"><i class="fas fa-laptop" style="color:#8b5cf6;margin-right:6px;"></i>WMS Today</div>
+        <ul style="list-style:none;font-size:0.78rem;color:var(--ink3);">
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-check-circle" style="color:var(--green);margin-right:6px;"></i>Trip & order management</li>
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-check-circle" style="color:var(--green);margin-right:6px;"></i>Picker assignment</li>
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-check-circle" style="color:var(--green);margin-right:6px;"></i>Ship confirmation to Fusion</li>
+          <li style="padding:4px 0;"><i class="fas fa-times-circle" style="color:var(--red);margin-right:6px;"></i>No location / bin tracking</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div style="font-weight:700;color:var(--ink2);margin-bottom:0.6rem;font-size:0.88rem;"><i class="fas fa-exclamation-triangle" style="color:var(--amber);margin-right:6px;"></i>Pain Points</div>
+        <ul style="list-style:none;font-size:0.78rem;color:var(--ink3);">
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-circle" style="color:var(--amber);font-size:7px;margin-right:8px;"></i>Pickers navigate by memory</li>
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-circle" style="color:var(--amber);font-size:7px;margin-right:8px;"></i>No pick route optimisation</li>
+          <li style="padding:4px 0;border-bottom:1px solid var(--border);"><i class="fas fa-circle" style="color:var(--amber);font-size:7px;margin-right:8px;"></i>No putaway rules</li>
+          <li style="padding:4px 0;"><i class="fas fa-circle" style="color:var(--amber);font-size:7px;margin-right:8px;"></i>Cycle count is manual / blind</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · BUSINESS REQUIREMENTS ──────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--purple);"><i class="fas fa-list-check"></i></div>
+      3 · Business Requirements
+    </div>
+    <div class="card-grid cols-4">
+      <div class="card" style="border-top:3px solid var(--primary);">
+        <div style="font-size:1.5rem;margin-bottom:0.5rem;">📍</div>
+        <div style="font-weight:700;font-size:0.82rem;color:var(--ink2);">Physical Location Tracking</div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Know exactly where each SKU is — Aisle, Bay, Shelf, Bin</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--green);">
+        <div style="font-size:1.5rem;margin-bottom:0.5rem;">🚀</div>
+        <div style="font-weight:700;font-size:0.82rem;color:var(--ink2);">Guided Picking</div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Direct pickers to exact location. Optimise walking route</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--amber);">
+        <div style="font-size:1.5rem;margin-bottom:0.5rem;">📦</div>
+        <div style="font-weight:700;font-size:0.82rem;color:var(--ink2);">Putaway Rules</div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Auto-suggest locator based on weight, size, category, FIFO</div>
+      </div>
+      <div class="card" style="border-top:3px solid var(--purple);">
+        <div style="font-size:1.5rem;margin-bottom:0.5rem;">🔄</div>
+        <div style="font-weight:700;font-size:0.82rem;color:var(--ink2);">Cycle Counting</div>
+        <div style="font-size:0.75rem;color:var(--muted);margin-top:4px;">Count by zone, aisle, or bin. Reconcile against system</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · OPTION A ──────────────────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--option-a);"><i class="fas fa-cloud"></i></div>
+      4 · Option A — Enable Oracle Fusion Locators
+    </div>
+
+    <div class="option-card opt-a">
+      <div class="option-header">
+        <div class="option-num">A</div>
+        <div>
+          <h3>Oracle Fusion Locator Control</h3>
+          <p>Configure Fusion Inventory to enforce locator-level stock tracking. All transactions reference a physical bin.</p>
+        </div>
+        <div style="margin-left:auto;text-align:right;flex-shrink:0;">
+          <span class="risk-badge risk-high"><i class="fas fa-exclamation-triangle"></i> HIGH RISK</span><br>
+          <span style="font-size:0.7rem;color:var(--muted);font-weight:600;">Est. 6-8 months</span>
+        </div>
+      </div>
+
+      <div class="option-body">
+
+        <!-- Setup steps -->
+        <div style="margin-bottom:1.25rem;">
+          <div style="font-weight:700;font-size:0.82rem;color:var(--ink2);margin-bottom:0.75rem;">
+            <i class="fas fa-cogs" style="color:var(--option-a);margin-right:6px;"></i>What Needs to Be Done in Fusion
+          </div>
+          <div class="card-grid cols-3" style="gap:0.75rem;">
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:0.875rem;">
+              <div style="font-size:0.68rem;font-weight:700;color:var(--option-a);letter-spacing:0.5px;margin-bottom:4px;">STEP 1 · DEFINE STRUCTURE</div>
+              <div style="font-size:0.75rem;color:var(--ink3);">Define all physical locations in Fusion: Organisation → Subinventory → Zone → Locator (e.g., <code style="background:#fee2e2;padding:1px 4px;border-radius:3px;">A-03-2-B</code>). Set capacity, weight, dimensions per locator.</div>
+            </div>
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:0.875rem;">
+              <div style="font-size:0.68rem;font-weight:700;color:var(--option-a);letter-spacing:0.5px;margin-bottom:4px;">STEP 2 · ENABLE CONTROL</div>
+              <div style="font-size:0.75rem;color:var(--ink3);">Enable <em>Locator Control</em> on the DUTY_PAID subinventory. Once enabled, ALL in/out transactions must reference a locator. No partial rollout.</div>
+            </div>
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:0.875rem;">
+              <div style="font-size:0.68km;font-weight:700;color:var(--option-a);letter-spacing:0.5px;margin-bottom:4px;">STEP 3 · MIGRATE STOCK</div>
+              <div style="font-size:0.75rem;color:var(--ink3);">Physically scan and map every item in the warehouse to a Fusion locator. All existing on-hand balances must be reassigned — this is a warehouse freeze event.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Process flows side by side -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem;">
+
+          <!-- Receiving flow -->
+          <div>
+            <div style="font-weight:700;font-size:0.78rem;color:var(--ink2);margin-bottom:0.75rem;display:flex;align-items:center;gap:6px;"><i class="fas fa-truck" style="color:var(--option-a);"></i> Receiving Flow (Option A)</div>
+            <div class="flow">
+              <div class="flow-row">
+                <div class="flow-box start">PO in Fusion</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box mobile">Truck Arrives</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box mobile">WMS: Scan Item</div>
+              </div>
+              <div class="flow-gap" style="text-align:center;"><i class="fas fa-arrow-down flow-arrow" style="color:#94a3b8;"></i></div>
+              <div class="flow-row" style="justify-content:flex-end;">
+                <div class="flow-box action" style="border-color:#ef4444;background:#fee2e2;color:#b91c1c;">⚠ MUST Select Locator</div>
+                <div class="flow-arrow">←</div>
+                <div class="flow-box fusion">Fusion: Prompt Locator</div>
+              </div>
+              <div class="flow-gap" style="text-align:center;"><i class="fas fa-arrow-down flow-arrow" style="color:#94a3b8;"></i></div>
+              <div class="flow-row">
+                <div class="flow-box fusion">API → Fusion<br><span style="font-size:0.65rem;font-weight:400;">(with Locator ID)</span></div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box end">Stock @ Locator<br>in Fusion</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Picking flow -->
+          <div>
+            <div style="font-weight:700;font-size:0.78rem;color:var(--ink2);margin-bottom:0.75rem;display:flex;align-items:center;gap:6px;"><i class="fas fa-person-walking" style="color:var(--option-a);"></i> Picking Flow (Option A)</div>
+            <div class="flow">
+              <div class="flow-row">
+                <div class="flow-box start">Sales Order</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box fusion">Fusion FIFO<br>picks Locator</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box mobile">WMS: Show<br>A-03-2-B</div>
+              </div>
+              <div class="flow-gap" style="text-align:center;"><i class="fas fa-arrow-down flow-arrow" style="color:#94a3b8;"></i></div>
+              <div class="flow-row" style="justify-content:flex-end;">
+                <div class="flow-box action" style="border-color:#ef4444;background:#fee2e2;color:#b91c1c;">⚠ Scan Locator<br>Barcode</div>
+                <div class="flow-arrow">←</div>
+                <div class="flow-box mobile">Picker Goes<br>to Locator</div>
+              </div>
+              <div class="flow-gap" style="text-align:center;"><i class="fas fa-arrow-down flow-arrow" style="color:#94a3b8;"></i></div>
+              <div class="flow-row">
+                <div class="flow-box fusion">Fusion: Issue<br>from Locator</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box end">Ship Confirm</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Effort -->
+        <div style="margin-bottom:1rem;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;">
+            <div style="background:#fef2f2;border-radius:8px;padding:0.75rem;">
+              <div style="font-size:0.68rem;color:var(--muted);font-weight:600;margin-bottom:4px;">SETUP COMPLEXITY</div>
+              <div class="effort-bar"><div class="fill" style="width:90%;background:var(--option-a);"></div></div>
+              <div style="font-size:0.7rem;color:var(--option-a);font-weight:700;margin-top:3px;">Very High</div>
+            </div>
+            <div style="background:#fef2f2;border-radius:8px;padding:0.75rem;">
+              <div style="font-size:0.68rem;color:var(--muted);font-weight:600;margin-bottom:4px;">DISRUPTION RISK</div>
+              <div class="effort-bar"><div class="fill" style="width:88%;background:var(--option-a);"></div></div>
+              <div style="font-size:0.7rem;color:var(--option-a);font-weight:700;margin-top:3px;">High — all-or-nothing cut-over</div>
+            </div>
+            <div style="background:#fef2f2;border-radius:8px;padding:0.75rem;">
+              <div style="font-size:0.68rem;color:var(--muted);font-weight:600;margin-bottom:4px;">ERP CHANGE</div>
+              <div class="effort-bar"><div class="fill" style="width:95%;background:var(--option-a);"></div></div>
+              <div style="font-size:0.7rem;color:var(--option-a);font-weight:700;margin-top:3px;">Breaking — all APIs impacted</div>
+            </div>
+            <div style="background:#fef2f2;border-radius:8px;padding:0.75rem;">
+              <div style="font-size:0.68rem;color:var(--muted);font-weight:600;margin-bottom:4px;">TIME TO LIVE</div>
+              <div class="effort-bar"><div class="fill" style="width:85%;background:var(--option-a);"></div></div>
+              <div style="font-size:0.7rem;color:var(--option-a);font-weight:700;margin-top:3px;">6 – 8 months</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pro-con">
+          <div class="pro-list">
+            <h5><i class="fas fa-thumbs-up"></i> Pros</h5>
+            <ul>
+              <li>Single source of truth — stock at locator level in Fusion</li>
+              <li>Leverages Oracle's native FIFO/FEFO locator logic</li>
+              <li>Native Fusion reporting and audit trail</li>
+              <li>Future-proof for Oracle Cloud WMS features</li>
+              <li>Compliance-ready — regulators see ERP data</li>
+            </ul>
+          </div>
+          <div class="con-list">
+            <h5><i class="fas fa-thumbs-down"></i> Cons</h5>
+            <ul>
+              <li>Must define ALL physical locators in Fusion before go-live</li>
+              <li>All WMS API calls must include Locator ID (breaking change)</li>
+              <li>Cannot enable partially — entire subinventory flips at once</li>
+              <li>Requires ERP change freeze &amp; UAT period</li>
+              <li>Stock migration = warehouse freeze event</li>
+              <li>Complex if locators not barcoded (manual entry is slow)</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · OPTION B ──────────────────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--option-b);"><i class="fas fa-layer-group"></i></div>
+      5 · Option B — WMS-Managed Locators (Recommended)
+    </div>
+
+    <div class="option-card opt-b">
+      <div class="option-header">
+        <div class="option-num">B</div>
+        <div>
+          <h3>Parallel Locator Database in WMS</h3>
+          <p>WMS owns the physical location layer. Oracle Fusion continues at subinventory level. Periodic reconciliation keeps totals aligned.</p>
+        </div>
+        <div style="margin-left:auto;text-align:right;flex-shrink:0;">
+          <span class="risk-badge risk-low"><i class="fas fa-shield-alt"></i> LOW RISK</span><br>
+          <span style="font-size:0.7rem;color:var(--muted);font-weight:600;">Est. 3-4 months</span>
+        </div>
+      </div>
+
+      <div class="option-body">
+
+        <!-- Architecture diagram -->
+        <div style="margin-bottom:1.25rem;">
+          <div style="font-weight:700;font-size:0.82rem;color:var(--ink2);margin-bottom:0.75rem;"><i class="fas fa-sitemap" style="color:var(--option-b);margin-right:6px;"></i>Architecture Overview</div>
+          <div class="arch-diagram">
+            <div class="arch-label">ORACLE FUSION ERP (unchanged)</div>
+            <div class="arch-layer">
+              <div class="arch-box fusion-box"><i class="fas fa-boxes-stacked" style="margin-right:5px;"></i>Org → Subinventory<br><span style="font-size:0.65rem;font-weight:400;">DUTY_PAID (total qty only)</span></div>
+            </div>
+            <div class="arch-connector">
+              <i class="fas fa-arrows-up-down"></i>
+              <div>Receive / Issue APIs (no locator) · Periodic qty sync check</div>
+            </div>
+            <div class="arch-label">WMS LAYER (new)</div>
+            <div class="arch-layer" style="gap:0.5rem;">
+              <div class="arch-box wms-box"><i class="fas fa-map-marked-alt" style="margin-right:5px;"></i>Location Master<br><span style="font-size:0.65rem;font-weight:400;">wms_locations</span></div>
+              <div class="arch-box wms-box"><i class="fas fa-cubes" style="margin-right:5px;"></i>Location Stock<br><span style="font-size:0.65rem;font-weight:400;">wms_location_stock</span></div>
+              <div class="arch-box wms-box"><i class="fas fa-right-left" style="margin-right:5px;"></i>Location Moves<br><span style="font-size:0.65rem;font-weight:400;">wms_location_moves</span></div>
+              <div class="arch-box wms-box"><i class="fas fa-route" style="margin-right:5px;"></i>Pick Route Engine<br><span style="font-size:0.65rem;font-weight:400;">wms_pick_routes</span></div>
+            </div>
+            <div class="arch-connector">
+              <i class="fas fa-arrows-up-down"></i>
+              <div>REST APIs — pick tasks, putaway confirmation, stock moves</div>
+            </div>
+            <div class="arch-label">MOBILE APP</div>
+            <div class="arch-layer">
+              <div class="arch-box mobile-box"><i class="fas fa-mobile-alt" style="margin-right:5px;"></i>Picker Mobile App<br><span style="font-size:0.65rem;font-weight:400;">Scan bin barcode · Confirm quantity</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Process flows -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem;">
+
+          <!-- Receiving -->
+          <div>
+            <div style="font-weight:700;font-size:0.78rem;color:var(--ink2);margin-bottom:0.75rem;display:flex;align-items:center;gap:6px;"><i class="fas fa-truck" style="color:var(--option-b);"></i> Receiving / Putaway Flow (Option B)</div>
+            <div class="flow">
+              <div class="flow-row">
+                <div class="flow-box start">Truck Arrives</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box mobile">WMS: Create<br>Receipt</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box fusion">Fusion: Receive<br>to Subinv.</div>
+              </div>
+              <div class="flow-gap" style="text-align:center;"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+              <div class="flow-row">
+                <div class="flow-box wms">WMS Suggests<br>Locator</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box mobile">Picker Scans<br>Bin Barcode</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box end">WMS: Stock<br>@ Locator ✓</div>
+              </div>
+              <div style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;padding:6px 10px;margin-top:8px;font-size:0.7rem;color:#065f46;"><i class="fas fa-info-circle" style="margin-right:4px;"></i>Fusion knows: "10 units in DUTY_PAID". WMS knows: "10 units in A-03-2-B"</div>
+            </div>
+          </div>
+
+          <!-- Picking -->
+          <div>
+            <div style="font-weight:700;font-size:0.78rem;color:var(--ink2);margin-bottom:0.75rem;display:flex;align-items:center;gap:6px;"><i class="fas fa-person-walking" style="color:var(--option-b);"></i> Picking Flow (Option B)</div>
+            <div class="flow">
+              <div class="flow-row">
+                <div class="flow-box start">Sales Order</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box wms">WMS Finds<br>Locator (FIFO)</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box mobile">Mobile: "Go to<br>A-03-2-B"</div>
+              </div>
+              <div class="flow-gap" style="text-align:center;"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+              <div class="flow-row">
+                <div class="flow-box mobile">Scan Bin &amp;<br>Confirm Qty</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box wms">WMS: Deduct<br>Locator Stock</div>
+                <div class="flow-arrow">→</div>
+                <div class="flow-box fusion">Fusion: Issue<br>from Subinv.</div>
+              </div>
+              <div class="flow-gap" style="text-align:center;"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+              <div class="flow-row">
+                <div class="flow-box end" style="width:100%;">Ship Confirm → Fusion ERP</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Reconciliation flow -->
+        <div style="margin-bottom:1.25rem;">
+          <div style="font-weight:700;font-size:0.78rem;color:var(--ink2);margin-bottom:0.75rem;display:flex;align-items:center;gap:6px;"><i class="fas fa-balance-scale" style="color:var(--amber);"></i> Reconciliation Flow</div>
+          <div class="flow flow-row" style="flex-wrap:wrap;gap:4px;">
+            <div class="flow-box wms">WMS Locator<br>Totals (by Subinv)</div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-box fusion">Fusion Subinv<br>On-hand Totals</div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-box action">Compare<br>Quantities</div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-box" style="border-color:#10b981;background:#ecfdf5;color:#065f46;">✓ Match<br><span style="font-size:0.65rem;">No action</span></div>
+            <div style="font-size:0.8rem;color:var(--muted);align-self:center;">or</div>
+            <div class="flow-box action" style="border-color:#ef4444;background:#fee2e2;color:#b91c1c;">⚠ Gap Found<br><span style="font-size:0.65rem;">Flag &amp; Adjust</span></div>
+          </div>
+        </div>
+
+        <!-- Effort -->
+        <div style="margin-bottom:1rem;">
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;">
+            <div style="background:#f0fdf4;border-radius:8px;padding:0.75rem;">
+              <div style="font-size:0.68rem;color:var(--muted);font-weight:600;margin-bottom:4px;">SETUP COMPLEXITY</div>
+              <div class="effort-bar"><div class="fill" style="width:45%;background:var(--option-b);"></div></div>
+              <div style="font-size:0.7rem;color:var(--option-b);font-weight:700;margin-top:3px;">Medium</div>
+            </div>
+            <div style="background:#f0fdf4;border-radius:8px;padding:0.75rem;">
+              <div style="font-size:0.68rem;color:var(--muted);font-weight:600;margin-bottom:4px;">DISRUPTION RISK</div>
+              <div class="effort-bar"><div class="fill" style="width:20%;background:var(--option-b);"></div></div>
+              <div style="font-size:0.7rem;color:var(--option-b);font-weight:700;margin-top:3px;">Low — Fusion unchanged</div>
+            </div>
+            <div style="background:#f0fdf4;border-radius:8px;padding:0.75rem;">
+              <div style="font-size:0.68rem;color:var(--muted);font-weight:600;margin-bottom:4px;">ERP CHANGE</div>
+              <div class="effort-bar"><div class="fill" style="width:10%;background:var(--option-b);"></div></div>
+              <div style="font-size:0.7rem;color:var(--option-b);font-weight:700;margin-top:3px;">None</div>
+            </div>
+            <div style="background:#f0fdf4;border-radius:8px;padding:0.75rem;">
+              <div style="font-size:0.68rem;color:var(--muted);font-weight:600;margin-bottom:4px;">TIME TO LIVE</div>
+              <div class="effort-bar"><div class="fill" style="width:42%;background:var(--option-b);"></div></div>
+              <div style="font-size:0.7rem;color:var(--option-b);font-weight:700;margin-top:3px;">3 – 4 months</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pro-con">
+          <div class="pro-list">
+            <h5><i class="fas fa-thumbs-up"></i> Pros</h5>
+            <ul>
+              <li>Oracle Fusion is untouched — zero ERP risk</li>
+              <li>Can go live incrementally (one zone at a time)</li>
+              <li>WMS UI for location management is far better than Fusion</li>
+              <li>Location data can evolve without ERP change freezes</li>
+              <li>Faster delivery — 3-4 months vs 6-8 months</li>
+              <li>Custom putaway rules and pick route logic in WMS</li>
+            </ul>
+          </div>
+          <div class="con-list">
+            <h5><i class="fas fa-thumbs-down"></i> Cons</h5>
+            <ul>
+              <li>Two systems hold stock data — reconciliation needed</li>
+              <li>WMS locator stock not directly visible in Fusion</li>
+              <li>Custom development required (new tables, APIs)</li>
+              <li>Reconciliation process must be monitored</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Proposed data model -->
+        <div style="margin-top:1.25rem;">
+          <div style="font-weight:700;font-size:0.82rem;color:var(--ink2);margin-bottom:0.75rem;"><i class="fas fa-table" style="color:var(--option-b);margin-right:6px;"></i>Proposed WMS Data Model</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+            <div class="db-table">
+              <div class="t-name">WMS_LOCATIONS</div><br>
+              <span class="col">location_id</span>    <span class="type">NUMBER</span>   <span class="comment">-- PK</span><br>
+              <span class="col">zone_code</span>       <span class="type">VARCHAR2(10)</span>  <span class="comment">-- e.g. ZONE-A</span><br>
+              <span class="col">aisle</span>           <span class="type">VARCHAR2(5)</span>   <span class="comment">-- e.g. 03</span><br>
+              <span class="col">bay</span>             <span class="type">VARCHAR2(5)</span>   <span class="comment">-- e.g. 2</span><br>
+              <span class="col">shelf</span>           <span class="type">VARCHAR2(5)</span>   <span class="comment">-- e.g. B</span><br>
+              <span class="col">barcode</span>         <span class="type">VARCHAR2(50)</span>  <span class="comment">-- scan code</span><br>
+              <span class="col">max_weight_kg</span>   <span class="type">NUMBER</span>        <span class="comment">-- capacity</span><br>
+              <span class="col">location_type</span>   <span class="type">VARCHAR2(20)</span>  <span class="comment">-- BULK/PICK/OVERFL</span><br>
+              <span class="col">subinventory</span>    <span class="type">VARCHAR2(30)</span>  <span class="comment">-- DUTY_PAID etc</span><br>
+              <span class="col">active_flag</span>     <span class="type">VARCHAR2(1)</span>   <span class="comment">-- Y/N</span>
+            </div>
+            <div class="db-table">
+              <div class="t-name">WMS_LOCATION_STOCK</div><br>
+              <span class="col">stock_id</span>        <span class="type">NUMBER</span>        <span class="comment">-- PK</span><br>
+              <span class="col">location_id</span>     <span class="type">NUMBER</span>        <span class="comment">-- FK → wms_locations</span><br>
+              <span class="col">item_number</span>     <span class="type">VARCHAR2(50)</span>  <span class="comment">-- Fusion item</span><br>
+              <span class="col">lot_number</span>      <span class="type">VARCHAR2(50)</span>  <span class="comment">-- if applicable</span><br>
+              <span class="col">quantity_onhand</span> <span class="type">NUMBER</span>        <span class="comment">-- current qty</span><br>
+              <span class="col">quantity_reserved</span><span class="type">NUMBER</span>       <span class="comment">-- allocated to picks</span><br>
+              <span class="col">received_date</span>   <span class="type">DATE</span>          <span class="comment">-- for FIFO</span><br>
+              <span class="col">last_counted</span>    <span class="type">DATE</span>          <span class="comment">-- cycle count</span><br>
+              <span class="col">updated_by</span>      <span class="type">VARCHAR2(50)</span>  <span class="comment">-- user/system</span><br>
+              <span class="col">updated_date</span>    <span class="type">DATE</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · COMPARISON ────────────────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--amber);"><i class="fas fa-scale-balanced"></i></div>
+      6 · Option Comparison
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th style="width:28%;">Criteria</th>
+            <th class="col-a" style="width:36%;">Option A — Oracle Fusion Locators</th>
+            <th class="col-b" style="width:36%;">Option B — WMS Locators ✓</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="criteria">Implementation Complexity</td><td class="bad">Very High — ERP config, data migration, API rewrite</td><td class="good winner">Medium — new WMS tables &amp; mobile screen</td></tr>
+          <tr><td class="criteria">Time to Go-Live</td><td class="bad">6 – 8 months</td><td class="good winner">3 – 4 months</td></tr>
+          <tr><td class="criteria">Risk to Current Operations</td><td class="bad">High — all-or-nothing Fusion cut-over</td><td class="good winner">Low — Fusion continues unchanged</td></tr>
+          <tr><td class="criteria">Oracle Fusion Change Required</td><td class="bad">Yes — breaking change to all transactions</td><td class="good winner">No</td></tr>
+          <tr><td class="criteria">Single Source of Truth</td><td class="good winner">Yes — stock at locator level in Fusion</td><td class="ok">No — WMS + Fusion (reconciliation)</td></tr>
+          <tr><td class="criteria">Incremental Roll-out</td><td class="bad">No — must flip whole subinventory</td><td class="good winner">Yes — zone by zone</td></tr>
+          <tr><td class="criteria">Location Management UI</td><td class="ok">Fusion standard UI (complex)</td><td class="good winner">Custom WMS screen (simple)</td></tr>
+          <tr><td class="criteria">Custom Putaway Logic</td><td class="ok">Limited (Oracle rules)</td><td class="good winner">Fully customisable in WMS</td></tr>
+          <tr><td class="criteria">Audit Trail</td><td class="good winner">Native in Fusion ERP</td><td class="ok">WMS audit log (manual reconcile to Fusion)</td></tr>
+          <tr><td class="criteria">Future Oracle WMS Features</td><td class="good winner">Full compatibility</td><td class="ok">Partial — migration needed later</td></tr>
+          <tr><td class="criteria">Recommended Phase</td><td class="ok">Phase 3 — Future state</td><td class="good winner">Phase 2 — Implement Now</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 7 · RECOMMENDATION ─────────────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--green);"><i class="fas fa-trophy"></i></div>
+      7 · Recommendation
+    </div>
+    <div class="rec-box">
+      <h3><i class="fas fa-check-circle"></i> Implement Option B Now — Evolve to Option A Later</h3>
+      <p>The warehouse needs physical location tracking <strong>today</strong>. Enabling Oracle Fusion locators is a significant ERP project that requires extensive setup, a warehouse freeze for stock migration, and breaking changes to every transaction API — a 6-8 month commitment. Option B delivers the same operational benefit in 3-4 months with no risk to current Fusion transactions. The two systems can converge in a future phase once all physical locations are barcoded and the Fusion locator structure is fully defined.</p>
+      <div class="rationale">
+        <div class="rat-item"><strong>Reason 1 · Speed</strong>Deliver bin-level tracking 4 months faster. Pickers get location guidance in Q3 2026 rather than Q1 2027.</div>
+        <div class="rat-item"><strong>Reason 2 · Zero ERP Risk</strong>Oracle Fusion transactions continue unchanged. No ERP change freeze, no UAT cycle, no regression testing on financial transactions.</div>
+        <div class="rat-item"><strong>Reason 3 · Incremental</strong>Roll out one warehouse zone at a time. Learn and adjust before committing the entire warehouse.</div>
+        <div class="rat-item"><strong>Reason 4 · Future Path</strong>Option B data model is designed to map cleanly to Fusion locators. When Fusion locators are enabled in Phase 3, the WMS stock data migrates across.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · IMPLEMENTATION PLAN ────────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--primary);"><i class="fas fa-road"></i></div>
+      8 · High-Level Implementation Plan (Option B)
+    </div>
+    <div class="card">
+      <div class="roadmap-steps">
+        <div class="rs-item">
+          <div class="rs-num" style="background:#3b82f6;">1</div>
+          <div class="rs-body">
+            <h4>Foundation — Location Data Model <span class="rs-duration">4 weeks</span></h4>
+            <p>Design and build the core location infrastructure in WMS and Oracle APEX.</p>
+            <ul>
+              <li>Create <code>wms_locations</code>, <code>wms_location_stock</code>, <code>wms_location_moves</code> tables</li>
+              <li>Build Location Management screen in WMS (Zone → Aisle → Bay → Shelf → Bin)</li>
+              <li>Define location parameters: capacity, type (BULK/PICK/OVERFLOW), barcode</li>
+              <li>REST APIs: get locations, get stock by location, search by barcode</li>
+            </ul>
+          </div>
+        </div>
+        <div class="rs-item">
+          <div class="rs-num" style="background:#8b5cf6;">2</div>
+          <div class="rs-body">
+            <h4>Putaway Integration — Receiving Flow <span class="rs-duration">3 weeks</span></h4>
+            <p>Update mobile receiving flow to record the physical putaway location in WMS.</p>
+            <ul>
+              <li>WMS putaway suggestion engine (by item category, weight, zone rules)</li>
+              <li>Mobile app: show suggested locator → picker scans bin barcode → confirm</li>
+              <li>Fusion receiving API unchanged — subinventory only</li>
+              <li>WMS records: item + qty + locator + received_date</li>
+            </ul>
+          </div>
+        </div>
+        <div class="rs-item">
+          <div class="rs-num" style="background:#f59e0b;">3</div>
+          <div class="rs-body">
+            <h4>Guided Picking — Pick Task Enhancement <span class="rs-duration">3 weeks</span></h4>
+            <p>Update pick task generation to include WMS locator and optimise pick routes.</p>
+            <ul>
+              <li>FIFO locator selection from <code>wms_location_stock</code></li>
+              <li>Mobile app shows: "Go to A-03-2-B · Pick 3 units of ITEM-XYZ"</li>
+              <li>Picker scans locator barcode to confirm</li>
+              <li>WMS deducts stock; Fusion issues from subinventory on ship confirm</li>
+              <li>Basic route sorting (by aisle order)</li>
+            </ul>
+          </div>
+        </div>
+        <div class="rs-item">
+          <div class="rs-num" style="background:#10b981;">4</div>
+          <div class="rs-body">
+            <h4>Reconciliation &amp; Reporting <span class="rs-duration">2 weeks</span></h4>
+            <p>Build the WMS vs Fusion stock comparison and cycle count framework.</p>
+            <ul>
+              <li>Reconciliation report: WMS locator totals vs Fusion subinventory totals</li>
+              <li>Discrepancy alert and adjustment workflow</li>
+              <li>Cycle count task generation by zone/aisle</li>
+              <li>Location utilisation dashboard (% capacity used per zone)</li>
+            </ul>
+          </div>
+        </div>
+        <div class="rs-item">
+          <div class="rs-num" style="background:#64748b;">5</div>
+          <div class="rs-body">
+            <h4>Future — Migrate to Oracle Fusion Locators <span class="rs-duration">Phase 3 / TBD</span></h4>
+            <p>Once warehouse is fully barcoded and Fusion locator structure is defined, migrate WMS locator data to Fusion and enable locator control. WMS becomes the UI layer; Fusion becomes the record of truth at locator level.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · NEXT STEPS ─────────────────────────────────────────────── -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--purple);"><i class="fas fa-forward-step"></i></div>
+      9 · Next Steps
+    </div>
+    <div class="card-grid cols-3">
+      <div class="card" style="border-left:4px solid var(--primary);">
+        <div style="font-size:0.68rem;font-weight:700;color:var(--primary);letter-spacing:0.5px;margin-bottom:6px;">ACTION 1 · DECISION</div>
+        <div style="font-size:0.82rem;font-weight:700;color:var(--ink2);margin-bottom:4px;">Confirm Option B</div>
+        <div style="font-size:0.75rem;color:var(--muted);">Get sign-off from Operations &amp; IT. Confirm Fusion team does NOT need to enable locators in this phase.</div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--amber);">
+        <div style="font-size:0.68rem;font-weight:700;color:var(--amber);letter-spacing:0.5px;margin-bottom:6px;">ACTION 2 · WAREHOUSE SURVEY</div>
+        <div style="font-size:0.82rem;font-weight:700;color:var(--ink2);margin-bottom:4px;">Map Physical Locations</div>
+        <div style="font-size:0.75rem;color:var(--muted);">Walk the warehouse. Define zone structure, aisle numbering, bay/shelf/bin scheme. Agree naming convention (e.g., <code>A-03-2-B</code>).</div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--green);">
+        <div style="font-size:0.68rem;font-weight:700;color:var(--green);letter-spacing:0.5px;margin-bottom:6px;">ACTION 3 · KICKOFF</div>
+        <div style="font-size:0.82rem;font-weight:700;color:var(--ink2);margin-bottom:4px;">Start Sprint 1</div>
+        <div style="font-size:0.75rem;color:var(--muted);">Begin database schema design and Location Management screen. Target: location master live within 4 weeks.</div>
+      </div>
+    </div>
+  </section>
+
+  <div style="text-align:center;color:var(--muted);font-size:0.72rem;padding:1.5rem 0;border-top:1px solid var(--border);">
+    Gray's WMS — Solution Design Document · Warehouse Structure &amp; Locations · v1.0 Draft · May 2026
+  </div>
+
+</div>
+</body>
+</html>

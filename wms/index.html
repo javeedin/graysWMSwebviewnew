@@ -6299,6 +6299,15 @@
                                             <div class="phase-header">
                                                 <div class="phase-icon planned"><i class="fas fa-calendar-alt"></i></div>
                                                 <div class="phase-info"><h3>Warehouse Structure &amp; Locations</h3><span class="phase-status planned">Planned</span></div>
+                                                <button onclick="openSolutionDoc('solution-warehouse-structure.html', 'Warehouse Structure &amp; Locations — Solution Design')"
+                                                    title="View Solution Design"
+                                                    style="margin-left:auto;display:flex;align-items:center;gap:5px;
+                                                           background:linear-gradient(135deg,#6366f1,#8b5cf6);color:white;
+                                                           border:none;border-radius:20px;padding:5px 12px;font-size:0.72rem;
+                                                           font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;
+                                                           box-shadow:0 2px 8px rgba(99,102,241,0.4);transition:all .15s;">
+                                                    <i class="fas fa-file-alt"></i> Solution Design
+                                                </button>
                                             </div>
                                             <div class="phase-items">
                                                 <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Manage multiple warehouses: Bonded, Duty-Paid, Pharmacy, Cosmetics, RAWS, Triage</span></div>
@@ -9135,6 +9144,68 @@
     toggleBtn.addEventListener('mouseenter', () => { toggleBtn.style.transform = 'scale(1.1)'; });
     toggleBtn.addEventListener('mouseleave', () => { toggleBtn.style.transform = 'scale(1)'; });
 })();
+</script>
+
+<!-- ═══════════════════════════════════════
+     SOLUTION DESIGN VIEWER MODAL
+     ═══════════════════════════════════════ -->
+<div id="solution-doc-modal"
+    style="display:none;position:fixed;inset:0;z-index:70000;
+           background:rgba(0,0,0,0.65);backdrop-filter:blur(6px);
+           flex-direction:column;align-items:center;justify-content:center;">
+    <!-- Modal window -->
+    <div style="background:#fff;border-radius:16px;
+                width:94vw;height:92vh;max-width:1300px;
+                display:flex;flex-direction:column;
+                box-shadow:0 24px 80px rgba(0,0,0,0.5);overflow:hidden;">
+        <!-- Header bar -->
+        <div style="display:flex;align-items:center;gap:12px;
+                    padding:14px 20px;
+                    background:linear-gradient(135deg,#0f172a,#1e293b);
+                    flex-shrink:0;">
+            <i class="fas fa-file-alt" style="color:#818cf8;font-size:1rem;"></i>
+            <span id="solution-doc-title"
+                style="font-weight:700;font-size:0.92rem;color:white;flex:1;"></span>
+            <button onclick="closeSolutionDoc()"
+                title="Close (Esc)"
+                style="width:32px;height:32px;border-radius:50%;border:none;
+                       background:rgba(255,255,255,0.1);color:#94a3b8;
+                       cursor:pointer;font-size:14px;display:flex;
+                       align-items:center;justify-content:center;transition:all .15s;"
+                onmouseenter="this.style.background='rgba(239,68,68,0.3)';this.style.color='#fff'"
+                onmouseleave="this.style.background='rgba(255,255,255,0.1)';this.style.color='#94a3b8'">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <!-- iframe -->
+        <iframe id="solution-doc-frame"
+            src="" frameborder="0"
+            style="flex:1;width:100%;border:none;"></iframe>
+    </div>
+</div>
+
+<script>
+window.openSolutionDoc = function (file, title) {
+    const modal = document.getElementById('solution-doc-modal');
+    document.getElementById('solution-doc-title').textContent = title || file;
+    document.getElementById('solution-doc-frame').src = file;
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+};
+window.closeSolutionDoc = function () {
+    const modal = document.getElementById('solution-doc-modal');
+    modal.style.display = 'none';
+    document.getElementById('solution-doc-frame').src = '';
+    document.body.style.overflow = '';
+};
+/* close on backdrop click or Esc */
+document.getElementById('solution-doc-modal').addEventListener('click', function (e) {
+    if (e.target === this) closeSolutionDoc();
+});
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && document.getElementById('solution-doc-modal').style.display === 'flex')
+        closeSolutionDoc();
+});
 </script>
 
 <!-- ═══════════════════════════════════════
