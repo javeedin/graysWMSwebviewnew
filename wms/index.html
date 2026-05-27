@@ -3465,6 +3465,10 @@
                             <i class="fas fa-code"></i>
                             <span>API Documentation</span>
                         </div>
+                        <div class="help-tab" data-help-tab="introduction">
+                            <i class="fas fa-info-circle"></i>
+                            <span>Introduction</span>
+                        </div>
                         <div class="help-tab" data-help-tab="roadmap">
                             <i class="fas fa-road"></i>
                             <span>Future Roadmap</span>
@@ -5983,11 +5987,206 @@
                             </div>
                         </div>
 
+                        <!-- Introduction Tab -->
+                        <div id="help-introduction" class="help-tab-pane">
+                            <div class="help-section" style="max-width:900px;margin:0 auto;">
+
+                                <!-- Hero -->
+                                <div style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);border-radius:16px;padding:2.5rem 2rem;margin-bottom:2rem;text-align:center;color:white;">
+                                    <div style="font-size:3rem;margin-bottom:0.75rem;">🏭</div>
+                                    <h1 style="margin:0 0 0.5rem;font-size:2rem;font-weight:800;letter-spacing:-0.5px;">WMS in Grays</h1>
+                                    <p style="margin:0;opacity:0.8;font-size:1rem;max-width:600px;margin:0 auto;">Warehouse Management System — from a simple shipping tool to a fully mobile, AI-enabled operations platform</p>
+                                </div>
+
+                                <!-- What is WMS -->
+                                <div style="background:white;border-radius:12px;padding:2rem;margin-bottom:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,0.06);border:1px solid #e2e8f0;">
+                                    <h2 style="color:#1e293b;font-size:1.4rem;margin:0 0 1rem;display:flex;align-items:center;gap:0.5rem;"><span style="background:#6366f1;color:white;width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0;"><i class="fas fa-question"></i></span> What is WMS?</h2>
+                                    <p style="color:#475569;line-height:1.8;margin:0 0 1rem;">A <strong>Warehouse Management System (WMS)</strong> is a purpose-built platform that gives warehouse teams full visibility and control over the order fulfilment cycle — from identifying pending orders right through to confirmed shipment.</p>
+                                    <p style="color:#475569;line-height:1.8;margin:0 0 1rem;">At its core, the WMS identifies all pending Sales Orders and Store Requests waiting to be shipped, then orchestrates the entire picking and putaway process with speed and accuracy. The system intelligently assigns pickers to orders, guides them through each pick step, and ensures every item is placed in the correct dispatch location.</p>
+                                    <p style="color:#475569;line-height:1.8;margin:0;">Once picking and putaway are complete, the Warehouse Manager cross-checks the orders, confirms the shipment, and prints the required documentation — all within a single, seamlessly connected workflow.</p>
+                                </div>
+
+                                <!-- Why not Oracle alone -->
+                                <div style="background:#fff7ed;border-radius:12px;padding:2rem;margin-bottom:1.5rem;border:1px solid #fed7aa;">
+                                    <h2 style="color:#9a3412;font-size:1.2rem;margin:0 0 1rem;display:flex;align-items:center;gap:0.5rem;"><span style="background:#f97316;color:white;width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0;"><i class="fas fa-exclamation"></i></span> Why a Separate WMS When Oracle Fusion Has This?</h2>
+                                    <p style="color:#7c3a1e;line-height:1.8;margin:0 0 0.75rem;">Oracle Fusion does include picking and shipping functionality — but it is a complex, multi-step process designed for enterprise-level configuration, not for the speed and volume demands of a busy warehouse floor. When Grays initially attempted to use Oracle's native flow to process hundreds and thousands of orders daily, it quickly became unmanageable and extremely time-consuming for the warehouse team.</p>
+                                    <p style="color:#7c3a1e;line-height:1.8;margin:0;">This WMS was built specifically to solve that problem — providing a streamlined, warehouse-friendly interface that <strong>seamlessly integrates with Oracle Fusion as its backend</strong>, eliminating the need for any third-party middleware or costly integration layers.</p>
+                                </div>
+
+                                <!-- Evolution Timeline -->
+                                <div style="background:white;border-radius:12px;padding:2rem;margin-bottom:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,0.06);border:1px solid #e2e8f0;">
+                                    <h2 style="color:#1e293b;font-size:1.4rem;margin:0 0 1.5rem;display:flex;align-items:center;gap:0.5rem;"><span style="background:#6366f1;color:white;width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0;"><i class="fas fa-history"></i></span> The Evolution Journey</h2>
+
+                                    <!-- Step 1 -->
+                                    <div style="display:flex;gap:1.25rem;margin-bottom:1.75rem;position:relative;">
+                                        <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;">
+                                            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#10b981,#059669);color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;box-shadow:0 4px 12px rgba(16,185,129,0.4);">1</div>
+                                            <div style="width:2px;flex:1;background:linear-gradient(#10b981,#3b82f6);margin-top:8px;min-height:40px;"></div>
+                                        </div>
+                                        <div style="flex:1;padding-bottom:0.5rem;">
+                                            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+                                                <h3 style="margin:0;color:#1e293b;font-size:1.1rem;">FusionShip — Smart Shipping Gateway</h3>
+                                                <span style="background:#dcfce7;color:#166534;padding:2px 10px;border-radius:10px;font-size:0.75rem;font-weight:600;">~4 Years Ago</span>
+                                                <span style="background:#dcfce7;color:#166534;padding:2px 10px;border-radius:10px;font-size:0.75rem;font-weight:600;">✓ Live &amp; Successful</span>
+                                            </div>
+                                            <p style="color:#475569;line-height:1.7;margin:0;">The first major step — a dedicated web-based shipping system built to replace Oracle's cumbersome native flow. Designed from the ground up around Grays' process, it enabled the warehouse team to process <strong>tens of thousands of orders</strong> with ease and reliability. This system integrates directly and seamlessly with Oracle Fusion, with zero reliance on third-party tools — and it was a landmark success from day one.</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 2 -->
+                                    <div style="display:flex;gap:1.25rem;margin-bottom:1.75rem;position:relative;">
+                                        <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;">
+                                            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;box-shadow:0 4px 12px rgba(59,130,246,0.4);">2</div>
+                                            <div style="width:2px;flex:1;background:linear-gradient(#3b82f6,#8b5cf6);margin-top:8px;min-height:40px;"></div>
+                                        </div>
+                                        <div style="flex:1;padding-bottom:0.5rem;">
+                                            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+                                                <h3 style="margin:0;color:#1e293b;font-size:1.1rem;">WMS Mobile — Handheld-Enabled Picking</h3>
+                                                <span style="background:#dbeafe;color:#1d4ed8;padding:2px 10px;border-radius:10px;font-size:0.75rem;font-weight:600;">~1.5 Years Ago</span>
+                                                <span style="background:#dcfce7;color:#166534;padding:2px 10px;border-radius:10px;font-size:0.75rem;font-weight:600;">✓ Live &amp; Successful</span>
+                                            </div>
+                                            <p style="color:#475569;line-height:1.7;margin:0;">A significant evolution — the introduction of a <strong>mobile interface</strong> brought the WMS directly into the hands of pickers on the warehouse floor. Covering both Sales Orders and Store Requests, pickers could now receive, scan, and confirm tasks from handheld devices in real time. This leap from desktop-only to mobile-enabled dramatically improved speed, accuracy, and operational efficiency across the warehouse.</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 3 -->
+                                    <div style="display:flex;gap:1.25rem;margin-bottom:1.75rem;position:relative;">
+                                        <div style="flex-shrink:0;display:flex;flex-direction:column;align-items:center;">
+                                            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;box-shadow:0 4px 12px rgba(139,92,246,0.4);">3</div>
+                                            <div style="width:2px;flex:1;background:linear-gradient(#8b5cf6,#f59e0b);margin-top:8px;min-height:40px;"></div>
+                                        </div>
+                                        <div style="flex:1;padding-bottom:0.5rem;">
+                                            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+                                                <h3 style="margin:0;color:#1e293b;font-size:1.1rem;">WMS Pro — AI-Enabled, Lot-Controlled Platform <span style="background:linear-gradient(135deg,#8b5cf6,#6366f1);color:white;padding:2px 8px;border-radius:6px;font-size:0.7rem;font-weight:700;">YOU ARE HERE</span></h3>
+                                                <span style="background:#f3e8ff;color:#6b21a8;padding:2px 10px;border-radius:10px;font-size:0.75rem;font-weight:600;">Current System</span>
+                                            </div>
+                                            <p style="color:#475569;line-height:1.7;margin:0;">The most powerful version yet. This generation introduces <strong>full lot visibility on mobile</strong> — pickers can see available lots in real time — alongside a comprehensive desktop management suite featuring AI-powered summaries, an intelligent chatbot (WMS Co-Pilot), enhanced analytics, and significantly improved processing speed. The system is more optimised, more feature-rich, and more resilient than any previous version.</p>
+                                        </div>
+                                    </div>
+
+                                    <!-- Step 4 -->
+                                    <div style="display:flex;gap:1.25rem;">
+                                        <div style="flex-shrink:0;">
+                                            <div style="width:48px;height:48px;border-radius:50%;background:linear-gradient(135deg,#f59e0b,#d97706);color:white;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:1.1rem;box-shadow:0 4px 12px rgba(245,158,11,0.4);">4</div>
+                                        </div>
+                                        <div style="flex:1;">
+                                            <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+                                                <h3 style="margin:0;color:#1e293b;font-size:1.1rem;">WMS Next — Fully Automated, Intelligent Warehouse</h3>
+                                                <span style="background:#fef3c7;color:#92400e;padding:2px 10px;border-radius:10px;font-size:0.75rem;font-weight:600;">Roadmap</span>
+                                            </div>
+                                            <p style="color:#475569;line-height:1.7;margin:0;">The next frontier — bringing in <strong>locator control</strong> for precise bin-level stock management, <strong>AI-driven replenishment</strong> that anticipates stock needs before they arise, <strong>EDI and e-commerce integrations</strong> for direct order intake, enhanced reporting dashboards, and <strong>fully automated trip planning</strong> where the system intelligently assigns routes, lorries, and pickers with minimal human intervention.</p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Why this WMS -->
+                                <div style="background:white;border-radius:12px;padding:2rem;margin-bottom:1.5rem;box-shadow:0 2px 8px rgba(0,0,0,0.06);border:1px solid #e2e8f0;">
+                                    <h2 style="color:#1e293b;font-size:1.4rem;margin:0 0 1.25rem;display:flex;align-items:center;gap:0.5rem;"><span style="background:#10b981;color:white;width:32px;height:32px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:0.9rem;flex-shrink:0;"><i class="fas fa-trophy"></i></span> Why This WMS is the Best Fit for Grays</h2>
+                                    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0.75rem;">
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">🧠</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">Deep Process Knowledge</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">Built with a thorough understanding of Grays' unique warehouse flow, business rules, and operational requirements.</p></div>
+                                        </div>
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">📅</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">4–5 Years Live in Grays</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">A battle-tested system with a proven track record — not a pilot or proof-of-concept, but a fully operational platform running in production for years.</p></div>
+                                        </div>
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">🔗</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">Native Oracle Fusion Integration</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">Real-time, live integration with Oracle Fusion ERP — no middleware, no third-party connectors, no sync delays. Oracle Fusion is the backbone.</p></div>
+                                        </div>
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">📱</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">50–60% Already Delivered</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">Half the full WMS feature set is already built, tested, and running in production — including mobile applications for pickers.</p></div>
+                                        </div>
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">✅</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">Proven Reliability</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">Tens of thousands of orders processed without critical failure. The system has earned the trust of the warehouse teams over years of daily use.</p></div>
+                                        </div>
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">💰</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">Zero Licensing Costs</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">No per-user licences, no annual subscription fees, no vendor lock-in. Cost is limited to development and support services only.</p></div>
+                                        </div>
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">💡</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">Most Competitive Pricing</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">At this stage of maturity and coverage, no external WMS vendor can match the value, fit, and cost of this purpose-built solution.</p></div>
+                                        </div>
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">🏢</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">Powered by Grays' Own Ecosystem</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">The WMS sits within a broader suite of applications built for Grays — all sharing the same integration fabric, data model, and support structure.</p></div>
+                                        </div>
+                                        <div style="display:flex;gap:0.75rem;align-items:flex-start;padding:0.9rem;background:#f8fafc;border-radius:8px;border-left:3px solid #10b981;">
+                                            <span style="font-size:1.3rem;flex-shrink:0;">🤝</span>
+                                            <div><strong style="color:#1e293b;font-size:0.9rem;">Relentless Commitment &amp; Support</strong><p style="color:#64748b;font-size:0.82rem;margin:4px 0 0;line-height:1.5;">Hands-on go-live support, rapid bug resolution, continuous enhancement — a level of dedication and responsiveness no third-party vendor can replicate.</p></div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Closing statement -->
+                                <div style="background:linear-gradient(135deg,#1e293b,#334155);border-radius:12px;padding:1.75rem 2rem;text-align:center;color:white;">
+                                    <p style="margin:0;font-size:1rem;line-height:1.8;opacity:0.9;">This WMS represents years of <strong style="color:#a5f3fc;">consistent innovation</strong>, a deep commitment to Grays' operational success, and a relentless drive to adopt new technology at every stage. From a simple shipping tool to an AI-enabled mobile platform — every step has been driven by the same goal: making warehouse operations <strong style="color:#a5f3fc;">faster, smarter, and easier</strong> for every person in the team.</p>
+                                </div>
+
+                            </div>
+                        </div>
+
                         <!-- Future Roadmap Tab -->
                         <div id="help-roadmap" class="help-tab-pane">
                             <div class="help-section">
                                 <h2><i class="fas fa-road"></i> Future Roadmap</h2>
                                 <p class="help-intro">Planned features and enhancements for the WMS application.</p>
+
+                                <!-- Completion Status Charts -->
+                                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:2rem;">
+                                    <!-- Phase 1 Chart -->
+                                    <div style="background:white;border-radius:12px;padding:1.25rem;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid #e2e8f0;text-align:center;">
+                                        <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem;font-size:0.95rem;">Phase 1 — Current WMS</div>
+                                        <div style="position:relative;width:100px;height:100px;margin:0 auto 0.75rem;">
+                                            <svg viewBox="0 0 36 36" style="transform:rotate(-90deg);width:100px;height:100px;">
+                                                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+                                                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#10b981" stroke-width="3" stroke-dasharray="75 25" stroke-linecap="round"/>
+                                            </svg>
+                                            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.4rem;font-weight:800;color:#10b981;">75%</div>
+                                        </div>
+                                        <div style="font-size:0.8rem;color:#64748b;">19 of 25 features complete</div>
+                                        <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:0.5rem;flex-wrap:wrap;">
+                                            <span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600;">19 Done</span>
+                                            <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600;">3 In Progress</span>
+                                            <span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600;">3 Planned</span>
+                                        </div>
+                                    </div>
+                                    <!-- Phase 2 Chart -->
+                                    <div style="background:white;border-radius:12px;padding:1.25rem;box-shadow:0 2px 8px rgba(0,0,0,0.08);border:1px solid #e2e8f0;text-align:center;">
+                                        <div style="font-weight:700;color:#1e293b;margin-bottom:0.75rem;font-size:0.95rem;">Phase 2 — Full WMS Requirements</div>
+                                        <div style="position:relative;width:100px;height:100px;margin:0 auto 0.75rem;">
+                                            <svg viewBox="0 0 36 36" style="transform:rotate(-90deg);width:100px;height:100px;">
+                                                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e2e8f0" stroke-width="3"/>
+                                                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#0ea5e9" stroke-width="3" stroke-dasharray="32 68" stroke-linecap="round"/>
+                                            </svg>
+                                            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.4rem;font-weight:800;color:#0ea5e9;">32%</div>
+                                        </div>
+                                        <div style="font-size:0.8rem;color:#64748b;">35 of 110 features complete</div>
+                                        <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:0.5rem;flex-wrap:wrap;">
+                                            <span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600;">35 Done</span>
+                                            <span style="background:#f1f5f9;color:#475569;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:600;">75 Planned</span>
+                                        </div>
+                                    </div>
+                                    <!-- Overall Chart -->
+                                    <div style="background:linear-gradient(135deg,#6366f1,#8b5cf6);border-radius:12px;padding:1.25rem;box-shadow:0 2px 8px rgba(99,102,241,0.3);text-align:center;color:white;">
+                                        <div style="font-weight:700;margin-bottom:0.75rem;font-size:0.95rem;">Overall WMS Progress</div>
+                                        <div style="position:relative;width:100px;height:100px;margin:0 auto 0.75rem;">
+                                            <svg viewBox="0 0 36 36" style="transform:rotate(-90deg);width:100px;height:100px;">
+                                                <circle cx="18" cy="18" r="15.9" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="3"/>
+                                                <circle cx="18" cy="18" r="15.9" fill="none" stroke="white" stroke-width="3" stroke-dasharray="40 60" stroke-linecap="round"/>
+                                            </svg>
+                                            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.4rem;font-weight:800;">40%</div>
+                                        </div>
+                                        <div style="font-size:0.8rem;opacity:0.9;">54 of 135 total features</div>
+                                        <div style="margin-top:0.75rem;background:rgba(255,255,255,0.15);border-radius:8px;height:8px;overflow:hidden;">
+                                            <div style="background:white;height:100%;width:40%;border-radius:8px;"></div>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 <div class="roadmap-timeline">
 
@@ -6016,20 +6215,23 @@
                                             </div>
                                         </div>
 
-                                        <!-- 2 - Automation -->
+                                        <!-- 2 - Automation (Picking and Shipping) -->
                                         <div class="roadmap-phase">
                                             <div class="phase-header">
                                                 <div class="phase-icon completed"><i class="fas fa-check"></i></div>
                                                 <div class="phase-info">
-                                                    <h3>2 - Automation</h3>
+                                                    <h3>2 - Automation (Picking and Shipping)</h3>
                                                     <span class="phase-status completed">Completed</span>
                                                 </div>
                                             </div>
                                             <div class="phase-items">
-                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Auto Inventory Processing</span></div>
-                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Auto Sales Order Processing</span></div>
-                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Monitor Printing with Auto-Print</span></div>
-                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>WMS Co-Pilot Assistant</span></div>
+                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Real-time fetching of pending Sales Orders and Store Requests from Oracle Fusion ERP</span></div>
+                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Assignment of Pickers, Lorries, Priorities and Loading Bay</span></div>
+                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Picking and Putaway process using Mobile Applications</span></div>
+                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Ship Confirmation of Orders</span></div>
+                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Loading Verification process using Mobile Applications</span></div>
+                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Real-time update of Picking and Shipping status into Oracle Fusion ERP</span></div>
+                                                <div class="phase-item completed"><i class="fas fa-check-circle"></i><span>Printing Orders</span></div>
                                             </div>
                                         </div>
 
@@ -6068,14 +6270,20 @@
                                             </div>
                                         </div>
 
-                                        <!-- 5 - AI & Optimization -->
+                                    </div>
+
+                                    <!-- ── PHASE 2 ── -->
+                                    <div style="margin-bottom:2rem;">
+                                        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.25rem;">
+                                            <div style="background:linear-gradient(135deg,#0ea5e9,#06b6d4);color:white;padding:0.5rem 1.25rem;border-radius:20px;font-weight:700;font-size:1rem;letter-spacing:0.5px;">Phase 2</div>
+                                            <div style="flex:1;height:2px;background:linear-gradient(90deg,#0ea5e9,transparent);"></div>
+                                        </div>
+
+                                        <!-- AI & Optimization -->
                                         <div class="roadmap-phase">
                                             <div class="phase-header">
                                                 <div class="phase-icon planned"><i class="fas fa-calendar-alt"></i></div>
-                                                <div class="phase-info">
-                                                    <h3>5 - AI & Optimization</h3>
-                                                    <span class="phase-status planned">Planned</span>
-                                                </div>
+                                                <div class="phase-info"><h3>AI &amp; Optimization</h3><span class="phase-status planned">Planned</span></div>
                                             </div>
                                             <div class="phase-items">
                                                 <div class="phase-item planned"><i class="fas fa-circle"></i><span>AI Readiness</span></div>
@@ -6084,14 +6292,6 @@
                                                 <div class="phase-item planned"><i class="fas fa-circle"></i><span>Demand Forecasting</span></div>
                                                 <div class="phase-item planned"><i class="fas fa-circle"></i><span>Predictive Maintenance Alerts</span></div>
                                             </div>
-                                        </div>
-                                    </div>
-
-                                    <!-- ── PHASE 2 ── -->
-                                    <div style="margin-bottom:2rem;">
-                                        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.25rem;">
-                                            <div style="background:linear-gradient(135deg,#0ea5e9,#06b6d4);color:white;padding:0.5rem 1.25rem;border-radius:20px;font-weight:700;font-size:1rem;letter-spacing:0.5px;">Phase 2</div>
-                                            <div style="flex:1;height:2px;background:linear-gradient(90deg,#0ea5e9,transparent);"></div>
                                         </div>
 
                                         <!-- Warehouse Structure & Locations -->
