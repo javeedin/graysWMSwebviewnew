@@ -6148,30 +6148,59 @@
                         </div>
                         <style>
                         @media print {
-                            body.wms-printing-intro * { visibility: hidden !important; }
-                            body.wms-printing-intro #wms-intro-print-area,
-                            body.wms-printing-intro #wms-intro-print-area * { visibility: visible !important; }
+                            /* Hide everything in body except our print area */
+                            body.wms-printing-intro > *:not(#wms-intro-print-area) { display: none !important; }
+
                             body.wms-printing-intro #wms-intro-print-area {
-                                position: fixed !important;
-                                top: 0 !important; left: 0 !important;
+                                display: block !important;
+                                position: static !important;
                                 width: 100% !important;
-                                background: white !important;
-                                padding: 0 !important;
                                 margin: 0 !important;
-                                z-index: 99999 !important;
+                                padding: 0 16px !important;
+                                box-sizing: border-box !important;
+                                print-color-adjust: exact !important;
+                                -webkit-print-color-adjust: exact !important;
                             }
-                            @page { margin: 15mm; }
+                            /* Preserve background colours on all children */
+                            body.wms-printing-intro #wms-intro-print-area * {
+                                print-color-adjust: exact !important;
+                                -webkit-print-color-adjust: exact !important;
+                            }
+                            /* Full width inner wrapper */
+                            body.wms-printing-intro #wms-intro-print-area .help-section {
+                                max-width: 100% !important;
+                                margin: 0 !important;
+                            }
+                            /* Flatten grid to 2 columns (readable but compact) */
+                            body.wms-printing-intro #wms-intro-print-area [style*="grid-template-columns"] {
+                                display: grid !important;
+                                grid-template-columns: repeat(2, 1fr) !important;
+                            }
+                            /* Prevent page breaks mid-card */
+                            body.wms-printing-intro #wms-intro-print-area [style*="border-radius:12px"],
+                            body.wms-printing-intro #wms-intro-print-area [style*="border-radius:8px"],
+                            body.wms-printing-intro #wms-intro-print-area [style*="border-radius: 12px"],
+                            body.wms-printing-intro #wms-intro-print-area [style*="border-radius: 8px"] {
+                                break-inside: avoid !important;
+                                page-break-inside: avoid !important;
+                            }
+                            /* Avoid breaking timeline rows */
+                            body.wms-printing-intro #wms-intro-print-area [style*="gap:1.25rem"] {
+                                break-inside: avoid !important;
+                                page-break-inside: avoid !important;
+                            }
+                            @page { size: A4; margin: 15mm; }
                         }
                         </style>
                         <script>
                         function printIntroductionPDF() {
-                            /* Clone section into a top-level print area so tab/overflow styles don't interfere */
                             var existing = document.getElementById('wms-intro-print-area');
                             if (existing) existing.remove();
 
                             var clone = document.getElementById('help-introduction').cloneNode(true);
                             clone.id = 'wms-intro-print-area';
-                            clone.style.cssText = 'display:block;max-height:none;overflow:visible;';
+                            /* Reset tab-pane constraints */
+                            clone.style.cssText = 'display:block!important;max-height:none!important;overflow:visible!important;height:auto!important;';
                             clone.querySelectorAll('.wms-intro-pdf-btn').forEach(function(el){ el.remove(); });
 
                             document.body.appendChild(clone);
