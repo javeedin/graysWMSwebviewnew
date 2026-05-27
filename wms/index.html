@@ -8635,6 +8635,15 @@
         <i class="fas fa-eraser"></i>
     </button>
 
+    <!-- Mode: Text Highlight -->
+    <button id="pt-highlight" onclick="setPresentTool('highlight')"
+        title="Text Highlight (H) — click text to highlight word by word"
+        style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;
+               background:rgba(255,255,255,0.1);color:#ffd600;cursor:pointer;font-size:14px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-highlighter"></i>
+    </button>
+
     <div style="width:1px;height:24px;background:rgba(255,255,255,0.18);margin:0 4px;"></div>
 
     <!-- Color swatches -->
@@ -8688,6 +8697,83 @@
                display:flex;align-items:center;justify-content:center;transition:all .15s;">
         <i class="fas fa-times"></i>
     </button>
+</div>
+
+<!-- Highlight sub-panel (shown when highlight tool is active) -->
+<div id="present-hl-panel"
+    style="display:none;position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+           z-index:60000;background:rgba(15,15,25,0.9);backdrop-filter:blur(16px);
+           border:1px solid rgba(255,214,0,0.25);border-radius:30px;padding:6px 14px;
+           align-items:center;gap:6px;box-shadow:0 4px 20px rgba(0,0,0,0.55);white-space:nowrap;">
+
+    <span style="color:#ffd600;font-size:0.7rem;font-weight:700;letter-spacing:0.8px;">
+        <i class="fas fa-highlighter" style="margin-right:4px;"></i>HIGHLIGHT
+    </span>
+
+    <div style="width:1px;height:20px;background:rgba(255,255,255,0.15);margin:0 2px;"></div>
+
+    <!-- Voice Sync -->
+    <button id="hl-mode-voice" onclick="hlSetMode('voice')" title="Voice Sync — advances as you speak"
+        style="height:28px;padding:0 10px;border-radius:14px;border:2px solid transparent;
+               background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:0.72rem;
+               font-weight:600;display:flex;align-items:center;gap:4px;transition:all .15s;">
+        <i class="fas fa-microphone"></i> Voice
+    </button>
+
+    <!-- Manual -->
+    <button id="hl-mode-manual" onclick="hlSetMode('manual')" title="Manual — Space / → to advance"
+        style="height:28px;padding:0 10px;border-radius:14px;border:2px solid #818cf8;
+               background:rgba(99,102,241,0.7);color:#fff;cursor:pointer;font-size:0.72rem;
+               font-weight:600;display:flex;align-items:center;gap:4px;transition:all .15s;">
+        <i class="fas fa-hand-pointer"></i> Manual
+    </button>
+
+    <!-- Full Line -->
+    <button id="hl-mode-fullline" onclick="hlSetMode('fullline')" title="Highlight full line at once"
+        style="height:28px;padding:0 10px;border-radius:14px;border:2px solid transparent;
+               background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:0.72rem;
+               font-weight:600;display:flex;align-items:center;gap:4px;transition:all .15s;">
+        <i class="fas fa-align-left"></i> Full Line
+    </button>
+
+    <div style="width:1px;height:20px;background:rgba(255,255,255,0.15);margin:0 2px;"></div>
+
+    <!-- Word counter -->
+    <span id="hl-word-count"
+        style="color:#ffd600;font-size:0.82rem;font-weight:700;min-width:44px;text-align:center;">—</span>
+
+    <div style="width:1px;height:20px;background:rgba(255,255,255,0.15);margin:0 2px;"></div>
+
+    <!-- Prev -->
+    <button onclick="hlBack()" title="Previous word (←)"
+        style="width:28px;height:28px;border-radius:50%;border:none;
+               background:rgba(255,255,255,0.12);color:#fff;cursor:pointer;font-size:11px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-chevron-left"></i>
+    </button>
+
+    <!-- Next -->
+    <button onclick="hlAdvance()" title="Next word (→ or Space)"
+        style="width:28px;height:28px;border-radius:50%;border:none;
+               background:rgba(255,214,0,0.25);color:#ffd600;cursor:pointer;font-size:11px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-chevron-right"></i>
+    </button>
+
+    <div style="width:1px;height:20px;background:rgba(255,255,255,0.15);margin:0 2px;"></div>
+
+    <!-- Clear -->
+    <button onclick="hlClear()" title="Clear highlights (X)"
+        style="width:28px;height:28px;border-radius:50%;border:none;
+               background:rgba(255,80,80,0.2);color:#ff8080;cursor:pointer;font-size:11px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-times"></i>
+    </button>
+
+    <div style="width:1px;height:20px;background:rgba(255,255,255,0.15);margin:0 2px;"></div>
+
+    <!-- hint -->
+    <span id="hl-hint" style="color:#64748b;font-size:0.68rem;">click text to start</span>
 </div>
 
 <!-- Mode indicator badge -->
@@ -8760,6 +8846,9 @@
             toggleBtn.querySelector('i').className = 'fas fa-pen-nib';
             state.drawing = false;
             if (state.laserAnimFrame) cancelAnimationFrame(state.laserAnimFrame);
+            canvas.style.pointerEvents = 'auto';
+            document.getElementById('present-hl-panel').style.display = 'none';
+            if (window.hlClear) hlClear();
         }
     };
 
@@ -8768,7 +8857,7 @@
         state.tool = t;
         updateToolUI();
         applyToolCursor();
-        badgeTxt.textContent = ({ laser:'LASER POINTER', pen:'PEN / DRAW', arrow:'ARROW POINTER', eraser:'ERASER' })[t] || 'PRESENTATION MODE';
+        badgeTxt.textContent = ({ laser:'LASER POINTER', pen:'PEN / DRAW', arrow:'ARROW POINTER', eraser:'ERASER', highlight:'TEXT HIGHLIGHT — click any text' })[t] || 'PRESENTATION MODE';
     };
 
     window.setPresentColor = function (c) {
@@ -8791,12 +8880,21 @@
     };
 
     function applyToolCursor() {
-        const cursors = { laser:'none', pen:'none', arrow:'default', eraser:'none' };
-        canvas.style.cursor = cursors[state.tool] || 'crosshair';
+        if (state.tool === 'highlight') {
+            canvas.style.pointerEvents = 'none';
+            canvas.style.cursor = 'default';
+        } else {
+            canvas.style.pointerEvents = 'auto';
+            const cursors = { laser:'none', pen:'none', arrow:'default', eraser:'none' };
+            canvas.style.cursor = cursors[state.tool] || 'crosshair';
+        }
+        /* show/hide highlight sub-panel */
+        const hlPanel = document.getElementById('present-hl-panel');
+        if (hlPanel) hlPanel.style.display = state.tool === 'highlight' ? 'flex' : 'none';
     }
 
     function updateToolUI() {
-        ['laser','pen','arrow','eraser'].forEach(t => {
+        ['laser','pen','arrow','eraser','highlight'].forEach(t => {
             const b = document.getElementById('pt-' + t);
             if (!b) return;
             b.style.background = state.tool === t ? 'rgba(99,102,241,0.7)' : 'rgba(255,255,255,0.1)';
@@ -9019,8 +9117,15 @@
         if (e.key === 'd' || e.key === 'D')   setPresentTool('pen');
         if (e.key === 'e' || e.key === 'E')   setPresentTool('eraser');
         if (e.key === 'a' || e.key === 'A')   setPresentTool('arrow');
+        if (e.key === 'h' || e.key === 'H')   setPresentTool('highlight');
         if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); presentUndo(); }
         if (e.key === 'Delete' || e.key === 'Backspace') presentClear();
+        /* highlight navigation */
+        if (state.tool === 'highlight') {
+            if (e.key === ' ' || e.key === 'ArrowRight') { e.preventDefault(); window.hlAdvance && hlAdvance(); }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); window.hlBack && hlBack(); }
+            if (e.key === 'x' || e.key === 'X') { window.hlClear && hlClear(); }
+        }
     });
 
     /* hide laser when mouse leaves canvas */
@@ -9029,6 +9134,272 @@
     /* hover effect on toggle button */
     toggleBtn.addEventListener('mouseenter', () => { toggleBtn.style.transform = 'scale(1.1)'; });
     toggleBtn.addEventListener('mouseleave', () => { toggleBtn.style.transform = 'scale(1)'; });
+})();
+</script>
+
+<!-- ═══════════════════════════════════════
+     PRESENTATION — Text Highlight System
+     ═══════════════════════════════════════ -->
+<style>
+/* Word spans */
+.wms-hl-word { display:inline; transition:background 0.12s, box-shadow 0.12s; border-radius:3px; }
+
+/* Currently active word — bright yellow pulse */
+.wms-hl-current {
+    background: rgba(255,214,0,0.92) !important;
+    color: #1a1000 !important;
+    border-radius: 3px;
+    padding: 0 3px;
+    box-shadow: 0 0 0 2px rgba(255,200,0,0.55), 0 2px 10px rgba(255,200,0,0.35);
+    font-weight: 700;
+    animation: wms-hl-pop 0.18s ease;
+}
+
+/* Already spoken words — soft yellow tint */
+.wms-hl-done {
+    background: rgba(255,214,0,0.22) !important;
+    border-radius: 2px;
+    padding: 0 2px;
+}
+
+/* Full-line highlight */
+.wms-hl-fullline {
+    background: rgba(255,214,0,0.28) !important;
+    border-radius: 4px;
+    padding: 2px 4px;
+    box-shadow: 0 0 0 2px rgba(255,200,0,0.4);
+}
+
+/* Hover outline when user is choosing a target */
+.wms-hl-hover {
+    outline: 2px dashed rgba(255,214,0,0.65) !important;
+    outline-offset: 4px;
+    cursor: pointer !important;
+}
+
+@keyframes wms-hl-pop {
+    0%   { transform: scale(1.18); }
+    100% { transform: scale(1); }
+}
+</style>
+
+<script>
+(function () {
+    const hl = {
+        mode: 'manual',   // manual | voice | fullline
+        targetEl: null,
+        words: [],
+        idx: -1,
+        origHTML: null,
+        recognition: null,
+        voiceActive: false,
+        hoverEl: null,
+    };
+
+    /* ── helpers ── */
+    function getBestTarget(el) {
+        const GOOD = ['P','H1','H2','H3','H4','H5','H6','LI','TD','TH','SPAN','DIV','LABEL','A','STRONG','EM','B'];
+        let node = el;
+        while (node && node !== document.body) {
+            const tag = node.tagName;
+            if (GOOD.includes(tag)) {
+                const text = node.textContent.trim();
+                if (text.length >= 8 && !node.closest('button,input,select,textarea,[role=button]')) {
+                    /* prefer the most specific text node, not the whole page */
+                    if (!node.querySelector('p,h1,h2,h3,h4,ul,ol,table')) return node;
+                }
+            }
+            node = node.parentElement;
+        }
+        return null;
+    }
+
+    function wrapWords(el) {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        let n;
+        while ((n = walker.nextNode())) nodes.push(n);
+        let idx = 0;
+        nodes.forEach(tn => {
+            if (!tn.textContent.trim()) return;
+            const frag = document.createDocumentFragment();
+            tn.textContent.split(/(\s+)/).forEach(part => {
+                if (/\S/.test(part)) {
+                    const s = document.createElement('span');
+                    s.className = 'wms-hl-word';
+                    s.dataset.widx = idx++;
+                    s.textContent = part;
+                    frag.appendChild(s);
+                } else {
+                    frag.appendChild(document.createTextNode(part));
+                }
+            });
+            tn.parentNode.replaceChild(frag, tn);
+        });
+    }
+
+    function updateModeUI() {
+        ['manual','voice','fullline'].forEach(m => {
+            const b = document.getElementById('hl-mode-' + m);
+            if (!b) return;
+            const on = hl.mode === m;
+            /* voice gets red when active + listening */
+            const activeBg = (m === 'voice' && hl.voiceActive) ? 'rgba(239,68,68,0.75)' : 'rgba(99,102,241,0.7)';
+            b.style.background = on ? activeBg : 'rgba(255,255,255,0.1)';
+            b.style.borderColor = on ? '#818cf8' : 'transparent';
+        });
+    }
+
+    function updateCounter() {
+        const el = document.getElementById('hl-word-count');
+        if (!el) return;
+        el.textContent = hl.words.length ? (Math.min(hl.idx + 1, hl.words.length)) + ' / ' + hl.words.length : '—';
+    }
+
+    function setHint(txt) {
+        const el = document.getElementById('hl-hint');
+        if (el) el.textContent = txt;
+    }
+
+    /* ── activate target element ── */
+    function hlActivate(el) {
+        if (hl.targetEl) hlClearInternal(false);
+        hl.origHTML = el.innerHTML;
+        hl.targetEl = el;
+        wrapWords(el);
+        hl.words = Array.from(el.querySelectorAll('.wms-hl-word'));
+        hl.idx = -1;
+
+        if (hl.mode === 'fullline') {
+            hlFullLine();
+        } else {
+            setHint('Space / → to advance');
+            if (hl.mode === 'voice') startVoice();
+        }
+        updateCounter();
+    }
+
+    /* ── advance / back ── */
+    window.hlAdvance = function () {
+        if (!hl.words.length) return;
+        if (hl.idx >= 0 && hl.words[hl.idx]) {
+            hl.words[hl.idx].classList.remove('wms-hl-current');
+            hl.words[hl.idx].classList.add('wms-hl-done');
+        }
+        hl.idx = Math.min(hl.idx + 1, hl.words.length - 1);
+        hl.words[hl.idx].classList.add('wms-hl-current');
+        hl.words[hl.idx].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        updateCounter();
+        if (hl.idx === hl.words.length - 1) setHint('end of text');
+    };
+
+    window.hlBack = function () {
+        if (!hl.words.length) return;
+        if (hl.words[hl.idx]) hl.words[hl.idx].classList.remove('wms-hl-current', 'wms-hl-done');
+        hl.idx = Math.max(hl.idx - 1, 0);
+        /* reset all from idx onwards */
+        for (let i = hl.idx + 1; i < hl.words.length; i++)
+            hl.words[i].classList.remove('wms-hl-current', 'wms-hl-done');
+        hl.words[hl.idx].classList.add('wms-hl-current');
+        updateCounter();
+    };
+
+    function hlFullLine() {
+        hl.words.forEach(w => { w.classList.remove('wms-hl-current'); w.classList.add('wms-hl-done'); });
+        hl.idx = hl.words.length - 1;
+        if (hl.targetEl) hl.targetEl.classList.add('wms-hl-fullline');
+        updateCounter();
+        setHint('full line highlighted');
+    }
+
+    function hlClearInternal(restoreHTML) {
+        stopVoice();
+        if (restoreHTML && hl.targetEl && hl.origHTML !== null) {
+            hl.targetEl.innerHTML = hl.origHTML;
+            hl.targetEl.classList.remove('wms-hl-fullline');
+        } else if (hl.targetEl) {
+            hl.targetEl.classList.remove('wms-hl-fullline');
+        }
+        hl.targetEl = null; hl.words = []; hl.idx = -1; hl.origHTML = null;
+        updateCounter();
+        setHint('click text to start');
+    }
+
+    window.hlClear = function () { hlClearInternal(true); };
+
+    /* ── mode switching ── */
+    window.hlSetMode = function (mode) {
+        hl.mode = mode;
+        updateModeUI();
+        if (mode === 'voice') {
+            if (hl.words.length) startVoice();
+        } else {
+            stopVoice();
+        }
+        if (mode === 'fullline' && hl.words.length) hlFullLine();
+        setHint(mode === 'voice' ? 'listening…' : mode === 'fullline' ? 'click text to highlight' : 'Space / → to advance');
+    };
+
+    /* ── voice recognition ── */
+    function startVoice() {
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SR) { setHint('speech API not available'); return; }
+        stopVoice();
+        hl.recognition = new SR();
+        hl.recognition.continuous = true;
+        hl.recognition.interimResults = false;
+        hl.recognition.lang = 'en-US';
+        hl.recognition.onresult = function (e) {
+            for (let i = e.resultIndex; i < e.results.length; i++) {
+                if (e.results[i].isFinal) {
+                    const count = e.results[i][0].transcript.trim().split(/\s+/).filter(Boolean).length;
+                    for (let w = 0; w < count; w++) window.hlAdvance();
+                }
+            }
+        };
+        hl.recognition.onerror = function (ev) {
+            if (ev.error !== 'no-speech') setHint('mic: ' + ev.error);
+        };
+        hl.recognition.onend = function () {
+            if (hl.voiceActive) try { hl.recognition.start(); } catch (e) {}
+        };
+        hl.voiceActive = true;
+        try { hl.recognition.start(); setHint('🎤 listening…'); } catch (e) {}
+        updateModeUI();
+    }
+
+    function stopVoice() {
+        hl.voiceActive = false;
+        if (hl.recognition) { try { hl.recognition.stop(); } catch (e) {} hl.recognition = null; }
+        updateModeUI();
+    }
+
+    /* ── hover: outline text elements when in highlight tool ── */
+    document.addEventListener('mouseover', function (e) {
+        const active = document.getElementById('present-hl-panel');
+        if (!active || active.style.display === 'none') return;
+        const best = getBestTarget(e.target);
+        if (hl.hoverEl && hl.hoverEl !== hl.targetEl) hl.hoverEl.classList.remove('wms-hl-hover');
+        hl.hoverEl = best;
+        if (best && best !== hl.targetEl) best.classList.add('wms-hl-hover');
+    });
+
+    /* ── click: activate element ── */
+    document.addEventListener('click', function (e) {
+        const active = document.getElementById('present-hl-panel');
+        if (!active || active.style.display === 'none') return;
+        /* ignore clicks on the toolbar/sub-panel itself */
+        if (e.target.closest('#present-toolbar,#present-hl-panel,#present-toggle-btn')) return;
+        const best = getBestTarget(e.target);
+        if (!best) return;
+        e.preventDefault();
+        e.stopPropagation();
+        best.classList.remove('wms-hl-hover');
+        hlActivate(best);
+    }, true);
+
+    /* init mode UI */
+    updateModeUI();
 })();
 </script>
 
