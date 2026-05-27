@@ -8557,5 +8557,463 @@
 <!-- Backdrop -->
 <div id="mobile-notif-backdrop" onclick="toggleMobileNotifPanel()" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.3);z-index:49999;"></div>
 
+<!-- ═══════════════════════════════════════════════════════════
+     PRESENTATION MODE — Canvas overlay, laser pointer, pen tools
+     Toggle: press P  or click the mic button in header
+     ═══════════════════════════════════════════════════════════ -->
+
+<!-- Activation button (bottom-right, above FAB) -->
+<button id="present-toggle-btn" onclick="togglePresentationMode()"
+    title="Presentation Mode (P)"
+    style="position:fixed;bottom:88px;right:22px;z-index:59990;
+           width:42px;height:42px;border-radius:50%;border:none;cursor:pointer;
+           background:linear-gradient(135deg,#6366f1,#8b5cf6);
+           color:white;font-size:15px;
+           box-shadow:0 4px 14px rgba(99,102,241,0.45);
+           display:flex;align-items:center;justify-content:center;
+           transition:transform .2s,box-shadow .2s;">
+    <i class="fas fa-pen-nib"></i>
+</button>
+
+<!-- Canvas overlay -->
+<canvas id="present-canvas"
+    style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;
+           z-index:59995;cursor:none;touch-action:none;"></canvas>
+
+<!-- Laser pointer dot -->
+<div id="present-laser"
+    style="display:none;position:fixed;pointer-events:none;z-index:59999;
+           width:18px;height:18px;border-radius:50%;
+           background:radial-gradient(circle,#fff 10%,#ff2222 45%,transparent 72%);
+           box-shadow:0 0 8px 4px rgba(255,50,50,0.7),0 0 20px 8px rgba(255,80,80,0.35);
+           transform:translate(-50%,-50%);transition:opacity .1s;">
+</div>
+
+<!-- Toolbar -->
+<div id="present-toolbar"
+    style="display:none;position:fixed;bottom:22px;left:50%;transform:translateX(-50%);
+           z-index:60000;
+           background:rgba(15,15,25,0.88);backdrop-filter:blur(16px);
+           border:1px solid rgba(255,255,255,0.12);
+           border-radius:40px;padding:8px 16px;
+           display:none;align-items:center;gap:6px;
+           box-shadow:0 8px 32px rgba(0,0,0,0.55);">
+
+    <!-- Mode: Laser -->
+    <button id="pt-laser" onclick="setPresentTool('laser')"
+        title="Laser Pointer"
+        style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;
+               background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:14px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-dot-circle"></i>
+    </button>
+
+    <!-- Mode: Pen -->
+    <button id="pt-pen" onclick="setPresentTool('pen')"
+        title="Pen / Draw"
+        style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;
+               background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:14px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-pen"></i>
+    </button>
+
+    <!-- Mode: Arrow -->
+    <button id="pt-arrow" onclick="setPresentTool('arrow')"
+        title="Arrow pointer"
+        style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;
+               background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:14px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-mouse-pointer"></i>
+    </button>
+
+    <!-- Mode: Eraser -->
+    <button id="pt-eraser" onclick="setPresentTool('eraser')"
+        title="Eraser"
+        style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;
+               background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:14px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-eraser"></i>
+    </button>
+
+    <div style="width:1px;height:24px;background:rgba(255,255,255,0.18);margin:0 4px;"></div>
+
+    <!-- Color swatches -->
+    <button class="pt-color" data-color="#ff3b3b" onclick="setPresentColor('#ff3b3b')"
+        title="Red" style="width:22px;height:22px;border-radius:50%;border:2px solid transparent;
+        background:#ff3b3b;cursor:pointer;transition:transform .15s;flex-shrink:0;"></button>
+    <button class="pt-color" data-color="#ffd600" onclick="setPresentColor('#ffd600')"
+        title="Yellow" style="width:22px;height:22px;border-radius:50%;border:2px solid transparent;
+        background:#ffd600;cursor:pointer;transition:transform .15s;flex-shrink:0;"></button>
+    <button class="pt-color" data-color="#00e676" onclick="setPresentColor('#00e676')"
+        title="Green" style="width:22px;height:22px;border-radius:50%;border:2px solid transparent;
+        background:#00e676;cursor:pointer;transition:transform .15s;flex-shrink:0;"></button>
+    <button class="pt-color" data-color="#29b6f6" onclick="setPresentColor('#29b6f6')"
+        title="Blue" style="width:22px;height:22px;border-radius:50%;border:2px solid transparent;
+        background:#29b6f6;cursor:pointer;transition:transform .15s;flex-shrink:0;"></button>
+    <button class="pt-color" data-color="#ffffff" onclick="setPresentColor('#ffffff')"
+        title="White" style="width:22px;height:22px;border-radius:50%;border:2px solid rgba(255,255,255,0.4);
+        background:#ffffff;cursor:pointer;transition:transform .15s;flex-shrink:0;"></button>
+
+    <div style="width:1px;height:24px;background:rgba(255,255,255,0.18);margin:0 4px;"></div>
+
+    <!-- Stroke size -->
+    <button onclick="setPresentSize(3)"  title="Thin"   style="width:30px;height:30px;border-radius:50%;border:none;background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;"><div style="width:3px;height:3px;border-radius:50%;background:currentColor;"></div></button>
+    <button onclick="setPresentSize(6)"  title="Medium" style="width:30px;height:30px;border-radius:50%;border:none;background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;"><div style="width:6px;height:6px;border-radius:50%;background:currentColor;"></div></button>
+    <button onclick="setPresentSize(12)" title="Thick"  style="width:30px;height:30px;border-radius:50%;border:none;background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;"><div style="width:11px;height:11px;border-radius:50%;background:currentColor;"></div></button>
+
+    <div style="width:1px;height:24px;background:rgba(255,255,255,0.18);margin:0 4px;"></div>
+
+    <!-- Undo -->
+    <button onclick="presentUndo()" title="Undo (Ctrl+Z)"
+        style="width:36px;height:36px;border-radius:50%;border:none;
+               background:rgba(255,255,255,0.1);color:#fff;cursor:pointer;font-size:14px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-undo"></i>
+    </button>
+
+    <!-- Clear -->
+    <button onclick="presentClear()" title="Clear all drawings"
+        style="width:36px;height:36px;border-radius:50%;border:none;
+               background:rgba(255,80,80,0.25);color:#ff8080;cursor:pointer;font-size:14px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-trash-alt"></i>
+    </button>
+
+    <div style="width:1px;height:24px;background:rgba(255,255,255,0.18);margin:0 4px;"></div>
+
+    <!-- Exit -->
+    <button onclick="togglePresentationMode()" title="Exit Presentation (Esc)"
+        style="width:36px;height:36px;border-radius:50%;border:none;
+               background:rgba(255,255,255,0.08);color:#94a3b8;cursor:pointer;font-size:14px;
+               display:flex;align-items:center;justify-content:center;transition:all .15s;">
+        <i class="fas fa-times"></i>
+    </button>
+</div>
+
+<!-- Mode indicator badge -->
+<div id="present-mode-badge"
+    style="display:none;position:fixed;top:16px;left:50%;transform:translateX(-50%);
+           z-index:60001;background:rgba(99,102,241,0.9);backdrop-filter:blur(8px);
+           color:white;padding:6px 16px;border-radius:20px;font-size:0.78rem;
+           font-weight:600;letter-spacing:0.5px;pointer-events:none;
+           box-shadow:0 4px 12px rgba(99,102,241,0.4);">
+    <i class="fas fa-presentation-screen" style="margin-right:6px;"></i>
+    <span id="present-badge-text">PRESENTATION MODE</span>
+</div>
+
+<script>
+(function () {
+    /* ── state ── */
+    const state = {
+        active: false,
+        tool: 'laser',     // laser | pen | arrow | eraser
+        color: '#ff3b3b',
+        size: 5,
+        drawing: false,
+        paths: [],         // [{tool,color,size,points:[{x,y}]}]
+        currentPath: null,
+        laserTrail: [],    // [{x,y,t}] for fade
+        lastX: 0, lastY: 0,
+        animFrame: null,
+        laserAnimFrame: null,
+    };
+
+    const canvas   = document.getElementById('present-canvas');
+    const ctx      = canvas.getContext('2d');
+    const laser    = document.getElementById('present-laser');
+    const toolbar  = document.getElementById('present-toolbar');
+    const badge    = document.getElementById('present-mode-badge');
+    const badgeTxt = document.getElementById('present-badge-text');
+    const toggleBtn= document.getElementById('present-toggle-btn');
+
+    /* ── resize canvas to window ── */
+    function resizeCanvas() {
+        const iw = window.innerWidth, ih = window.innerHeight;
+        canvas.width  = iw;
+        canvas.height = ih;
+        redraw();
+    }
+    window.addEventListener('resize', resizeCanvas);
+
+    /* ── toggle ── */
+    window.togglePresentationMode = function () {
+        state.active = !state.active;
+        if (state.active) {
+            resizeCanvas();
+            canvas.style.display = 'block';
+            toolbar.style.display = 'flex';
+            badge.style.display   = 'block';
+            toggleBtn.style.background = 'linear-gradient(135deg,#ef4444,#dc2626)';
+            toggleBtn.title = 'Exit Presentation (Esc)';
+            toggleBtn.querySelector('i').className = 'fas fa-times';
+            applyToolCursor();
+            updateToolUI();
+            updateColorUI();
+            startLaserLoop();
+        } else {
+            canvas.style.display  = 'none';
+            toolbar.style.display = 'none';
+            badge.style.display   = 'none';
+            laser.style.display   = 'none';
+            toggleBtn.style.background = 'linear-gradient(135deg,#6366f1,#8b5cf6)';
+            toggleBtn.title = 'Presentation Mode (P)';
+            toggleBtn.querySelector('i').className = 'fas fa-pen-nib';
+            state.drawing = false;
+            if (state.laserAnimFrame) cancelAnimationFrame(state.laserAnimFrame);
+        }
+    };
+
+    /* ── tool selection ── */
+    window.setPresentTool = function (t) {
+        state.tool = t;
+        updateToolUI();
+        applyToolCursor();
+        badgeTxt.textContent = ({ laser:'LASER POINTER', pen:'PEN / DRAW', arrow:'ARROW POINTER', eraser:'ERASER' })[t] || 'PRESENTATION MODE';
+    };
+
+    window.setPresentColor = function (c) {
+        state.color = c;
+        updateColorUI();
+        if (state.tool === 'laser') setPresentTool('pen');
+    };
+
+    window.setPresentSize = function (s) {
+        state.size = s;
+    };
+
+    function applyToolCursor() {
+        const cursors = { laser:'none', pen:'none', arrow:'default', eraser:'none' };
+        canvas.style.cursor = cursors[state.tool] || 'crosshair';
+    }
+
+    function updateToolUI() {
+        ['laser','pen','arrow','eraser'].forEach(t => {
+            const b = document.getElementById('pt-' + t);
+            if (!b) return;
+            b.style.background = state.tool === t ? 'rgba(99,102,241,0.7)' : 'rgba(255,255,255,0.1)';
+            b.style.borderColor = state.tool === t ? '#818cf8' : 'transparent';
+        });
+    }
+
+    function updateColorUI() {
+        document.querySelectorAll('.pt-color').forEach(b => {
+            b.style.transform = b.dataset.color === state.color ? 'scale(1.35)' : 'scale(1)';
+            b.style.borderColor = b.dataset.color === state.color ? '#fff' : 'transparent';
+        });
+    }
+
+    /* ── drawing ── */
+    function getXY(e) {
+        if (e.touches && e.touches.length) {
+            const r = canvas.getBoundingClientRect();
+            return { x: e.touches[0].clientX - r.left, y: e.touches[0].clientY - r.top };
+        }
+        return { x: e.offsetX, y: e.offsetY };
+    }
+
+    canvas.addEventListener('mousedown', onDown);
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseup',   onUp);
+    canvas.addEventListener('mouseleave',onUp);
+    canvas.addEventListener('touchstart', onDown, { passive: false });
+    canvas.addEventListener('touchmove',  onMove, { passive: false });
+    canvas.addEventListener('touchend',   onUp);
+
+    function onDown(e) {
+        e.preventDefault();
+        if (!state.active) return;
+        const { x, y } = getXY(e);
+        state.lastX = x; state.lastY = y;
+
+        if (state.tool === 'laser') return;
+        if (state.tool === 'arrow') return;
+
+        state.drawing = true;
+        state.currentPath = { tool: state.tool, color: state.color, size: state.size, points: [{ x, y }] };
+    }
+
+    function onMove(e) {
+        e.preventDefault();
+        if (!state.active) return;
+        const { x, y } = getXY(e);
+        state.lastX = x; state.lastY = y;
+
+        /* laser glow */
+        if (state.tool === 'laser') {
+            moveLaser(x, y);
+            state.laserTrail.push({ x, y, t: Date.now() });
+            return;
+        }
+
+        /* arrow — just move laser dot as cursor */
+        if (state.tool === 'arrow') {
+            laser.style.display = 'block';
+            laser.style.left = x + 'px';
+            laser.style.top  = y + 'px';
+            laser.style.boxShadow = 'none';
+            laser.style.background = 'radial-gradient(circle,#fff 20%,#6366f1 60%,transparent 80%)';
+            laser.style.width = '14px'; laser.style.height = '14px';
+            return;
+        } else {
+            resetLaserStyle();
+        }
+
+        if (!state.drawing || !state.currentPath) return;
+
+        state.currentPath.points.push({ x, y });
+
+        /* live draw segment */
+        ctx.save();
+        if (state.tool === 'eraser') {
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.strokeStyle = 'rgba(0,0,0,1)';
+            ctx.lineWidth   = state.size * 5;
+        } else {
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.strokeStyle = state.color;
+            ctx.lineWidth   = state.size;
+        }
+        ctx.lineCap     = 'round';
+        ctx.lineJoin    = 'round';
+        ctx.beginPath();
+        const pts = state.currentPath.points;
+        if (pts.length > 2) {
+            const prev = pts[pts.length - 3];
+            const mid1 = pts[pts.length - 2];
+            const cur  = pts[pts.length - 1];
+            ctx.moveTo((prev.x + mid1.x) / 2, (prev.y + mid1.y) / 2);
+            ctx.quadraticCurveTo(mid1.x, mid1.y, (mid1.x + cur.x) / 2, (mid1.y + cur.y) / 2);
+        } else {
+            ctx.moveTo(pts[pts.length - 2]?.x ?? x, pts[pts.length - 2]?.y ?? y);
+            ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function onUp(e) {
+        if (!state.drawing || !state.currentPath) return;
+        state.drawing = false;
+        if (state.currentPath.points.length > 1) {
+            state.paths.push(state.currentPath);
+        }
+        state.currentPath = null;
+    }
+
+    /* ── laser pointer ── */
+    function moveLaser(x, y) {
+        laser.style.display = 'block';
+        laser.style.left    = x + 'px';
+        laser.style.top     = y + 'px';
+        resetLaserStyle();
+    }
+
+    function resetLaserStyle() {
+        laser.style.width  = '18px';
+        laser.style.height = '18px';
+        laser.style.background = 'radial-gradient(circle,#fff 10%,#ff2222 45%,transparent 72%)';
+        laser.style.boxShadow  = '0 0 8px 4px rgba(255,50,50,0.7),0 0 20px 8px rgba(255,80,80,0.35)';
+    }
+
+    function startLaserLoop() {
+        function loop() {
+            if (!state.active) return;
+            /* draw fading laser trail */
+            if (state.tool === 'laser' && state.laserTrail.length > 0) {
+                const now = Date.now();
+                state.laserTrail = state.laserTrail.filter(p => now - p.t < 500);
+                redraw();
+                if (state.laserTrail.length > 0) {
+                    const trail = state.laserTrail;
+                    for (let i = 1; i < trail.length; i++) {
+                        const age  = (now - trail[i].t) / 500;
+                        const alpha = Math.max(0, 1 - age) * 0.6;
+                        ctx.save();
+                        ctx.globalCompositeOperation = 'source-over';
+                        ctx.strokeStyle = `rgba(255,60,60,${alpha})`;
+                        ctx.lineWidth   = Math.max(1, (1 - age) * 4);
+                        ctx.lineCap     = 'round';
+                        ctx.beginPath();
+                        ctx.moveTo(trail[i - 1].x, trail[i - 1].y);
+                        ctx.lineTo(trail[i].x, trail[i].y);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            }
+            state.laserAnimFrame = requestAnimationFrame(loop);
+        }
+        loop();
+    }
+
+    /* ── redraw all strokes ── */
+    function redraw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        state.paths.forEach(path => {
+            if (!path.points || path.points.length < 2) return;
+            ctx.save();
+            if (path.tool === 'eraser') {
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.strokeStyle = 'rgba(0,0,0,1)';
+                ctx.lineWidth   = path.size * 5;
+            } else {
+                ctx.globalCompositeOperation = 'source-over';
+                ctx.strokeStyle = path.color;
+                ctx.lineWidth   = path.size;
+            }
+            ctx.lineCap  = 'round';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(path.points[0].x, path.points[0].y);
+            for (let i = 1; i < path.points.length - 1; i++) {
+                const mx = (path.points[i].x + path.points[i + 1].x) / 2;
+                const my = (path.points[i].y + path.points[i + 1].y) / 2;
+                ctx.quadraticCurveTo(path.points[i].x, path.points[i].y, mx, my);
+            }
+            ctx.lineTo(path.points[path.points.length - 1].x, path.points[path.points.length - 1].y);
+            ctx.stroke();
+            ctx.restore();
+        });
+    }
+
+    /* ── undo / clear ── */
+    window.presentUndo = function () {
+        state.paths.pop();
+        redraw();
+    };
+    window.presentClear = function () {
+        state.paths = [];
+        state.laserTrail = [];
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+
+    /* ── keyboard shortcuts ── */
+    document.addEventListener('keydown', function (e) {
+        /* P to toggle */
+        if (e.key === 'p' || e.key === 'P') {
+            const tag = document.activeElement?.tagName;
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            togglePresentationMode();
+            return;
+        }
+        if (!state.active) return;
+        if (e.key === 'Escape')               togglePresentationMode();
+        if (e.key === 'l' || e.key === 'L')   setPresentTool('laser');
+        if (e.key === 'd' || e.key === 'D')   setPresentTool('pen');
+        if (e.key === 'e' || e.key === 'E')   setPresentTool('eraser');
+        if (e.key === 'a' || e.key === 'A')   setPresentTool('arrow');
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); presentUndo(); }
+        if (e.key === 'Delete' || e.key === 'Backspace') presentClear();
+    });
+
+    /* hide laser when mouse leaves canvas */
+    canvas.addEventListener('mouseleave', () => { laser.style.display = 'none'; });
+
+    /* hover effect on toggle button */
+    toggleBtn.addEventListener('mouseenter', () => { toggleBtn.style.transform = 'scale(1.1)'; });
+    toggleBtn.addEventListener('mouseleave', () => { toggleBtn.style.transform = 'scale(1)'; });
+})();
+</script>
+
 </body>
 </html>
