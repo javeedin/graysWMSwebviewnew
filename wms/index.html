@@ -8774,7 +8774,16 @@
     window.setPresentColor = function (c) {
         state.color = c;
         updateColorUI();
-        if (state.tool === 'laser') setPresentTool('pen');
+        if (state.tool === 'laser' || state.tool === 'arrow') setPresentTool('pen');
+        /* immediately update dot so it doesn't lag until next mousemove */
+        if (state.tool === 'pen') {
+            const sz = Math.max(10, state.size + 6);
+            laser.style.width  = sz + 'px';
+            laser.style.height = sz + 'px';
+            laser.style.background = c;
+            laser.style.border = '2px solid rgba(255,255,255,0.7)';
+            laser.style.boxShadow = '0 0 6px 2px ' + c + '99';
+        }
     };
 
     window.setPresentSize = function (s) {
@@ -8838,24 +8847,46 @@
         const { x, y } = getXY(e);
         state.lastX = x; state.lastY = y;
 
-        /* laser glow */
+        /* always move cursor dot to follow mouse */
+        laser.style.display = 'block';
+        laser.style.left = x + 'px';
+        laser.style.top  = y + 'px';
+        laser.style.borderRadius = '50%';
+
         if (state.tool === 'laser') {
-            moveLaser(x, y);
+            laser.style.width  = '18px';
+            laser.style.height = '18px';
+            laser.style.border = 'none';
+            laser.style.background = 'radial-gradient(circle,#fff 10%,#ff2222 45%,transparent 72%)';
+            laser.style.boxShadow   = '0 0 8px 4px rgba(255,50,50,0.7),0 0 20px 8px rgba(255,80,80,0.35)';
             state.laserTrail.push({ x, y, t: Date.now() });
             return;
         }
 
-        /* arrow — just move laser dot as cursor */
         if (state.tool === 'arrow') {
-            laser.style.display = 'block';
-            laser.style.left = x + 'px';
-            laser.style.top  = y + 'px';
-            laser.style.boxShadow = 'none';
-            laser.style.background = 'radial-gradient(circle,#fff 20%,#6366f1 60%,transparent 80%)';
-            laser.style.width = '14px'; laser.style.height = '14px';
+            laser.style.width  = '12px';
+            laser.style.height = '12px';
+            laser.style.border = '2px solid rgba(255,255,255,0.8)';
+            laser.style.background = '#6366f1';
+            laser.style.boxShadow  = '0 0 6px 2px rgba(99,102,241,0.6)';
             return;
+        }
+
+        if (state.tool === 'eraser') {
+            const sz = Math.max(12, state.size * 5);
+            laser.style.width  = sz + 'px';
+            laser.style.height = sz + 'px';
+            laser.style.background = 'transparent';
+            laser.style.border = '2px solid rgba(255,255,255,0.85)';
+            laser.style.boxShadow  = 'none';
         } else {
-            resetLaserStyle();
+            /* pen — small dot matching current color */
+            const sz = Math.max(10, state.size + 6);
+            laser.style.width  = sz + 'px';
+            laser.style.height = sz + 'px';
+            laser.style.background = state.color;
+            laser.style.border = '2px solid rgba(255,255,255,0.7)';
+            laser.style.boxShadow  = '0 0 6px 2px ' + state.color + '99';
         }
 
         if (!state.drawing || !state.currentPath) return;
@@ -8900,20 +8931,6 @@
         state.currentPath = null;
     }
 
-    /* ── laser pointer ── */
-    function moveLaser(x, y) {
-        laser.style.display = 'block';
-        laser.style.left    = x + 'px';
-        laser.style.top     = y + 'px';
-        resetLaserStyle();
-    }
-
-    function resetLaserStyle() {
-        laser.style.width  = '18px';
-        laser.style.height = '18px';
-        laser.style.background = 'radial-gradient(circle,#fff 10%,#ff2222 45%,transparent 72%)';
-        laser.style.boxShadow  = '0 0 8px 4px rgba(255,50,50,0.7),0 0 20px 8px rgba(255,80,80,0.35)';
-    }
 
     function startLaserLoop() {
         function loop() {
