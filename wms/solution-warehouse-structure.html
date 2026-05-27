@@ -188,7 +188,13 @@
   .effort-bar .fill { height: 100%; border-radius: 4px; }
 
   /* print / export */
-  @media print { body { background: white; } .doc-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  @media print {
+    #pdf-btn { display:none !important; }
+    body { background: white; }
+    .doc-header { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .option-card, .card, .arch-diagram, .rec-box { break-inside: avoid; page-break-inside: avoid; }
+    section { break-inside: avoid; page-break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -814,5 +820,21 @@
   </div>
 
 </div>
+</div>
+
+<!-- PDF Export button -->
+<button id="pdf-btn" onclick="window.print()"
+    title="Export as PDF — use 'Save as PDF' in the print dialog"
+    style="position:fixed;bottom:24px;right:24px;z-index:999;
+           background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:white;
+           border:none;border-radius:30px;padding:11px 22px;cursor:pointer;
+           box-shadow:0 4px 16px rgba(59,130,246,0.45);
+           font-weight:700;font-size:0.82rem;letter-spacing:0.3px;
+           display:flex;align-items:center;gap:8px;transition:transform .15s,box-shadow .15s;"
+    onmouseenter="this.style.transform='scale(1.05)';this.style.boxShadow='0 6px 22px rgba(59,130,246,0.6)'"
+    onmouseleave="this.style.transform='scale(1)';this.style.boxShadow='0 4px 16px rgba(59,130,246,0.45)'">
+    <i class="fas fa-file-pdf"></i> Export PDF
+</button>
+
 </body>
 </html>

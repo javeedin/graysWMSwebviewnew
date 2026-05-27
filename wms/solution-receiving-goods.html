@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Solution Design — Receiving Goods</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+  :root {
+    --primary:#3b82f6;--purple:#8b5cf6;--green:#10b981;--amber:#f59e0b;
+    --red:#ef4444;--ink:#0f172a;--ink2:#1e293b;--ink3:#334155;--muted:#64748b;
+    --border:#e2e8f0;--bg:#f8fafc;--card:#ffffff;--radius:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--ink3);font-size:14px;line-height:1.6;}
+
+  .doc-header{background:linear-gradient(135deg,#0f172a 0%,#1e293b 50%,#0c3a2a 100%);color:white;padding:3rem 3rem 2.5rem;position:relative;overflow:hidden;}
+  .doc-header::before{content:'';position:absolute;top:-60px;right:-60px;width:300px;height:300px;border-radius:50%;background:rgba(16,185,129,0.12);pointer-events:none;}
+  .doc-meta{display:flex;gap:1.5rem;flex-wrap:wrap;margin-bottom:1rem;}
+  .doc-meta span{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:3px 12px;font-size:0.72rem;font-weight:600;letter-spacing:.5px;color:rgba(255,255,255,.8);}
+  .doc-header h1{font-size:2.1rem;font-weight:800;letter-spacing:-.5px;margin-bottom:.4rem;}
+  .doc-header h1 span{color:#34d399;}
+  .doc-header p{color:rgba(255,255,255,.65);font-size:.95rem;max-width:700px;}
+  .status-badge{display:inline-flex;align-items:center;gap:6px;background:rgba(16,185,129,.2);border:1px solid rgba(16,185,129,.4);color:#34d399;padding:4px 12px;border-radius:20px;font-size:.72rem;font-weight:700;margin-top:1rem;}
+
+  .container{max-width:1200px;margin:0 auto;padding:2.5rem 2rem;}
+  section{margin-bottom:2.5rem;}
+  .section-title{display:flex;align-items:center;gap:10px;font-size:1.1rem;font-weight:800;color:var(--ink2);margin-bottom:1.25rem;padding-bottom:.6rem;border-bottom:2px solid var(--border);}
+  .section-title .icon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.8rem;color:white;flex-shrink:0;}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1.5rem;box-shadow:0 1px 4px rgba(0,0,0,.05);}
+  .card-grid{display:grid;gap:1.25rem;}
+  .card-grid.cols-2{grid-template-columns:repeat(auto-fit,minmax(340px,1fr));}
+  .card-grid.cols-3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}
+  .card-grid.cols-4{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));}
+
+  .summary-strip{background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:1px solid #86efac;border-radius:var(--radius);padding:1.25rem 1.5rem;display:flex;gap:1.5rem;flex-wrap:wrap;align-items:center;margin-bottom:2rem;}
+  .summary-item{text-align:center;}
+  .summary-item .val{font-size:1.5rem;font-weight:800;color:var(--ink2);line-height:1;}
+  .summary-item .lbl{font-size:.7rem;color:var(--muted);font-weight:600;letter-spacing:.5px;margin-top:2px;}
+  .summary-divider{width:1px;height:40px;background:#86efac;}
+
+  /* Flow */
+  .flow{display:flex;flex-direction:column;gap:0;}
+  .flow-row{display:flex;align-items:center;gap:0;flex-wrap:nowrap;overflow-x:auto;padding-bottom:4px;}
+  .flow-box{background:#eff6ff;border:2px solid #93c5fd;border-radius:10px;padding:7px 12px;font-size:.73rem;font-weight:600;color:#1e40af;text-align:center;white-space:nowrap;flex-shrink:0;min-width:90px;}
+  .flow-box.fusion{background:#fef9c3;border-color:#fbbf24;color:#92400e;}
+  .flow-box.wms{background:#ede9fe;border-color:#a78bfa;color:#4c1d95;}
+  .flow-box.mobile{background:#ecfdf5;border-color:#6ee7b7;color:#065f46;}
+  .flow-box.action{background:#fff7ed;border-color:#fb923c;color:#7c2d12;}
+  .flow-box.start{background:#e0f2fe;border-color:#38bdf8;color:#0c4a6e;}
+  .flow-box.end{background:#dcfce7;border-color:#4ade80;color:#14532d;}
+  .flow-box.warn{background:#fee2e2;border-color:#ef4444;color:#b91c1c;}
+  .flow-box.amber{background:#fef3c7;border-color:#f59e0b;color:#78350f;}
+  .flow-arrow{color:#94a3b8;font-size:1.1rem;padding:0 3px;flex-shrink:0;}
+  .flow-gap{margin:5px 0;text-align:center;}
+
+  /* Pro/con */
+  .pro-con{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;}
+  .pro-list,.con-list{background:var(--bg);border-radius:10px;padding:1rem;}
+  .pro-list h5{color:var(--green);font-size:.78rem;font-weight:700;margin-bottom:.6rem;display:flex;align-items:center;gap:5px;}
+  .con-list h5{color:var(--red);font-size:.78rem;font-weight:700;margin-bottom:.6rem;display:flex;align-items:center;gap:5px;}
+  .pro-list li,.con-list li{list-style:none;font-size:.78rem;color:var(--ink3);padding:4px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:flex-start;}
+  .pro-list li:last-child,.con-list li:last-child{border:none;}
+  .pro-list li::before{content:'✓';color:var(--green);font-weight:700;flex-shrink:0;}
+  .con-list li::before{content:'✗';color:var(--red);font-weight:700;flex-shrink:0;}
+
+  /* Screen wireframes */
+  .screens-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.75rem;}
+  .screen-box{background:#0f172a;border-radius:12px;padding:0;overflow:hidden;border:2px solid #334155;}
+  .screen-top{background:#1e293b;padding:6px 10px;display:flex;align-items:center;gap:6px;}
+  .screen-dot{width:7px;height:7px;border-radius:50%;}
+  .screen-title{font-size:.65rem;color:#94a3b8;font-weight:600;flex:1;text-align:center;}
+  .screen-body{padding:8px;min-height:120px;}
+  .screen-bar{height:6px;border-radius:3px;margin-bottom:5px;}
+  .screen-item{height:22px;border-radius:4px;margin-bottom:4px;display:flex;align-items:center;padding:0 5px;font-size:.55rem;font-weight:600;}
+  .screen-btn{height:20px;border-radius:10px;margin-top:6px;display:flex;align-items:center;justify-content:center;font-size:.55rem;font-weight:700;color:white;}
+  .screen-scan{height:55px;border-radius:6px;border:2px dashed #475569;margin:4px 0;display:flex;align-items:center;justify-content:center;font-size:.55rem;color:#64748b;}
+  .screen-field{height:16px;border-radius:3px;margin-bottom:3px;background:#1e293b;border:1px solid #334155;}
+
+  /* DB table */
+  .db-table{background:#0f172a;border-radius:10px;padding:1rem;font-family:'Consolas',monospace;font-size:.72rem;color:#94a3b8;overflow-x:auto;}
+  .db-table .t-name{color:#60a5fa;font-weight:700;font-size:.8rem;}
+  .db-table .col{color:#34d399;}
+  .db-table .type{color:#f59e0b;}
+  .db-table .comment{color:#64748b;}
+
+  /* API table */
+  .api-table{width:100%;border-collapse:collapse;font-size:.78rem;}
+  .api-table th{background:var(--ink2);color:white;padding:8px 12px;text-align:left;font-size:.72rem;}
+  .api-table td{padding:8px 12px;border:1px solid var(--border);}
+  .api-table tr:nth-child(even) td{background:#f8fafc;}
+  .method{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.68rem;font-weight:700;font-family:monospace;}
+  .get{background:#dcfce7;color:#14532d;}
+  .post{background:#dbeafe;color:#1e40af;}
+
+  /* Compare table */
+  .compare-table{width:100%;border-collapse:collapse;font-size:.78rem;}
+  .compare-table th,.compare-table td{padding:9px 12px;border:1px solid var(--border);text-align:left;}
+  .compare-table thead th{background:var(--ink2);color:white;font-weight:700;}
+  .compare-table tr:nth-child(even) td{background:#f8fafc;}
+  .compare-table td.criteria{font-weight:600;color:var(--ink2);}
+
+  /* Roadmap */
+  .rs-item{display:flex;gap:1rem;margin-bottom:1rem;}
+  .rs-num{width:34px;height:34px;border-radius:50%;background:var(--primary);color:white;font-size:.82rem;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px;}
+  .rs-body h4{font-size:.88rem;font-weight:700;color:var(--ink2);}
+  .rs-body p{font-size:.78rem;color:var(--muted);margin-top:2px;}
+  .rs-body ul{margin-top:.4rem;padding-left:1rem;}
+  .rs-body ul li{font-size:.75rem;color:var(--ink3);padding:1px 0;}
+  .rs-duration{display:inline-block;background:#eff6ff;color:#1d4ed8;border-radius:10px;padding:1px 8px;font-size:.68rem;font-weight:700;margin-left:8px;}
+
+  /* Arch diagram */
+  .arch-box{background:#eff6ff;border:2px solid #93c5fd;border-radius:10px;padding:10px 16px;font-size:.78rem;font-weight:700;color:#1e40af;text-align:center;min-width:130px;}
+  .arch-box.fusion-box{background:#fef9c3;border-color:#fbbf24;color:#78350f;}
+  .arch-box.wms-box{background:#ede9fe;border-color:#8b5cf6;color:#4c1d95;}
+  .arch-box.mobile-box{background:#ecfdf5;border-color:#10b981;color:#064e3b;}
+  .arch-box.db-box{background:#fff7ed;border-color:#fb923c;color:#7c2d12;}
+  .arch-layer{display:flex;align-items:center;justify-content:center;gap:1rem;flex-wrap:wrap;}
+  .arch-connector{text-align:center;color:#94a3b8;font-size:.65rem;margin:4px 0;}
+  .arch-label{font-size:.65rem;font-weight:700;letter-spacing:.5px;color:var(--muted);text-transform:uppercase;text-align:center;margin-bottom:6px;}
+
+  /* Grade cards */
+  .grade-card{border-radius:10px;padding:1rem;border:2px solid;}
+  .grade-a{background:#f0fdf4;border-color:#86efac;}
+  .grade-b{background:#fef3c7;border-color:#fcd34d;}
+  .grade-c{background:#fee2e2;border-color:#fca5a5;}
+
+  @media print{
+    #pdf-btn{display:none !important;}
+    body{background:white;}
+    .doc-header{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .card,.screen-box,.db-table,.grade-card{break-inside:avoid;page-break-inside:avoid;}
+    section{break-inside:avoid;}
+  }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="doc-header">
+  <div class="doc-meta">
+    <span><i class="fas fa-truck-ramp-box"></i> WMS Architecture</span>
+    <span><i class="fas fa-calendar"></i> May 2026</span>
+    <span><i class="fas fa-code-branch"></i> v1.0 Draft</span>
+    <span><i class="fas fa-mobile-alt"></i> Mobile-First</span>
+  </div>
+  <h1>Receiving <span>Goods</span></h1>
+  <h1 style="font-size:1rem;font-weight:400;color:rgba(255,255,255,0.6);margin-top:4px;">Solution Design — PO Receiving · Duty Free · Return Goods</h1>
+  <p style="margin-top:.75rem;">A single Mobile Receiving Application handling three inbound flows — PO receipts, duty-free/bonded goods, and all return types — with barcode scanning, lot/batch expiry tracking, inspection grading, and guided locator putaway.</p>
+  <div class="status-badge"><i class="fas fa-circle" style="font-size:7px;"></i> DRAFT — FOR REVIEW</div>
+</div>
+
+<div class="container">
+
+  <!-- 1 · EXECUTIVE SUMMARY -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--primary);"><i class="fas fa-file-alt"></i></div>
+      1 · Executive Summary
+    </div>
+    <div class="summary-strip">
+      <div class="summary-item"><div class="val">3</div><div class="lbl">Inbound Flows<br>in One App</div></div>
+      <div class="summary-divider"></div>
+      <div class="summary-item"><div class="val">1</div><div class="lbl">Mobile App<br>(all flows)</div></div>
+      <div class="summary-divider"></div>
+      <div class="summary-item"><div class="val" style="color:var(--green);">Lot</div><div class="lbl">Batch &amp; Expiry<br>Tracking</div></div>
+      <div class="summary-divider"></div>
+      <div class="summary-item"><div class="val" style="color:var(--purple);">AI</div><div class="lbl">Locator<br>Suggestion</div></div>
+      <div class="summary-divider"></div>
+      <div class="summary-item"><div class="val" style="color:var(--amber);">16w</div><div class="lbl">Estimated<br>Delivery</div></div>
+    </div>
+    <div class="card">
+      <p style="line-height:1.8;font-size:.85rem;color:var(--ink3);">Gray's warehouse receives goods through three distinct channels, each requiring specific workflows: <strong>PO Receiving</strong> (supplier deliveries against purchase orders), <strong>Duty Free / Bonded Receiving</strong> (same process, different subinventory and additional customs fields), and <strong>Return Goods</strong> (customer returns, van returns, store returns with inspection grading). A <strong>single Mobile Receiving App</strong> handles all three, sharing core capabilities: barcode scanning, lot and batch number capture with expiry dates, quality inspection, and guided putaway to WMS-managed locators. Oracle Fusion continues to track inventory at the subinventory level only — consistent with the Warehouse Structure decision (Option B).</p>
+    </div>
+  </section>
+
+  <!-- 2 · SHARED ARCHITECTURE -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--purple);"><i class="fas fa-sitemap"></i></div>
+      2 · Shared Architecture
+    </div>
+    <div class="card" style="margin-bottom:1.25rem;">
+      <div class="arch-label">ORACLE FUSION ERP (subinventory only — unchanged)</div>
+      <div class="arch-layer">
+        <div class="arch-box fusion-box"><i class="fas fa-database" style="margin-right:5px;"></i>DUTY_PAID / BONDED<br><span style="font-size:.65rem;font-weight:400;">Subinventory totals</span></div>
+        <div class="arch-box fusion-box"><i class="fas fa-file-invoice" style="margin-right:5px;"></i>Purchase Orders<br><span style="font-size:.65rem;font-weight:400;">Source of POs &amp; ASNs</span></div>
+      </div>
+      <div class="arch-connector"><i class="fas fa-arrows-up-down"></i> WMS REST → Fusion: Receive at Subinventory / Create Return Receipt</div>
+      <div class="arch-label">WMS LAYER (new)</div>
+      <div class="arch-layer" style="gap:.5rem;flex-wrap:wrap;">
+        <div class="arch-box wms-box"><i class="fas fa-truck-ramp-box" style="margin-right:4px;"></i>Receipts API</div>
+        <div class="arch-box wms-box"><i class="fas fa-flask" style="margin-right:4px;"></i>Lots &amp; Expiry</div>
+        <div class="arch-box wms-box"><i class="fas fa-map-pin" style="margin-right:4px;"></i>Locator Suggest</div>
+        <div class="arch-box wms-box"><i class="fas fa-rotate-left" style="margin-right:4px;"></i>Returns API</div>
+        <div class="arch-box db-box"><i class="fas fa-table" style="margin-right:4px;"></i>wms_receipts<br>wms_lots<br>wms_returns</div>
+      </div>
+      <div class="arch-connector"><i class="fas fa-arrows-up-down"></i> Mobile ↔ WMS REST APIs (scan, confirm, putaway)</div>
+      <div class="arch-label">MOBILE RECEIVING APP (single app, 3 modes)</div>
+      <div class="arch-layer" style="gap:.5rem;">
+        <div class="arch-box mobile-box"><i class="fas fa-boxes-stacked" style="margin-right:4px;"></i>PO Receiving</div>
+        <div class="arch-box mobile-box"><i class="fas fa-ship" style="margin-right:4px;"></i>Duty Free</div>
+        <div class="arch-box mobile-box"><i class="fas fa-rotate-left" style="margin-right:4px;"></i>Returns</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · PO RECEIVING -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--green);"><i class="fas fa-boxes-stacked"></i></div>
+      3 · PO Receiving
+    </div>
+
+    <!-- Screen wireframes -->
+    <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-mobile-alt" style="color:var(--green);margin-right:6px;"></i>Mobile App — 7-Screen Flow</div>
+    <div class="screens-row" style="margin-bottom:1.5rem;">
+
+      <!-- S1: PO List -->
+      <div class="screen-box">
+        <div class="screen-top"><div class="screen-dot" style="background:#ef4444;"></div><div class="screen-dot" style="background:#f59e0b;"></div><div class="screen-dot" style="background:#10b981;"></div><div class="screen-title">1 · PO List</div></div>
+        <div class="screen-body">
+          <div class="screen-bar" style="background:#334155;width:100%;"></div>
+          <div class="screen-item" style="background:#1e293b;color:#94a3b8;">🔍 Search POs…</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;">PO-10042 · Ahmed Farms</div>
+          <div class="screen-item" style="background:#1e293b;color:#60a5fa;">PO-10039 · Star Dist.</div>
+          <div class="screen-item" style="background:#1e293b;color:#60a5fa;">PO-10035 · Gulf Traders</div>
+          <div class="screen-item" style="background:#292524;color:#94a3b8;">PO-10031 · Done</div>
+        </div>
+      </div>
+
+      <!-- S2: PO Detail -->
+      <div class="screen-box">
+        <div class="screen-top"><div class="screen-dot" style="background:#ef4444;"></div><div class="screen-dot" style="background:#f59e0b;"></div><div class="screen-dot" style="background:#10b981;"></div><div class="screen-title">2 · PO Lines</div></div>
+        <div class="screen-body">
+          <div class="screen-item" style="background:#0f172a;color:#60a5fa;font-size:.6rem;">PO-10042 · Ahmed Farms</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;">ITEM-001 · 50/100 ✓</div>
+          <div class="screen-item" style="background:#1e293b;color:#f59e0b;">ITEM-002 · 0/30 pending</div>
+          <div class="screen-item" style="background:#1e293b;color:#f59e0b;">ITEM-004 · 0/20 pending</div>
+          <div class="screen-btn" style="background:#3b82f6;">Start Scanning</div>
+        </div>
+      </div>
+
+      <!-- S3: Scan -->
+      <div class="screen-box">
+        <div class="screen-top"><div class="screen-dot" style="background:#ef4444;"></div><div class="screen-dot" style="background:#f59e0b;"></div><div class="screen-dot" style="background:#10b981;"></div><div class="screen-title">3 · Scan Item</div></div>
+        <div class="screen-body">
+          <div class="screen-scan">📷 Aim at barcode</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;">✓ ITEM-002 identified</div>
+          <div class="screen-field"></div>
+          <div style="font-size:.52rem;color:#94a3b8;margin-bottom:3px;">Qty received (ordered: 30)</div>
+          <div class="screen-field" style="background:#0f4c2a;border-color:#34d399;"></div>
+          <div class="screen-btn" style="background:#10b981;">Next →</div>
+        </div>
+      </div>
+
+      <!-- S4: Lot entry -->
+      <div class="screen-box">
+        <div class="screen-top"><div class="screen-dot" style="background:#ef4444;"></div><div class="screen-dot" style="background:#f59e0b;"></div><div class="screen-dot" style="background:#10b981;"></div><div class="screen-title">4 · Lot / Batch</div></div>
+        <div class="screen-body">
+          <div class="screen-scan">📷 Scan batch barcode</div>
+          <div style="font-size:.52rem;color:#94a3b8;margin-bottom:2px;">Lot Number</div>
+          <div class="screen-field" style="background:#0f4c2a;border-color:#34d399;"></div>
+          <div style="font-size:.52rem;color:#94a3b8;margin:.25rem 0 2px;">Expiry Date</div>
+          <div class="screen-field"></div>
+          <div style="font-size:.52rem;color:#94a3b8;margin:.25rem 0 2px;">Carton Qty</div>
+          <div class="screen-field"></div>
+          <div class="screen-btn" style="background:#8b5cf6;">+ Add Another Lot</div>
+        </div>
+      </div>
+
+      <!-- S5: Inspection -->
+      <div class="screen-box">
+        <div class="screen-top"><div class="screen-dot" style="background:#ef4444;"></div><div class="screen-dot" style="background:#f59e0b;"></div><div class="screen-dot" style="background:#10b981;"></div><div class="screen-title">5 · Inspect</div></div>
+        <div class="screen-body">
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">✓ Packaging intact</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">✓ Qty matches</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">✓ No visible damage</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">✓ Correct item</div>
+          <div style="display:flex;gap:3px;margin-top:5px;">
+            <div class="screen-btn" style="background:#10b981;flex:1;">PASS</div>
+            <div class="screen-btn" style="background:#ef4444;flex:1;">FAIL</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- S6: Putaway -->
+      <div class="screen-box">
+        <div class="screen-top"><div class="screen-dot" style="background:#ef4444;"></div><div class="screen-dot" style="background:#f59e0b;"></div><div class="screen-dot" style="background:#10b981;"></div><div class="screen-title">6 · Putaway</div></div>
+        <div class="screen-body">
+          <div style="font-size:.52rem;color:#94a3b8;margin-bottom:4px;">Suggested Locators</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">★ A-03-2-B (92% space)</div>
+          <div class="screen-item" style="background:#1e293b;color:#60a5fa;font-size:.52rem;">A-03-2-C (78% space)</div>
+          <div class="screen-item" style="background:#1e293b;color:#60a5fa;font-size:.52rem;">B-01-1-A (85% space)</div>
+          <div class="screen-scan" style="height:28px;margin-top:5px;">📷 Scan bin barcode</div>
+        </div>
+      </div>
+
+      <!-- S7: Summary -->
+      <div class="screen-box">
+        <div class="screen-top"><div class="screen-dot" style="background:#ef4444;"></div><div class="screen-dot" style="background:#f59e0b;"></div><div class="screen-dot" style="background:#10b981;"></div><div class="screen-title">7 · Confirm</div></div>
+        <div class="screen-body">
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">✓ ITEM-002 · 30 units</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">✓ Lot: L2026-001 exp 12/27</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">✓ Location: A-03-2-B</div>
+          <div class="screen-item" style="background:#0f4c2a;color:#34d399;font-size:.52rem;">✓ Inspection: PASS</div>
+          <div class="screen-btn" style="background:#3b82f6;margin-top:5px;">Submit Receipt ✓</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Process Flow -->
+    <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-route" style="color:var(--green);margin-right:6px;"></i>End-to-End Process Flow</div>
+    <div class="card" style="margin-bottom:1.25rem;">
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-box start">Open App</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box mobile">Select PO<br>from List</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box mobile">Scan Item<br>Barcode</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box wms">WMS identifies<br>Item + PO line</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box mobile">Enter<br>Received Qty</div>
+        </div>
+        <div class="flow-gap"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+        <div class="flow-row" style="justify-content:flex-end;">
+          <div class="flow-box amber">Over-Receipt?<br><span style="font-size:.6rem;">Qty &gt; PO line</span></div>
+          <div class="flow-arrow">←</div>
+          <div class="flow-box warn">⚠ Flag &amp;<br>notify buyer</div>
+          <span style="font-size:.7rem;color:#94a3b8;padding:0 4px;">or</span>
+          <div class="flow-box mobile">Continue<br>(within tolerance)</div>
+        </div>
+        <div class="flow-gap"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+        <div class="flow-row">
+          <div class="flow-box amber">Lot-controlled<br>item?</div>
+          <div class="flow-arrow">→ Yes →</div>
+          <div class="flow-box mobile">Scan Batch<br>Barcode</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box mobile">Enter Expiry<br>Date</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box wms">WMS: Create<br>Lot Record</div>
+        </div>
+        <div class="flow-gap"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+        <div class="flow-row">
+          <div class="flow-box mobile">Inspection<br>Checklist</div>
+          <div class="flow-arrow">→ Pass →</div>
+          <div class="flow-box wms">WMS: Suggest<br>Top 3 Locators</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box mobile">Scan Locator<br>Barcode</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box wms">WMS: Assign<br>Stock to Bin</div>
+        </div>
+        <div class="flow-gap"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+        <div class="flow-row">
+          <div class="flow-box mobile">Inspection<br>→ FAIL</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box warn">Note damage /<br>partial reject</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box amber">Quarantine<br>Locator</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box wms">Flag for<br>QC review</div>
+        </div>
+        <div class="flow-gap"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+        <div class="flow-row">
+          <div class="flow-box mobile">Review &amp;<br>Submit</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box wms">WMS: Update<br>location_stock</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box fusion">Fusion API:<br>Receive at Subinv.</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box end">GRN Created<br>✓ Complete</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Lot + Locator side by side -->
+    <div class="card-grid cols-2" style="margin-bottom:1.25rem;">
+      <div class="card" style="border-top:3px solid var(--purple);">
+        <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-flask" style="color:var(--purple);margin-right:6px;"></i>Lot / Batch Handling</div>
+        <ul style="list-style:none;font-size:.78rem;color:var(--ink3);">
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="color:var(--purple);font-weight:700;flex-shrink:0;">1</span>Each physical carton can carry a unique lot number &amp; expiry date</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="color:var(--purple);font-weight:700;flex-shrink:0;">2</span>Multiple lots per PO line fully supported (add lot loop in screen 4)</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="color:var(--purple);font-weight:700;flex-shrink:0;">3</span>Lot linked to locator — same lot can span multiple bins</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="color:var(--purple);font-weight:700;flex-shrink:0;">4</span><strong>FEFO</strong> (First Expiry First Out) applied at pick time using lot expiry date</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="color:var(--purple);font-weight:700;flex-shrink:0;">5</span>Quarantine flag on lot — marks lot as on hold (QC fail, recall etc)</li>
+          <li style="padding:5px 0;display:flex;gap:8px;"><span style="color:var(--purple);font-weight:700;flex-shrink:0;">6</span>Expiry alerts: 30/60/90 day warnings in WMS dashboard</li>
+        </ul>
+      </div>
+      <div class="card" style="border-top:3px solid var(--green);">
+        <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-map-pin" style="color:var(--green);margin-right:6px;"></i>Locator Suggestion Algorithm</div>
+        <ul style="list-style:none;font-size:.78rem;color:var(--ink3);">
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="background:#dcfce7;color:#14532d;padding:1px 6px;border-radius:10px;font-size:.68rem;font-weight:700;flex-shrink:0;">P1</span>Same item already in locator — consolidate stock first</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="background:#dcfce7;color:#14532d;padding:1px 6px;border-radius:10px;font-size:.68rem;font-weight:700;flex-shrink:0;">P2</span>Match item category to zone (cold storage, flammable, pharma)</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="background:#dcfce7;color:#14532d;padding:1px 6px;border-radius:10px;font-size:.68rem;font-weight:700;flex-shrink:0;">P3</span>Sufficient remaining capacity (weight &amp; volume headroom)</li>
+          <li style="padding:5px 0;border-bottom:1px solid var(--border);display:flex;gap:8px;"><span style="background:#dcfce7;color:#14532d;padding:1px 6px;border-radius:10px;font-size:.68rem;font-weight:700;flex-shrink:0;">P4</span>Closest locator to receiving dock (minimise travel)</li>
+          <li style="padding:5px 0;display:flex;gap:8px;"><span style="background:#f0fdf4;color:#14532d;padding:1px 6px;border-radius:10px;font-size:.68rem;font-weight:700;flex-shrink:0;">P5</span>User can override — scan any available locator barcode</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Data model -->
+    <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-table" style="color:var(--muted);margin-right:6px;"></i>Data Model</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:.75rem;margin-bottom:1.25rem;">
+      <div class="db-table">
+        <div class="t-name">WMS_RECEIPTS</div><br>
+        <span class="col">receipt_id</span>      <span class="type">NUMBER</span>       <span class="comment">-- PK</span><br>
+        <span class="col">po_number</span>        <span class="type">VARCHAR2(30)</span> <span class="comment">-- Fusion PO</span><br>
+        <span class="col">supplier_id</span>      <span class="type">NUMBER</span>       <span class="comment">-- Fusion supplier</span><br>
+        <span class="col">receipt_date</span>     <span class="type">DATE</span>         <span class="comment">-- actual delivery date</span><br>
+        <span class="col">subinventory</span>     <span class="type">VARCHAR2(30)</span> <span class="comment">-- DUTY_PAID / BONDED</span><br>
+        <span class="col">receipt_type</span>     <span class="type">VARCHAR2(20)</span> <span class="comment">-- PO / DUTY_FREE / RETURN</span><br>
+        <span class="col">status</span>           <span class="type">VARCHAR2(20)</span> <span class="comment">-- DRAFT/CONFIRMED/POSTED</span><br>
+        <span class="col">fusion_receipt_id</span><span class="type">VARCHAR2(50)</span> <span class="comment">-- Fusion receipt ref</span><br>
+        <span class="col">created_by</span>       <span class="type">VARCHAR2(50)</span>
+      </div>
+      <div class="db-table">
+        <div class="t-name">WMS_RECEIPT_LINES</div><br>
+        <span class="col">line_id</span>          <span class="type">NUMBER</span>       <span class="comment">-- PK</span><br>
+        <span class="col">receipt_id</span>        <span class="type">NUMBER</span>       <span class="comment">-- FK wms_receipts</span><br>
+        <span class="col">item_number</span>       <span class="type">VARCHAR2(50)</span> <span class="comment">-- Fusion item</span><br>
+        <span class="col">ordered_qty</span>       <span class="type">NUMBER</span><br>
+        <span class="col">received_qty</span>      <span class="type">NUMBER</span><br>
+        <span class="col">lot_id</span>            <span class="type">NUMBER</span>       <span class="comment">-- FK wms_lots</span><br>
+        <span class="col">location_id</span>       <span class="type">NUMBER</span>       <span class="comment">-- FK wms_locations</span><br>
+        <span class="col">inspection_status</span> <span class="type">VARCHAR2(10)</span> <span class="comment">-- PASS/FAIL/PENDING</span><br>
+        <span class="col">inspection_notes</span>  <span class="type">VARCHAR2(500)</span>
+      </div>
+      <div class="db-table">
+        <div class="t-name">WMS_LOTS</div><br>
+        <span class="col">lot_id</span>            <span class="type">NUMBER</span>       <span class="comment">-- PK</span><br>
+        <span class="col">lot_number</span>        <span class="type">VARCHAR2(50)</span> <span class="comment">-- WMS lot ref</span><br>
+        <span class="col">supplier_lot_ref</span>  <span class="type">VARCHAR2(50)</span> <span class="comment">-- supplier's lot number</span><br>
+        <span class="col">item_number</span>       <span class="type">VARCHAR2(50)</span><br>
+        <span class="col">expiry_date</span>       <span class="type">DATE</span>         <span class="comment">-- FEFO key field</span><br>
+        <span class="col">production_date</span>   <span class="type">DATE</span><br>
+        <span class="col">quarantine_flag</span>   <span class="type">VARCHAR2(1)</span>  <span class="comment">-- Y = on hold</span><br>
+        <span class="col">received_date</span>     <span class="type">DATE</span><br>
+        <span class="col">quantity</span>          <span class="type">NUMBER</span>
+      </div>
+    </div>
+
+    <div class="pro-con">
+      <div class="pro-list"><h5><i class="fas fa-thumbs-up"></i> Pros</h5><ul>
+        <li>Full lot traceability — scan → expiry → bin all linked</li>
+        <li>FEFO applied automatically at picking</li>
+        <li>Guided putaway reduces misplaced stock significantly</li>
+        <li>Real-time Fusion sync — subinventory updated on confirm</li>
+        <li>Inspection captures QC issues at point of receipt</li>
+      </ul></div>
+      <div class="con-list"><h5><i class="fas fa-thumbs-down"></i> Cons</h5><ul>
+        <li>Lot entry adds 1-2 min per unique lot — training needed</li>
+        <li>Requires all items to have scannable barcodes</li>
+        <li>Mobile app development effort: ~7 weeks</li>
+        <li>Barcode infrastructure investment (handheld scanners)</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <!-- 4 · DUTY FREE RECEIVING -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--amber);"><i class="fas fa-ship"></i></div>
+      4 · Duty Free / Bonded Receiving
+    </div>
+    <div class="card" style="margin-bottom:1.25rem;">
+      <p style="font-size:.85rem;color:var(--ink3);line-height:1.7;">Duty Free / Bonded receiving uses the <strong>same Mobile Receiving App</strong> and the same 7-screen flow as PO Receiving. The user selects "Duty Free" as the receipt type on the PO List screen. Key differences are the target subinventory (BONDED), the physical zone for putaway (bonded area, physically separated), and additional customs fields that must be captured before submission.</p>
+    </div>
+
+    <!-- Comparison table -->
+    <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-table" style="color:var(--amber);margin-right:6px;"></i>PO Receiving vs Duty Free — Differences</div>
+    <div class="card" style="padding:0;overflow:hidden;margin-bottom:1.25rem;">
+      <table class="compare-table">
+        <thead><tr><th style="width:28%;">Aspect</th><th>PO Receiving</th><th>Duty Free / Bonded</th></tr></thead>
+        <tbody>
+          <tr><td class="criteria">Target Subinventory</td><td>DUTY_PAID</td><td style="font-weight:600;color:#92400e;">BONDED or DUTY_FREE</td></tr>
+          <tr><td class="criteria">Putaway Zone</td><td>Any DUTY_PAID locator</td><td style="font-weight:600;color:#92400e;">Bonded zone only (physically locked area)</td></tr>
+          <tr><td class="criteria">Customs Fields</td><td>None</td><td style="font-weight:600;color:#92400e;">Import Ref, Customs Decl., Tariff Code, COO, Value</td></tr>
+          <tr><td class="criteria">Clearance Required</td><td>No</td><td style="font-weight:600;color:#92400e;">Yes — before goods move to DUTY_PAID</td></tr>
+          <tr><td class="criteria">Fiscal Impact</td><td>Standard receipt</td><td style="font-weight:600;color:#92400e;">Duty &amp; VAT deferred until clearance</td></tr>
+          <tr><td class="criteria">Mobile Screen Flow</td><td>7 screens (standard)</td><td style="font-weight:600;color:#92400e;">7 screens + customs field screen (Screen 2b)</td></tr>
+          <tr><td class="criteria">WMS Fusion API</td><td>Receive at DUTY_PAID</td><td style="font-weight:600;color:#92400e;">Receive at BONDED subinventory</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Extra fields -->
+    <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-file-invoice" style="color:var(--amber);margin-right:6px;"></i>Additional Customs Fields (Screen 2b)</div>
+    <div class="card-grid cols-3" style="gap:.75rem;margin-bottom:1.25rem;">
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:.875rem;">
+        <div style="font-size:.68rem;font-weight:700;color:#92400e;margin-bottom:4px;">IMPORT REFERENCE</div>
+        <div style="font-size:.75rem;color:var(--ink3);">AWB / Bill of Lading number. Mandatory before submission.</div>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:.875rem;">
+        <div style="font-size:.68rem;font-weight:700;color:#92400e;margin-bottom:4px;">CUSTOMS DECLARATION</div>
+        <div style="font-size:.75rem;color:var(--ink3);">Customs authority declaration number (from clearance docs).</div>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:.875rem;">
+        <div style="font-size:.68rem;font-weight:700;color:#92400e;margin-bottom:4px;">TARIFF CODE</div>
+        <div style="font-size:.75rem;color:var(--ink3);">HS Code. Used to calculate applicable duty rate.</div>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:.875rem;">
+        <div style="font-size:.68rem;font-weight:700;color:#92400e;margin-bottom:4px;">COUNTRY OF ORIGIN</div>
+        <div style="font-size:.75rem;color:var(--ink3);">ISO country code for trade compliance and origin marking.</div>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:.875rem;">
+        <div style="font-size:.68rem;font-weight:700;color:#92400e;margin-bottom:4px;">CUSTOMS VALUE (AED)</div>
+        <div style="font-size:.75rem;color:var(--ink3);">CIF value used for duty calculation. Stored on receipt line.</div>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:.875rem;">
+        <div style="font-size:.68rem;font-weight:700;color:#92400e;margin-bottom:4px;">DUTY RATE %</div>
+        <div style="font-size:.75rem;color:var(--ink3);">Auto-populated from tariff code lookup. User can override.</div>
+      </div>
+    </div>
+
+    <!-- Bonded → Duty Paid note -->
+    <div style="background:linear-gradient(135deg,#fff7ed,#fef3c7);border:1px solid #fcd34d;border-radius:10px;padding:1rem 1.25rem;display:flex;gap:1rem;align-items:flex-start;">
+      <i class="fas fa-info-circle" style="color:var(--amber);margin-top:2px;flex-shrink:0;font-size:1.1rem;"></i>
+      <div>
+        <div style="font-weight:700;font-size:.82rem;color:#78350f;margin-bottom:4px;">Bonded → Duty-Paid Movement (Future Scope)</div>
+        <div style="font-size:.78rem;color:#92400e;line-height:1.7;">When goods are cleared through customs and duty is paid, a separate <strong>"Clearance Transfer"</strong> flow moves stock from the BONDED subinventory to DUTY_PAID in Fusion, and updates the WMS locator from the bonded zone to a duty-paid zone. This flow is out of scope for the current phase and will be designed separately.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · RETURN GOODS -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--red);"><i class="fas fa-rotate-left"></i></div>
+      5 · Return Goods
+    </div>
+
+    <!-- 3 return types -->
+    <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-list" style="color:var(--red);margin-right:6px;"></i>Three Return Types</div>
+    <div class="card-grid cols-3" style="margin-bottom:1.25rem;">
+      <div class="card" style="border-top:4px solid #3b82f6;">
+        <div style="font-size:1.5rem;margin-bottom:.5rem;">🚚</div>
+        <div style="font-weight:800;font-size:.88rem;color:var(--ink2);margin-bottom:.4rem;">Customer Return</div>
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:.75rem;">Item returned after delivery — wrong item, damaged, excess order.</div>
+        <ul style="list-style:none;font-size:.72rem;color:var(--ink3);">
+          <li style="padding:2px 0;"><span style="color:var(--primary);font-weight:600;">Trigger:</span> Customer calls/emails, delivery team</li>
+          <li style="padding:2px 0;"><span style="color:var(--primary);font-weight:600;">Linked to:</span> Original Sales Order</li>
+          <li style="padding:2px 0;"><span style="color:var(--primary);font-weight:600;">Inspection:</span> Required — grade A/B/C</li>
+          <li style="padding:2px 0;"><span style="color:var(--primary);font-weight:600;">Credit:</span> Fusion credit note triggered</li>
+        </ul>
+      </div>
+      <div class="card" style="border-top:4px solid #f59e0b;">
+        <div style="font-size:1.5rem;margin-bottom:.5rem;">🚐</div>
+        <div style="font-weight:800;font-size:.88rem;color:var(--ink2);margin-bottom:.4rem;">Van Return</div>
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:.75rem;">Driver returns undelivered items from failed deliveries at end of route.</div>
+        <ul style="list-style:none;font-size:.72rem;color:var(--ink3);">
+          <li style="padding:2px 0;"><span style="color:var(--amber);font-weight:600;">Trigger:</span> End of delivery route, driver check-in</li>
+          <li style="padding:2px 0;"><span style="color:var(--amber);font-weight:600;">Linked to:</span> Trip / Delivery note</li>
+          <li style="padding:2px 0;"><span style="color:var(--amber);font-weight:600;">Inspection:</span> Quick visual — was it already picked?</li>
+          <li style="padding:2px 0;"><span style="color:var(--amber);font-weight:600;">Credit:</span> No — order status updated</li>
+        </ul>
+      </div>
+      <div class="card" style="border-top:4px solid #8b5cf6;">
+        <div style="font-size:1.5rem;margin-bottom:.5rem;">🏪</div>
+        <div style="font-weight:800;font-size:.88rem;color:var(--ink2);margin-bottom:.4rem;">Store Return</div>
+        <div style="font-size:.75rem;color:var(--muted);margin-bottom:.75rem;">Retail store sends back slow-moving, near-expiry, or excess items.</div>
+        <ul style="list-style:none;font-size:.72rem;color:var(--ink3);">
+          <li style="padding:2px 0;"><span style="color:var(--purple);font-weight:600;">Trigger:</span> Store raises return request in WMS</li>
+          <li style="padding:2px 0;"><span style="color:var(--purple);font-weight:600;">Linked to:</span> Store Transfer or sub-inventory</li>
+          <li style="padding:2px 0;"><span style="color:var(--purple);font-weight:600;">Inspection:</span> Check expiry, resaleability</li>
+          <li style="padding:2px 0;"><span style="color:var(--purple);font-weight:600;">Credit:</span> Store credit / inventory adjustment</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Inspection grading -->
+    <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-star-half-alt" style="color:var(--amber);margin-right:6px;"></i>Inspection Grading System</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:.75rem;margin-bottom:1.25rem;">
+      <div class="grade-card grade-a">
+        <div style="font-size:1.2rem;font-weight:900;color:var(--green);margin-bottom:.4rem;">GRADE A</div>
+        <div style="font-weight:700;font-size:.82rem;color:#14532d;margin-bottom:.4rem;">Resaleable</div>
+        <div style="font-size:.75rem;color:#166534;">Packaging intact, item correct, no damage, expiry valid. Return directly to stock. Suggest free locator in DUTY_PAID zone.</div>
+        <div style="margin-top:.75rem;background:#dcfce7;border-radius:6px;padding:5px 8px;font-size:.7rem;color:#14532d;font-weight:600;"><i class="fas fa-arrow-right" style="margin-right:4px;"></i>Action: Put to stock → WMS locator</div>
+      </div>
+      <div class="grade-card grade-b">
+        <div style="font-size:1.2rem;font-weight:900;color:#d97706;margin-bottom:.4rem;">GRADE B</div>
+        <div style="font-weight:700;font-size:.82rem;color:#78350f;margin-bottom:.4rem;">Minor Damage / Rework Needed</div>
+        <div style="font-size:.75rem;color:#92400e;">Packaging damaged, repackaging needed, near expiry but usable. Needs rework before resale. Move to triage area.</div>
+        <div style="margin-top:.75rem;background:#fef3c7;border-radius:6px;padding:5px 8px;font-size:.7rem;color:#78350f;font-weight:600;"><i class="fas fa-arrow-right" style="margin-right:4px;"></i>Action: Quarantine locator → QC review</div>
+      </div>
+      <div class="grade-card grade-c">
+        <div style="font-size:1.2rem;font-weight:900;color:var(--red);margin-bottom:.4rem;">GRADE C</div>
+        <div style="font-weight:700;font-size:.82rem;color:#b91c1c;margin-bottom:.4rem;">Unsaleable</div>
+        <div style="font-size:.75rem;color:#991b1b;">Damaged beyond repair, expired, contaminated, or wrong item with no resale value. Must be disposed of safely.</div>
+        <div style="margin-top:.75rem;background:#fee2e2;border-radius:6px;padding:5px 8px;font-size:.7rem;color:#b91c1c;font-weight:600;"><i class="fas fa-arrow-right" style="margin-right:4px;"></i>Action: Disposal → write-off in Fusion</div>
+      </div>
+    </div>
+
+    <!-- Return flow -->
+    <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:.75rem;"><i class="fas fa-route" style="color:var(--red);margin-right:6px;"></i>Return Goods Process Flow</div>
+    <div class="card" style="margin-bottom:1.25rem;">
+      <div class="flow">
+        <div class="flow-row">
+          <div class="flow-box start">Return Request<br>Created</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box amber">Select Type<br>Cust / Van / Store</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box mobile">Link Original<br>Order / Trip</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box mobile">Scan Each<br>Item</div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box mobile">Inspect &amp;<br>Grade A/B/C</div>
+        </div>
+        <div class="flow-gap"><i class="fas fa-arrow-down" style="color:#94a3b8;"></i></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75rem;">
+          <div class="flow" style="background:#f0fdf4;border-radius:8px;padding:.75rem;">
+            <div style="font-size:.7rem;font-weight:700;color:var(--green);margin-bottom:.5rem;text-align:center;">GRADE A → Return to Stock</div>
+            <div class="flow-row" style="flex-direction:column;align-items:center;gap:4px;">
+              <div class="flow-box mobile" style="width:100%;min-width:0;">WMS: Suggest Locator</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box mobile" style="width:100%;min-width:0;">Scan Locator Barcode</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box end" style="width:100%;min-width:0;">WMS Stock Updated</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box fusion" style="width:100%;min-width:0;font-size:.65rem;">Fusion: Return<br>Receipt + Credit Note</div>
+            </div>
+          </div>
+          <div class="flow" style="background:#fef3c7;border-radius:8px;padding:.75rem;">
+            <div style="font-size:.7rem;font-weight:700;color:#92400e;margin-bottom:.5rem;text-align:center;">GRADE B → Quarantine</div>
+            <div class="flow-row" style="flex-direction:column;align-items:center;gap:4px;">
+              <div class="flow-box amber" style="width:100%;min-width:0;">Quarantine Zone<br>Locator</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box amber" style="width:100%;min-width:0;">QC Review<br>Decision</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box mobile" style="width:100%;min-width:0;">Rework / Repack</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box end" style="width:100%;min-width:0;">Move to Grade A<br>→ Stock</div>
+            </div>
+          </div>
+          <div class="flow" style="background:#fee2e2;border-radius:8px;padding:.75rem;">
+            <div style="font-size:.7rem;font-weight:700;color:#b91c1c;margin-bottom:.5rem;text-align:center;">GRADE C → Disposal</div>
+            <div class="flow-row" style="flex-direction:column;align-items:center;gap:4px;">
+              <div class="flow-box warn" style="width:100%;min-width:0;">Disposal Area<br>Locator</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box warn" style="width:100%;min-width:0;">Supervisor<br>Approval</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box warn" style="width:100%;min-width:0;">Physical Disposal<br>Confirmed</div>
+              <div class="flow-arrow" style="transform:rotate(90deg);">→</div>
+              <div class="flow-box fusion" style="width:100%;min-width:0;font-size:.65rem;">Fusion: Write-off<br>Adjustment</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Returns data model -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:.75rem;">
+      <div class="db-table">
+        <div class="t-name">WMS_RETURNS</div><br>
+        <span class="col">return_id</span>        <span class="type">NUMBER</span>       <span class="comment">-- PK</span><br>
+        <span class="col">return_type</span>       <span class="type">VARCHAR2(20)</span> <span class="comment">-- CUSTOMER/VAN/STORE</span><br>
+        <span class="col">source_order_num</span>  <span class="type">VARCHAR2(50)</span> <span class="comment">-- linked order/trip</span><br>
+        <span class="col">return_date</span>        <span class="type">DATE</span><br>
+        <span class="col">status</span>             <span class="type">VARCHAR2(20)</span> <span class="comment">-- DRAFT/INSPECTED/CLOSED</span><br>
+        <span class="col">credit_note_ref</span>    <span class="type">VARCHAR2(50)</span> <span class="comment">-- Fusion credit ref</span><br>
+        <span class="col">created_by</span>         <span class="type">VARCHAR2(50)</span>
+      </div>
+      <div class="db-table">
+        <div class="t-name">WMS_RETURN_LINES</div><br>
+        <span class="col">line_id</span>            <span class="type">NUMBER</span>       <span class="comment">-- PK</span><br>
+        <span class="col">return_id</span>           <span class="type">NUMBER</span>       <span class="comment">-- FK wms_returns</span><br>
+        <span class="col">item_number</span>         <span class="type">VARCHAR2(50)</span><br>
+        <span class="col">lot_id</span>              <span class="type">NUMBER</span>       <span class="comment">-- FK wms_lots (if known)</span><br>
+        <span class="col">quantity</span>            <span class="type">NUMBER</span><br>
+        <span class="col">inspection_grade</span>    <span class="type">VARCHAR2(1)</span>  <span class="comment">-- A / B / C</span><br>
+        <span class="col">inspection_notes</span>    <span class="type">VARCHAR2(500)</span><br>
+        <span class="col">destination_location</span><span class="type">NUMBER</span>      <span class="comment">-- FK wms_locations</span><br>
+        <span class="col">disposal_approved_by</span><span class="type">VARCHAR2(50)</span><span class="comment">-- for grade C</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · API DESIGN -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--ink2);"><i class="fas fa-code"></i></div>
+      6 · API Design
+    </div>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <table class="api-table">
+        <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><span class="method get">GET</span></td><td><code>/wms/v1/pending-pos</code></td><td>Fetch pending POs from Oracle Fusion — supplier, date, status</td></tr>
+          <tr><td><span class="method get">GET</span></td><td><code>/wms/v1/pos/{po_number}/lines</code></td><td>PO line items with ordered qty, received qty to date</td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/wms/v1/receipts</code></td><td>Create receipt header (PO / Duty Free / Return)</td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/wms/v1/receipts/{id}/lines</code></td><td>Add received line — item, qty, lot_id, location_id, inspection status</td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/wms/v1/receipts/{id}/confirm</code></td><td>Confirm receipt — updates WMS stock + calls Fusion receive API</td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/wms/v1/lots</code></td><td>Create lot record — lot number, expiry date, supplier lot ref, qty</td></tr>
+          <tr><td><span class="method get">GET</span></td><td><code>/wms/v1/locators/suggest</code></td><td>Suggest top 3 locators — params: item, qty, subinventory, weight_kg</td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/wms/v1/returns</code></td><td>Create return header — type, source order ref, date</td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/wms/v1/returns/{id}/lines</code></td><td>Add return line — item, qty, grade (A/B/C), destination locator</td></tr>
+          <tr><td><span class="method post">POST</span></td><td><code>/wms/v1/returns/{id}/confirm</code></td><td>Confirm return — updates stock, triggers Fusion return receipt &amp; credit</td></tr>
+          <tr><td><span class="method get">GET</span></td><td><code>/wms/v1/items/{barcode}</code></td><td>Identify item from barcode scan — returns item number, description, lot-controlled flag</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 7 · IMPLEMENTATION PLAN -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--primary);"><i class="fas fa-road"></i></div>
+      7 · Implementation Plan
+    </div>
+    <div class="card">
+      <div class="rs-item">
+        <div class="rs-num" style="background:#475569;">0</div>
+        <div class="rs-body"><h4>Pre-requisite: Warehouse Structure & Locations<span class="rs-duration">Complete first</span></h4><p>Locator database (<code>wms_locations</code>, <code>wms_location_stock</code>) must be in place before Receiving can assign bins.</p></div>
+      </div>
+      <div class="rs-item">
+        <div class="rs-num" style="background:#3b82f6;">1</div>
+        <div class="rs-body"><h4>Foundation — DB Tables &amp; API Skeleton<span class="rs-duration">3 weeks</span></h4>
+          <p>Create all new WMS tables and basic REST endpoints.</p>
+          <ul><li>Create wms_receipts, wms_receipt_lines, wms_lots, wms_returns, wms_return_lines, wms_inspection_records</li><li>REST API stubs: receipts, lots, locator suggest, returns</li><li>Fusion PO fetch integration: GET pending POs &amp; lines</li></ul>
+        </div>
+      </div>
+      <div class="rs-item">
+        <div class="rs-num" style="background:#8b5cf6;">2</div>
+        <div class="rs-body"><h4>PO Receiving — Core Mobile Screens<span class="rs-duration">4 weeks</span></h4>
+          <p>Build all 7 mobile screens for standard PO receiving.</p>
+          <ul><li>PO List (screen 1) + PO Detail (screen 2)</li><li>Barcode scan &amp; item identification (screen 3)</li><li>Lot/batch entry with expiry (screen 4)</li><li>Inspection checklist pass/fail (screen 5)</li><li>Locator suggestion + scan-to-confirm (screen 6)</li><li>Receipt summary &amp; submit (screen 7) + Fusion confirm API</li></ul>
+        </div>
+      </div>
+      <div class="rs-item">
+        <div class="rs-num" style="background:#10b981;">3</div>
+        <div class="rs-body"><h4>Lot Tracking &amp; FEFO Engine<span class="rs-duration">2 weeks</span></h4>
+          <ul><li>Lot-to-locator linking in wms_location_stock</li><li>FEFO selection at picking: query by earliest expiry_date</li><li>Expiry alert dashboard (30/60/90 day warnings)</li><li>Quarantine flag management on lots</li></ul>
+        </div>
+      </div>
+      <div class="rs-item">
+        <div class="rs-num" style="background:#f59e0b;">4</div>
+        <div class="rs-body"><h4>Duty Free / Bonded Receiving<span class="rs-duration">2 weeks</span></h4>
+          <ul><li>Add "Duty Free" mode to mobile app PO list</li><li>Customs fields screen (screen 2b): import ref, tariff, COO, value</li><li>Bonded zone locator filter in suggestion engine</li><li>Fusion receive to BONDED subinventory</li></ul>
+        </div>
+      </div>
+      <div class="rs-item">
+        <div class="rs-num" style="background:#ef4444;">5</div>
+        <div class="rs-body"><h4>Return Goods — All 3 Types<span class="rs-duration">4 weeks</span></h4>
+          <ul><li>Return creation &amp; type selector (Customer / Van / Store)</li><li>Source order linking &amp; item scan</li><li>Inspection grading UI (Grade A/B/C) with notes</li><li>Grade A putaway (locator suggestion), Grade B quarantine, Grade C disposal</li><li>Fusion return receipt API + credit note trigger for customer returns</li></ul>
+        </div>
+      </div>
+      <div class="rs-item">
+        <div class="rs-num" style="background:#475569;">6</div>
+        <div class="rs-body"><h4>Reporting &amp; Dashboard<span class="rs-duration">1 week</span></h4>
+          <ul><li>Receipt summary report by date/supplier/subinventory</li><li>Lot expiry dashboard</li><li>Returns by type and grade report</li><li>WMS vs Fusion reconciliation check</li></ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · NEXT STEPS -->
+  <section>
+    <div class="section-title">
+      <div class="icon" style="background:var(--purple);"><i class="fas fa-forward-step"></i></div>
+      8 · Next Steps
+    </div>
+    <div class="card-grid cols-3">
+      <div class="card" style="border-left:4px solid var(--primary);">
+        <div style="font-size:.68rem;font-weight:700;color:var(--primary);letter-spacing:.5px;margin-bottom:6px;">ACTION 1 · BARCODE AUDIT</div>
+        <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:4px;">Confirm Item Barcodes</div>
+        <div style="font-size:.75rem;color:var(--muted);">Do all SKUs have scannable barcodes on carton/pallet level? Identify items that need barcode labelling. Plan for label printing at receiving dock.</div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--purple);">
+        <div style="font-size:.68rem;font-weight:700;color:var(--purple);letter-spacing:.5px;margin-bottom:6px;">ACTION 2 · LOT FORMAT</div>
+        <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:4px;">Define Lot Numbering</div>
+        <div style="font-size:.75rem;color:var(--muted);">Decide: use supplier's lot number directly, or generate WMS internal lot numbers. Define format and rules for lot uniqueness across items.</div>
+      </div>
+      <div class="card" style="border-left:4px solid var(--green);">
+        <div style="font-size:.68rem;font-weight:700;color:var(--green);letter-spacing:.5px;margin-bottom:6px;">ACTION 3 · FUSION API</div>
+        <div style="font-weight:700;font-size:.82rem;color:var(--ink2);margin-bottom:4px;">Confirm Return API</div>
+        <div style="font-size:.75rem;color:var(--muted);">Verify Oracle Fusion REST endpoint for return receipts and credit note creation. Confirm Fusion team availability for API testing in Sprint 5.</div>
+      </div>
+    </div>
+  </section>
+
+  <div style="text-align:center;color:var(--muted);font-size:.72rem;padding:1.5rem 0;border-top:1px solid var(--border);">
+    Gray's WMS — Solution Design Document · Receiving Goods · v1.0 Draft · May 2026
+  </div>
+
+</div>
+
+<!-- PDF Export button -->
+<button id="pdf-btn" onclick="window.print()"
+    title="Export as PDF — use 'Save as PDF' in the print dialog"
+    style="position:fixed;bottom:24px;right:24px;z-index:999;
+           background:linear-gradient(135deg,#3b82f6,#1d4ed8);color:white;
+           border:none;border-radius:30px;padding:11px 22px;cursor:pointer;
+           box-shadow:0 4px 16px rgba(59,130,246,0.45);
+           font-weight:700;font-size:.82rem;letter-spacing:.3px;
+           display:flex;align-items:center;gap:8px;transition:transform .15s,box-shadow .15s;"
+    onmouseenter="this.style.transform='scale(1.05)';this.style.boxShadow='0 6px 22px rgba(59,130,246,0.6)'"
+    onmouseleave="this.style.transform='scale(1)';this.style.boxShadow='0 4px 16px rgba(59,130,246,0.45)'">
+    <i class="fas fa-file-pdf"></i> Export PDF
+</button>
+
+</body>
+</html>
