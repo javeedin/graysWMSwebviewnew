@@ -6331,6 +6331,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     <td id="wl-get-lots-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
                         <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
                     </td>
+                    <td id="wl-shipment-lines-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
+                        <span style="color: #94a3b8;"><i class="fas fa-clock" style="font-size: 12px;"></i></span>
+                    </td>
                     <td id="wl-retry-${index}" style="padding: 0.6rem 0.5rem; border-bottom: 1px solid #e2e8f0; text-align: center;">
                         <button onclick="retryWithLotsOrder(${index})" class="btn btn-sm" style="padding: 4px 8px; font-size: 10px; background: #e5e7eb; color: #374151; border: none; border-radius: 4px; cursor: pointer;" disabled>
                             <i class="fas fa-redo"></i>
@@ -6427,6 +6430,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Release St</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Total Picks</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Lots in the Pick</th>
+                                                <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Shipment Lines</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Retry</th>
                                                 <th style="padding: 0.75rem 0.5rem; text-align: center; font-weight: 600; color: #475569; border-bottom: 2px solid #e2e8f0;">Time</th>
                                             </tr>
@@ -7311,6 +7315,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 updateCellStatus(`wl-get-lots-${i}`, 'error', error.message);
             }
 
+            // Step 3: Fetch Fusion Shipment Lines + Save to APEX
+            updateCellStatus(`wl-shipment-lines-${i}`, 'processing');
+
+            try {
+                const shipResult = await fetchAndSaveShipmentLines(orderNumber, instance);
+                if (shipResult.success) {
+                    updateCellStatus(`wl-shipment-lines-${i}`, 'success', null, shipResult.count);
+                } else {
+                    updateCellStatus(`wl-shipment-lines-${i}`, 'error', shipResult.error);
+                }
+            } catch (error) {
+                updateCellStatus(`wl-shipment-lines-${i}`, 'error', error.message);
+            }
+
             // Update time for this row
             updateOrderTime(i, orderStartTimes[i]);
         }
@@ -7325,6 +7343,77 @@ document.addEventListener('DOMContentLoaded', function() {
             btn.style.background = 'linear-gradient(135deg, #10b981 0%, #059669 100%)';
         }
     };
+
+    // Fetch Fusion shipment lines then POST to save in APEX
+    async function fetchAndSaveShipmentLines(orderNumber, instance) {
+        const apexBase = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+        const getUrl  = `${apexBase}/orders/shipmentlines/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+        const postUrl = `${apexBase}/orders/shipmentlines/save`;
+
+        // Step A: GET from Fusion (via APEX proxy which stores the data in WMS table)
+        // Actually: GET from Fusion directly, then POST to APEX to save
+        const fusionBaseUrl = instance.toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+        const fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}`;
+
+        console.log(`[Shipment Lines] Fetching from Fusion for order ${orderNumber}:`, fusionUrl);
+
+        return new Promise((resolve) => {
+            sendMessageToCSharp({
+                action: 'executeOracleFusionGet',
+                fullUrl: fusionUrl,
+                instance: instance
+            }, function(error, data) {
+                if (error) {
+                    console.error('[Shipment Lines] Fusion GET error:', error);
+                    return resolve({ success: false, error: error, count: 0 });
+                }
+
+                let fusionResponse;
+                try {
+                    fusionResponse = typeof data === 'string' ? JSON.parse(data) : data;
+                } catch (e) {
+                    return resolve({ success: false, error: 'Parse error: ' + e.message, count: 0 });
+                }
+
+                const items = fusionResponse.items || [];
+                console.log(`[Shipment Lines] Got ${items.length} lines from Fusion for order ${orderNumber}`);
+
+                if (items.length === 0) {
+                    return resolve({ success: true, count: 0 });
+                }
+
+                // Step B: POST to APEX to save
+                const postBody = JSON.stringify({
+                    orderNumber: orderNumber,
+                    instanceName: instance,
+                    items: items
+                });
+
+                console.log(`[Shipment Lines] Saving to APEX:`, postUrl);
+
+                sendMessageToCSharp({
+                    action: 'executePost',
+                    fullUrl: postUrl,
+                    body: postBody
+                }, function(postError, postData) {
+                    if (postError) {
+                        console.error('[Shipment Lines] APEX POST error:', postError);
+                        return resolve({ success: false, error: postError, count: 0 });
+                    }
+                    try {
+                        const postResponse = typeof postData === 'string' ? JSON.parse(postData) : postData;
+                        const saved = postResponse.rowsInserted || items.length;
+                        console.log(`[Shipment Lines] Saved ${saved} rows for order ${orderNumber}`);
+                        resolve({ success: true, count: saved });
+                    } catch (e) {
+                        resolve({ success: true, count: items.length });
+                    }
+                });
+            });
+        });
+    }
 
     // API Call Functions
     function callReleasePickWaveAPI(orderNumber, warehouse, instance) {
