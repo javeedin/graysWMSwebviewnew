@@ -10994,7 +10994,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             try {
                 const response = typeof data === 'string' ? JSON.parse(data) : data;
-                const items = response.items || [];
+                const items = (response.items || []).sort((a, b) => (a.ShipmentLine || 0) - (b.ShipmentLine || 0));
 
                 if (!items.length) {
                     if (gridContainer) {
