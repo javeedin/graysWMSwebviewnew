@@ -9599,6 +9599,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         <button class="order-trans-tab active" data-tab="pick-release" onclick="switchOrderTransTab('pick-release')" style="padding: 0.5rem 1.2rem; border: none; background: white; border-radius: 6px; cursor: pointer; font-weight: 600; color: #667eea; box-shadow: 0 2px 4px rgba(0,0,0,0.1); white-space: nowrap; font-size: 0.85rem;">
                             <i class="fas fa-box-open"></i> Pick Release Details
                         </button>
+                        <button class="order-trans-tab" data-tab="fusion-shipment-lines" onclick="switchOrderTransTab('fusion-shipment-lines')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
+                            <i class="fas fa-truck"></i> Shipment Lines
+                        </button>
                         <button class="order-trans-tab" data-tab="sales-order-lines" onclick="switchOrderTransTab('sales-order-lines')" style="padding: 0.5rem 1.2rem; border: none; background: transparent; border-radius: 6px; cursor: pointer; font-weight: 600; color: #64748b; white-space: nowrap; font-size: 0.85rem;">
                             <i class="fas fa-shopping-cart"></i> Sales Order Lines
                         </button>
@@ -9627,6 +9630,19 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                             <div id="pick-release-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
                                 <div id="pick-release-grid" style="height: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Tab: Shipment Lines (Oracle Fusion) -->
+                        <div id="order-trans-fusion-shipment-lines" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; align-items: center;">
+                                <button class="btn btn-secondary" onclick="refreshFusionShipmentLines('${orderNumber}')">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <span id="fusion-shipment-lines-status" style="font-size: 0.8rem; color: #64748b;"></span>
+                            </div>
+                            <div id="fusion-shipment-lines-content" style="background: white; border-radius: 8px; padding: 0.75rem; height: calc(100% - 4rem);">
+                                <div id="fusion-shipment-lines-grid" style="height: 100%;"></div>
                             </div>
                         </div>
 
@@ -10942,6 +10958,109 @@ document.addEventListener('DOMContentLoaded', function() {
         if (gridContainer) {
             gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-info-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Shipment Details will be loaded here</p><p style="font-size: 0.85rem; margin-top: 0.5rem;">Data retrieval API integration pending</p></div>';
         }
+    };
+
+    window.refreshFusionShipmentLines = function(orderNumber) {
+        const ctx = window.currentOrderTransContext || {};
+        const instance = ctx.instance || window.currentOrderTransactionsInstance || 'TEST';
+        const fusionBaseUrl = instance.toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+        const url = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}`;
+
+        console.log('[Fusion Shipment Lines] URL:', url);
+
+        const gridContainer = document.getElementById('fusion-shipment-lines-grid');
+        const statusEl = document.getElementById('fusion-shipment-lines-status');
+
+        if (gridContainer) {
+            gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-spinner fa-spin" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Loading Shipment Lines...</p></div>';
+        }
+        if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+
+        sendMessageToCSharp({
+            action: 'executeOracleFusionGet',
+            fullUrl: url,
+            instance: instance
+        }, function(error, data) {
+            if (statusEl) statusEl.innerHTML = '';
+            if (error) {
+                console.error('[Fusion Shipment Lines] Error:', error);
+                if (gridContainer) {
+                    gridContainer.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;"><i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Error loading Shipment Lines</p><p style="font-size: 0.85rem;">${error}</p></div>`;
+                }
+                return;
+            }
+
+            try {
+                const response = typeof data === 'string' ? JSON.parse(data) : data;
+                const items = response.items || [];
+
+                if (!items.length) {
+                    if (gridContainer) {
+                        gridContainer.innerHTML = '<div style="padding: 2rem; text-align: center; color: #64748b;"><i class="fas fa-inbox" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>No shipment lines found for this order</p></div>';
+                    }
+                    return;
+                }
+
+                const columns = [
+                    { field: 'ShipmentLine', label: 'Shipment Line', width: '110px' },
+                    { field: 'Order', label: 'Order', width: '120px' },
+                    { field: 'OrderLine', label: 'Order Line', width: '90px' },
+                    { field: 'SourceOrderLine', label: 'Src Order Line', width: '110px' },
+                    { field: 'SourceOrderFulfillmentLine', label: 'Fulfillment Line', width: '120px' },
+                    { field: 'Item', label: 'Item', width: '140px' },
+                    { field: 'ItemDescription', label: 'Item Description', width: '200px' },
+                    { field: 'RequestedQuantity', label: 'Req Qty', width: '80px' },
+                    { field: 'StagedQuantity', label: 'Staged Qty', width: '90px' },
+                    { field: 'ShippedQuantity', label: 'Shipped Qty', width: '90px' },
+                    { field: 'SubinventoryName', label: 'Subinventory', width: '120px' },
+                    { field: 'LineStatus', label: 'Line Status', width: '110px' },
+                    { field: 'ShipToCustomer', label: 'Ship To Customer', width: '180px' },
+                    { field: 'OrganizationCode', label: 'Org', width: '70px' },
+                    { field: 'PickWave', label: 'Pick Wave', width: '180px' },
+                    { field: 'Shipment', label: 'Shipment', width: '100px' },
+                    { field: 'CreationDate', label: 'Created', width: '140px' }
+                ];
+
+                let headerHtml = columns.map(c => `<th style="padding: 0.5rem 0.75rem; background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left; white-space: nowrap; font-size: 0.75rem; color: #475569; font-weight: 600; position: sticky; top: 0; z-index: 1; min-width: ${c.width};">${c.label}</th>`).join('');
+
+                let rowsHtml = items.map(row => {
+                    const statusCode = row.LineStatusCode || '';
+                    let statusColor = '#64748b';
+                    if (statusCode === 'Y') statusColor = '#10b981';
+                    else if (statusCode === 'C') statusColor = '#3b82f6';
+                    else if (statusCode === 'X') statusColor = '#ef4444';
+
+                    const cells = columns.map(c => {
+                        let val = row[c.field] !== null && row[c.field] !== undefined ? row[c.field] : '';
+                        if (c.field === 'LineStatus') {
+                            val = `<span style="color: ${statusColor}; font-weight: 600;">${val}</span>`;
+                        } else if (c.field === 'CreationDate' && val) {
+                            val = val.replace('T', ' ').substring(0, 19);
+                        }
+                        return `<td style="padding: 0.4rem 0.75rem; border-bottom: 1px solid #f1f5f9; font-size: 0.8rem; white-space: nowrap;">${val}</td>`;
+                    }).join('');
+                    return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">${cells}</tr>`;
+                }).join('');
+
+                if (gridContainer) {
+                    gridContainer.innerHTML = `
+                        <div style="margin-bottom: 0.5rem; font-size: 0.8rem; color: #64748b;">${items.length} record(s) found</div>
+                        <div style="overflow: auto; height: calc(100% - 2rem); border: 1px solid #e2e8f0; border-radius: 6px;">
+                            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                                <thead><tr>${headerHtml}</tr></thead>
+                                <tbody>${rowsHtml}</tbody>
+                            </table>
+                        </div>`;
+                }
+            } catch (parseError) {
+                console.error('[Fusion Shipment Lines] Parse error:', parseError);
+                if (gridContainer) {
+                    gridContainer.innerHTML = `<div style="padding: 2rem; text-align: center; color: #ef4444;"><i class="fas fa-exclamation-circle" style="font-size: 2rem; margin-bottom: 1rem;"></i><p>Error parsing response</p><p style="font-size: 0.85rem;">${parseError.message}</p></div>`;
+                }
+            }
+        });
     };
 
     window.refreshPickConfirmResponses = function(orderNumber) {
