@@ -52,16 +52,52 @@ END;
 --   Module:        TRIPMANAGEMENT
 --   URI Template:  orders/shipmentlines/:orderNumber
 --   Method:        GET
---   Source Type:   PL/SQL
+--   Source Type:   SQL Query        <-- IMPORTANT: use SQL Query, NOT PL/SQL
 --   Bind Variables auto-bound: :orderNumber (from URI), :P_INSTANCE_NAME (query string)
 -- ============================================================
-BEGIN
-    wms_get_shipment_lines(
-        p_order_number  => :orderNumber,
-        p_instance_name => NVL(:P_INSTANCE_NAME, 'TEST'),
-        p_cursor        => :cursor
-    );
-END;
+SELECT
+    id,
+    shipment_line,
+    order_number,
+    order_line,
+    order_type_code,
+    order_type,
+    source_order_line,
+    source_order_fulfillment_line,
+    item,
+    item_description,
+    requested_quantity,
+    shipped_quantity,
+    staged_quantity,
+    picked_quantity,
+    cancelled_quantity,
+    backordered_quantity,
+    pending_quantity,
+    subinventory_name,
+    line_status_code,
+    line_status,
+    ship_to_customer,
+    ship_to_customer_number,
+    ship_to_address1,
+    ship_to_city,
+    ship_to_country,
+    organization_code,
+    pick_wave,
+    shipment,
+    shipment_status_code,
+    movement_request_number,
+    integration_status,
+    currency_code,
+    unit_price,
+    instance_name,
+    creation_date,
+    last_update_date,
+    wms_created_date,
+    wms_last_updated_date
+FROM wms_order_shipment_lines
+WHERE order_number  = :orderNumber
+  AND instance_name = NVL(UPPER(:P_INSTANCE_NAME), 'TEST')
+ORDER BY shipment_line ASC
 
 
 -- ============================================================
