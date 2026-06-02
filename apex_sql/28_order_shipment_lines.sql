@@ -125,30 +125,104 @@ COMMENT ON COLUMN wms_order_shipment_lines.instance_name          IS 'TEST or PR
 CREATE OR REPLACE PROCEDURE wms_save_shipment_lines (
     p_order_number  IN VARCHAR2,
     p_instance_name IN VARCHAR2,
-    p_json_clob     IN CLOB,        -- full JSON body from Fusion (items array or wrapped)
+    p_json_clob     IN CLOB,
     p_result        OUT VARCHAR2,
     p_rows_inserted OUT NUMBER
 ) AS
-    v_items_json    CLOB;
     v_count         NUMBER := 0;
     v_item_count    NUMBER;
+    v_prefix        VARCHAR2(50);
 
-    -- Helper to get a number safely
-    FUNCTION get_num(p_path IN VARCHAR2) RETURN NUMBER IS
-    BEGIN
-        RETURN APEX_JSON.get_number(p_path);
-    EXCEPTION WHEN OTHERS THEN RETURN NULL;
-    END;
+    -- Row variables
+    v_shipment_line                   NUMBER;
+    v_order_number                    VARCHAR2(50);
+    v_order_line                      VARCHAR2(50);
+    v_order_type_code                 VARCHAR2(50);
+    v_order_type                      VARCHAR2(100);
+    v_order_schedule                  VARCHAR2(200);
+    v_source_order_id                 NUMBER;
+    v_source_order                    VARCHAR2(50);
+    v_source_order_line_id            NUMBER;
+    v_source_order_line               VARCHAR2(50);
+    v_source_order_fulfillment_line_id NUMBER;
+    v_source_order_fulfillment_line   VARCHAR2(100);
+    v_inventory_item_id               NUMBER;
+    v_item                            VARCHAR2(100);
+    v_item_description                VARCHAR2(500);
+    v_requested_quantity              NUMBER;
+    v_requested_quantity_uom_code     VARCHAR2(20);
+    v_requested_quantity_uom          VARCHAR2(50);
+    v_shipped_quantity                NUMBER;
+    v_staged_quantity                 NUMBER;
+    v_picked_quantity                 NUMBER;
+    v_cancelled_quantity              NUMBER;
+    v_backordered_quantity            NUMBER;
+    v_converted_quantity              NUMBER;
+    v_pending_quantity                NUMBER;
+    v_source_requested_quantity       NUMBER;
+    v_unit_price                      NUMBER;
+    v_selling_price                   NUMBER;
+    v_currency_code                   VARCHAR2(10);
+    v_shipment_id                     NUMBER;
+    v_shipment                        VARCHAR2(50);
+    v_shipment_status_code            VARCHAR2(20);
+    v_line_status_code                VARCHAR2(10);
+    v_line_status                     VARCHAR2(100);
+    v_pick_wave_id                    NUMBER;
+    v_pick_wave                       VARCHAR2(200);
+    v_movement_request_line_id        NUMBER;
+    v_movement_request_number         VARCHAR2(200);
+    v_movement_request_line_number    VARCHAR2(50);
+    v_organization_id                 NUMBER;
+    v_organization_code               VARCHAR2(20);
+    v_organization_name               VARCHAR2(200);
+    v_subinventory                    VARCHAR2(100);
+    v_subinventory_name               VARCHAR2(100);
+    v_source_subinventory             VARCHAR2(100);
+    v_source_subinventory_name        VARCHAR2(100);
+    v_lot_number                      VARCHAR2(100);
+    v_ship_to_party_id                NUMBER;
+    v_ship_to_customer                VARCHAR2(300);
+    v_ship_to_customer_number         VARCHAR2(50);
+    v_ship_to_location_id             NUMBER;
+    v_ship_to_address1                VARCHAR2(300);
+    v_ship_to_address2                VARCHAR2(300);
+    v_ship_to_city                    VARCHAR2(100);
+    v_ship_to_postal_code             VARCHAR2(20);
+    v_ship_to_country                 VARCHAR2(10);
+    v_ship_to_location                VARCHAR2(500);
+    v_requested_date                  TIMESTAMP WITH TIME ZONE;
+    v_scheduled_ship_date             TIMESTAMP WITH TIME ZONE;
+    v_actual_ship_date                TIMESTAMP WITH TIME ZONE;
+    v_creation_date                   TIMESTAMP WITH TIME ZONE;
+    v_last_update_date                TIMESTAMP WITH TIME ZONE;
+    v_source_line_update_date         TIMESTAMP WITH TIME ZONE;
+    v_integration_status_code         VARCHAR2(20);
+    v_integration_status              VARCHAR2(100);
+    v_inv_interfaced_flag_code        VARCHAR2(5);
+    v_pending_quantity_flag           VARCHAR2(5);
+    v_enforce_single_shipment         VARCHAR2(5);
+    v_cancel_backorders               VARCHAR2(5);
+    v_business_unit                   VARCHAR2(200);
+    v_legal_entity                    VARCHAR2(200);
+    v_created_by_fusion               VARCHAR2(100);
+    v_last_updated_by_fusion          VARCHAR2(100);
+    v_pending_flag_str                VARCHAR2(10);
 
-    -- Helper to get varchar2 safely
-    FUNCTION get_str(p_path IN VARCHAR2) RETURN VARCHAR2 IS
+    -- Safe getters (variables in VALUES clause are fine; functions are not)
+    FUNCTION safe_str(p_path IN VARCHAR2) RETURN VARCHAR2 IS
     BEGIN
         RETURN APEX_JSON.get_varchar2(p_path);
     EXCEPTION WHEN OTHERS THEN RETURN NULL;
     END;
 
-    -- Helper to convert ISO8601 string to TIMESTAMP WITH TIME ZONE
-    FUNCTION to_tstz(p_str IN VARCHAR2) RETURN TIMESTAMP WITH TIME ZONE IS
+    FUNCTION safe_num(p_path IN VARCHAR2) RETURN NUMBER IS
+    BEGIN
+        RETURN APEX_JSON.get_number(p_path);
+    EXCEPTION WHEN OTHERS THEN RETURN NULL;
+    END;
+
+    FUNCTION safe_tstz(p_str IN VARCHAR2) RETURN TIMESTAMP WITH TIME ZONE IS
     BEGIN
         IF p_str IS NULL THEN RETURN NULL; END IF;
         RETURN TO_TIMESTAMP_TZ(p_str, 'YYYY-MM-DD"T"HH24:MI:SSTZH:TZM');
@@ -158,23 +232,19 @@ CREATE OR REPLACE PROCEDURE wms_save_shipment_lines (
 BEGIN
     p_rows_inserted := 0;
 
-    -- Delete existing rows for this order + instance (full refresh)
     DELETE FROM wms_order_shipment_lines
     WHERE order_number  = p_order_number
-      AND instance_name = NVL(p_instance_name, 'TEST');
+      AND instance_name = NVL(UPPER(p_instance_name), 'TEST');
 
-    -- Parse incoming JSON
     APEX_JSON.parse(p_json_clob);
 
-    -- Support both {"items":[...]} wrapper and plain array [...]
     BEGIN
         v_item_count := APEX_JSON.get_count('items');
     EXCEPTION WHEN OTHERS THEN
         v_item_count := 0;
     END;
 
-    IF v_item_count IS NULL OR v_item_count = 0 THEN
-        -- Try root array
+    IF NVL(v_item_count, 0) = 0 THEN
         BEGIN
             v_item_count := APEX_JSON.get_count('.');
         EXCEPTION WHEN OTHERS THEN
@@ -183,169 +253,143 @@ BEGIN
     END IF;
 
     FOR i IN 1..NVL(v_item_count, 0) LOOP
-        DECLARE
-            v_prefix VARCHAR2(20) := 'items[' || i || '].';
         BEGIN
+            v_prefix := 'items[' || i || '].';
+
+            -- Extract all fields into variables first
+            v_shipment_line                   := safe_num(v_prefix || 'ShipmentLine');
+            v_order_number                    := NVL(safe_str(v_prefix || 'Order'), p_order_number);
+            v_order_line                      := safe_str(v_prefix || 'OrderLine');
+            v_order_type_code                 := safe_str(v_prefix || 'OrderTypeCode');
+            v_order_type                      := safe_str(v_prefix || 'OrderType');
+            v_order_schedule                  := safe_str(v_prefix || 'OrderSchedule');
+            v_source_order_id                 := safe_num(v_prefix || 'SourceOrderId');
+            v_source_order                    := safe_str(v_prefix || 'SourceOrder');
+            v_source_order_line_id            := safe_num(v_prefix || 'SourceOrderLineId');
+            v_source_order_line               := safe_str(v_prefix || 'SourceOrderLine');
+            v_source_order_fulfillment_line_id := safe_num(v_prefix || 'SourceOrderFulfillmentLineId');
+            v_source_order_fulfillment_line   := safe_str(v_prefix || 'SourceOrderFulfillmentLine');
+            v_inventory_item_id               := safe_num(v_prefix || 'InventoryItemId');
+            v_item                            := safe_str(v_prefix || 'Item');
+            v_item_description                := safe_str(v_prefix || 'ItemDescription');
+            v_requested_quantity              := safe_num(v_prefix || 'RequestedQuantity');
+            v_requested_quantity_uom_code     := safe_str(v_prefix || 'RequestedQuantityUOMCode');
+            v_requested_quantity_uom          := safe_str(v_prefix || 'RequestedQuantityUOM');
+            v_shipped_quantity                := safe_num(v_prefix || 'ShippedQuantity');
+            v_staged_quantity                 := safe_num(v_prefix || 'StagedQuantity');
+            v_picked_quantity                 := safe_num(v_prefix || 'PickedQuantity');
+            v_cancelled_quantity              := safe_num(v_prefix || 'CancelledQuantity');
+            v_backordered_quantity            := safe_num(v_prefix || 'BackorderedQuantity');
+            v_converted_quantity              := safe_num(v_prefix || 'ConvertedQuantity');
+            v_pending_quantity                := safe_num(v_prefix || 'PendingQuantity');
+            v_source_requested_quantity       := safe_num(v_prefix || 'SourceRequestedQuantity');
+            v_unit_price                      := safe_num(v_prefix || 'UnitPrice');
+            v_selling_price                   := safe_num(v_prefix || 'SellingPrice');
+            v_currency_code                   := safe_str(v_prefix || 'CurrencyCode');
+            v_shipment_id                     := safe_num(v_prefix || 'ShipmentId');
+            v_shipment                        := safe_str(v_prefix || 'Shipment');
+            v_shipment_status_code            := safe_str(v_prefix || 'ShipmentStatusCode');
+            v_line_status_code                := safe_str(v_prefix || 'LineStatusCode');
+            v_line_status                     := safe_str(v_prefix || 'LineStatus');
+            v_pick_wave_id                    := safe_num(v_prefix || 'PickWaveId');
+            v_pick_wave                       := safe_str(v_prefix || 'PickWave');
+            v_movement_request_line_id        := safe_num(v_prefix || 'MovementRequestLineId');
+            v_movement_request_number         := safe_str(v_prefix || 'MovementRequestNumber');
+            v_movement_request_line_number    := safe_str(v_prefix || 'MovementRequestLineNumber');
+            v_organization_id                 := safe_num(v_prefix || 'OrganizationId');
+            v_organization_code               := safe_str(v_prefix || 'OrganizationCode');
+            v_organization_name               := safe_str(v_prefix || 'OrganizationName');
+            v_subinventory                    := safe_str(v_prefix || 'Subinventory');
+            v_subinventory_name               := safe_str(v_prefix || 'SubinventoryName');
+            v_source_subinventory             := safe_str(v_prefix || 'SourceSubinventory');
+            v_source_subinventory_name        := safe_str(v_prefix || 'SourceSubinventoryName');
+            v_lot_number                      := safe_str(v_prefix || 'LotNumber');
+            v_ship_to_party_id                := safe_num(v_prefix || 'ShipToPartyId');
+            v_ship_to_customer                := safe_str(v_prefix || 'ShipToCustomer');
+            v_ship_to_customer_number         := safe_str(v_prefix || 'ShipToCustomerNumber');
+            v_ship_to_location_id             := safe_num(v_prefix || 'ShipToLocationId');
+            v_ship_to_address1                := safe_str(v_prefix || 'ShipToAddress1');
+            v_ship_to_address2                := safe_str(v_prefix || 'ShipToAddress2');
+            v_ship_to_city                    := safe_str(v_prefix || 'ShipToCity');
+            v_ship_to_postal_code             := safe_str(v_prefix || 'ShipToPostalCode');
+            v_ship_to_country                 := safe_str(v_prefix || 'ShipToCountry');
+            v_ship_to_location                := safe_str(v_prefix || 'ShipToLocation');
+            v_requested_date                  := safe_tstz(safe_str(v_prefix || 'RequestedDate'));
+            v_scheduled_ship_date             := safe_tstz(safe_str(v_prefix || 'ScheduledShipDate'));
+            v_actual_ship_date                := safe_tstz(safe_str(v_prefix || 'ActualShipDate'));
+            v_creation_date                   := safe_tstz(safe_str(v_prefix || 'CreationDate'));
+            v_last_update_date                := safe_tstz(safe_str(v_prefix || 'LastUpdateDate'));
+            v_source_line_update_date         := safe_tstz(safe_str(v_prefix || 'SourceLineUpdateDate'));
+            v_integration_status_code         := safe_str(v_prefix || 'IntegrationStatusCode');
+            v_integration_status              := safe_str(v_prefix || 'IntegrationStatus');
+            v_inv_interfaced_flag_code        := safe_str(v_prefix || 'InvInterfacedFlagCode');
+            v_pending_flag_str                := safe_str(v_prefix || 'PendingQuantityFlag');
+            v_pending_quantity_flag           := CASE WHEN v_pending_flag_str = 'true' THEN 'Y' ELSE 'N' END;
+            v_enforce_single_shipment         := safe_str(v_prefix || 'EnforceSingleShipment');
+            v_cancel_backorders               := safe_str(v_prefix || 'CancelBackorders');
+            v_business_unit                   := safe_str(v_prefix || 'BusinessUnit');
+            v_legal_entity                    := safe_str(v_prefix || 'LegalEntity');
+            v_created_by_fusion               := safe_str(v_prefix || 'CreatedBy');
+            v_last_updated_by_fusion          := safe_str(v_prefix || 'LastUpdatedBy');
+
             INSERT INTO wms_order_shipment_lines (
-                shipment_line,
-                order_number,
-                order_line,
-                order_type_code,
-                order_type,
-                order_schedule,
-                source_order_id,
-                source_order,
-                source_order_line_id,
-                source_order_line,
-                source_order_fulfillment_line_id,
-                source_order_fulfillment_line,
-                inventory_item_id,
-                item,
-                item_description,
-                requested_quantity,
-                requested_quantity_uom_code,
-                requested_quantity_uom,
-                shipped_quantity,
-                staged_quantity,
-                picked_quantity,
-                cancelled_quantity,
-                backordered_quantity,
-                converted_quantity,
-                pending_quantity,
-                source_requested_quantity,
-                unit_price,
-                selling_price,
-                currency_code,
-                shipment_id,
-                shipment,
-                shipment_status_code,
-                line_status_code,
-                line_status,
-                pick_wave_id,
-                pick_wave,
-                movement_request_line_id,
-                movement_request_number,
-                movement_request_line_number,
-                organization_id,
-                organization_code,
-                organization_name,
-                subinventory,
-                subinventory_name,
-                source_subinventory,
-                source_subinventory_name,
+                shipment_line, order_number, order_line,
+                order_type_code, order_type, order_schedule,
+                source_order_id, source_order, source_order_line_id,
+                source_order_line, source_order_fulfillment_line_id, source_order_fulfillment_line,
+                inventory_item_id, item, item_description,
+                requested_quantity, requested_quantity_uom_code, requested_quantity_uom,
+                shipped_quantity, staged_quantity, picked_quantity,
+                cancelled_quantity, backordered_quantity, converted_quantity,
+                pending_quantity, source_requested_quantity,
+                unit_price, selling_price, currency_code,
+                shipment_id, shipment, shipment_status_code,
+                line_status_code, line_status,
+                pick_wave_id, pick_wave,
+                movement_request_line_id, movement_request_number, movement_request_line_number,
+                organization_id, organization_code, organization_name,
+                subinventory, subinventory_name, source_subinventory, source_subinventory_name,
                 lot_number,
-                ship_to_party_id,
-                ship_to_customer,
-                ship_to_customer_number,
-                ship_to_location_id,
-                ship_to_address1,
-                ship_to_address2,
-                ship_to_city,
-                ship_to_postal_code,
-                ship_to_country,
-                ship_to_location,
-                requested_date,
-                scheduled_ship_date,
-                actual_ship_date,
-                creation_date,
-                last_update_date,
-                source_line_update_date,
-                integration_status_code,
-                integration_status,
-                inv_interfaced_flag_code,
-                pending_quantity_flag,
-                enforce_single_shipment,
-                cancel_backorders,
-                business_unit,
-                legal_entity,
-                created_by_fusion,
-                last_updated_by_fusion,
-                instance_name,
-                wms_created_date,
-                wms_created_by
+                ship_to_party_id, ship_to_customer, ship_to_customer_number,
+                ship_to_location_id, ship_to_address1, ship_to_address2,
+                ship_to_city, ship_to_postal_code, ship_to_country, ship_to_location,
+                requested_date, scheduled_ship_date, actual_ship_date,
+                creation_date, last_update_date, source_line_update_date,
+                integration_status_code, integration_status, inv_interfaced_flag_code,
+                pending_quantity_flag, enforce_single_shipment, cancel_backorders,
+                business_unit, legal_entity, created_by_fusion, last_updated_by_fusion,
+                instance_name, wms_created_date, wms_created_by
             ) VALUES (
-                get_num(v_prefix || 'ShipmentLine'),
-                NVL(get_str(v_prefix || 'Order'), p_order_number),
-                get_str(v_prefix || 'OrderLine'),
-                get_str(v_prefix || 'OrderTypeCode'),
-                get_str(v_prefix || 'OrderType'),
-                get_str(v_prefix || 'OrderSchedule'),
-                get_num(v_prefix || 'SourceOrderId'),
-                get_str(v_prefix || 'SourceOrder'),
-                get_num(v_prefix || 'SourceOrderLineId'),
-                get_str(v_prefix || 'SourceOrderLine'),
-                get_num(v_prefix || 'SourceOrderFulfillmentLineId'),
-                get_str(v_prefix || 'SourceOrderFulfillmentLine'),
-                get_num(v_prefix || 'InventoryItemId'),
-                get_str(v_prefix || 'Item'),
-                get_str(v_prefix || 'ItemDescription'),
-                get_num(v_prefix || 'RequestedQuantity'),
-                get_str(v_prefix || 'RequestedQuantityUOMCode'),
-                get_str(v_prefix || 'RequestedQuantityUOM'),
-                get_num(v_prefix || 'ShippedQuantity'),
-                get_num(v_prefix || 'StagedQuantity'),
-                get_num(v_prefix || 'PickedQuantity'),
-                get_num(v_prefix || 'CancelledQuantity'),
-                get_num(v_prefix || 'BackorderedQuantity'),
-                get_num(v_prefix || 'ConvertedQuantity'),
-                get_num(v_prefix || 'PendingQuantity'),
-                get_num(v_prefix || 'SourceRequestedQuantity'),
-                get_num(v_prefix || 'UnitPrice'),
-                get_num(v_prefix || 'SellingPrice'),
-                get_str(v_prefix || 'CurrencyCode'),
-                get_num(v_prefix || 'ShipmentId'),
-                get_str(v_prefix || 'Shipment'),
-                get_str(v_prefix || 'ShipmentStatusCode'),
-                get_str(v_prefix || 'LineStatusCode'),
-                get_str(v_prefix || 'LineStatus'),
-                get_num(v_prefix || 'PickWaveId'),
-                get_str(v_prefix || 'PickWave'),
-                get_num(v_prefix || 'MovementRequestLineId'),
-                get_str(v_prefix || 'MovementRequestNumber'),
-                get_str(v_prefix || 'MovementRequestLineNumber'),
-                get_num(v_prefix || 'OrganizationId'),
-                get_str(v_prefix || 'OrganizationCode'),
-                get_str(v_prefix || 'OrganizationName'),
-                get_str(v_prefix || 'Subinventory'),
-                get_str(v_prefix || 'SubinventoryName'),
-                get_str(v_prefix || 'SourceSubinventory'),
-                get_str(v_prefix || 'SourceSubinventoryName'),
-                get_str(v_prefix || 'LotNumber'),
-                get_num(v_prefix || 'ShipToPartyId'),
-                get_str(v_prefix || 'ShipToCustomer'),
-                get_str(v_prefix || 'ShipToCustomerNumber'),
-                get_num(v_prefix || 'ShipToLocationId'),
-                get_str(v_prefix || 'ShipToAddress1'),
-                get_str(v_prefix || 'ShipToAddress2'),
-                get_str(v_prefix || 'ShipToCity'),
-                get_str(v_prefix || 'ShipToPostalCode'),
-                get_str(v_prefix || 'ShipToCountry'),
-                get_str(v_prefix || 'ShipToLocation'),
-                to_tstz(get_str(v_prefix || 'RequestedDate')),
-                to_tstz(get_str(v_prefix || 'ScheduledShipDate')),
-                to_tstz(get_str(v_prefix || 'ActualShipDate')),
-                to_tstz(get_str(v_prefix || 'CreationDate')),
-                to_tstz(get_str(v_prefix || 'LastUpdateDate')),
-                to_tstz(get_str(v_prefix || 'SourceLineUpdateDate')),
-                get_str(v_prefix || 'IntegrationStatusCode'),
-                get_str(v_prefix || 'IntegrationStatus'),
-                get_str(v_prefix || 'InvInterfacedFlagCode'),
-                CASE WHEN get_str(v_prefix || 'PendingQuantityFlag') = 'true' THEN 'Y' ELSE 'N' END,
-                get_str(v_prefix || 'EnforceSingleShipment'),
-                get_str(v_prefix || 'CancelBackorders'),
-                get_str(v_prefix || 'BusinessUnit'),
-                get_str(v_prefix || 'LegalEntity'),
-                get_str(v_prefix || 'CreatedBy'),
-                get_str(v_prefix || 'LastUpdatedBy'),
-                NVL(UPPER(p_instance_name), 'TEST'),
-                SYSDATE,
-                USER
+                v_shipment_line, v_order_number, v_order_line,
+                v_order_type_code, v_order_type, v_order_schedule,
+                v_source_order_id, v_source_order, v_source_order_line_id,
+                v_source_order_line, v_source_order_fulfillment_line_id, v_source_order_fulfillment_line,
+                v_inventory_item_id, v_item, v_item_description,
+                v_requested_quantity, v_requested_quantity_uom_code, v_requested_quantity_uom,
+                v_shipped_quantity, v_staged_quantity, v_picked_quantity,
+                v_cancelled_quantity, v_backordered_quantity, v_converted_quantity,
+                v_pending_quantity, v_source_requested_quantity,
+                v_unit_price, v_selling_price, v_currency_code,
+                v_shipment_id, v_shipment, v_shipment_status_code,
+                v_line_status_code, v_line_status,
+                v_pick_wave_id, v_pick_wave,
+                v_movement_request_line_id, v_movement_request_number, v_movement_request_line_number,
+                v_organization_id, v_organization_code, v_organization_name,
+                v_subinventory, v_subinventory_name, v_source_subinventory, v_source_subinventory_name,
+                v_lot_number,
+                v_ship_to_party_id, v_ship_to_customer, v_ship_to_customer_number,
+                v_ship_to_location_id, v_ship_to_address1, v_ship_to_address2,
+                v_ship_to_city, v_ship_to_postal_code, v_ship_to_country, v_ship_to_location,
+                v_requested_date, v_scheduled_ship_date, v_actual_ship_date,
+                v_creation_date, v_last_update_date, v_source_line_update_date,
+                v_integration_status_code, v_integration_status, v_inv_interfaced_flag_code,
+                v_pending_quantity_flag, v_enforce_single_shipment, v_cancel_backorders,
+                v_business_unit, v_legal_entity, v_created_by_fusion, v_last_updated_by_fusion,
+                NVL(UPPER(p_instance_name), 'TEST'), SYSDATE, USER
             );
             v_count := v_count + 1;
         EXCEPTION
-            WHEN OTHERS THEN
-                -- Skip bad rows, continue
-                NULL;
+            WHEN OTHERS THEN NULL; -- skip bad rows, continue
         END;
     END LOOP;
 
