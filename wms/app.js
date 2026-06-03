@@ -8058,59 +8058,41 @@ document.addEventListener('DOMContentLoaded', function() {
             ? 'https://efmh.fa.em3.oraclecloud.com'
             : 'https://efmh-test.fa.em3.oraclecloud.com';
 
-        // Get orders from the trip grid — same approach as pickReleaseAll
-        const tabId = `trip-detail-${tripId}`;
-        let rows = [];
-
-        // Try selected rows first from the trip tab grid
-        const tabGrid = $(`#grid-${tabId}`);
-        if (tabGrid && tabGrid.length > 0) {
-            try {
-                const gridInst = tabGrid.dxDataGrid('instance');
-                if (gridInst) {
-                    const selected = gridInst.getSelectedRowsData();
-                    rows = selected && selected.length > 0
-                        ? selected
-                        : gridInst.getDataSource().items();
-                }
-            } catch(e) {}
-        }
-
-        // Fallback: dialog grid
-        if (rows.length === 0) {
-            const dialogGrid = $('#trip-dialog-grid');
-            if (dialogGrid && dialogGrid.length > 0) {
-                try {
-                    const gridInst = dialogGrid.dxDataGrid('instance');
-                    if (gridInst) {
-                        const selected = gridInst.getSelectedRowsData();
-                        rows = selected && selected.length > 0
-                            ? selected
-                            : gridInst.getDataSource().items();
-                    }
-                } catch(e) {}
-            }
-        }
-
-        // Final fallback: tripOrdersStore
-        if (rows.length === 0) {
-            rows = (window.tripOrdersStore && window.tripOrdersStore[tripId]) || [];
-        }
-
-        // Deduplicate by order number
+        // Collect ALL unique order numbers from tripOrdersStore (most reliable source)
         const seen = new Set();
         const orders = [];
-        rows.forEach(r => {
-            const on = r.SOURCE_ORDER_NUMBER || r.source_order_number || r.ORDER_NUMBER || r.order_number;
-            if (on && !seen.has(on)) { seen.add(on); orders.push({ orderNumber: on, rowData: r }); }
+
+        const storedRows = (window.tripOrdersStore && window.tripOrdersStore[tripId]) || [];
+        storedRows.forEach(r => {
+            const on = r.ORDER_NUMBER || r.order_number || r.SOURCE_ORDER_NUMBER || r.source_order_number;
+            if (on && !seen.has(String(on))) {
+                seen.add(String(on));
+                orders.push({ orderNumber: String(on), rowData: r });
+            }
         });
 
+        // Also try the DevExtreme grid to catch any newly added/loaded rows
+        try {
+            const tabId = `trip-detail-${tripId}`;
+            const gridInst = $(`#grid-${tabId}`).dxDataGrid('instance');
+            if (gridInst) {
+                const allItems = gridInst.getDataSource().items();
+                allItems.forEach(r => {
+                    const on = r.ORDER_NUMBER || r.order_number || r.SOURCE_ORDER_NUMBER || r.source_order_number;
+                    if (on && !seen.has(String(on))) {
+                        seen.add(String(on));
+                        orders.push({ orderNumber: String(on), rowData: r });
+                    }
+                });
+            }
+        } catch(e) {}
+
+        console.log('[All Shipment Lines] Found', orders.length, 'unique orders:', orders.map(o => o.orderNumber));
+
         if (orders.length === 0) {
-            showNotification('No orders found. Please open the trip details and ensure orders are loaded.', 'warning');
+            showNotification('No orders found for this trip.', 'warning');
             return;
         }
-
-        console.log('[All Shipment Lines] Fetching for', orders.length, 'orders:', orders.map(o => o.orderNumber));
 
         // Remove existing modal
         const existing = document.getElementById('all-shipment-lines-modal');
@@ -8188,6 +8170,10 @@ document.addEventListener('DOMContentLoaded', function() {
         // Fetch all orders concurrently
         window._aslAllLines = [];
         let completed = 0;
+
+        // Show order count immediately
+        const initStatus = document.getElementById('asl-fetch-status');
+        if (initStatus) initStatus.textContent = `Fetching ${orders.length} order(s): ${orders.map(o => o.orderNumber).join(', ')}`;
 
         orders.forEach(({ orderNumber, rowData }) => {
             const url = `${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}`;
