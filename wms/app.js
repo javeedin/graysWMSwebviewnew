@@ -4811,6 +4811,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
                                 <i class="fas fa-truck-loading"></i> Pick Release All
                             </button>
+                            <button class="btn" onclick="showAllShipmentLines('${tripId}', '${instanceName}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                                <i class="fas fa-truck"></i> All Shipment Lines
+                            </button>
                             <button class="btn" onclick="showTripLines('${tripId}', '${instanceName}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
                                 <i class="fas fa-list-alt"></i> Show Lines
                             </button>
@@ -8040,6 +8043,305 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // ============================================================================
+    // ============================================================================
+    // ALL SHIPMENT LINES - Fetch Fusion shipment lines for all trip orders + cancel
+    // ============================================================================
+    window.showAllShipmentLines = function(tripId, instanceName) {
+        console.log('[All Shipment Lines] Trip:', tripId, 'Instance:', instanceName);
+
+        const instance = instanceName || window.currentTripInstance || 'TEST';
+        const fusionBase = instance.toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+
+        // Collect orders from any visible trip grid for this trip
+        let orders = [];
+        document.querySelectorAll('[id^="grid-"]').forEach(container => {
+            const dxGrid = $(container).dxDataGrid('instance');
+            if (dxGrid) {
+                try {
+                    const rows = dxGrid.getDataSource().items();
+                    rows.forEach(r => {
+                        const on = r.SOURCE_ORDER_NUMBER || r.source_order_number || r.ORDER_NUMBER || r.order_number;
+                        const tid = r.TRIP_ID || r.trip_id;
+                        if (on && String(tid) === String(tripId)) orders.push({ orderNumber: on, rowData: r });
+                    });
+                } catch(e) {}
+            }
+        });
+        // Deduplicate
+        const seen = new Set();
+        orders = orders.filter(o => { if (seen.has(o.orderNumber)) return false; seen.add(o.orderNumber); return true; });
+
+        if (orders.length === 0) {
+            showNotification('No orders found for this trip. Please ensure the trip grid is loaded.', 'warning');
+            return;
+        }
+
+        // Remove existing modal
+        const existing = document.getElementById('all-shipment-lines-modal');
+        if (existing) existing.remove();
+
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="all-shipment-lines-modal" style="display:flex;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:26000;justify-content:center;align-items:center;">
+                <div style="background:white;width:97%;max-width:1500px;height:92%;border-radius:12px;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+                    <!-- Header -->
+                    <div style="padding:0.75rem 1.25rem;border-bottom:2px solid #e2e8f0;background:whitesmoke;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+                        <div style="display:flex;align-items:center;gap:0.75rem;">
+                            <h2 style="margin:0;font-size:1.05rem;color:#1e293b;font-weight:700;"><i class="fas fa-truck" style="color:#0891b2;"></i> All Shipment Lines — Trip ${tripId}</h2>
+                            <span style="background:#e0f2fe;color:#0369a1;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;">Instance: ${instance}</span>
+                            <span id="asl-record-count" style="background:#f1f5f9;color:#475569;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;"></span>
+                        </div>
+                        <button onclick="document.getElementById('all-shipment-lines-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;" onmouseover="this.style.background='#fee2e2';this.style.color='#dc2626';" onmouseout="this.style.background='none';this.style.color='#64748b';"><i class="fas fa-times"></i></button>
+                    </div>
+                    <!-- Toolbar -->
+                    <div style="padding:0.6rem 1.25rem;border-bottom:1px solid #e2e8f0;background:#f8f9fc;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;flex-wrap:wrap;">
+                        <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;user-select:none;">
+                            <input type="checkbox" id="asl-select-all" onchange="aslToggleAll(this.checked)" style="width:15px;height:15px;cursor:pointer;">
+                            <span style="font-weight:600;color:#374151;">Select All</span>
+                        </label>
+                        <span id="asl-selected-count" style="font-size:11px;color:#64748b;"></span>
+                        <button id="asl-cancel-btn" onclick="aslCancelSelected('${instance}')" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:5px;" disabled>
+                            <i class="fas fa-ban"></i> Cancel Selected Lines
+                        </button>
+                        <div id="asl-cancel-status" style="font-size:11px;"></div>
+                        <div style="margin-left:auto;font-size:11px;color:#94a3b8;" id="asl-fetch-status">Fetching shipment lines for ${orders.length} orders...</div>
+                    </div>
+                    <!-- Grid area -->
+                    <div style="flex:1;overflow:auto;padding:0.75rem 1.25rem;">
+                        <div id="asl-loading" style="padding:3rem;text-align:center;color:#64748b;">
+                            <i class="fas fa-spinner fa-spin" style="font-size:2rem;margin-bottom:1rem;color:#0891b2;"></i>
+                            <p>Loading shipment lines for ${orders.length} orders...</p>
+                        </div>
+                        <div id="asl-grid-wrapper" style="display:none;">
+                            <div style="overflow:auto;border:1px solid #e2e8f0;border-radius:8px;">
+                                <table id="asl-table" style="width:100%;border-collapse:collapse;font-size:11px;">
+                                    <thead>
+                                        <tr style="background:#f8fafc;position:sticky;top:0;z-index:1;">
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:center;width:36px;"></th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Shipment Line</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Order</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Order Line</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Src Order Line</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Fulfillment Line</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;min-width:120px;">Item</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;min-width:180px;">Description</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:right;white-space:nowrap;">Req Qty</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:right;white-space:nowrap;">Staged Qty</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:right;white-space:nowrap;">Shipped Qty</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Subinventory</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Line Status</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;min-width:150px;">Ship To Customer</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Pick Wave</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:center;white-space:nowrap;min-width:90px;">Cancel Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="asl-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        // Fetch all orders concurrently
+        window._aslAllLines = [];
+        let completed = 0;
+
+        orders.forEach(({ orderNumber, rowData }) => {
+            const url = `${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}`;
+            sendMessageToCSharp({ action: 'executeOracleFusionGet', fullUrl: url, instance: instance }, function(err, data) {
+                completed++;
+                const statusEl = document.getElementById('asl-fetch-status');
+                if (statusEl) statusEl.textContent = `Fetching... ${completed}/${orders.length} orders done`;
+
+                if (!err) {
+                    try {
+                        const resp = typeof data === 'string' ? JSON.parse(data) : data;
+                        const items = resp.items || [];
+                        items.forEach(item => {
+                            item._orderNumber = orderNumber;
+                            item._sourceOrderId = item.SourceOrderId || rowData.SOURCE_ORDER_ID || rowData.source_order_id || '';
+                            item._headerId = item.SourceOrderId || '';
+                        });
+                        window._aslAllLines.push(...items);
+                    } catch(e) {}
+                }
+
+                if (completed === orders.length) {
+                    aslRenderTable(instance);
+                }
+            });
+        });
+    };
+
+    function aslRenderTable(instance) {
+        const modal = document.getElementById('all-shipment-lines-modal');
+        if (!modal) return;
+
+        const loading = document.getElementById('asl-loading');
+        const wrapper = document.getElementById('asl-grid-wrapper');
+        const tbody   = document.getElementById('asl-tbody');
+        const countEl = document.getElementById('asl-record-count');
+        const fetchEl = document.getElementById('asl-fetch-status');
+
+        if (loading) loading.style.display = 'none';
+        if (wrapper) wrapper.style.display = 'block';
+        if (fetchEl) fetchEl.textContent = '';
+
+        const lines = (window._aslAllLines || []).sort((a, b) => {
+            if (a._orderNumber < b._orderNumber) return -1;
+            if (a._orderNumber > b._orderNumber) return 1;
+            return (a.ShipmentLine || 0) - (b.ShipmentLine || 0);
+        });
+
+        if (countEl) countEl.textContent = lines.length + ' line(s)';
+
+        if (!lines.length) {
+            if (tbody) tbody.innerHTML = '<tr><td colspan="16" style="padding:2rem;text-align:center;color:#64748b;">No shipment lines found</td></tr>';
+            return;
+        }
+
+        const statusColors = { Y: '#10b981', C: '#3b82f6', X: '#ef4444', CANCELLED: '#ef4444' };
+
+        tbody.innerHTML = lines.map((line, idx) => {
+            const color = statusColors[line.LineStatusCode] || '#64748b';
+            const fulfillLineId = line.SourceOrderFulfillmentLineId || '';
+            return `<tr id="asl-row-${idx}" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+                <td style="padding:6px;text-align:center;border-bottom:1px solid #f1f5f9;">
+                    <input type="checkbox" class="asl-checkbox" data-idx="${idx}"
+                        data-fulfill-line-id="${fulfillLineId}"
+                        data-order-number="${line._orderNumber}"
+                        data-header-id="${line._headerId}"
+                        onchange="aslUpdateSelected()"
+                        style="width:14px;height:14px;cursor:pointer;">
+                </td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;color:#1e293b;font-weight:600;">${line.ShipmentLine || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line._orderNumber}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line.OrderLine || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line.SourceOrderLine || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line.SourceOrderFulfillmentLine || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-family:monospace;">${line.Item || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(line.ItemDescription||'').replace(/"/g,'&quot;')}">${line.ItemDescription || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:right;">${line.RequestedQuantity ?? ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:right;">${line.StagedQuantity ?? ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:right;">${line.ShippedQuantity ?? ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line.SubinventoryName || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-weight:600;color:${color};">${line.LineStatus || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${line.ShipToCustomer || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-size:10px;">${line.PickWave || ''}</td>
+                <td id="asl-cancel-status-${idx}" style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:center;font-size:10px;color:#94a3b8;">—</td>
+            </tr>`;
+        }).join('');
+    }
+
+    window.aslToggleAll = function(checked) {
+        document.querySelectorAll('.asl-checkbox').forEach(cb => cb.checked = checked);
+        aslUpdateSelected();
+    };
+
+    window.aslUpdateSelected = function() {
+        const selected = document.querySelectorAll('.asl-checkbox:checked').length;
+        const countEl = document.getElementById('asl-selected-count');
+        const btn = document.getElementById('asl-cancel-btn');
+        if (countEl) countEl.textContent = selected ? `${selected} selected` : '';
+        if (btn) btn.disabled = selected === 0;
+    };
+
+    window.aslCancelSelected = async function(instance) {
+        const checked = [...document.querySelectorAll('.asl-checkbox:checked')];
+        if (!checked.length) return;
+
+        const btn = document.getElementById('asl-cancel-btn');
+        const statusEl = document.getElementById('asl-cancel-status');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...'; }
+        if (statusEl) statusEl.innerHTML = '';
+
+        const fusionBase = instance.toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+
+        // Group by order number
+        const byOrder = {};
+        checked.forEach(cb => {
+            const orderNumber = cb.getAttribute('data-order-number');
+            const fulfillLineId = cb.getAttribute('data-fulfill-line-id');
+            const headerId = cb.getAttribute('data-header-id');
+            const idx = cb.getAttribute('data-idx');
+            if (!byOrder[orderNumber]) byOrder[orderNumber] = { headerId, lines: [] };
+            if (fulfillLineId) byOrder[orderNumber].lines.push({ fulfillLineId, idx });
+        });
+
+        let successCount = 0, failCount = 0;
+
+        for (const [orderNumber, group] of Object.entries(byOrder)) {
+            const linesPayload = group.lines.map(l => ({
+                FulfillLineId: parseInt(l.fulfillLineId),
+                OrderedQuantity: 0,
+                CancelReason: 'OUT OF STOCK'
+            }));
+
+            const headerId = group.headerId;
+            const fusionUrl = (headerId && headerId !== 'undefined' && headerId !== '' && headerId !== 'null')
+                ? `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/${headerId}`
+                : `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${orderNumber}`;
+
+            // Set rows to processing
+            group.lines.forEach(l => {
+                const cell = document.getElementById(`asl-cancel-status-${l.idx}`);
+                if (cell) cell.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:#3b82f6;"></i>';
+            });
+
+            await new Promise(resolve => {
+                sendMessageToCSharp({
+                    action: 'executeOracleFusionPatch',
+                    fullUrl: fusionUrl,
+                    body: JSON.stringify({ lines: linesPayload }),
+                    instance: instance
+                }, function(err, data) {
+                    let ok = false;
+                    let errMsg = '';
+                    if (!err) {
+                        try {
+                            const resp = typeof data === 'string' ? JSON.parse(data) : data;
+                            ok = !(resp.ReturnStatus === 'Error' || resp.ErrorExplanation || resp['o:errorDetails']);
+                            errMsg = resp.ErrorExplanation || resp.detail || '';
+                        } catch(e) { ok = true; }
+                    } else {
+                        errMsg = err;
+                    }
+
+                    group.lines.forEach(l => {
+                        const cell = document.getElementById(`asl-cancel-status-${l.idx}`);
+                        if (cell) {
+                            if (ok) {
+                                cell.innerHTML = '<i class="fas fa-check-circle" style="color:#10b981;"></i> Cancelled';
+                                successCount++;
+                            } else {
+                                cell.innerHTML = `<span style="color:#ef4444;" title="${errMsg}"><i class="fas fa-times-circle"></i> Failed</span>`;
+                                failCount++;
+                            }
+                        }
+                        // Uncheck
+                        const cb = document.querySelector(`.asl-checkbox[data-idx="${l.idx}"]`);
+                        if (cb) cb.checked = false;
+                    });
+                    resolve();
+                });
+            });
+        }
+
+        if (statusEl) {
+            statusEl.innerHTML = successCount > 0
+                ? `<span style="color:#10b981;font-weight:600;"><i class="fas fa-check-circle"></i> ${successCount} line(s) cancelled</span>`
+                : '';
+            if (failCount > 0) statusEl.innerHTML += ` <span style="color:#ef4444;">${failCount} failed</span>`;
+        }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-ban"></i> Cancel Selected Lines'; }
+        aslUpdateSelected();
+    };
+
     // SHOW TRIP LINES - Displays trip line details in popup
     // ============================================================================
     window.showTripLines = function(tripId, instanceName) {
