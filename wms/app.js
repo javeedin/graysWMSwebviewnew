@@ -4574,6 +4574,10 @@ document.addEventListener('DOMContentLoaded', function() {
             priority: priorityFromCard || ''
         };
 
+        // Store trip order rows globally so All Shipment Lines can access them
+        if (!window.tripOrdersStore) window.tripOrdersStore = {};
+        window.tripOrdersStore[tripId] = tripData;
+
         // Check if tab already exists
         const existingTab = document.querySelector(`.tab-item[data-tab="${tabId}"]`);
         if (existingTab) {
@@ -4796,31 +4800,31 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div style="color: var(--gray-600); font-size: 0.7rem;">
                                 <i class="fas fa-info-circle" style="font-size: 0.65rem;"></i> Showing ${totalOrders} orders
                             </div>
-                            <button class="btn btn-info" onclick="refreshTripDetails('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <button class="btn btn-info" onclick="refreshTripDetails('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
                                 <i class="fas fa-sync-alt"></i> Refresh
                             </button>
-                            <button class="btn" onclick="openEditTripHeaderModal('${tripId}', '${tabId}')" title="Edit Trip Header" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">
+                            <button class="btn" onclick="openEditTripHeaderModal('${tripId}', '${tabId}')" title="Edit Trip Header" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">
                                 <i class="fas fa-edit"></i> Edit Trip
                             </button>
-                            <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
                                 <i class="fas fa-user-check"></i> Assign Picker
                             </button>
-                            <button class="btn btn-success" onclick="allocateLotsForS2V('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <button class="btn btn-success" onclick="allocateLotsForS2V('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
                                 <i class="fas fa-boxes"></i> Allocate Lots for S2V
                             </button>
-                            <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <button class="btn btn-warning" onclick="pickReleaseAll('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
                                 <i class="fas fa-truck-loading"></i> Pick Release All
                             </button>
-                            <button class="btn" onclick="showAllShipmentLines('${tripId}', '${instanceName}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            <button class="btn" onclick="showAllShipmentLines('${tripId}', '${instanceName}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
                                 <i class="fas fa-truck"></i> All Shipment Lines
                             </button>
-                            <button class="btn" onclick="showTripLines('${tripId}', '${instanceName}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: #8b5cf6; color: white;">
+                            <button class="btn" onclick="showTripLines('${tripId}', '${instanceName}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: #8b5cf6; color: white;">
                                 <i class="fas fa-list-alt"></i> Show Lines
                             </button>
-                            <button class="btn" onclick="getTripProfitCenters('${tripId}', '${tabId}')" id="btn-profit-centers-${tabId}" style="font-size: 0.75rem; padding: 0.4rem 0.8rem; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            <button class="btn" onclick="getTripProfitCenters('${tripId}', '${tabId}')" id="btn-profit-centers-${tabId}" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
                                 <i class="fas fa-tags"></i> Get Profit Centers
                             </button>
-                            <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.75rem; padding: 0.4rem 0.8rem;">
+                            <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
                                 <i class="fas fa-plus"></i> Add Orders
                             </button>
                         </div>
@@ -8054,27 +8058,32 @@ document.addEventListener('DOMContentLoaded', function() {
             ? 'https://efmh.fa.em3.oraclecloud.com'
             : 'https://efmh-test.fa.em3.oraclecloud.com';
 
-        // Collect orders from any visible trip grid for this trip
-        let orders = [];
-        document.querySelectorAll('[id^="grid-"]').forEach(container => {
-            const dxGrid = $(container).dxDataGrid('instance');
-            if (dxGrid) {
-                try {
-                    const rows = dxGrid.getDataSource().items();
-                    rows.forEach(r => {
-                        const on = r.SOURCE_ORDER_NUMBER || r.source_order_number || r.ORDER_NUMBER || r.order_number;
-                        const tid = r.TRIP_ID || r.trip_id;
-                        if (on && String(tid) === String(tripId)) orders.push({ orderNumber: on, rowData: r });
-                    });
-                } catch(e) {}
-            }
-        });
-        // Deduplicate
+        // Collect orders from stored trip data
+        const storedRows = (window.tripOrdersStore && window.tripOrdersStore[tripId]) || [];
         const seen = new Set();
-        orders = orders.filter(o => { if (seen.has(o.orderNumber)) return false; seen.add(o.orderNumber); return true; });
+        let orders = [];
+        storedRows.forEach(r => {
+            const on = r.SOURCE_ORDER_NUMBER || r.source_order_number || r.ORDER_NUMBER || r.order_number;
+            if (on && !seen.has(on)) { seen.add(on); orders.push({ orderNumber: on, rowData: r }); }
+        });
+
+        // Fallback: try DevExtreme grids
+        if (orders.length === 0) {
+            document.querySelectorAll('[id^="grid-"]').forEach(container => {
+                try {
+                    const dxGrid = $(container).dxDataGrid('instance');
+                    if (dxGrid) {
+                        dxGrid.getDataSource().items().forEach(r => {
+                            const on = r.SOURCE_ORDER_NUMBER || r.source_order_number || r.ORDER_NUMBER || r.order_number;
+                            if (on && !seen.has(on)) { seen.add(on); orders.push({ orderNumber: on, rowData: r }); }
+                        });
+                    }
+                } catch(e) {}
+            });
+        }
 
         if (orders.length === 0) {
-            showNotification('No orders found for this trip. Please ensure the trip grid is loaded.', 'warning');
+            showNotification('No orders found for this trip. Please open the trip details first.', 'warning');
             return;
         }
 
