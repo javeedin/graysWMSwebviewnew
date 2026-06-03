@@ -8122,9 +8122,12 @@ document.addEventListener('DOMContentLoaded', function() {
                         </button>
                         <div id="asl-cancel-status" style="font-size:11px;"></div>
                         <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+                            <select id="asl-order-filter" onchange="aslFilterRows()" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;outline:none;color:#374151;max-width:180px;" onfocus="this.style.borderColor='#0891b2'" onblur="this.style.borderColor='#e2e8f0'">
+                                <option value="">All Orders</option>
+                            </select>
                             <div style="position:relative;">
                                 <i class="fas fa-search" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:11px;pointer-events:none;"></i>
-                                <input type="text" id="asl-search" oninput="aslFilterRows(this.value)" placeholder="Search orders, items, status..." style="padding:5px 8px 5px 26px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;width:220px;outline:none;" onfocus="this.style.borderColor='#0891b2'" onblur="this.style.borderColor='#e2e8f0'">
+                                <input type="text" id="asl-search" oninput="aslFilterRows()" placeholder="Search items, status..." style="padding:5px 8px 5px 26px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;width:200px;outline:none;" onfocus="this.style.borderColor='#0891b2'" onblur="this.style.borderColor='#e2e8f0'">
                             </div>
                             <span id="asl-fetch-status" style="font-size:11px;color:#94a3b8;"></span>
                         </div>
@@ -8219,13 +8222,20 @@ document.addEventListener('DOMContentLoaded', function() {
         const lines = (window._aslAllLines || []).sort((a, b) => {
             if (a._orderNumber < b._orderNumber) return -1;
             if (a._orderNumber > b._orderNumber) return 1;
-            // Sort by OrderLine numerically (e.g. "1.1" < "2.1")
             const parseOL = s => (s || '').split('.').map(Number);
             const [a0 = 0, a1 = 0] = parseOL(a.OrderLine);
             const [b0 = 0, b1 = 0] = parseOL(b.OrderLine);
             if (a0 !== b0) return a0 - b0;
             return a1 - b1;
         });
+
+        // Populate order number dropdown
+        const orderSelect = document.getElementById('asl-order-filter');
+        if (orderSelect) {
+            const uniqueOrders = [...new Set(lines.map(l => l._orderNumber))].sort();
+            orderSelect.innerHTML = '<option value="">All Orders</option>' +
+                uniqueOrders.map(o => `<option value="${o}">${o}</option>`).join('');
+        }
 
         if (countEl) countEl.textContent = lines.length + ' line(s)';
 
@@ -8239,7 +8249,7 @@ document.addEventListener('DOMContentLoaded', function() {
         tbody.innerHTML = lines.map((line, idx) => {
             const color = statusColors[line.LineStatusCode] || '#64748b';
             const fulfillLineId = line.SourceOrderFulfillmentLineId || '';
-            return `<tr id="asl-row-${idx}" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+            return `<tr id="asl-row-${idx}" data-order="${line._orderNumber}" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
                 <td style="padding:6px;text-align:center;border-bottom:1px solid #f1f5f9;">
                     <input type="checkbox" class="asl-checkbox" data-idx="${idx}"
                         data-fulfill-line-id="${fulfillLineId}"
@@ -8280,20 +8290,23 @@ document.addEventListener('DOMContentLoaded', function() {
         if (btn) btn.disabled = selected === 0;
     };
 
-    window.aslFilterRows = function(query) {
-        const q = (query || '').toLowerCase().trim();
+    window.aslFilterRows = function() {
+        const q = (document.getElementById('asl-search')?.value || '').toLowerCase().trim();
+        const orderFilter = document.getElementById('asl-order-filter')?.value || '';
         const rows = document.querySelectorAll('#asl-tbody tr');
         let visible = 0;
         rows.forEach(row => {
             const text = row.textContent.toLowerCase();
-            const show = !q || text.includes(q);
+            const orderMatch = !orderFilter || row.getAttribute('data-order') === orderFilter;
+            const searchMatch = !q || text.includes(q);
+            const show = orderMatch && searchMatch;
             row.style.display = show ? '' : 'none';
             if (show) visible++;
         });
         const countEl = document.getElementById('asl-record-count');
         if (countEl) {
             const total = (window._aslAllLines || []).length;
-            countEl.textContent = q ? `${visible} / ${total} line(s)` : `${total} line(s)`;
+            countEl.textContent = (q || orderFilter) ? `${visible} / ${total} line(s)` : `${total} line(s)`;
         }
     };
 
