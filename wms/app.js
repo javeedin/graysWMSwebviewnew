@@ -8114,7 +8114,13 @@ document.addEventListener('DOMContentLoaded', function() {
                             <i class="fas fa-ban"></i> Cancel Selected Lines
                         </button>
                         <div id="asl-cancel-status" style="font-size:11px;"></div>
-                        <div style="margin-left:auto;font-size:11px;color:#94a3b8;" id="asl-fetch-status">Fetching shipment lines for ${orders.length} orders...</div>
+                        <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+                            <div style="position:relative;">
+                                <i class="fas fa-search" style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:11px;pointer-events:none;"></i>
+                                <input type="text" id="asl-search" oninput="aslFilterRows(this.value)" placeholder="Search orders, items, status..." style="padding:5px 8px 5px 26px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;width:220px;outline:none;" onfocus="this.style.borderColor='#0891b2'" onblur="this.style.borderColor='#e2e8f0'">
+                            </div>
+                            <span id="asl-fetch-status" style="font-size:11px;color:#94a3b8;"></span>
+                        </div>
                     </div>
                     <!-- Grid area -->
                     <div style="flex:1;overflow:auto;padding:0.75rem 1.25rem;">
@@ -8202,7 +8208,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const lines = (window._aslAllLines || []).sort((a, b) => {
             if (a._orderNumber < b._orderNumber) return -1;
             if (a._orderNumber > b._orderNumber) return 1;
-            return (a.ShipmentLine || 0) - (b.ShipmentLine || 0);
+            // Sort by OrderLine numerically (e.g. "1.1" < "2.1")
+            const parseOL = s => (s || '').split('.').map(Number);
+            const [a0 = 0, a1 = 0] = parseOL(a.OrderLine);
+            const [b0 = 0, b1 = 0] = parseOL(b.OrderLine);
+            if (a0 !== b0) return a0 - b0;
+            return a1 - b1;
         });
 
         if (countEl) countEl.textContent = lines.length + ' line(s)';
@@ -8256,6 +8267,23 @@ document.addEventListener('DOMContentLoaded', function() {
         const btn = document.getElementById('asl-cancel-btn');
         if (countEl) countEl.textContent = selected ? `${selected} selected` : '';
         if (btn) btn.disabled = selected === 0;
+    };
+
+    window.aslFilterRows = function(query) {
+        const q = (query || '').toLowerCase().trim();
+        const rows = document.querySelectorAll('#asl-tbody tr');
+        let visible = 0;
+        rows.forEach(row => {
+            const text = row.textContent.toLowerCase();
+            const show = !q || text.includes(q);
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        const countEl = document.getElementById('asl-record-count');
+        if (countEl) {
+            const total = (window._aslAllLines || []).length;
+            countEl.textContent = q ? `${visible} / ${total} line(s)` : `${total} line(s)`;
+        }
     };
 
     window.aslCancelSelected = async function(instance) {
