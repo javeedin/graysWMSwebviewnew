@@ -11433,7 +11433,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
             try {
                 const response = typeof data === 'string' ? JSON.parse(data) : data;
-                const items = (response.items || []).sort((a, b) => (a.ShipmentLine || 0) - (b.ShipmentLine || 0));
+
+                // Sort by OrderLine numerically (e.g. 1.1, 1.2, 2.1)
+                const parseOL = s => (s || '').split('.').map(Number);
+                const items = (response.items || []).sort((a, b) => {
+                    const [a0 = 0, a1 = 0] = parseOL(a.OrderLine);
+                    const [b0 = 0, b1 = 0] = parseOL(b.OrderLine);
+                    return a0 !== b0 ? a0 - b0 : a1 - b1;
+                });
 
                 if (!items.length) {
                     if (gridContainer) {
@@ -11485,11 +11492,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 if (gridContainer) {
                     gridContainer.innerHTML = `
-                        <div style="margin-bottom: 0.5rem; font-size: 0.8rem; color: #64748b;">${items.length} record(s) found</div>
-                        <div style="overflow: auto; height: calc(100% - 2rem); border: 1px solid #e2e8f0; border-radius: 6px;">
-                            <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                        <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.5rem;">
+                            <span id="fsl-count" style="font-size:0.8rem; color:#64748b;">${items.length} record(s)</span>
+                            <div style="position:relative; margin-left:auto;">
+                                <i class="fas fa-search" style="position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:11px;pointer-events:none;"></i>
+                                <input type="text" id="fsl-search" placeholder="Search item, status, line..." oninput="fslFilterRows(this.value, ${items.length})"
+                                    style="padding:4px 8px 4px 24px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;width:220px;outline:none;"
+                                    onfocus="this.style.borderColor='#667eea'" onblur="this.style.borderColor='#e2e8f0'">
+                            </div>
+                        </div>
+                        <div style="overflow:auto; height:calc(100% - 2.5rem); border:1px solid #e2e8f0; border-radius:6px;">
+                            <table id="fsl-table" style="width:100%; border-collapse:collapse; font-size:0.8rem;">
                                 <thead><tr>${headerHtml}</tr></thead>
-                                <tbody>${rowsHtml}</tbody>
+                                <tbody id="fsl-tbody">${rowsHtml}</tbody>
                             </table>
                         </div>`;
                 }
@@ -11500,6 +11515,19 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             }
         });
+    };
+
+    window.fslFilterRows = function(query, total) {
+        const q = (query || '').toLowerCase().trim();
+        const rows = document.querySelectorAll('#fsl-tbody tr');
+        let visible = 0;
+        rows.forEach(row => {
+            const show = !q || row.textContent.toLowerCase().includes(q);
+            row.style.display = show ? '' : 'none';
+            if (show) visible++;
+        });
+        const countEl = document.getElementById('fsl-count');
+        if (countEl) countEl.textContent = q ? `${visible} / ${total} record(s)` : `${total} record(s)`;
     };
 
     window.refreshPickConfirmResponses = function(orderNumber) {
