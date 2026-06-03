@@ -8149,6 +8149,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Order Line</th>
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Src Order Line</th>
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Fulfillment Line</th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Fulfillment Line ID</th>
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;min-width:120px;">Item</th>
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;min-width:180px;">Description</th>
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:right;white-space:nowrap;">Req Qty</th>
@@ -8263,6 +8264,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line.OrderLine || ''}</td>
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line.SourceOrderLine || ''}</td>
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line.SourceOrderFulfillmentLine || ''}</td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-family:monospace;">${line.SourceOrderFulfillmentLineId || ''}</td>
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;font-family:monospace;">${line.Item || ''}</td>
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(line.ItemDescription||'').replace(/"/g,'&quot;')}">${line.ItemDescription || ''}</td>
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:right;">${line.RequestedQuantity ?? ''}</td>
@@ -11468,6 +11470,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     { field: 'OrderLine', label: 'Order Line', width: '90px' },
                     { field: 'SourceOrderLine', label: 'Src Order Line', width: '110px' },
                     { field: 'SourceOrderFulfillmentLine', label: 'Fulfillment Line', width: '120px' },
+                    { field: 'SourceOrderFulfillmentLineId', label: 'Fulfillment Line ID', width: '150px' },
                     { field: 'Item', label: 'Item', width: '140px' },
                     { field: 'ItemDescription', label: 'Item Description', width: '200px' },
                     { field: 'RequestedQuantity', label: 'Req Qty', width: '80px' },
