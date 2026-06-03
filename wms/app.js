@@ -8058,34 +8058,59 @@ document.addEventListener('DOMContentLoaded', function() {
             ? 'https://efmh.fa.em3.oraclecloud.com'
             : 'https://efmh-test.fa.em3.oraclecloud.com';
 
-        // Collect orders from stored trip data
-        const storedRows = (window.tripOrdersStore && window.tripOrdersStore[tripId]) || [];
+        // Get orders from the trip grid — same approach as pickReleaseAll
+        const tabId = `trip-detail-${tripId}`;
+        let rows = [];
+
+        // Try selected rows first from the trip tab grid
+        const tabGrid = $(`#grid-${tabId}`);
+        if (tabGrid && tabGrid.length > 0) {
+            try {
+                const gridInst = tabGrid.dxDataGrid('instance');
+                if (gridInst) {
+                    const selected = gridInst.getSelectedRowsData();
+                    rows = selected && selected.length > 0
+                        ? selected
+                        : gridInst.getDataSource().items();
+                }
+            } catch(e) {}
+        }
+
+        // Fallback: dialog grid
+        if (rows.length === 0) {
+            const dialogGrid = $('#trip-dialog-grid');
+            if (dialogGrid && dialogGrid.length > 0) {
+                try {
+                    const gridInst = dialogGrid.dxDataGrid('instance');
+                    if (gridInst) {
+                        const selected = gridInst.getSelectedRowsData();
+                        rows = selected && selected.length > 0
+                            ? selected
+                            : gridInst.getDataSource().items();
+                    }
+                } catch(e) {}
+            }
+        }
+
+        // Final fallback: tripOrdersStore
+        if (rows.length === 0) {
+            rows = (window.tripOrdersStore && window.tripOrdersStore[tripId]) || [];
+        }
+
+        // Deduplicate by order number
         const seen = new Set();
-        let orders = [];
-        storedRows.forEach(r => {
+        const orders = [];
+        rows.forEach(r => {
             const on = r.SOURCE_ORDER_NUMBER || r.source_order_number || r.ORDER_NUMBER || r.order_number;
             if (on && !seen.has(on)) { seen.add(on); orders.push({ orderNumber: on, rowData: r }); }
         });
 
-        // Fallback: try DevExtreme grids
         if (orders.length === 0) {
-            document.querySelectorAll('[id^="grid-"]').forEach(container => {
-                try {
-                    const dxGrid = $(container).dxDataGrid('instance');
-                    if (dxGrid) {
-                        dxGrid.getDataSource().items().forEach(r => {
-                            const on = r.SOURCE_ORDER_NUMBER || r.source_order_number || r.ORDER_NUMBER || r.order_number;
-                            if (on && !seen.has(on)) { seen.add(on); orders.push({ orderNumber: on, rowData: r }); }
-                        });
-                    }
-                } catch(e) {}
-            });
-        }
-
-        if (orders.length === 0) {
-            showNotification('No orders found for this trip. Please open the trip details first.', 'warning');
+            showNotification('No orders found. Please open the trip details and ensure orders are loaded.', 'warning');
             return;
         }
+
+        console.log('[All Shipment Lines] Fetching for', orders.length, 'orders:', orders.map(o => o.orderNumber));
 
         // Remove existing modal
         const existing = document.getElementById('all-shipment-lines-modal');
