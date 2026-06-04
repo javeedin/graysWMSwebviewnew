@@ -8279,6 +8279,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 <td id="asl-cancel-status-${idx}" style="padding:6px;border-bottom:1px solid #f1f5f9;text-align:center;font-size:10px;color:#94a3b8;">—</td>
             </tr>`;
         }).join('');
+
+        aslFilterRows();
     }
 
     window.aslToggleAll = function(checked) {
@@ -8319,21 +8321,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         const statusBar = document.getElementById('asl-status-counts');
         if (statusBar) {
-            if (orderFilter || q) {
-                const statusColors = {
-                    'Staged': '#0891b2', 'Confirmed': '#16a34a', 'Cancelled': '#dc2626',
-                    'Shipped': '#7c3aed', 'Backordered': '#d97706', 'Pending': '#64748b'
-                };
-                const chips = Object.entries(statusCounts).sort((a,b) => b[1]-a[1]).map(([s, c]) => {
-                    const col = statusColors[s] || '#374151';
-                    return `<span style="background:${col}18;color:${col};border:1px solid ${col}44;padding:2px 8px;border-radius:12px;font-weight:600;white-space:nowrap;">${s}: ${c}</span>`;
-                }).join('');
-                statusBar.style.display = 'flex';
-                statusBar.innerHTML = `<span style="font-weight:600;color:#1e293b;margin-right:2px;">Total: ${visible}</span><span style="color:#cbd5e1;margin-right:4px;">|</span>${chips}`;
-            } else {
-                statusBar.style.display = 'none';
-                statusBar.innerHTML = '';
-            }
+            const statusColors = {
+                'Staged': '#0891b2', 'Confirmed': '#16a34a', 'Cancelled': '#dc2626',
+                'Shipped': '#7c3aed', 'Backordered': '#d97706', 'Pending': '#64748b'
+            };
+            const chips = Object.entries(statusCounts).sort((a,b) => b[1]-a[1]).map(([s, c]) => {
+                const col = statusColors[s] || '#374151';
+                return `<span style="background:${col}18;color:${col};border:1px solid ${col}44;padding:2px 8px;border-radius:12px;font-weight:600;white-space:nowrap;">${s}: ${c}</span>`;
+            }).join('');
+            statusBar.style.display = 'flex';
+            statusBar.innerHTML = `<span style="font-weight:600;color:#1e293b;margin-right:2px;">Total: ${visible}</span><span style="color:#cbd5e1;margin-right:4px;">|</span>${chips}`;
         }
     };
 
