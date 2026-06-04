@@ -7362,7 +7362,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const fusionBaseUrl = instance.toUpperCase() === 'PROD'
             ? 'https://efmh.fa.em3.oraclecloud.com'
             : 'https://efmh-test.fa.em3.oraclecloud.com';
-        const fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}`;
+        const fusionUrl = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}&limit=500`;
 
         console.log(`[Shipment Lines] Fetching from Fusion for order ${orderNumber}:`, fusionUrl);
 
@@ -8180,7 +8180,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (initStatus) initStatus.textContent = `Fetching ${orders.length} order(s): ${orders.map(o => o.orderNumber).join(', ')}`;
 
         orders.forEach(({ orderNumber, rowData }) => {
-            const url = `${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}`;
+            const url = `${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}&limit=500`;
             sendMessageToCSharp({ action: 'executeOracleFusionGet', fullUrl: url, instance: instance }, function(err, data) {
                 completed++;
                 const statusEl = document.getElementById('asl-fetch-status');
@@ -11420,7 +11420,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const fusionBaseUrl = instance.toUpperCase() === 'PROD'
             ? 'https://efmh.fa.em3.oraclecloud.com'
             : 'https://efmh-test.fa.em3.oraclecloud.com';
-        const url = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}`;
+        const url = `${fusionBaseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${orderNumber}&limit=500`;
 
         console.log('[Fusion Shipment Lines] URL:', url);
 
