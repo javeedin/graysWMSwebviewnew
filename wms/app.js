@@ -8132,6 +8132,8 @@ document.addEventListener('DOMContentLoaded', function() {
                             <span id="asl-fetch-status" style="font-size:11px;color:#94a3b8;"></span>
                         </div>
                     </div>
+                    <!-- Status counts bar -->
+                    <div id="asl-status-counts" style="display:none;padding:6px 1.25rem;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#475569;display:flex;flex-wrap:wrap;gap:6px;align-items:center;"></div>
                     <!-- Grid area -->
                     <div style="flex:1;overflow:auto;padding:0.75rem 1.25rem;">
                         <div id="asl-loading" style="padding:3rem;text-align:center;color:#64748b;">
@@ -8250,7 +8252,7 @@ document.addEventListener('DOMContentLoaded', function() {
         tbody.innerHTML = lines.map((line, idx) => {
             const color = statusColors[line.LineStatusCode] || '#64748b';
             const fulfillLineId = line.SourceOrderFulfillmentLineId || '';
-            return `<tr id="asl-row-${idx}" data-order="${line._orderNumber}" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
+            return `<tr id="asl-row-${idx}" data-order="${line._orderNumber}" data-status="${line.LineStatus || 'Unknown'}" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
                 <td style="padding:6px;text-align:center;border-bottom:1px solid #f1f5f9;">
                     <input type="checkbox" class="asl-checkbox" data-idx="${idx}"
                         data-fulfill-line-id="${fulfillLineId}"
@@ -8297,18 +8299,41 @@ document.addEventListener('DOMContentLoaded', function() {
         const orderFilter = document.getElementById('asl-order-filter')?.value || '';
         const rows = document.querySelectorAll('#asl-tbody tr');
         let visible = 0;
+        const statusCounts = {};
         rows.forEach(row => {
             const text = row.textContent.toLowerCase();
             const orderMatch = !orderFilter || row.getAttribute('data-order') === orderFilter;
             const searchMatch = !q || text.includes(q);
             const show = orderMatch && searchMatch;
             row.style.display = show ? '' : 'none';
-            if (show) visible++;
+            if (show) {
+                visible++;
+                const status = row.getAttribute('data-status') || 'Unknown';
+                statusCounts[status] = (statusCounts[status] || 0) + 1;
+            }
         });
         const countEl = document.getElementById('asl-record-count');
         if (countEl) {
             const total = (window._aslAllLines || []).length;
             countEl.textContent = (q || orderFilter) ? `${visible} / ${total} line(s)` : `${total} line(s)`;
+        }
+        const statusBar = document.getElementById('asl-status-counts');
+        if (statusBar) {
+            if (orderFilter || q) {
+                const statusColors = {
+                    'Staged': '#0891b2', 'Confirmed': '#16a34a', 'Cancelled': '#dc2626',
+                    'Shipped': '#7c3aed', 'Backordered': '#d97706', 'Pending': '#64748b'
+                };
+                const chips = Object.entries(statusCounts).sort((a,b) => b[1]-a[1]).map(([s, c]) => {
+                    const col = statusColors[s] || '#374151';
+                    return `<span style="background:${col}18;color:${col};border:1px solid ${col}44;padding:2px 8px;border-radius:12px;font-weight:600;white-space:nowrap;">${s}: ${c}</span>`;
+                }).join('');
+                statusBar.style.display = 'flex';
+                statusBar.innerHTML = `<span style="font-weight:600;color:#1e293b;margin-right:2px;">Total: ${visible}</span><span style="color:#cbd5e1;margin-right:4px;">|</span>${chips}`;
+            } else {
+                statusBar.style.display = 'none';
+                statusBar.innerHTML = '';
+            }
         }
     };
 
