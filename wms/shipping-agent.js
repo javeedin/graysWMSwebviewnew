@@ -443,6 +443,7 @@
                         </div>
                         <div style="display:flex;gap:0.4rem;align-items:center;">
                             <span style="background:${st.bg};color:${st.color};padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700;">${t.STATUS}</span>
+                            <button onclick="saShowTripOrdersApiInfo('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#1e293b;color:#94a3b8;border:none;padding:3px 7px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show API calls for this trip"><i class="fas fa-code"></i></button>
                             <button onclick="saLoadTripOrders('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#0891b2;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Load order details">
                                 <i class="fas fa-list"></i> Orders
                             </button>
@@ -474,6 +475,68 @@
             list.innerHTML = `<div style="padding:1rem;color:#dc2626;font-size:12px;">${e.message}</div>`;
         }
     }
+
+    window.saShowTripOrdersApiInfo = function(tripId, instanceName) {
+        const agent  = window._saCurrentAgent;
+        const agentId = agent ? agent.ID : '{agentId}';
+        const inst   = instanceName || 'PROD';
+
+        const url1 = `${WMS_BASE}/GETTRIPDETAILS/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${inst}`;
+        const url2 = `${APEX_BASE}/agents/${agentId}/trips/${encodeURIComponent(tripId)}/orders?P_INSTANCE_NAME=${inst}`;
+
+        saShowApiInfo('GET', url1, null, 'Step 1 — Primary: GETTRIPDETAILS (all trip orders)');
+        // Show both in a combined popup
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) {
+            existing.remove();
+        }
+        const pop = document.createElement('div');
+        pop.id = 'sa-api-popup';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:580px;max-height:85vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#7c3aed;"><i class="fas fa-code"></i> Trip Orders — API Calls (Trip ${esc(tripId)})</span>
+                <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:1rem;">
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Step 1 — Primary source: all orders on this trip
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.7rem;">
+                        <div style="color:#38bdf8;word-break:break-all;">${esc(url1)}</div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.3rem;">
+                        Module: <strong>WAREHOUSEMANAGEMENT</strong> · Endpoint: <strong>GETTRIPDETAILS/{tripId}</strong><br>
+                        Returns all order lines for the trip. Deduplicated by ORDER_NUMBER in JS. Always available.
+                    </div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Step 2 — Enrichment: shipment line details (optional)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.7rem;">
+                        <div style="color:#38bdf8;word-break:break-all;">${esc(url2)}</div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.3rem;">
+                        Module: <strong>TRIPMANAGEMENT</strong> · Endpoint: <strong>agents/:agentId/trips/:tripId/orders</strong><br>
+                        Provides line breakdown (Staged/Shipped/etc), qty totals, print job counts & shipping status.<br>
+                        Sourced from <code>wms_order_shipment_lines</code>. Only available after <strong>Fetch Picks</strong> is run.
+                    </div>
+                </div>
+
+                <div style="background:#1e293b;border-radius:6px;padding:0.5rem 0.7rem;font-size:9px;color:#94a3b8;">
+                    <i class="fas fa-info-circle" style="color:#7c3aed;"></i>
+                    All calls go via <strong>C# RestApiClient</strong> (sendMessageToCSharp → executeGet).<br>
+                    Check the browser console for <code>[ShippingAgent] GET ...</code> logs with live URLs and responses.
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
+    };
 
     function saTripStatCell(label, value, color, icon) {
         return `<div style="padding:0.5rem 0.3rem;text-align:center;border-right:1px solid #f1f5f9;">
