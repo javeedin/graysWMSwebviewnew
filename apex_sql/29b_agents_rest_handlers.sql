@@ -80,7 +80,7 @@ END;
 -- Source Type:   SQL Query
 -- ============================================================
 SELECT
-    c.id                        AS agent_id,
+    c.id                        AS id,
     c.name,
     c.description,
     c.instance_name,
@@ -105,12 +105,21 @@ SELECT
     NVL(p.errors_total,       0) AS errors_total,
     p.first_activity_time,
     p.last_activity_time,
-    NVL(p.active_duration_seconds, 0) AS active_duration_seconds
+    NVL(p.active_duration_seconds, 0) AS active_duration_seconds,
+    -- Active trip count subquery
+    (SELECT COUNT(*) FROM wms_agents_trips t
+     WHERE t.agent_id = c.id AND t.status IN ('PENDING','ACTIVE')) AS trip_count,
+    -- Actions today
+    NVL(p.status_checks, 0) + NVL(p.prints_triggered, 0) + NVL(p.pick_releases, 0)
+        + NVL(p.notifications_sent, 0) AS actions_today,
+    NVL(p.anomalies_flagged, 0) AS anomalies_today
 FROM wms_agents_config c
 LEFT JOIN wms_agents_performance p
        ON p.agent_id  = c.id
       AND p.perf_date = TRUNC(SYSDATE)
-ORDER BY c.id ASC
+WHERE (:FROM_DATE IS NULL OR TRUNC(c.created_date) >= TO_DATE(:FROM_DATE, 'YYYY-MM-DD'))
+  AND (:TO_DATE   IS NULL OR TRUNC(c.created_date) <= TO_DATE(:TO_DATE,   'YYYY-MM-DD'))
+ORDER BY c.id DESC
 
 
 -- ============================================================

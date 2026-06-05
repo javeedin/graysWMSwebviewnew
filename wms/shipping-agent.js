@@ -148,6 +148,12 @@
 
     // ─── Page initialisation ────────────────────────────────
     window.saInitPage = async function() {
+        // Default date filter: today only
+        const today = new Date().toISOString().slice(0, 10);
+        const fromEl = document.getElementById('sa-from-date');
+        const toEl   = document.getElementById('sa-to-date');
+        if (fromEl && !fromEl.value) fromEl.value = today;
+        if (toEl   && !toEl.value)   toEl.value   = today;
         try {
             await saRefreshDashboard();
         } catch(e) {
@@ -155,20 +161,48 @@
         }
     };
 
+    // Build the agents/list query string from date inputs
+    function saListQueryString() {
+        const from = document.getElementById('sa-from-date')?.value || '';
+        const to   = document.getElementById('sa-to-date')?.value   || '';
+        const parts = [];
+        if (from) parts.push(`FROM_DATE=${encodeURIComponent(from)}`);
+        if (to)   parts.push(`TO_DATE=${encodeURIComponent(to)}`);
+        return parts.length ? `agents/list?${parts.join('&')}` : 'agents/list';
+    }
+
     // ─── Dashboard ──────────────────────────────────────────
     window.saRefreshDashboard = async function() {
         const icon = document.getElementById('sa-refresh-icon');
         if (icon) icon.classList.add('fa-spin');
-        const listUrl = `${APEX_BASE}/agents/list`;
+        const path = saListQueryString();
         try {
-            const data = await apexGet('agents/list');
-            const agents = data.items || [];
+            const data = await apexGet(path);
+            // Normalise: APEX may return column names in any case; map to uppercase keys
+            const agents = (data.items || []).map(a => ({
+                ID:                   a.ID   || a.id   || a.AGENT_ID || a.agent_id,
+                NAME:                 a.NAME || a.name,
+                DESCRIPTION:          a.DESCRIPTION  || a.description  || '',
+                INSTANCE_NAME:        a.INSTANCE_NAME || a.instance_name || '',
+                CAPABILITIES:         a.CAPABILITIES  || a.capabilities  || '',
+                STATUS:               a.STATUS || a.status || 'IDLE',
+                CHECK_INTERVAL_SECONDS: a.CHECK_INTERVAL_SECONDS || a.check_interval_seconds || 60,
+                MAX_RETRIES:          a.MAX_RETRIES   || a.max_retries   || 3,
+                CREATED_BY:           a.CREATED_BY    || a.created_by    || '',
+                CREATED_DATE:         a.CREATED_DATE  || a.created_date,
+                LAST_ACTIVE_DATE:     a.LAST_ACTIVE_DATE || a.last_active_date,
+                TOTAL_TRIPS_PROCESSED: a.TOTAL_TRIPS_PROCESSED || a.total_trips_processed || 0,
+                TOTAL_ACTIONS_TAKEN:  a.TOTAL_ACTIONS_TAKEN || a.total_actions_taken || 0,
+                TRIP_COUNT:           a.TRIP_COUNT    || a.trip_count    || 0,
+                ACTIONS_TODAY:        a.ACTIONS_TODAY || a.actions_today || 0,
+                ANOMALIES_TODAY:      a.ANOMALIES_TODAY || a.anomalies_today || 0
+            }));
             window._saAgents = agents;
             saRenderCards(agents);
             saUpdateStats(agents);
         } catch(e) {
             console.error('[ShippingAgent] Refresh error:', e);
-            showNotification(`Failed to load agents: ${e.message} | URL: ${listUrl}`, 'error');
+            showNotification(`Failed to load agents: ${e.message} | URL: ${APEX_BASE}/${path}`, 'error');
         } finally {
             if (icon) icon.classList.remove('fa-spin');
         }
@@ -176,7 +210,11 @@
 
     // Called from the API icon on the page header
     window.saShowPageApiInfo = function() {
-        saShowApiInfo('GET', `${APEX_BASE}/agents/list`, null);
+        const path = saListQueryString();
+        const from = document.getElementById('sa-from-date')?.value || '(all)';
+        const to   = document.getElementById('sa-to-date')?.value   || '(all)';
+        saShowApiInfo('GET', `${APEX_BASE}/${path}`,
+            { note: 'Query parameters', FROM_DATE: from, TO_DATE: to });
     };
 
     function saUpdateStats(agents) {
