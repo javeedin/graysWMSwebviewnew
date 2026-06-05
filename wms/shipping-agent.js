@@ -47,8 +47,16 @@
     function apexGet(path) {
         return new Promise((resolve, reject) => {
             const url = `${APEX_BASE}/${path}`;
+            console.log('[ShippingAgent] GET', url);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
             sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(err, data) {
-                if (err) return reject(new Error(err));
+                if (err) {
+                    console.error('[ShippingAgent] GET error', url, err);
+                    return reject(new Error(String(err)));
+                }
+                console.log('[ShippingAgent] GET response', url, data);
                 try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
                 catch(e) { resolve(data); }
             });
@@ -57,9 +65,18 @@
 
     function apexPost(path, body) {
         return new Promise((resolve, reject) => {
-            const url = `${APEX_BASE}/${path}`;
-            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: JSON.stringify(body) }, function(err, data) {
-                if (err) return reject(new Error(err));
+            const url     = `${APEX_BASE}/${path}`;
+            const bodyStr = JSON.stringify(body);
+            console.log('[ShippingAgent] POST', url, bodyStr);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
+            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: bodyStr }, function(err, data) {
+                if (err) {
+                    console.error('[ShippingAgent] POST error', url, err);
+                    return reject(new Error(String(err)));
+                }
+                console.log('[ShippingAgent] POST response', url, data);
                 try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
                 catch(e) { resolve(data); }
             });
@@ -68,9 +85,17 @@
 
     function apexPut(path, body) {
         return new Promise((resolve, reject) => {
-            const url = `${APEX_BASE}/${path}`;
-            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: JSON.stringify(body), method: 'PUT' }, function(err, data) {
-                if (err) return reject(new Error(err));
+            const url     = `${APEX_BASE}/${path}`;
+            const bodyStr = JSON.stringify(body);
+            console.log('[ShippingAgent] PUT', url, bodyStr);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
+            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: bodyStr, method: 'PUT' }, function(err, data) {
+                if (err) {
+                    console.error('[ShippingAgent] PUT error', url, err);
+                    return reject(new Error(String(err)));
+                }
                 try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
                 catch(e) { resolve(data); }
             });
@@ -80,13 +105,46 @@
     function apexDelete(path) {
         return new Promise((resolve, reject) => {
             const url = `${APEX_BASE}/${path}`;
+            console.log('[ShippingAgent] DELETE', url);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
             sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: '{}', method: 'DELETE' }, function(err, data) {
-                if (err) return reject(new Error(err));
+                if (err) {
+                    console.error('[ShippingAgent] DELETE error', url, err);
+                    return reject(new Error(String(err)));
+                }
                 try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
                 catch(e) { resolve(data); }
             });
         });
     }
+
+    // Show API info popup (used by page header and create modal)
+    window.saShowApiInfo = function(method, url, bodyObj) {
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+        const bodyHtml = bodyObj
+            ? `<div style="margin-top:0.75rem;"><div style="color:#94a3b8;font-size:10px;font-weight:700;margin-bottom:4px;">REQUEST BODY</div>
+               <pre style="margin:0;color:#86efac;font-family:monospace;font-size:11px;white-space:pre-wrap;max-height:200px;overflow-y:auto;">${esc(JSON.stringify(bodyObj, null, 2))}</pre></div>`
+            : '';
+        const methodColor = method === 'GET' ? '#0891b2' : method === 'POST' ? '#059669' : method === 'PUT' ? '#d97706' : '#dc2626';
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="sa-api-popup" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:#0f172a;border-radius:12px;padding:1.5rem;width:560px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.5);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                    <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-code" style="color:#667eea;margin-right:6px;"></i>API Call Details</span>
+                    <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#64748b;font-size:1.3rem;cursor:pointer;">&times;</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.5rem;">
+                    <span style="background:${methodColor};color:white;padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;">${method}</span>
+                    <span style="color:#60a5fa;font-size:11px;word-break:break-all;font-family:monospace;">${esc(url)}</span>
+                </div>
+                <div style="color:#94a3b8;font-size:10px;margin-bottom:0.5rem;">Content-Type: application/json &nbsp;·&nbsp; Via: C# RestApiClient (executePost / executeGet)</div>
+                ${bodyHtml}
+            </div>
+        </div>`);
+    };
 
     // ─── Page initialisation ────────────────────────────────
     window.saInitPage = async function() {
@@ -100,7 +158,8 @@
     // ─── Dashboard ──────────────────────────────────────────
     window.saRefreshDashboard = async function() {
         const icon = document.getElementById('sa-refresh-icon');
-        if (icon) { icon.classList.add('fa-spin'); }
+        if (icon) icon.classList.add('fa-spin');
+        const listUrl = `${APEX_BASE}/agents/list`;
         try {
             const data = await apexGet('agents/list');
             const agents = data.items || [];
@@ -109,10 +168,15 @@
             saUpdateStats(agents);
         } catch(e) {
             console.error('[ShippingAgent] Refresh error:', e);
-            showNotification('Failed to load agents: ' + e.message, 'error');
+            showNotification(`Failed to load agents: ${e.message} | URL: ${listUrl}`, 'error');
         } finally {
             if (icon) icon.classList.remove('fa-spin');
         }
+    };
+
+    // Called from the API icon on the page header
+    window.saShowPageApiInfo = function() {
+        saShowApiInfo('GET', `${APEX_BASE}/agents/list`, null);
     };
 
     function saUpdateStats(agents) {
@@ -697,23 +761,13 @@
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;">
                     <h3 style="margin:0;font-size:1.1rem;color:#1e293b;"><i class="fas fa-user-cog" style="color:#7c3aed;"></i> Create Shipping Agent</h3>
                     <div style="display:flex;gap:0.5rem;align-items:center;">
-                        <button onclick="document.getElementById('sa-api-info-panel').style.display=document.getElementById('sa-api-info-panel').style.display==='none'?'block':'none'"
+                        <button id="sa-create-api-btn" onclick="saShowCreateApiInfo()"
                             style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;"
-                            title="View API call details">
+                            title="View POST call and JSON body">
                             <i class="fas fa-code"></i> API
                         </button>
                         <button onclick="document.getElementById('sa-create-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;">&times;</button>
                     </div>
-                </div>
-
-                <!-- API Info Panel (hidden by default) -->
-                <div id="sa-api-info-panel" style="display:none;background:#0f172a;border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:11px;">
-                    <div style="color:#94a3b8;font-weight:700;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;">
-                        <span style="background:#059669;color:white;padding:2px 6px;border-radius:4px;font-weight:700;">POST</span>
-                        <span style="color:#60a5fa;word-break:break-all;">${esc(previewUrl)}</span>
-                    </div>
-                    <div style="color:#94a3b8;font-size:10px;margin-bottom:0.4rem;">Content-Type: application/json &nbsp;·&nbsp; Via: C# RestApiClient (executePost)</div>
-                    <pre id="sa-api-body-preview" style="margin:0;color:#86efac;font-family:monospace;font-size:11px;white-space:pre-wrap;max-height:160px;overflow-y:auto;">${esc(previewJson)}</pre>
                 </div>
 
                 <div style="display:flex;flex-direction:column;gap:0.85rem;">
@@ -771,12 +825,10 @@
         document.getElementById('sa-new-name').focus();
     };
 
-    // Live-update API preview panel as user changes fields
-    window.saUpdateApiPreview = function() {
-        const preview = document.getElementById('sa-api-body-preview');
-        if (!preview) return;
+    // Build current form body for API preview
+    function saGetCreateBody() {
         const caps = [...document.querySelectorAll('input[name="sa-cap"]:checked')].map(c => c.value).join(',');
-        const body = {
+        return {
             name:                 document.getElementById('sa-new-name')?.value || '',
             description:          document.getElementById('sa-new-desc')?.value || '',
             instanceName:         document.getElementById('sa-new-instance')?.value || 'PROD',
@@ -785,8 +837,15 @@
             maxRetries:           parseInt(document.getElementById('sa-new-retries')?.value || 3),
             createdBy:            localStorage.getItem('loggedInUser') || 'WMS_USER'
         };
-        preview.textContent = JSON.stringify(body, null, 2);
+    }
+
+    // Show popup with live form values
+    window.saShowCreateApiInfo = function() {
+        saShowApiInfo('POST', `${APEX_BASE}/agents/create`, saGetCreateBody());
     };
+
+    // No-op kept for backward compat (oninput still calls this)
+    window.saUpdateApiPreview = function() {};
 
     window.saSubmitCreate = async function() {
         const name = document.getElementById('sa-new-name')?.value?.trim();
