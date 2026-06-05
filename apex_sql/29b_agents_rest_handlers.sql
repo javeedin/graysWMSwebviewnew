@@ -86,11 +86,13 @@ SELECT
     c.instance_name,
     c.capabilities,
     c.status,
+    c.agent_status,
     c.check_interval_seconds,
     c.max_retries,
     c.created_by,
     c.created_date,
     c.last_active_date,
+    c.closed_date,
     c.total_trips_processed,
     c.total_actions_taken,
     -- Today's performance (may be NULL if agent has not run today)
@@ -106,7 +108,7 @@ SELECT
     p.first_activity_time,
     p.last_activity_time,
     NVL(p.active_duration_seconds, 0) AS active_duration_seconds,
-    -- Active trip count subquery
+    -- Active trip count
     (SELECT COUNT(*) FROM wms_agents_trips t
      WHERE t.agent_id = c.id AND t.status IN ('PENDING','ACTIVE')) AS trip_count,
     -- Actions today
@@ -119,6 +121,31 @@ LEFT JOIN wms_agents_performance p
       AND p.perf_date = TRUNC(SYSDATE)
 WHERE (:FROM_DATE IS NULL OR TRUNC(c.created_date) >= TO_DATE(:FROM_DATE, 'YYYY-MM-DD'))
   AND (:TO_DATE   IS NULL OR TRUNC(c.created_date) <= TO_DATE(:TO_DATE,   'YYYY-MM-DD'))
+ORDER BY c.id DESC
+
+
+-- ============================================================
+-- HANDLER 2b: GET  agents/active
+-- ============================================================
+-- Module:        TRIPMANAGEMENT
+-- URI Template:  agents/active
+-- Method:        GET
+-- Source Type:   SQL Query
+-- Purpose:       Returns only ACTIVE agents for the trip-card
+--                "Assign to Agent" dropdown (no date filter needed)
+-- ============================================================
+SELECT
+    c.id          AS id,
+    c.name,
+    c.description,
+    c.instance_name,
+    c.capabilities,
+    c.status,
+    c.agent_status,
+    (SELECT COUNT(*) FROM wms_agents_trips t
+     WHERE t.agent_id = c.id AND t.status IN ('PENDING','ACTIVE')) AS trip_count
+FROM wms_agents_config c
+WHERE c.agent_status = 'ACTIVE'
 ORDER BY c.id DESC
 
 
@@ -422,6 +449,30 @@ LEFT JOIN wms_agents_performance p
        ON p.agent_id  = c.id
       AND p.perf_date = TRUNC(SYSDATE)
 ORDER BY c.id ASC
+
+
+-- ============================================================
+-- HANDLER 11: POST  agents/:agentId/close
+-- ============================================================
+-- Module:        TRIPMANAGEMENT
+-- URI Template:  agents/:agentId/close
+-- Method:        POST
+-- Source Type:   PL/SQL
+-- URI Bind:      :agentId  (NUMBER)
+-- ============================================================
+DECLARE
+    v_result    VARCHAR2(200);
+BEGIN
+    wms_agents_close(
+        p_agent_id => :agentId,
+        p_result   => v_result
+    );
+
+    APEX_JSON.open_object;
+    APEX_JSON.write('status',  v_result);
+    APEX_JSON.write('agentId', :agentId);
+    APEX_JSON.close_object;
+END;
 
 
 -- ============================================================

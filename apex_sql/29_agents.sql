@@ -20,11 +20,13 @@ CREATE TABLE wms_agents_config (
     instance_name               VARCHAR2(20)    DEFAULT 'PROD',
     capabilities                VARCHAR2(500),  -- comma-separated: MONITOR,PRINT,PICK_RELEASE,NOTIFY,ANOMALY,AI_ANALYSIS
     status                      VARCHAR2(20)    DEFAULT 'IDLE',  -- IDLE/RUNNING/PAUSED/COMPLETED/ERROR
+    agent_status                VARCHAR2(20)    DEFAULT 'ACTIVE', -- ACTIVE/CLOSED
     check_interval_seconds      NUMBER          DEFAULT 60,
     max_retries                 NUMBER          DEFAULT 3,
     created_by                  VARCHAR2(100),
     created_date                TIMESTAMP       DEFAULT SYSTIMESTAMP,
     last_active_date            TIMESTAMP,
+    closed_date                 TIMESTAMP,
     total_trips_processed       NUMBER          DEFAULT 0,
     total_actions_taken         NUMBER          DEFAULT 0
 );
@@ -183,7 +185,8 @@ BEGIN
         max_retries,
         created_by,
         created_date,
-        status
+        status,
+        agent_status
     ) VALUES (
         p_name,
         p_description,
@@ -193,7 +196,8 @@ BEGIN
         NVL(p_max_retries, 3),
         p_created_by,
         SYSTIMESTAMP,
-        'IDLE'
+        'IDLE',
+        'ACTIVE'
     )
     RETURNING id INTO p_agent_id;
 
@@ -206,6 +210,38 @@ EXCEPTION
         p_agent_id := NULL;
         p_result   := 'ERROR: ' || SQLERRM;
 END wms_agents_create;
+/
+
+
+-- ============================================================
+-- STEP 6b: PROCEDURE wms_agents_close
+--          Closes an agent (agent_status = CLOSED, status = IDLE).
+-- ============================================================
+CREATE OR REPLACE PROCEDURE wms_agents_close (
+    p_agent_id  IN  NUMBER,
+    p_result    OUT VARCHAR2
+) AS
+    v_count NUMBER;
+BEGIN
+    SELECT COUNT(*) INTO v_count FROM wms_agents_config WHERE id = p_agent_id;
+    IF v_count = 0 THEN
+        p_result := 'ERROR: Agent not found';
+        RETURN;
+    END IF;
+
+    UPDATE wms_agents_config
+    SET    agent_status = 'CLOSED',
+           status       = 'IDLE',
+           closed_date  = SYSTIMESTAMP
+    WHERE  id = p_agent_id;
+
+    COMMIT;
+    p_result := 'SUCCESS';
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        p_result := 'ERROR: ' || SQLERRM;
+END wms_agents_close;
 /
 
 
@@ -575,10 +611,22 @@ WHERE table_name IN (
 )
 ORDER BY table_name;
 
+-- ============================================================
+-- ALTER TABLE: add agent_status + closed_date if table already exists
+-- Run this block if you created the table before this version
+-- ============================================================
+-- ALTER TABLE wms_agents_config ADD (
+--     agent_status  VARCHAR2(20)  DEFAULT 'ACTIVE',
+--     closed_date   TIMESTAMP
+-- );
+-- UPDATE wms_agents_config SET agent_status = 'ACTIVE' WHERE agent_status IS NULL;
+-- COMMIT;
+
 -- Verify procedures compiled:
 SELECT object_name, status FROM user_objects
 WHERE object_name IN (
     'WMS_AGENTS_CREATE',
+    'WMS_AGENTS_CLOSE',
     'WMS_AGENTS_UPDATE_STATUS',
     'WMS_AGENTS_ASSIGN_TRIP',
     'WMS_AGENTS_UNASSIGN_TRIP',

@@ -4412,10 +4412,15 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                         </div>
 
-                        <!-- View Details Button -->
-                        <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}', '${trip.LOADING_BAY || ''}', '${trip.PRIORITY || ''}')" style="width: 100%; font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
-                            <i class="fas fa-eye" style="font-size: 0.55rem;"></i> View Details
-                        </button>
+                        <!-- Buttons row -->
+                        <div style="display:flex;gap:0.3rem;margin-top:0.3rem;">
+                            <button onclick="openTripDetails('${trip.TRIP_ID}', '${trip.TRIP_DATE}', '${trip.LORRY_NUMBER}', '${trip.INSTANCE || ''}', '${trip.LOADING_BAY || ''}', '${trip.PRIORITY || ''}')" style="flex:1;font-size: 0.6rem; padding: 0.35rem 0.5rem; background: #e2e8f0; color: #475569; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem; transition: background 0.2s;" onmouseover="this.style.background='#cbd5e1'" onmouseout="this.style.background='#e2e8f0'">
+                                <i class="fas fa-eye" style="font-size: 0.55rem;"></i> View Details
+                            </button>
+                            <button onclick="saAddTripToAgent('${trip.TRIP_ID}', 'Trip ${trip.TRIP_ID}', '${trip.INSTANCE || ''}')" style="flex:1;font-size: 0.6rem; padding: 0.35rem 0.5rem; background: linear-gradient(135deg,#7c3aed,#5b21b6); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 0.3rem;" title="Assign this trip to a Shipping Agent">
+                                <i class="fas fa-user-cog" style="font-size: 0.55rem;"></i> Assign Agent
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;

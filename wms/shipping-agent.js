@@ -186,6 +186,7 @@
                 INSTANCE_NAME:        a.INSTANCE_NAME || a.instance_name || '',
                 CAPABILITIES:         a.CAPABILITIES  || a.capabilities  || '',
                 STATUS:               a.STATUS || a.status || 'IDLE',
+                AGENT_STATUS:         a.AGENT_STATUS || a.agent_status || 'ACTIVE',
                 CHECK_INTERVAL_SECONDS: a.CHECK_INTERVAL_SECONDS || a.check_interval_seconds || 60,
                 MAX_RETRIES:          a.MAX_RETRIES   || a.max_retries   || 3,
                 CREATED_BY:           a.CREATED_BY    || a.created_by    || '',
@@ -266,7 +267,10 @@
             card.innerHTML = `
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">
                     <div style="font-size:13px;font-weight:700;color:#1e293b;line-height:1.3;">${loopIndicator}${esc(agent.NAME)}</div>
-                    <span style="background:${st.bg};color:${st.color};padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;white-space:nowrap;margin-left:6px;">${agent.STATUS}</span>
+                    <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:6px;">
+                        <span style="background:${agent.AGENT_STATUS==='CLOSED'?'#fee2e2':'#dcfce7'};color:${agent.AGENT_STATUS==='CLOSED'?'#b91c1c':'#15803d'};padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;">${agent.AGENT_STATUS||'ACTIVE'}</span>
+                        <span style="background:${st.bg};color:${st.color};padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;">${agent.STATUS}</span>
+                    </div>
                 </div>
                 <div style="font-size:10px;color:#64748b;margin-bottom:0.5rem;">${esc(agent.INSTANCE_NAME)} · ${esc(agent.DESCRIPTION || '')}</div>
                 <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">${saCapabilityChips(agent.CAPABILITIES)}</div>
@@ -311,8 +315,18 @@
         if (content) { content.style.display = 'flex'; }
 
         setText('sa-detail-name', agent.NAME);
+        const isClosed = agent.AGENT_STATUS === 'CLOSED';
         document.getElementById('sa-detail-meta').innerHTML =
-            `<span style="color:#7c3aed;font-weight:600;">${esc(agent.INSTANCE_NAME)}</span> &nbsp;·&nbsp; Interval: ${agent.CHECK_INTERVAL_SECONDS}s &nbsp;·&nbsp; Max retries: ${agent.MAX_RETRIES} &nbsp;·&nbsp; Created: ${saFormatDate(agent.CREATED_DATE)}`;
+            `<span style="color:#7c3aed;font-weight:600;">${esc(agent.INSTANCE_NAME)}</span> &nbsp;·&nbsp; Interval: ${agent.CHECK_INTERVAL_SECONDS}s &nbsp;·&nbsp; Max retries: ${agent.MAX_RETRIES} &nbsp;·&nbsp; Created: ${saFormatDate(agent.CREATED_DATE)}${isClosed ? ` &nbsp;·&nbsp; <span style="color:#b91c1c;font-weight:700;">CLOSED ${saFormatDate(agent.CLOSED_DATE)}</span>` : ''}`;
+        // Update Close Agent button state
+        const closeBtn = document.getElementById('sa-btn-close-agent');
+        if (closeBtn) {
+            closeBtn.disabled        = isClosed;
+            closeBtn.style.opacity   = isClosed ? '0.5' : '1';
+            closeBtn.innerHTML       = isClosed
+                ? '<i class="fas fa-times-circle"></i> Closed'
+                : '<i class="fas fa-times-circle"></i> Close Agent';
+        }
 
         saUpdateDetailStatusBadge(agent.STATUS);
 
@@ -597,6 +611,31 @@
             showNotification(`Agent "${agent.NAME}" stopped.`, 'success');
         } catch(e) {
             showNotification('Failed to stop agent: ' + e.message, 'error');
+        }
+    };
+
+    window.saCloseAgent = async function() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        if (!confirm(`Close agent "${agent.NAME}"?\n\nThis will permanently set its status to CLOSED. It will no longer appear in the active agents list.\n\nYou can still view its history but it cannot be restarted.`)) return;
+        try {
+            await apexPost(`agents/${agent.ID}/close`, {});
+            agent.AGENT_STATUS = 'CLOSED';
+            agent.STATUS       = 'IDLE';
+            saStopAgentLoop(agent.ID);
+            // Update Close button to reflect closed state
+            const closeBtn = document.getElementById('sa-btn-close-agent');
+            if (closeBtn) {
+                closeBtn.disabled = true;
+                closeBtn.style.opacity = '0.5';
+                closeBtn.innerHTML = '<i class="fas fa-times-circle"></i> Closed';
+            }
+            saUpdateDetailStatusBadge('IDLE');
+            saRenderCards(window._saAgents);
+            await saRefreshDashboard();
+            showNotification(`Agent "${agent.NAME}" has been closed.`, 'success');
+        } catch(e) {
+            showNotification('Failed to close agent: ' + e.message, 'error');
         }
     };
 
@@ -988,36 +1027,49 @@
 
     // ─── "Add to Agent" from Trip Management ────────────────
     window.saAddTripToAgent = async function(tripId, tripName, instanceName) {
-        const agents = window._saAgents;
-        if (!agents || agents.length === 0) {
-            try {
-                const data = await apexGet('agents/list');
-                window._saAgents = data.items || [];
-            } catch(e) {
-                showNotification('Failed to load agents. Go to Shipping Agents page first.', 'error');
-                return;
-            }
-        }
-
-        if (window._saAgents.length === 0) {
-            showNotification('No agents found. Create one in Shipping Agents page first.', 'error');
+        // Always fetch fresh list of ACTIVE agents only
+        let activeAgents = [];
+        try {
+            const data = await apexGet('agents/active');
+            activeAgents = (data.items || []).map(a => ({
+                ID:           a.ID   || a.id,
+                NAME:         a.NAME || a.name,
+                INSTANCE_NAME: a.INSTANCE_NAME || a.instance_name || '',
+                STATUS:       a.STATUS || a.status || 'IDLE',
+                TRIP_COUNT:   a.TRIP_COUNT || a.trip_count || 0
+            }));
+        } catch(e) {
+            showNotification('Failed to load active agents: ' + e.message, 'error');
             return;
         }
 
+        if (activeAgents.length === 0) {
+            showNotification('No active agents found. Create one in Shipping Agents page first.', 'error');
+            return;
+        }
+
+        const options = activeAgents.map(a =>
+            `<option value="${a.ID}">${esc(a.NAME)} (${esc(a.INSTANCE_NAME)}) — ${a.TRIP_COUNT} trip(s) · ${esc(a.STATUS)}</option>`
+        ).join('');
+
         const html = `
         <div id="sa-addto-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;">
-            <div style="background:white;border-radius:14px;padding:1.75rem;width:380px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="background:white;border-radius:14px;padding:1.75rem;width:420px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-                    <h3 style="margin:0;font-size:1rem;color:#1e293b;"><i class="fas fa-user-cog" style="color:#7c3aed;"></i> Add Trip to Agent</h3>
+                    <h3 style="margin:0;font-size:1rem;color:#1e293b;"><i class="fas fa-user-cog" style="color:#7c3aed;"></i> Assign Trip to Agent</h3>
                     <button onclick="document.getElementById('sa-addto-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;">&times;</button>
                 </div>
-                <p style="font-size:12px;color:#64748b;margin:0 0 1rem;">Assign trip <strong>${esc(tripName || tripId)}</strong> to a Shipping Agent:</p>
-                <select id="sa-addto-agent-select" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;margin-bottom:1rem;">
-                    ${window._saAgents.map(a => `<option value="${a.ID}">${esc(a.NAME)} (${esc(a.INSTANCE_NAME)})</option>`).join('')}
+                <div style="background:#f0f9ff;border-radius:8px;padding:0.6rem 0.9rem;margin-bottom:1rem;font-size:12px;color:#0369a1;">
+                    <i class="fas fa-truck" style="margin-right:5px;"></i>
+                    Assigning <strong>Trip ${esc(tripId)}</strong> ${tripName !== `Trip ${tripId}` ? `(${esc(tripName)})` : ''} to a Shipping Agent
+                </div>
+                <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:6px;">Select Active Agent (${activeAgents.length} available)</label>
+                <select id="sa-addto-agent-select" style="width:100%;padding:0.5rem;border:1px solid #7c3aed;border-radius:6px;font-size:12px;margin-bottom:1rem;outline:none;">
+                    ${options}
                 </select>
                 <div style="display:flex;justify-content:flex-end;gap:0.75rem;">
                     <button onclick="document.getElementById('sa-addto-modal').remove()" style="background:#f1f5f9;color:#374151;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">Cancel</button>
-                    <button onclick="saSubmitAddTo('${esc(tripId)}','${esc(tripName||tripId)}','${esc(instanceName||'PROD')}')" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;">Assign</button>
+                    <button onclick="saSubmitAddTo('${esc(tripId)}','${esc(tripName||tripId)}','${esc(instanceName||'PROD')}')" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"><i class="fas fa-link"></i> Assign</button>
                 </div>
             </div>
         </div>`;
