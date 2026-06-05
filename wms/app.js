@@ -4818,6 +4818,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn" onclick="showAllShipmentLines('${tripId}', '${instanceName}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
                                 <i class="fas fa-truck"></i> All Shipment Lines
                             </button>
+                            <button class="btn" onclick="saAddTripToAgent('${tripId}', 'Trip ${tripId}', '${instanceName}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: linear-gradient(135deg, #7c3aed, #5b21b6); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;" title="Assign this trip to a Shipping Agent">
+                                <i class="fas fa-user-cog"></i> Add to Agent
+                            </button>
                             <button class="btn" onclick="showTripLines('${tripId}', '${instanceName}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: #8b5cf6; color: white;">
                                 <i class="fas fa-list-alt"></i> Show Lines
                             </button>

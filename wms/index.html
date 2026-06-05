@@ -200,6 +200,10 @@
                 <i class="fas fa-shipping-fast"></i>
                 <span>Pending Shipment Lines</span>
             </div>
+            <div class="menu-item" data-page="shipping-agents">
+                <i class="fas fa-user-cog"></i>
+                <span>Shipping Agents</span>
+            </div>
             <div class="menu-item" data-page="printer-setup-new">
                 <i class="fas fa-print"></i>
                 <span>Printer Setups</span>
@@ -3427,6 +3431,148 @@
                     <!-- DevExpress Grid Container -->
                     <div style="background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); overflow: hidden;">
                         <div id="psl-grid-container" style="height: 500px;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SHIPPING AGENTS PAGE
+                 ============================================================ -->
+            <div id="shipping-agents" class="page-content" style="display: none;">
+                <div style="padding: 1rem; height: 100%; display: flex; flex-direction: column; gap: 1rem;">
+
+                    <!-- Page Header -->
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.75rem;">
+                            <h2 style="margin: 0; font-size: 1.3rem; color: #1e293b; display: flex; align-items: center; gap: 0.5rem;">
+                                <i class="fas fa-user-cog" style="color: #7c3aed;"></i> Shipping Agents
+                            </h2>
+                            <span id="sa-active-count" style="background: linear-gradient(135deg, #7c3aed, #5b21b6); color: white; padding: 3px 10px; border-radius: 12px; font-size: 11px; font-weight: 700;">0 Active</span>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button onclick="saRefreshDashboard()" style="background: #3b82f6; color: white; border: none; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
+                                <i class="fas fa-sync-alt" id="sa-refresh-icon"></i> Refresh
+                            </button>
+                            <button onclick="saOpenCreateModal()" style="background: linear-gradient(135deg, #7c3aed, #5b21b6); color: white; border: none; padding: 0.4rem 1rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 700; display: flex; align-items: center; gap: 0.4rem;">
+                                <i class="fas fa-plus"></i> New Agent
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Stats Bar -->
+                    <div id="sa-stats-bar" style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                        <div style="background: linear-gradient(135deg, #7c3aed, #5b21b6); padding: 0.6rem 1.25rem; border-radius: 8px; color: white; text-align: center; min-width: 100px;">
+                            <div id="sa-stat-total" style="font-size: 1.5rem; font-weight: 800;">0</div>
+                            <div style="font-size: 10px; opacity: 0.85;">Total Agents</div>
+                        </div>
+                        <div style="background: linear-gradient(135deg, #059669, #047857); padding: 0.6rem 1.25rem; border-radius: 8px; color: white; text-align: center; min-width: 100px;">
+                            <div id="sa-stat-running" style="font-size: 1.5rem; font-weight: 800;">0</div>
+                            <div style="font-size: 10px; opacity: 0.85;">Running</div>
+                        </div>
+                        <div style="background: linear-gradient(135deg, #0891b2, #0e7490); padding: 0.6rem 1.25rem; border-radius: 8px; color: white; text-align: center; min-width: 100px;">
+                            <div id="sa-stat-trips" style="font-size: 1.5rem; font-weight: 800;">0</div>
+                            <div style="font-size: 10px; opacity: 0.85;">Trips Assigned</div>
+                        </div>
+                        <div style="background: linear-gradient(135deg, #d97706, #b45309); padding: 0.6rem 1.25rem; border-radius: 8px; color: white; text-align: center; min-width: 100px;">
+                            <div id="sa-stat-actions" style="font-size: 1.5rem; font-weight: 800;">0</div>
+                            <div style="font-size: 10px; opacity: 0.85;">Actions Today</div>
+                        </div>
+                        <div style="background: linear-gradient(135deg, #dc2626, #b91c1c); padding: 0.6rem 1.25rem; border-radius: 8px; color: white; text-align: center; min-width: 100px;">
+                            <div id="sa-stat-anomalies" style="font-size: 1.5rem; font-weight: 800;">0</div>
+                            <div style="font-size: 10px; opacity: 0.85;">Anomalies</div>
+                        </div>
+                    </div>
+
+                    <!-- Main Content: Cards + Detail Panel -->
+                    <div style="display: flex; gap: 1rem; flex: 1; overflow: hidden; min-height: 0;">
+
+                        <!-- Agent Cards Column -->
+                        <div style="width: 320px; flex-shrink: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem;" id="sa-agent-cards">
+                            <div style="padding: 3rem 1rem; text-align: center; color: #94a3b8;" id="sa-no-agents">
+                                <i class="fas fa-user-cog" style="font-size: 2.5rem; margin-bottom: 0.75rem; opacity: 0.4;"></i>
+                                <p style="margin: 0; font-size: 13px;">No agents yet.<br>Click <strong>New Agent</strong> to create one.</p>
+                            </div>
+                        </div>
+
+                        <!-- Agent Detail Panel -->
+                        <div style="flex: 1; overflow: hidden; display: flex; flex-direction: column; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08);" id="sa-detail-panel">
+                            <div id="sa-detail-empty" style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #94a3b8;">
+                                <i class="fas fa-hand-pointer" style="font-size: 2.5rem; margin-bottom: 0.75rem; opacity: 0.4;"></i>
+                                <p style="margin: 0; font-size: 13px;">Select an agent to view details</p>
+                            </div>
+                            <div id="sa-detail-content" style="display: none; flex-direction: column; height: 100%; overflow: hidden;">
+
+                                <!-- Detail Header -->
+                                <div style="padding: 1rem 1.25rem; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+                                    <div>
+                                        <h3 id="sa-detail-name" style="margin: 0; font-size: 1rem; color: #1e293b;"></h3>
+                                        <div id="sa-detail-meta" style="font-size: 11px; color: #64748b; margin-top: 2px;"></div>
+                                    </div>
+                                    <div style="display: flex; gap: 0.5rem; align-items: center;">
+                                        <span id="sa-detail-status-badge" style="padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700;"></span>
+                                        <button id="sa-btn-start" onclick="saStartAgent()" style="background: #059669; color: white; border: none; padding: 0.35rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: none;">
+                                            <i class="fas fa-play"></i> Start
+                                        </button>
+                                        <button id="sa-btn-pause" onclick="saPauseAgent()" style="background: #d97706; color: white; border: none; padding: 0.35rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: none;">
+                                            <i class="fas fa-pause"></i> Pause
+                                        </button>
+                                        <button id="sa-btn-stop" onclick="saStopAgent()" style="background: #dc2626; color: white; border: none; padding: 0.35rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; display: none;">
+                                            <i class="fas fa-stop"></i> Stop
+                                        </button>
+                                        <button onclick="saOpenAssignTripModal()" style="background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; padding: 0.35rem 0.9rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600;">
+                                            <i class="fas fa-plus"></i> Assign Trip
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Tab Bar -->
+                                <div style="display: flex; border-bottom: 1px solid #f1f5f9; padding: 0 1rem; flex-shrink: 0; background: #fafafa;">
+                                    <button class="sa-tab-btn active" data-tab="trips" onclick="saShowTab('trips', this)" style="padding: 0.6rem 1rem; border: none; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: #7c3aed; border-bottom: 2px solid #7c3aed; margin-bottom: -1px;">
+                                        <i class="fas fa-truck"></i> Trips
+                                    </button>
+                                    <button class="sa-tab-btn" data-tab="activity" onclick="saShowTab('activity', this)" style="padding: 0.6rem 1rem; border: none; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -1px;">
+                                        <i class="fas fa-list-alt"></i> Activity Log
+                                    </button>
+                                    <button class="sa-tab-btn" data-tab="performance" onclick="saShowTab('performance', this)" style="padding: 0.6rem 1rem; border: none; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -1px;">
+                                        <i class="fas fa-chart-bar"></i> Performance
+                                    </button>
+                                    <button class="sa-tab-btn" data-tab="notifications" onclick="saShowTab('notifications', this)" style="padding: 0.6rem 1rem; border: none; background: none; cursor: pointer; font-size: 12px; font-weight: 600; color: #64748b; border-bottom: 2px solid transparent; margin-bottom: -1px;">
+                                        <i class="fas fa-bell"></i> Notifications
+                                    </button>
+                                </div>
+
+                                <!-- Tab Contents -->
+                                <div style="flex: 1; overflow-y: auto; padding: 1rem 1.25rem;">
+
+                                    <!-- TRIPS TAB -->
+                                    <div id="sa-tab-trips" class="sa-tab-content">
+                                        <div id="sa-trips-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+                                    </div>
+
+                                    <!-- ACTIVITY LOG TAB -->
+                                    <div id="sa-tab-activity" class="sa-tab-content" style="display: none;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+                                            <span style="font-size: 12px; color: #64748b; font-weight: 600;">Last 100 activities</span>
+                                            <button onclick="saRefreshActivity()" style="background: #f1f5f9; border: 1px solid #e2e8f0; color: #374151; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 11px;">
+                                                <i class="fas fa-sync-alt"></i> Refresh
+                                            </button>
+                                        </div>
+                                        <div id="sa-activity-feed" style="font-size: 11px; display: flex; flex-direction: column; gap: 3px;"></div>
+                                    </div>
+
+                                    <!-- PERFORMANCE TAB -->
+                                    <div id="sa-tab-performance" class="sa-tab-content" style="display: none;">
+                                        <div id="sa-performance-content" style="display: flex; flex-direction: column; gap: 1rem;"></div>
+                                    </div>
+
+                                    <!-- NOTIFICATIONS TAB -->
+                                    <div id="sa-tab-notifications" class="sa-tab-content" style="display: none;">
+                                        <div id="sa-notifications-list" style="display: flex; flex-direction: column; gap: 0.5rem;"></div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -8298,6 +8444,7 @@
         document.write('<script src="picking-time-monitor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="trip-details.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
         document.write('<script src="mra-processor.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
+        document.write('<script src="shipping-agent.js?v=' + window.APP_CACHE_BUSTER + '"><\/script>');
     </script>
 
     <!-- Login Session Handler -->
