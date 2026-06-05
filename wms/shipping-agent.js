@@ -6,6 +6,7 @@
     'use strict';
 
     const APEX_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+    const WMS_BASE  = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT';
 
     // Active agent loop handles: { agentId: intervalHandle }
     window._saLoops       = {};
@@ -43,6 +44,22 @@
 
     // ─── C# IPC API helpers ──────────────────────────────────
     // All REST calls go through C# (WebView2 IPC) via sendMessageToCSharp
+
+    function rawGet(url) {
+        return new Promise((resolve, reject) => {
+            console.log('[ShippingAgent] GET', url);
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available (sendMessageToCSharp undefined)'));
+            }
+            sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(err, data) {
+                if (err) { console.error('[ShippingAgent] GET error', url, err); return reject(new Error(String(err))); }
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    function wmsGet(path) { return rawGet(`${WMS_BASE}/${path}`); }
 
     function apexGet(path) {
         return new Promise((resolve, reject) => {
@@ -472,7 +489,7 @@
         const container = document.getElementById(`sa-trip-orders-${tripId}`);
         if (!container) return;
 
-        // Toggle: if already visible hide it
+        // Toggle hide/show
         if (container.style.display !== 'none' && container.innerHTML.trim() !== '') {
             container.style.display = 'none';
             return;
@@ -482,38 +499,74 @@
         container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
 
         try {
-            const path = `agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders?P_INSTANCE_NAME=${instanceName}`;
-            const data  = await apexGet(path);
-            const orders = (data.items || []).map(o => ({
-                ORDER_NUMBER:       o.ORDER_NUMBER   || o.order_number,
-                INSTANCE_NAME:      o.INSTANCE_NAME  || o.instance_name,
-                TOTAL_LINES:        o.TOTAL_LINES    || o.total_lines    || 0,
-                STAGED_LINES:       o.STAGED_LINES   || o.staged_lines   || 0,
-                CONFIRMED_LINES:    o.CONFIRMED_LINES || o.confirmed_lines || 0,
-                SHIPPED_LINES:      o.SHIPPED_LINES  || o.shipped_lines  || 0,
-                CANCELLED_LINES:    o.CANCELLED_LINES || o.cancelled_lines || 0,
-                BACKORDERED_LINES:  o.BACKORDERED_LINES || o.backordered_lines || 0,
-                SHIPPING_STATUS:    o.SHIPPING_STATUS || o.shipping_status || 'PENDING',
-                TOTAL_REQUESTED_QTY: o.TOTAL_REQUESTED_QTY || o.total_requested_qty || 0,
-                TOTAL_SHIPPED_QTY:  o.TOTAL_SHIPPED_QTY || o.total_shipped_qty || 0,
-                TOTAL_STAGED_QTY:   o.TOTAL_STAGED_QTY || o.total_staged_qty || 0,
-                PRINT_JOBS_TOTAL:   o.PRINT_JOBS_TOTAL || o.print_jobs_total || 0,
-                PRINT_JOBS_PRINTED: o.PRINT_JOBS_PRINTED || o.print_jobs_printed || 0,
-                LAST_UPDATED:       o.LAST_UPDATED  || o.last_updated
-            }));
+            const inst = instanceName || 'PROD';
 
-            if (orders.length === 0) {
-                // Fall back to tripOrdersStore if APEX has no shipment lines yet
-                const stored = (window.tripOrdersStore && window.tripOrdersStore[tripId]) || [];
-                const uniqOrders = [...new Set(stored.map(r => r.ORDER_NUMBER || r.order_number).filter(Boolean))];
-                if (uniqOrders.length === 0) {
-                    container.innerHTML = `<div style="padding:0.75rem 1rem;font-size:11px;color:#94a3b8;text-align:center;">No shipment line data yet. Run <strong>Fetch Picks</strong> on this trip first.</div>`;
-                    return;
-                }
-                // Show basic order list from store
-                container.innerHTML = saRenderOrdersFallback(uniqOrders, stored);
+            // Primary source: GETTRIPDETAILS — same endpoint used by Trip Management
+            // Returns one row per order line; we deduplicate by ORDER_NUMBER
+            const tripData = await wmsGet(`GETTRIPDETAILS/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${inst}`);
+            const rows = (tripData.items || []);
+
+            if (rows.length === 0) {
+                container.innerHTML = `<div style="padding:0.75rem 1rem;font-size:11px;color:#94a3b8;text-align:center;">No orders found for this trip.</div>`;
                 return;
             }
+
+            // Deduplicate: one entry per unique ORDER_NUMBER
+            const orderMap = {};
+            rows.forEach(r => {
+                const on = r.ORDER_NUMBER || r.order_number || '';
+                if (!on) return;
+                if (!orderMap[on]) {
+                    orderMap[on] = {
+                        ORDER_NUMBER:    on,
+                        ACCOUNT_NAME:    r.ACCOUNT_NAME    || r.account_name    || '',
+                        INSTANCE_NAME:   r.INSTANCE        || r.instance        || inst,
+                        LINE_STATUS:     r.LINE_STATUS      || r.line_status     || '',
+                        QUANTITY:        0,
+                        ORDER_VOLUME:    0,
+                        _lines: []
+                    };
+                }
+                orderMap[on].QUANTITY     += parseFloat(r.QUANTITY     || r.quantity     || 0);
+                orderMap[on].ORDER_VOLUME += parseFloat(r.ORDER_VOLUME1|| r.order_volume1|| r.ORDER_VOLUME || r.order_volume || 0);
+                orderMap[on]._lines.push(r);
+            });
+
+            // Enrich with shipment-line data from APEX (Handler 2c) if available
+            let shipmentMap = {};
+            try {
+                const slData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders?P_INSTANCE_NAME=${inst}`);
+                (slData.items || []).forEach(o => {
+                    const on = o.ORDER_NUMBER || o.order_number || '';
+                    if (on) shipmentMap[on] = o;
+                });
+            } catch(e) {
+                console.warn('[ShippingAgent] Shipment line enrichment failed (non-fatal):', e.message);
+            }
+
+            // Build merged order list
+            const orders = Object.values(orderMap).map(o => {
+                const sl = shipmentMap[o.ORDER_NUMBER] || {};
+                return {
+                    ORDER_NUMBER:       o.ORDER_NUMBER,
+                    ACCOUNT_NAME:       o.ACCOUNT_NAME,
+                    QUANTITY:           o.QUANTITY,
+                    TOTAL_LINES:        sl.TOTAL_LINES        || sl.total_lines        || o._lines.length,
+                    STAGED_LINES:       sl.STAGED_LINES       || sl.staged_lines       || 0,
+                    CONFIRMED_LINES:    sl.CONFIRMED_LINES    || sl.confirmed_lines    || 0,
+                    SHIPPED_LINES:      sl.SHIPPED_LINES      || sl.shipped_lines      || 0,
+                    CANCELLED_LINES:    sl.CANCELLED_LINES    || sl.cancelled_lines    || 0,
+                    BACKORDERED_LINES:  sl.BACKORDERED_LINES  || sl.backordered_lines  || 0,
+                    SHIPPING_STATUS:    sl.SHIPPING_STATUS    || sl.shipping_status    || null,
+                    TOTAL_REQUESTED_QTY: sl.TOTAL_REQUESTED_QTY || sl.total_requested_qty || o.QUANTITY,
+                    TOTAL_SHIPPED_QTY:  sl.TOTAL_SHIPPED_QTY  || sl.total_shipped_qty  || 0,
+                    TOTAL_STAGED_QTY:   sl.TOTAL_STAGED_QTY   || sl.total_staged_qty   || 0,
+                    PRINT_JOBS_TOTAL:   sl.PRINT_JOBS_TOTAL   || sl.print_jobs_total   || 0,
+                    PRINT_JOBS_PRINTED: sl.PRINT_JOBS_PRINTED || sl.print_jobs_printed || 0,
+                    LAST_UPDATED:       sl.LAST_UPDATED       || sl.last_updated       || null,
+                    HAS_SHIPMENT_DATA:  !!shipmentMap[o.ORDER_NUMBER]
+                };
+            });
 
             container.innerHTML = saRenderOrdersTable(orders);
         } catch(e) {
@@ -523,7 +576,11 @@
 
     function saRenderOrdersTable(orders) {
         const rows = orders.map(o => {
-            const ss  = SHIPPING_STATUS_STYLE[o.SHIPPING_STATUS] || SHIPPING_STATUS_STYLE.PENDING;
+            // If no shipment line data, show a neutral "Pending" badge
+            const statusKey = o.SHIPPING_STATUS || 'PENDING';
+            const ss  = SHIPPING_STATUS_STYLE[statusKey] || SHIPPING_STATUS_STYLE.PENDING;
+            const statusLabel = o.HAS_SHIPMENT_DATA ? statusKey : 'PENDING';
+
             const printPct  = o.PRINT_JOBS_TOTAL > 0 ? Math.round((o.PRINT_JOBS_PRINTED / o.PRINT_JOBS_TOTAL) * 100) : null;
             const printBadge = o.PRINT_JOBS_TOTAL === 0
                 ? `<span style="background:#f1f5f9;color:#94a3b8;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;">No Jobs</span>`
@@ -531,23 +588,22 @@
                     ? `<span style="background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;"><i class="fas fa-check"></i> Printed</span>`
                     : `<span style="background:#fef9c3;color:#a16207;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;">${o.PRINT_JOBS_PRINTED}/${o.PRINT_JOBS_TOTAL} Printed</span>`;
 
-            // Assignment status: always ASSIGNED since it came from our query
             const assignBadge = `<span style="background:#ede9fe;color:#6d28d9;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;"><i class="fas fa-link"></i> Assigned</span>`;
 
-            const lineBreakdown = [
+            const lineBreakdown = o.HAS_SHIPMENT_DATA ? [
                 o.STAGED_LINES     > 0 ? `<span style="color:#0369a1;">${o.STAGED_LINES} Staged</span>` : '',
                 o.CONFIRMED_LINES  > 0 ? `<span style="color:#1d4ed8;">${o.CONFIRMED_LINES} Confirmed</span>` : '',
                 o.SHIPPED_LINES    > 0 ? `<span style="color:#15803d;">${o.SHIPPED_LINES} Shipped</span>` : '',
                 o.BACKORDERED_LINES> 0 ? `<span style="color:#a16207;">${o.BACKORDERED_LINES} B/O</span>` : '',
                 o.CANCELLED_LINES  > 0 ? `<span style="color:#b91c1c;">${o.CANCELLED_LINES} Cancelled</span>` : ''
-            ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+            ].filter(Boolean).join(' &nbsp;·&nbsp; ') : '<span style="color:#94a3b8;font-size:9px;">Run Fetch Picks</span>';
 
             return `
             <tr style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background=''">
-                <td style="padding:6px 8px;font-weight:700;color:#1e293b;font-size:11px;">${esc(o.ORDER_NUMBER)}</td>
+                <td style="padding:6px 8px;font-weight:700;color:#1e293b;font-size:11px;">${esc(o.ORDER_NUMBER)}<br><span style="font-weight:400;color:#94a3b8;font-size:9px;">${esc(o.ACCOUNT_NAME)}</span></td>
                 <td style="padding:6px 8px;text-align:center;">
                     <span style="background:${ss.bg};color:${ss.color};padding:2px 8px;border-radius:8px;font-size:9px;font-weight:700;white-space:nowrap;">
-                        <i class="fas ${ss.icon}"></i> ${o.SHIPPING_STATUS}
+                        <i class="fas ${ss.icon}"></i> ${statusLabel}
                     </span>
                 </td>
                 <td style="padding:6px 8px;font-size:10px;color:#64748b;">${lineBreakdown || '<span style="color:#94a3b8;">—</span>'}</td>
@@ -591,37 +647,6 @@
         </div>`;
     }
 
-    function saRenderOrdersFallback(uniqOrders, stored) {
-        const rows = uniqOrders.map(on => {
-            const row = stored.find(r => (r.ORDER_NUMBER || r.order_number) === on) || {};
-            return `
-            <tr style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background=''">
-                <td style="padding:6px 8px;font-weight:700;color:#1e293b;font-size:11px;">${esc(on)}</td>
-                <td style="padding:6px 8px;text-align:center;"><span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:8px;font-size:9px;font-weight:700;">No Lines Yet</span></td>
-                <td style="padding:6px 8px;font-size:10px;color:#94a3b8;" colspan="3">Run Fetch Picks to load shipment line data</td>
-                <td style="padding:6px 8px;text-align:center;"><span style="background:#ede9fe;color:#6d28d9;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;"><i class="fas fa-link"></i> Assigned</span></td>
-                <td style="padding:6px 8px;"></td>
-            </tr>`;
-        }).join('');
-        return `
-        <div style="overflow-x:auto;">
-            <div style="padding:0.4rem 1rem;font-size:10px;color:#d97706;background:#fef9c3;border-top:1px solid #fde68a;">
-                <i class="fas fa-exclamation-triangle"></i> Showing ${uniqOrders.length} order(s) from local trip store — no shipment lines in APEX yet
-            </div>
-            <table style="width:100%;border-collapse:collapse;font-size:11px;">
-                <thead>
-                    <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
-                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Order #</th>
-                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Shipping Status</th>
-                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;" colspan="3">Note</th>
-                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Assignment</th>
-                        <th style="padding:5px 8px;"></th>
-                    </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>
-        </div>`;
-    }
 
     window.saUnassignTrip = async function(agentId, tripId) {
         if (!confirm(`Remove trip "${tripId}" from this agent?`)) return;
