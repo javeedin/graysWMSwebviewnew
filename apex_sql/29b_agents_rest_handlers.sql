@@ -150,6 +150,68 @@ ORDER BY c.id DESC
 
 
 -- ============================================================
+-- HANDLER 2c: GET  agents/:agentId/trips/:tripId/orders
+-- ============================================================
+-- Module:        TRIPMANAGEMENT
+-- URI Template:  agents/:agentId/trips/:tripId/orders
+-- Method:        GET
+-- Source Type:   SQL Query
+-- URI Binds:     :agentId (NUMBER), :tripId (VARCHAR2)
+-- Query Param:   :P_INSTANCE_NAME
+-- Purpose:       Returns all orders for a trip with aggregated
+--                shipment line status, print status, and agent
+--                assignment status.
+-- ============================================================
+SELECT
+    sl.order_number,
+    sl.instance_name,
+    -- Shipment line counts by status
+    COUNT(sl.id)                                                             AS total_lines,
+    SUM(CASE WHEN UPPER(sl.line_status_code) = 'STAGED'      THEN 1 ELSE 0 END) AS staged_lines,
+    SUM(CASE WHEN UPPER(sl.line_status_code) = 'CONFIRMED'   THEN 1 ELSE 0 END) AS confirmed_lines,
+    SUM(CASE WHEN UPPER(sl.line_status_code) = 'SHIPPED'     THEN 1 ELSE 0 END) AS shipped_lines,
+    SUM(CASE WHEN UPPER(sl.line_status_code) = 'CANCELLED'   THEN 1 ELSE 0 END) AS cancelled_lines,
+    SUM(CASE WHEN UPPER(sl.line_status_code) = 'BACKORDERED' THEN 1 ELSE 0 END) AS backordered_lines,
+    -- Dominant shipping status: highest priority non-zero status
+    CASE
+        WHEN SUM(CASE WHEN UPPER(sl.line_status_code) = 'SHIPPED'     THEN 1 ELSE 0 END) > 0
+             AND SUM(CASE WHEN UPPER(sl.line_status_code) NOT IN ('SHIPPED','CANCELLED') THEN 1 ELSE 0 END) = 0
+             THEN 'SHIPPED'
+        WHEN SUM(CASE WHEN UPPER(sl.line_status_code) = 'CONFIRMED'   THEN 1 ELSE 0 END) > 0 THEN 'CONFIRMED'
+        WHEN SUM(CASE WHEN UPPER(sl.line_status_code) = 'STAGED'      THEN 1 ELSE 0 END) > 0 THEN 'STAGED'
+        WHEN SUM(CASE WHEN UPPER(sl.line_status_code) = 'BACKORDERED' THEN 1 ELSE 0 END) > 0 THEN 'BACKORDERED'
+        WHEN SUM(CASE WHEN UPPER(sl.line_status_code) = 'CANCELLED'   THEN 1 ELSE 0 END) = COUNT(sl.id) THEN 'CANCELLED'
+        ELSE 'PENDING'
+    END AS shipping_status,
+    -- Qty summary
+    SUM(NVL(sl.requested_quantity, 0))                                       AS total_requested_qty,
+    SUM(NVL(sl.shipped_quantity,   0))                                       AS total_shipped_qty,
+    SUM(NVL(sl.staged_quantity,    0))                                       AS total_staged_qty,
+    -- Print status from wms_print_jobs (if table exists)
+    (SELECT COUNT(*) FROM wms_print_jobs pj
+     WHERE pj.order_number = sl.order_number
+       AND pj.instance_name = sl.instance_name)                              AS print_jobs_total,
+    (SELECT COUNT(*) FROM wms_print_jobs pj
+     WHERE pj.order_number = sl.order_number
+       AND pj.instance_name = sl.instance_name
+       AND UPPER(pj.print_status) = 'PRINTED')                              AS print_jobs_printed,
+    -- Last update
+    MAX(sl.wms_last_updated_date)                                            AS last_updated
+FROM wms_order_shipment_lines sl
+WHERE sl.instance_name = NVL(UPPER(:P_INSTANCE_NAME), 'PROD')
+  AND sl.order_number IN (
+      SELECT DISTINCT at2.order_number
+      FROM   wms_agents_trips at1
+      JOIN   wms_order_shipment_lines at2
+             ON  at2.instance_name = NVL(UPPER(:P_INSTANCE_NAME), 'PROD')
+      WHERE  at1.agent_id = :agentId
+        AND  at1.trip_id  = :tripId
+  )
+GROUP BY sl.order_number, sl.instance_name
+ORDER BY sl.order_number
+
+
+-- ============================================================
 -- HANDLER 3: PUT  agents/:agentId/status
 -- ============================================================
 -- Module:        TRIPMANAGEMENT

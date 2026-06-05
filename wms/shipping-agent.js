@@ -374,6 +374,15 @@
     };
 
     // ─── Trips Tab ───────────────────────────────────────────
+    const SHIPPING_STATUS_STYLE = {
+        SHIPPED:     { bg: '#dcfce7', color: '#15803d', icon: 'fa-check-circle' },
+        CONFIRMED:   { bg: '#dbeafe', color: '#1d4ed8', icon: 'fa-thumbs-up' },
+        STAGED:      { bg: '#e0f2fe', color: '#0369a1', icon: 'fa-layer-group' },
+        BACKORDERED: { bg: '#fef9c3', color: '#a16207', icon: 'fa-exclamation-circle' },
+        CANCELLED:   { bg: '#fee2e2', color: '#b91c1c', icon: 'fa-times-circle' },
+        PENDING:     { bg: '#f1f5f9', color: '#475569', icon: 'fa-clock' }
+    };
+
     async function saLoadTrips() {
         const agent = window._saCurrentAgent;
         if (!agent) return;
@@ -382,7 +391,19 @@
         list.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:12px;"><i class="fas fa-spinner fa-spin"></i> Loading trips...</div>`;
         try {
             const data  = await apexGet(`agents/${agent.ID}/trips`);
-            const trips = data.items || [];
+            const trips = (data.items || []).map(t => ({
+                TRIP_ID:          t.TRIP_ID   || t.trip_id,
+                TRIP_NAME:        t.TRIP_NAME || t.trip_name,
+                STATUS:           t.STATUS    || t.status    || 'PENDING',
+                INSTANCE_NAME:    t.INSTANCE_NAME || t.instance_name || agent.INSTANCE_NAME,
+                ORDERS_TOTAL:     t.ORDERS_TOTAL  || t.orders_total  || 0,
+                ORDERS_PROCESSED: t.ORDERS_PROCESSED || t.orders_processed || 0,
+                ORDERS_PRINTED:   t.ORDERS_PRINTED   || t.orders_printed   || 0,
+                ORDERS_STUCK:     t.ORDERS_STUCK     || t.orders_stuck     || 0,
+                ANOMALIES_FOUND:  t.ANOMALIES_FOUND  || t.anomalies_found  || 0,
+                ASSIGNED_DATE:    t.ASSIGNED_DATE    || t.assigned_date,
+                NOTES:            t.NOTES || t.notes || ''
+            }));
             if (trips.length === 0) {
                 list.innerHTML = `<div style="padding:2rem;text-align:center;color:#94a3b8;font-size:12px;">No trips assigned yet.<br>Click <strong>Assign Trip</strong> to add one.</div>`;
                 return;
@@ -391,28 +412,215 @@
                 const st  = TRIP_STATUS_STYLE[t.STATUS] || TRIP_STATUS_STYLE.PENDING;
                 const pct = t.ORDERS_TOTAL > 0 ? Math.round((t.ORDERS_PROCESSED / t.ORDERS_TOTAL) * 100) : 0;
                 return `
-                <div style="background:#f8fafc;border-radius:8px;padding:0.75rem 1rem;border:1px solid #e2e8f0;">
-                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.4rem;">
-                        <span style="font-size:12px;font-weight:700;color:#1e293b;">${esc(t.TRIP_NAME || t.TRIP_ID)}</span>
+                <div style="background:white;border-radius:10px;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.06);overflow:hidden;">
+                    <!-- Trip header -->
+                    <div style="background:linear-gradient(to right,#f8fafc,#fff);padding:0.75rem 1rem;border-bottom:1px solid #f1f5f9;display:flex;justify-content:space-between;align-items:center;">
+                        <div style="display:flex;align-items:center;gap:0.5rem;">
+                            <div style="width:28px;height:28px;background:linear-gradient(135deg,#7c3aed,#5b21b6);border-radius:6px;display:flex;align-items:center;justify-content:center;">
+                                <i class="fas fa-truck" style="color:white;font-size:0.7rem;"></i>
+                            </div>
+                            <div>
+                                <div style="font-size:13px;font-weight:700;color:#1e293b;">${esc(t.TRIP_NAME || t.TRIP_ID)}</div>
+                                <div style="font-size:10px;color:#64748b;">${esc(t.INSTANCE_NAME)} · Assigned: ${saFormatDate(t.ASSIGNED_DATE)}</div>
+                            </div>
+                        </div>
                         <div style="display:flex;gap:0.4rem;align-items:center;">
-                            <span style="background:${st.bg};color:${st.color};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:700;">${t.STATUS}</span>
-                            <button onclick="saUnassignTrip(${agent.ID},'${esc(t.TRIP_ID)}')" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:11px;padding:2px 4px;" title="Remove trip" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='#94a3b8'"><i class="fas fa-times"></i></button>
+                            <span style="background:${st.bg};color:${st.color};padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700;">${t.STATUS}</span>
+                            <button onclick="saLoadTripOrders('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#0891b2;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Load order details">
+                                <i class="fas fa-list"></i> Orders
+                            </button>
+                            <button onclick="saUnassignTrip(${agent.ID},'${esc(t.TRIP_ID)}')" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:12px;padding:3px 5px;" title="Remove trip" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='#94a3b8'"><i class="fas fa-times"></i></button>
                         </div>
                     </div>
-                    <div style="display:flex;gap:1rem;font-size:10px;color:#64748b;margin-bottom:0.5rem;">
-                        <span><i class="fas fa-box"></i> ${t.ORDERS_PROCESSED}/${t.ORDERS_TOTAL} orders</span>
-                        <span><i class="fas fa-print" style="color:#7c3aed;"></i> ${t.ORDERS_PRINTED} printed</span>
-                        <span><i class="fas fa-exclamation-triangle" style="color:#d97706;"></i> ${t.ANOMALIES_FOUND} anomalies</span>
+                    <!-- Trip stats row -->
+                    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-bottom:1px solid #f1f5f9;">
+                        ${saTripStatCell('Orders',    t.ORDERS_TOTAL,    '#667eea', 'fa-box')}
+                        ${saTripStatCell('Processed', t.ORDERS_PROCESSED,'#059669', 'fa-check')}
+                        ${saTripStatCell('Printed',   t.ORDERS_PRINTED,  '#7c3aed', 'fa-print')}
+                        ${saTripStatCell('Stuck',     t.ORDERS_STUCK,    '#d97706', 'fa-pause-circle')}
+                        ${saTripStatCell('Anomalies', t.ANOMALIES_FOUND, '#dc2626', 'fa-exclamation-triangle')}
                     </div>
-                    <div style="background:#e2e8f0;border-radius:4px;height:5px;overflow:hidden;">
-                        <div style="background:linear-gradient(90deg,#7c3aed,#5b21b6);height:100%;width:${pct}%;transition:width 0.4s;border-radius:4px;"></div>
+                    <!-- Progress bar -->
+                    <div style="padding:0.5rem 1rem;background:#fafafa;">
+                        <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin-bottom:3px;">
+                            <span>Processing progress</span><span style="font-weight:700;color:#7c3aed;">${pct}%</span>
+                        </div>
+                        <div style="background:#e2e8f0;border-radius:4px;height:5px;overflow:hidden;">
+                            <div style="background:linear-gradient(90deg,#7c3aed,#5b21b6);height:100%;width:${pct}%;transition:width 0.4s;border-radius:4px;"></div>
+                        </div>
                     </div>
-                    ${t.NOTES ? `<div style="font-size:10px;color:#94a3b8;margin-top:0.3rem;">${esc(t.NOTES)}</div>` : ''}
+                    <!-- Order details container (loaded on demand) -->
+                    <div id="sa-trip-orders-${esc(t.TRIP_ID)}" style="display:none;"></div>
                 </div>`;
             }).join('');
         } catch(e) {
             list.innerHTML = `<div style="padding:1rem;color:#dc2626;font-size:12px;">${e.message}</div>`;
         }
+    }
+
+    function saTripStatCell(label, value, color, icon) {
+        return `<div style="padding:0.5rem 0.3rem;text-align:center;border-right:1px solid #f1f5f9;">
+            <i class="fas ${icon}" style="color:${color};font-size:0.75rem;display:block;margin-bottom:2px;"></i>
+            <div style="font-size:13px;font-weight:800;color:${color};">${value || 0}</div>
+            <div style="font-size:9px;color:#94a3b8;font-weight:600;">${label}</div>
+        </div>`;
+    }
+
+    window.saLoadTripOrders = async function(tripId, instanceName) {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container) return;
+
+        // Toggle: if already visible hide it
+        if (container.style.display !== 'none' && container.innerHTML.trim() !== '') {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+        container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
+
+        try {
+            const path = `agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders?P_INSTANCE_NAME=${instanceName}`;
+            const data  = await apexGet(path);
+            const orders = (data.items || []).map(o => ({
+                ORDER_NUMBER:       o.ORDER_NUMBER   || o.order_number,
+                INSTANCE_NAME:      o.INSTANCE_NAME  || o.instance_name,
+                TOTAL_LINES:        o.TOTAL_LINES    || o.total_lines    || 0,
+                STAGED_LINES:       o.STAGED_LINES   || o.staged_lines   || 0,
+                CONFIRMED_LINES:    o.CONFIRMED_LINES || o.confirmed_lines || 0,
+                SHIPPED_LINES:      o.SHIPPED_LINES  || o.shipped_lines  || 0,
+                CANCELLED_LINES:    o.CANCELLED_LINES || o.cancelled_lines || 0,
+                BACKORDERED_LINES:  o.BACKORDERED_LINES || o.backordered_lines || 0,
+                SHIPPING_STATUS:    o.SHIPPING_STATUS || o.shipping_status || 'PENDING',
+                TOTAL_REQUESTED_QTY: o.TOTAL_REQUESTED_QTY || o.total_requested_qty || 0,
+                TOTAL_SHIPPED_QTY:  o.TOTAL_SHIPPED_QTY || o.total_shipped_qty || 0,
+                TOTAL_STAGED_QTY:   o.TOTAL_STAGED_QTY || o.total_staged_qty || 0,
+                PRINT_JOBS_TOTAL:   o.PRINT_JOBS_TOTAL || o.print_jobs_total || 0,
+                PRINT_JOBS_PRINTED: o.PRINT_JOBS_PRINTED || o.print_jobs_printed || 0,
+                LAST_UPDATED:       o.LAST_UPDATED  || o.last_updated
+            }));
+
+            if (orders.length === 0) {
+                // Fall back to tripOrdersStore if APEX has no shipment lines yet
+                const stored = (window.tripOrdersStore && window.tripOrdersStore[tripId]) || [];
+                const uniqOrders = [...new Set(stored.map(r => r.ORDER_NUMBER || r.order_number).filter(Boolean))];
+                if (uniqOrders.length === 0) {
+                    container.innerHTML = `<div style="padding:0.75rem 1rem;font-size:11px;color:#94a3b8;text-align:center;">No shipment line data yet. Run <strong>Fetch Picks</strong> on this trip first.</div>`;
+                    return;
+                }
+                // Show basic order list from store
+                container.innerHTML = saRenderOrdersFallback(uniqOrders, stored);
+                return;
+            }
+
+            container.innerHTML = saRenderOrdersTable(orders);
+        } catch(e) {
+            container.innerHTML = `<div style="padding:0.75rem 1rem;color:#dc2626;font-size:11px;">${e.message}</div>`;
+        }
+    };
+
+    function saRenderOrdersTable(orders) {
+        const rows = orders.map(o => {
+            const ss  = SHIPPING_STATUS_STYLE[o.SHIPPING_STATUS] || SHIPPING_STATUS_STYLE.PENDING;
+            const printPct  = o.PRINT_JOBS_TOTAL > 0 ? Math.round((o.PRINT_JOBS_PRINTED / o.PRINT_JOBS_TOTAL) * 100) : null;
+            const printBadge = o.PRINT_JOBS_TOTAL === 0
+                ? `<span style="background:#f1f5f9;color:#94a3b8;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;">No Jobs</span>`
+                : printPct === 100
+                    ? `<span style="background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;"><i class="fas fa-check"></i> Printed</span>`
+                    : `<span style="background:#fef9c3;color:#a16207;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;">${o.PRINT_JOBS_PRINTED}/${o.PRINT_JOBS_TOTAL} Printed</span>`;
+
+            // Assignment status: always ASSIGNED since it came from our query
+            const assignBadge = `<span style="background:#ede9fe;color:#6d28d9;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;"><i class="fas fa-link"></i> Assigned</span>`;
+
+            const lineBreakdown = [
+                o.STAGED_LINES     > 0 ? `<span style="color:#0369a1;">${o.STAGED_LINES} Staged</span>` : '',
+                o.CONFIRMED_LINES  > 0 ? `<span style="color:#1d4ed8;">${o.CONFIRMED_LINES} Confirmed</span>` : '',
+                o.SHIPPED_LINES    > 0 ? `<span style="color:#15803d;">${o.SHIPPED_LINES} Shipped</span>` : '',
+                o.BACKORDERED_LINES> 0 ? `<span style="color:#a16207;">${o.BACKORDERED_LINES} B/O</span>` : '',
+                o.CANCELLED_LINES  > 0 ? `<span style="color:#b91c1c;">${o.CANCELLED_LINES} Cancelled</span>` : ''
+            ].filter(Boolean).join(' &nbsp;·&nbsp; ');
+
+            return `
+            <tr style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background=''">
+                <td style="padding:6px 8px;font-weight:700;color:#1e293b;font-size:11px;">${esc(o.ORDER_NUMBER)}</td>
+                <td style="padding:6px 8px;text-align:center;">
+                    <span style="background:${ss.bg};color:${ss.color};padding:2px 8px;border-radius:8px;font-size:9px;font-weight:700;white-space:nowrap;">
+                        <i class="fas ${ss.icon}"></i> ${o.SHIPPING_STATUS}
+                    </span>
+                </td>
+                <td style="padding:6px 8px;font-size:10px;color:#64748b;">${lineBreakdown || '<span style="color:#94a3b8;">—</span>'}</td>
+                <td style="padding:6px 8px;text-align:right;font-size:10px;color:#374151;">
+                    <span title="Requested / Staged / Shipped">
+                        <span style="color:#0891b2;">${o.TOTAL_REQUESTED_QTY}</span> /
+                        <span style="color:#7c3aed;">${o.TOTAL_STAGED_QTY}</span> /
+                        <span style="color:#059669;">${o.TOTAL_SHIPPED_QTY}</span>
+                    </span>
+                </td>
+                <td style="padding:6px 8px;text-align:center;">${printBadge}</td>
+                <td style="padding:6px 8px;text-align:center;">${assignBadge}</td>
+                <td style="padding:6px 8px;font-size:9px;color:#94a3b8;white-space:nowrap;">${o.LAST_UPDATED ? saFormatDate(o.LAST_UPDATED) : '—'}</td>
+            </tr>`;
+        }).join('');
+
+        return `
+        <div style="padding:0.5rem 0;overflow-x:auto;">
+            <div style="padding:0 1rem 0.4rem;display:flex;justify-content:space-between;align-items:center;">
+                <span style="font-size:10px;font-weight:700;color:#475569;">${orders.length} ORDER(S)</span>
+                <div style="display:flex;gap:0.5rem;font-size:9px;color:#64748b;">
+                    <span><span style="color:#0891b2;font-weight:700;">●</span> Requested</span>
+                    <span><span style="color:#7c3aed;font-weight:700;">●</span> Staged</span>
+                    <span><span style="color:#059669;font-weight:700;">●</span> Shipped</span>
+                </div>
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                <thead>
+                    <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Order #</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Shipping Status</th>
+                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Line Breakdown</th>
+                        <th style="padding:5px 8px;text-align:right;font-size:10px;color:#64748b;font-weight:700;">Qty (Req/Stg/Shp)</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Print Status</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Assignment</th>
+                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Last Updated</th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
+    }
+
+    function saRenderOrdersFallback(uniqOrders, stored) {
+        const rows = uniqOrders.map(on => {
+            const row = stored.find(r => (r.ORDER_NUMBER || r.order_number) === on) || {};
+            return `
+            <tr style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#fafafa'" onmouseout="this.style.background=''">
+                <td style="padding:6px 8px;font-weight:700;color:#1e293b;font-size:11px;">${esc(on)}</td>
+                <td style="padding:6px 8px;text-align:center;"><span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:8px;font-size:9px;font-weight:700;">No Lines Yet</span></td>
+                <td style="padding:6px 8px;font-size:10px;color:#94a3b8;" colspan="3">Run Fetch Picks to load shipment line data</td>
+                <td style="padding:6px 8px;text-align:center;"><span style="background:#ede9fe;color:#6d28d9;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;"><i class="fas fa-link"></i> Assigned</span></td>
+                <td style="padding:6px 8px;"></td>
+            </tr>`;
+        }).join('');
+        return `
+        <div style="overflow-x:auto;">
+            <div style="padding:0.4rem 1rem;font-size:10px;color:#d97706;background:#fef9c3;border-top:1px solid #fde68a;">
+                <i class="fas fa-exclamation-triangle"></i> Showing ${uniqOrders.length} order(s) from local trip store — no shipment lines in APEX yet
+            </div>
+            <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                <thead>
+                    <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Order #</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Shipping Status</th>
+                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;" colspan="3">Note</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Assignment</th>
+                        <th style="padding:5px 8px;"></th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>`;
     }
 
     window.saUnassignTrip = async function(agentId, tripId) {
