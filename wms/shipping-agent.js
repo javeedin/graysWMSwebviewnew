@@ -41,37 +41,51 @@
         FAILED:    { bg: '#fee2e2', color: '#b91c1c' }
     };
 
-    // ─── API helpers ────────────────────────────────────────
-    async function apexGet(path) {
-        const r = await fetch(`${APEX_BASE}/${path}`);
-        if (!r.ok) throw new Error(`GET ${path} → ${r.status}`);
-        return r.json();
-    }
+    // ─── C# IPC API helpers ──────────────────────────────────
+    // All REST calls go through C# (WebView2 IPC) via sendMessageToCSharp
 
-    async function apexPost(path, body) {
-        const r = await fetch(`${APEX_BASE}/${path}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+    function apexGet(path) {
+        return new Promise((resolve, reject) => {
+            const url = `${APEX_BASE}/${path}`;
+            sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(err, data) {
+                if (err) return reject(new Error(err));
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
         });
-        if (!r.ok) throw new Error(`POST ${path} → ${r.status}`);
-        return r.json();
     }
 
-    async function apexPut(path, body) {
-        const r = await fetch(`${APEX_BASE}/${path}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
+    function apexPost(path, body) {
+        return new Promise((resolve, reject) => {
+            const url = `${APEX_BASE}/${path}`;
+            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: JSON.stringify(body) }, function(err, data) {
+                if (err) return reject(new Error(err));
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
         });
-        if (!r.ok) throw new Error(`PUT ${path} → ${r.status}`);
-        return r.json();
     }
 
-    async function apexDelete(path) {
-        const r = await fetch(`${APEX_BASE}/${path}`, { method: 'DELETE' });
-        if (!r.ok) throw new Error(`DELETE ${path} → ${r.status}`);
-        return r.json();
+    function apexPut(path, body) {
+        return new Promise((resolve, reject) => {
+            const url = `${APEX_BASE}/${path}`;
+            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: JSON.stringify(body), method: 'PUT' }, function(err, data) {
+                if (err) return reject(new Error(err));
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    function apexDelete(path) {
+        return new Promise((resolve, reject) => {
+            const url = `${APEX_BASE}/${path}`;
+            sendMessageToCSharp({ action: 'executePost', fullUrl: url, body: '{}', method: 'DELETE' }, function(err, data) {
+                if (err) return reject(new Error(err));
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
     }
 
     // ─── Page initialisation ────────────────────────────────
@@ -647,41 +661,85 @@
         }
     }
 
+    // ─── Auto-generate agent name ────────────────────────────
+    function saGenerateAgentName() {
+        const now  = new Date();
+        const days = ['SUN','MON','TUE','WED','THU','FRI','SAT'];
+        const pad  = n => String(n).padStart(2,'0');
+        const date = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+        const day  = days[now.getDay()];
+        // Sequence: count existing agents + 1
+        const seq  = String((window._saAgents || []).length + 1).padStart(3,'0');
+        return `${date} ${day} #${seq}`;
+    }
+
     // ─── Create Agent Modal ──────────────────────────────────
     window.saOpenCreateModal = function() {
-        const instance = (document.getElementById('current-instance-display')?.textContent || 'PROD').trim();
+        const instance  = (document.getElementById('current-instance-display')?.textContent || 'PROD').trim();
+        const agentName = saGenerateAgentName();
+
+        // Build the preview POST body for the API info panel
+        const previewBody = {
+            name: agentName,
+            description: 'Shipping agent description',
+            instanceName: instance,
+            capabilities: 'MONITOR,PRINT,PICK_RELEASE,NOTIFY,ANOMALY,AI_ANALYSIS',
+            checkIntervalSeconds: 60,
+            maxRetries: 3,
+            createdBy: localStorage.getItem('loggedInUser') || 'WMS_USER'
+        };
+        const previewUrl  = `${APEX_BASE}/agents/create`;
+        const previewJson = JSON.stringify(previewBody, null, 2);
+
         const html = `
         <div id="sa-create-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;">
-            <div style="background:white;border-radius:14px;padding:2rem;width:520px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+            <div style="background:white;border-radius:14px;padding:2rem;width:540px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.25rem;">
                     <h3 style="margin:0;font-size:1.1rem;color:#1e293b;"><i class="fas fa-user-cog" style="color:#7c3aed;"></i> Create Shipping Agent</h3>
-                    <button onclick="document.getElementById('sa-create-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;">&times;</button>
+                    <div style="display:flex;gap:0.5rem;align-items:center;">
+                        <button onclick="document.getElementById('sa-api-info-panel').style.display=document.getElementById('sa-api-info-panel').style.display==='none'?'block':'none'"
+                            style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;border:none;padding:4px 10px;border-radius:6px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;"
+                            title="View API call details">
+                            <i class="fas fa-code"></i> API
+                        </button>
+                        <button onclick="document.getElementById('sa-create-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;">&times;</button>
+                    </div>
+                </div>
+
+                <!-- API Info Panel (hidden by default) -->
+                <div id="sa-api-info-panel" style="display:none;background:#0f172a;border-radius:8px;padding:1rem;margin-bottom:1rem;font-size:11px;">
+                    <div style="color:#94a3b8;font-weight:700;margin-bottom:0.5rem;display:flex;align-items:center;gap:0.5rem;">
+                        <span style="background:#059669;color:white;padding:2px 6px;border-radius:4px;font-weight:700;">POST</span>
+                        <span style="color:#60a5fa;word-break:break-all;">${esc(previewUrl)}</span>
+                    </div>
+                    <div style="color:#94a3b8;font-size:10px;margin-bottom:0.4rem;">Content-Type: application/json &nbsp;·&nbsp; Via: C# RestApiClient (executePost)</div>
+                    <pre id="sa-api-body-preview" style="margin:0;color:#86efac;font-family:monospace;font-size:11px;white-space:pre-wrap;max-height:160px;overflow-y:auto;">${esc(previewJson)}</pre>
                 </div>
 
                 <div style="display:flex;flex-direction:column;gap:0.85rem;">
                     <div>
-                        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Agent Name *</label>
-                        <input id="sa-new-name" type="text" placeholder="e.g. Shipping Agent - Morning Shift" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                        <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Agent Name <span style="color:#94a3b8;font-weight:400;">(auto-generated)</span></label>
+                        <input id="sa-new-name" type="text" value="${esc(agentName)}" oninput="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #7c3aed;border-radius:6px;font-size:13px;box-sizing:border-box;font-weight:600;color:#7c3aed;">
                     </div>
                     <div>
                         <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Description</label>
-                        <input id="sa-new-desc" type="text" placeholder="Optional description" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                        <input id="sa-new-desc" type="text" placeholder="Optional description" oninput="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
                     </div>
                     <div style="display:flex;gap:1rem;">
                         <div style="flex:1;">
                             <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Instance</label>
-                            <select id="sa-new-instance" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">
+                            <select id="sa-new-instance" onchange="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">
                                 <option value="PROD" ${instance==='PROD'?'selected':''}>PROD</option>
                                 <option value="TEST" ${instance==='TEST'?'selected':''}>TEST</option>
                             </select>
                         </div>
                         <div style="flex:1;">
-                            <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Check Interval (seconds)</label>
-                            <input id="sa-new-interval" type="number" value="60" min="10" max="3600" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                            <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Check Interval (secs)</label>
+                            <input id="sa-new-interval" type="number" value="60" min="10" max="3600" oninput="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
                         </div>
                         <div style="flex:1;">
                             <label style="font-size:11px;font-weight:700;color:#374151;display:block;margin-bottom:4px;">Max Retries</label>
-                            <input id="sa-new-retries" type="number" value="3" min="1" max="10" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
+                            <input id="sa-new-retries" type="number" value="3" min="1" max="10" oninput="saUpdateApiPreview()" style="width:100%;padding:0.5rem;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;box-sizing:border-box;">
                         </div>
                     </div>
                     <div>
@@ -696,7 +754,7 @@
                                 ['AI_ANALYSIS',  'AI Analysis',      '#6d28d9', 'fa-brain']
                             ].map(([val, label, color, icon]) => `
                                 <label style="display:flex;align-items:center;gap:0.4rem;background:${color}12;border:1px solid ${color}30;padding:5px 10px;border-radius:8px;cursor:pointer;font-size:11px;font-weight:600;color:${color};">
-                                    <input type="checkbox" name="sa-cap" value="${val}" checked style="cursor:pointer;">
+                                    <input type="checkbox" name="sa-cap" value="${val}" checked onchange="saUpdateApiPreview()" style="cursor:pointer;">
                                     <i class="fas ${icon}"></i> ${label}
                                 </label>`).join('')}
                         </div>
@@ -711,6 +769,23 @@
         </div>`;
         document.body.insertAdjacentHTML('beforeend', html);
         document.getElementById('sa-new-name').focus();
+    };
+
+    // Live-update API preview panel as user changes fields
+    window.saUpdateApiPreview = function() {
+        const preview = document.getElementById('sa-api-body-preview');
+        if (!preview) return;
+        const caps = [...document.querySelectorAll('input[name="sa-cap"]:checked')].map(c => c.value).join(',');
+        const body = {
+            name:                 document.getElementById('sa-new-name')?.value || '',
+            description:          document.getElementById('sa-new-desc')?.value || '',
+            instanceName:         document.getElementById('sa-new-instance')?.value || 'PROD',
+            capabilities:         caps,
+            checkIntervalSeconds: parseInt(document.getElementById('sa-new-interval')?.value || 60),
+            maxRetries:           parseInt(document.getElementById('sa-new-retries')?.value || 3),
+            createdBy:            localStorage.getItem('loggedInUser') || 'WMS_USER'
+        };
+        preview.textContent = JSON.stringify(body, null, 2);
     };
 
     window.saSubmitCreate = async function() {
