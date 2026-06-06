@@ -121,11 +121,8 @@ DECLARE
     -- Print counts fetched live from wms_print_jobs (not passed by JS)
     v_print_total       NUMBER := 0;
     v_print_printed     NUMBER := 0;
-    v_body              CLOB;
-
 BEGIN
-    v_body := :body;
-    APEX_JSON.parse(v_body);
+    APEX_JSON.parse(:body_text);
 
     v_agent_id          := APEX_JSON.get_number('agentId');
     v_trip_id           := APEX_JSON.get_varchar2('tripId');
