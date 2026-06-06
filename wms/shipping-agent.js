@@ -509,6 +509,11 @@
                 </div>`;
             }).join('');
 
+            // Auto-load orders for every trip (silent) so DB status GET runs on agent open
+            trips.forEach(t => {
+                saLoadTripOrders(t.TRIP_ID, t.INSTANCE_NAME, true);
+            });
+
             // Async: fetch lorry/bay/priority for each trip from GETTRIPDETAILS (first row only)
             trips.forEach(t => {
                 wmsGet(`GETTRIPDETAILS/${encodeURIComponent(t.TRIP_ID)}?P_INSTANCE_NAME=${t.INSTANCE_NAME}&limit=1`)
@@ -627,20 +632,26 @@
         </div>`;
     }
 
-    window.saLoadTripOrders = async function(tripId, instanceName) {
+    window.saLoadTripOrders = async function(tripId, instanceName, silent) {
         const agent = window._saCurrentAgent;
         if (!agent) return;
         const container = document.getElementById(`sa-trip-orders-${tripId}`);
         if (!container) return;
 
-        // Toggle hide/show
-        if (container.style.display !== 'none' && container.innerHTML.trim() !== '') {
+        if (!silent) {
+            // Toggle hide/show when user clicks Orders button
+            if (container.style.display !== 'none' && container.innerHTML.trim() !== '') {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = 'block';
+            container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
+        } else {
+            // Silent auto-load: render into hidden container so DB GET runs and populates rows
+            if (container.innerHTML.trim() !== '') return; // already loaded
             container.style.display = 'none';
-            return;
+            container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
         }
-
-        container.style.display = 'block';
-        container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
 
         try {
             const inst = instanceName || 'PROD';
