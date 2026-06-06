@@ -122,7 +122,7 @@ DECLARE
     v_print_total       NUMBER := 0;
     v_print_printed     NUMBER := 0;
 BEGIN
-    APEX_JSON.parse(:body_text);
+    APEX_JSON.parse(UTL_RAW.CAST_TO_VARCHAR2(:body));
 
     v_agent_id          := APEX_JSON.get_number('agentId');
     v_trip_id           := APEX_JSON.get_varchar2('tripId');

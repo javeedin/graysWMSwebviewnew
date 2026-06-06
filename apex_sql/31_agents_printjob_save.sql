@@ -41,7 +41,7 @@ DECLARE
     v_account_number  VARCHAR2(50);
     v_trip_config_id  NUMBER;
 BEGIN
-    APEX_JSON.parse(:body_text);
+    APEX_JSON.parse(UTL_RAW.CAST_TO_VARCHAR2(:body));
 
     v_order_number    := APEX_JSON.get_varchar2('orderNumber');
     v_trip_id         := APEX_JSON.get_varchar2('tripId');
