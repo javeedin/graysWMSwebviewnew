@@ -4224,6 +4224,8 @@ navPanel.Controls.Add(wmsDevButton);
                         success = true,
                         pdfPath = filePath,
                         filePath = filePath,
+                        fileSize = pdfBytes.Length,
+                        base64 = result.Base64Content,   // include base64 so JS doesn't need a second read call
                         message = "PDF generated successfully"
                     };
                     wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(successResponse));

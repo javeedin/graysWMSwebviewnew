@@ -1269,19 +1269,18 @@
 
         try {
             // 1. Download PDF via SOAP → C# saves to C:\fusion\{tripDate}\{tripId}\{order}.pdf
+            //    C# now also returns base64 in the response so we don't need a second read call
             showNotification(`Downloading invoice PDF for ${orderNumber}...`, 'info');
             const dlResult = await saDownloadOrderPdf(orderNumber, tripId, actualTripDate, instanceName);
-            console.log('[ShippingAgent] SOAP download result:', dlResult);
+            console.log('[ShippingAgent] SOAP download result (base64 length):', (dlResult.base64 || '').length, 'filePath:', dlResult.filePath);
             const filePath = dlResult.filePath || dlResult.pdfPath || '';
             if (!filePath) throw new Error('PDF path not returned from C#');
-            console.log('[ShippingAgent] PDF saved at:', filePath);
 
-            // 2. Read PDF back to verify content (get base64 + fileSize)
-            console.log('[ShippingAgent] Reading PDF from:', filePath);
-            const pdfData  = await saGetPdfBase64(filePath);
-            const fileSize = pdfData.fileSize || Math.round((pdfData.base64 || '').length * 0.75);
-            const hasLines = fileSize > 500; // >500 bytes = has real PDF content
-            console.log(`[ShippingAgent] PDF read OK: size=${fileSize} hasLines=${hasLines}`);
+            // 2. Use base64 returned directly from printSalesOrder response (no second round-trip needed)
+            const base64   = dlResult.base64 || '';
+            const fileSize = dlResult.fileSize || Math.round(base64.length * 0.75);
+            const hasLines = fileSize > 500;
+            console.log(`[ShippingAgent] PDF ready: size=${fileSize} hasLines=${hasLines} path=${filePath}`);
 
             // 3. Insert into wms_print_jobs (live print status = Downloaded)
             await saInsertPrintJob(orderNumber, tripId, actualTripDate, instanceName, filePath, fileSize, accountName, accountNumber);
@@ -1295,7 +1294,7 @@
             }
 
             // 5. Show choice popup (Preview or Close)
-            saShowPdfChoice(pdfData.base64, orderNumber, filePath, fileSize, hasLines);
+            saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines);
 
             // 6. Log activity
             if (agent) {
