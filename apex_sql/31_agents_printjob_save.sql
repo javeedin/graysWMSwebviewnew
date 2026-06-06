@@ -40,8 +40,10 @@ DECLARE
     v_customer_name   VARCHAR2(200);
     v_account_number  VARCHAR2(50);
     v_trip_config_id  NUMBER;
+    v_body            CLOB;
 BEGIN
-    APEX_JSON.parse(APEX_APPLICATION.G_REQUEST_BODY);
+    v_body := :body;
+    APEX_JSON.parse(v_body);
 
     v_order_number    := APEX_JSON.get_varchar2('orderNumber');
     v_trip_id         := APEX_JSON.get_varchar2('tripId');
