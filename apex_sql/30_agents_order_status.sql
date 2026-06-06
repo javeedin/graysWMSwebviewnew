@@ -151,8 +151,7 @@ BEGIN
            COUNT(CASE WHEN UPPER(print_status) = 'PRINTED' THEN 1 END)
     INTO   v_print_total, v_print_printed
     FROM   wms_print_jobs
-    WHERE  order_number   = v_order_number
-      AND  instance_name  = v_instance_name;
+    WHERE  order_number = v_order_number;
 
     -- DELETE existing record for this agent/trip/order (full refresh)
     DELETE FROM wms_shiping_agents_orders_status
