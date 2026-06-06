@@ -59,6 +59,31 @@
         });
     }
 
+    function fusionShipmentLinesGet(orderNumber, instanceName) {
+        const baseUrl = (instanceName || 'PROD').toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+        const url = `${baseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${encodeURIComponent(orderNumber)}&limit=500`;
+        console.log('[ShippingAgent] Fusion shipmentLines GET', url);
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function') {
+                return reject(new Error('C# bridge not available'));
+            }
+            sendMessageToCSharp({ action: 'executeOracleFusionGet', fullUrl: url, instance: instanceName }, function(err, data) {
+                if (err) { console.error('[ShippingAgent] Fusion GET error', url, err); return reject(new Error(String(err))); }
+                try { resolve(typeof data === 'string' ? JSON.parse(data) : data); }
+                catch(e) { resolve(data); }
+            });
+        });
+    }
+
+    function fusionShipmentLinesUrl(orderNumber, instanceName) {
+        const baseUrl = (instanceName || 'PROD').toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
+        return `${baseUrl}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${encodeURIComponent(orderNumber || '{ORDER_NUMBER}')}&limit=500`;
+    }
+
     function wmsGet(path) { return rawGet(`${WMS_BASE}/${path}`); }
 
     function apexGet(path) {
@@ -524,15 +549,28 @@
                     </div>
                     <div style="color:#64748b;font-size:9px;margin-top:0.3rem;">
                         Module: <strong>TRIPMANAGEMENT</strong> · Endpoint: <strong>agents/:agentId/trips/:tripId/orders</strong><br>
-                        Provides line breakdown (Staged/Shipped/etc), qty totals, print job counts & shipping status.<br>
-                        Sourced from <code>wms_order_shipment_lines</code>. Only available after <strong>Fetch Picks</strong> is run.
+                        Provides print job counts from <code>wms_print_jobs</code>.
+                    </div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Step 3 — Live status per order: Oracle Fusion shipmentLines
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.7rem;">
+                        <div style="color:#38bdf8;word-break:break-all;">${esc(fusionShipmentLinesUrl('{ORDER_NUMBER}', inst))}</div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.3rem;">
+                        Triggered by <strong>Get Shipment Lines</strong> or <strong>Refresh</strong> button per order.<br>
+                        PROD → <code>efmh.fa.em3.oraclecloud.com</code> &nbsp;|&nbsp; TRAIN → <code>efmh-test.fa.em3.oraclecloud.com</code>
                     </div>
                 </div>
 
                 <div style="background:#1e293b;border-radius:6px;padding:0.5rem 0.7rem;font-size:9px;color:#94a3b8;">
                     <i class="fas fa-info-circle" style="color:#7c3aed;"></i>
-                    All calls go via <strong>C# RestApiClient</strong> (sendMessageToCSharp → executeGet).<br>
-                    Check the browser console for <code>[ShippingAgent] GET ...</code> logs with live URLs and responses.
+                    Steps 1 & 2 via <strong>executeGet</strong>. Step 3 via <strong>executeOracleFusionGet</strong> (Fusion credentials from C# config).<br>
+                    Check console for <code>[ShippingAgent] GET ...</code> and <code>[ShippingAgent] Fusion shipmentLines GET ...</code> logs.
                 </div>
             </div>`;
         document.body.appendChild(pop);
@@ -620,7 +658,8 @@
         setCell('checked',  `<span style="color:#94a3b8;font-size:9px;"><i class="fas fa-sync fa-spin"></i> Fetching...</span>`);
 
         try {
-            const slData = await apexGet(`orders/shipmentlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instanceName}`);
+            // Use Oracle Fusion REST API directly (executeOracleFusionGet via C# bridge)
+            const slData = await fusionShipmentLinesGet(orderNumber, instanceName);
             const lines  = slData.items || [];
 
             if (lines.length === 0) {
@@ -630,27 +669,32 @@
                 setCell('cancel',   saBadge('None', '#f0fdf4', '#15803d', 'fa-check'));
                 setCell('print',    saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
                 setCell('lines',    `<span style="color:#94a3b8;font-size:9px;">No shipment lines yet</span>`);
-                setCell('checked',  saCheckedBadge(timeStr, lines.length));
+                setCell('checked',  saCheckedBadge(timeStr, 0));
                 return;
             }
 
-            // ── Classify each line by status ──
-            // Statuses: READY TO RELEASE, RELEASED TO WAREHOUSE, STAGED, INTERFACED, CANCELLED
+            // ── Classify each line using Fusion field names ──
+            // Fusion fields: LineStatusCode (Y=Interfaced, C=Staged, etc.), LineStatus (display text)
+            // RequestedQuantity, StagedQuantity, ShippedQuantity
             let readyToRelease = 0, releasedToWH = 0, staged = 0, interfaced = 0, cancelled = 0, other = 0;
             let totalQty = 0, stagedQty = 0, shippedQty = 0;
 
             lines.forEach(l => {
-                const ls = (l.LINE_STATUS_CODE || l.line_status_code || l.LINE_STATUS || l.line_status || '').toUpperCase().trim();
-                if      (ls === 'STAGED'            || ls.includes('STAGED'))              staged++;
-                else if (ls === 'INTERFACED'        || ls.includes('INTERFACED'))          interfaced++;
-                else if (ls === 'CANCELLED'         || ls.includes('CANCEL'))              cancelled++;
-                else if (ls === 'RELEASED TO WAREHOUSE' || ls.includes('RELEASED'))        releasedToWH++;
-                else if (ls === 'READY TO RELEASE'  || ls.includes('READY'))               readyToRelease++;
-                else                                                                        other++;
+                // Fusion uses LineStatusCode: Y=Interfaced/Shipped, C=Staged, X=Cancelled
+                // LineStatus text: "Ready to Release", "Released to Warehouse", "Staged", "Interfaced", "Cancelled"
+                const lsc  = (l.LineStatusCode || '').toString().toUpperCase().trim();
+                const ls   = (l.LineStatus || l.LineStatusCode || '').toString().toUpperCase().trim();
 
-                totalQty   += parseFloat(l.REQUESTED_QUANTITY  || l.requested_quantity  || 0);
-                stagedQty  += parseFloat(l.STAGED_QUANTITY     || l.staged_quantity     || 0);
-                shippedQty += parseFloat(l.SHIPPED_QUANTITY    || l.shipped_quantity    || 0);
+                if      (lsc === 'Y' || ls.includes('INTERFACED'))              interfaced++;
+                else if (lsc === 'C' || ls.includes('STAGED'))                  staged++;
+                else if (lsc === 'X' || ls.includes('CANCEL'))                  cancelled++;
+                else if (ls.includes('RELEASED TO WAREHOUSE') || ls.includes('RELEASED')) releasedToWH++;
+                else if (ls.includes('READY'))                                  readyToRelease++;
+                else                                                            other++;
+
+                totalQty   += parseFloat(l.RequestedQuantity || 0);
+                stagedQty  += parseFloat(l.StagedQuantity    || 0);
+                shippedQty += parseFloat(l.ShippedQuantity   || 0);
             });
 
             const total = lines.length;
@@ -799,45 +843,57 @@
     };
 
     window.saShowShipmentLinesApiInfo = function(sampleOrderNumber, instanceName) {
-        const url = `${APEX_BASE}/orders/shipmentlines/${sampleOrderNumber || '{ORDER_NUMBER}'}?P_INSTANCE_NAME=${instanceName || 'PROD'}`;
+        const inst     = instanceName || 'PROD';
+        const fusionUrl = fusionShipmentLinesUrl(sampleOrderNumber, inst);
+        const isProd   = inst.toUpperCase() === 'PROD';
 
         const existing = document.getElementById('sa-api-popup');
         if (existing) existing.remove();
 
         const pop = document.createElement('div');
         pop.id = 'sa-api-popup';
-        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:560px;max-height:85vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:600px;max-height:90vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
         pop.innerHTML = `
             <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
-                <span style="font-weight:800;font-size:12px;color:#7c3aed;"><i class="fas fa-code"></i> Get Shipment Lines — API Info</span>
+                <span style="font-weight:800;font-size:12px;color:#7c3aed;"><i class="fas fa-code"></i> Get Shipment Lines — Oracle Fusion REST API</span>
                 <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
             </div>
-            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.8rem;">
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.9rem;">
+
                 <div>
                     <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
                         <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
-                        Shipment Lines per Order (called once per order)
+                        Oracle Fusion — shipmentLines (called once per order)
                     </div>
-                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.7rem;">
-                        <div style="color:#38bdf8;word-break:break-all;">${esc(url)}</div>
+                    <div style="background:#1e293b;border:1px solid #7c3aed;border-radius:6px;padding:0.6rem 0.8rem;">
+                        <div style="color:#a78bfa;font-size:9px;margin-bottom:4px;font-weight:700;">
+                            ${isProd ? '🟢 PROD' : '🟡 TRAIN/TEST'} — Instance: <strong>${esc(inst)}</strong>
+                        </div>
+                        <div style="color:#38bdf8;word-break:break-all;line-height:1.6;">${esc(fusionUrl)}</div>
                     </div>
-                    <div style="color:#64748b;font-size:9px;margin-top:0.4rem;line-height:1.5;">
-                        <strong>Module:</strong> TRIPMANAGEMENT &nbsp;·&nbsp; <strong>Endpoint:</strong> orders/shipmentlines/{ORDER_NUMBER}<br>
-                        <strong>Param:</strong> P_INSTANCE_NAME — PROD or TRAIN<br>
-                        <strong>Response fields used:</strong> LINE_STATUS_CODE, REQUESTED_QUANTITY, STAGED_QUANTITY, SHIPPED_QUANTITY
+                    <div style="color:#64748b;font-size:9px;margin-top:0.4rem;line-height:1.7;">
+                        <strong style="color:#94a3b8;">Host:</strong>
+                        <span style="color:#f472b6;">PROD</span> → <code>efmh.fa.em3.oraclecloud.com</code> &nbsp;|&nbsp;
+                        <span style="color:#fbbf24;">TRAIN</span> → <code>efmh-test.fa.em3.oraclecloud.com</code><br>
+                        <strong style="color:#94a3b8;">Resource:</strong> <code>/fscmRestApi/resources/11.13.18.05/shipmentLines</code><br>
+                        <strong style="color:#94a3b8;">Query:</strong> <code>q=Order={ORDER_NUMBER}&limit=500</code><br>
+                        <strong style="color:#94a3b8;">Auth:</strong> Via C# <code>executeOracleFusionGet</code> (Fusion credentials from config)<br>
+                        <strong style="color:#94a3b8;">Response fields:</strong> <code>LineStatusCode</code>, <code>LineStatus</code>, <code>RequestedQuantity</code>, <code>StagedQuantity</code>, <code>ShippedQuantity</code>
                     </div>
                 </div>
-                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.7rem;font-size:9px;color:#94a3b8;line-height:1.6;">
-                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.3rem;"><i class="fas fa-info-circle" style="color:#7c3aed;"></i> Status Classification Logic</div>
-                    <div><span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:3px;font-weight:700;">Ready to Release</span> → waiting for pick wave release</div>
-                    <div><span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:3px;font-weight:700;">Released to WH</span> → pick wave released, picking in progress</div>
-                    <div><span style="background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-weight:700;">Staged</span> → <strong>Picking done</strong></div>
-                    <div><span style="background:#dcfce7;color:#15803d;padding:1px 5px;border-radius:3px;font-weight:700;">Interfaced</span> → <strong>Shipping done</strong></div>
-                    <div><span style="background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:3px;font-weight:700;">Cancelled</span> → line cancelled</div>
+
+                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.8rem;font-size:9px;color:#94a3b8;line-height:1.8;">
+                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.4rem;"><i class="fas fa-sitemap" style="color:#7c3aed;"></i> Status Classification (LineStatusCode → meaning)</div>
+                    <div><code style="color:#fbbf24;">Ready to Release</code> → Picking not yet started</div>
+                    <div><code style="color:#38bdf8;">Released to WH</code> → Pick wave released, picking in progress</div>
+                    <div><code style="color:#60a5fa;">C → Staged</code> → <strong style="color:#e2e8f0;">Picking done</strong> ✓</div>
+                    <div><code style="color:#4ade80;">Y → Interfaced</code> → <strong style="color:#e2e8f0;">Shipping done</strong> ✓✓</div>
+                    <div><code style="color:#f87171;">X → Cancelled</code> → Line cancelled</div>
                 </div>
-                <div style="font-size:9px;color:#64748b;">
-                    <i class="fas fa-clock" style="color:#7c3aed;"></i> Each fetch time is recorded in <code>window._saOrderLastFetched[orderNumber]</code> and shown in the <strong>Last Checked</strong> column.<br>
-                    All calls go via <strong>C# RestApiClient</strong> (sendMessageToCSharp → executeGet). Check console for <code>[ShippingAgent] GET ...</code> logs.
+
+                <div style="font-size:9px;color:#64748b;line-height:1.6;">
+                    <i class="fas fa-clock" style="color:#7c3aed;"></i> Fetch time stored in <code>window._saOrderLastFetched[orderNumber]</code> — shown in <strong>Last Checked</strong> column.<br>
+                    <i class="fas fa-history" style="color:#7c3aed;"></i> Every fetch posts a <code>CHECK_STATUS</code> entry to the agent Activity Log.
                 </div>
             </div>`;
         document.body.appendChild(pop);
