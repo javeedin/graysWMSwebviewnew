@@ -993,9 +993,13 @@
                 console.log('[ShippingAgent] Saving order status to DB:', payload);
                 const saveResult = await apexPost('agents/orders/status/save', payload);
                 console.log('[ShippingAgent] DB save result:', saveResult);
+                if (saveResult && saveResult.status === 'error') {
+                    console.error('[ShippingAgent] DB save returned error:', saveResult.message);
+                }
             }
         } catch(e) {
-            console.warn('[ShippingAgent] Save order status failed (non-fatal):', e.message);
+            console.error('[ShippingAgent] Save order status FAILED:', e.message,
+                '— Check that APEX handler agents/orders/status/save is deployed (30_agents_order_status.sql)');
         }
     };
 
@@ -1238,7 +1242,8 @@
                 accountNumber: accountNumber  || ''
             });
         } catch(e) {
-            console.warn('[ShippingAgent] Could not insert print job (non-fatal):', e.message);
+            console.error('[ShippingAgent] Could not insert print job:', e.message,
+                '— Check that APEX handler printjobs/save is deployed (31_agents_printjob_save.sql)');
         }
     }
 
@@ -1282,8 +1287,13 @@
             const hasLines = fileSize > 500;
             console.log(`[ShippingAgent] PDF ready: size=${fileSize} hasLines=${hasLines} path=${filePath}`);
 
-            // 3. Insert into wms_print_jobs (live print status = Downloaded)
-            await saInsertPrintJob(orderNumber, tripId, actualTripDate, instanceName, filePath, fileSize, accountName, accountNumber);
+            // 3. Only insert into wms_print_jobs when PDF has real content (lines found)
+            if (hasLines) {
+                await saInsertPrintJob(orderNumber, tripId, actualTripDate, instanceName, filePath, fileSize, accountName, accountNumber);
+                console.log(`[ShippingAgent] Print job inserted for ${orderNumber} — file has content`);
+            } else {
+                console.warn(`[ShippingAgent] Skipping print job insert for ${orderNumber} — PDF appears empty`);
+            }
 
             // 4. Update print cell badge on the row
             if (rowEl) {
