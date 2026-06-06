@@ -1139,10 +1139,15 @@
     function saGetPdfBase64(filePath) {
         return new Promise((resolve, reject) => {
             if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
+            console.log('[ShippingAgent] getPdfAsBase64 request — path:', filePath);
             sendMessageToCSharp({ action: 'getPdfAsBase64', filePath: filePath }, function(err, data) {
-                if (err) return reject(new Error(String(err)));
+                console.log('[ShippingAgent] getPdfAsBase64 response — err:', err, 'data:', data);
+                if (err) return reject(new Error(`C# error reading PDF at "${filePath}": ${err}`));
                 try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
-                if (!data || !data.success) return reject(new Error((data && data.message) || 'Failed to read PDF'));
+                if (!data || !data.success) {
+                    const msg = (data && data.message) || (data && data.error) || JSON.stringify(data);
+                    return reject(new Error(`Failed to read PDF at "${filePath}" — C# says: ${msg}`));
+                }
                 resolve(data.data || data);
             });
         });
