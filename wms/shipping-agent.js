@@ -357,6 +357,8 @@
         if (content) { content.style.display = 'flex'; }
 
         setText('sa-detail-name', agent.NAME);
+        const idChip = document.getElementById('sa-detail-agent-id');
+        if (idChip) idChip.innerHTML = `<span style="background:#1e293b;color:#a78bfa;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;font-family:monospace;">ID: ${agent.ID}</span>`;
         const isClosed = agent.AGENT_STATUS === 'CLOSED';
         document.getElementById('sa-detail-meta').innerHTML =
             `<span style="color:#7c3aed;font-weight:600;">${esc(agent.INSTANCE_NAME)}</span> &nbsp;·&nbsp; Interval: ${agent.CHECK_INTERVAL_SECONDS}s &nbsp;·&nbsp; Max retries: ${agent.MAX_RETRIES} &nbsp;·&nbsp; Created: ${saFormatDate(agent.CREATED_DATE)}${isClosed ? ` &nbsp;·&nbsp; <span style="color:#b91c1c;font-weight:700;">CLOSED ${saFormatDate(agent.CLOSED_DATE)}</span>` : ''}`;
