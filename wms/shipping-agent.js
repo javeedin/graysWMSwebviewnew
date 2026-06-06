@@ -513,15 +513,21 @@
                     .then(d => {
                         const row = (d.items || [])[0];
                         if (!row) return;
-                        const lorry   = row.TRIP_LORRY    || row.trip_lorry    || '';
-                        const bay     = row.LOADING_BAY   || row.loading_bay   || '';
-                        const prio    = row.TRIP_PRIORITY  || row.trip_priority  || '';
+                        const lorry    = row.TRIP_LORRY    || row.trip_lorry    || '';
+                        const bay      = row.LOADING_BAY   || row.loading_bay   || '';
+                        const prio     = row.TRIP_PRIORITY || row.trip_priority || '';
+                        const rawDate  = row.TRIP_DATE     || row.trip_date     || '';
+                        // Format trip date: take just the date part (strip time if ISO string)
+                        const tripDate = rawDate ? rawDate.toString().split('T')[0] : '';
                         const metaEl  = document.getElementById(`sa-trip-meta-${t.TRIP_ID}`);
                         if (!metaEl) return;
+                        // Store trip date on the card element for use by saPrintOrder
+                        metaEl.setAttribute('data-trip-date', tripDate);
                         const chips = [
-                            lorry ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-truck"></i> ${esc(lorry)}</span>` : '',
-                            bay   ? `<span style="background:#fef9c3;color:#a16207;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-warehouse"></i> Bay ${esc(bay)}</span>` : '',
-                            prio  ? `<span style="background:#fce7f3;color:#be185d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-star"></i> Priority ${esc(prio)}</span>` : ''
+                            tripDate ? `<span style="background:#f0fdf4;color:#15803d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-calendar-alt"></i> Trip Date: ${esc(tripDate)}</span>` : '',
+                            lorry    ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-truck"></i> ${esc(lorry)}</span>` : '',
+                            bay      ? `<span style="background:#fef9c3;color:#a16207;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-warehouse"></i> Bay ${esc(bay)}</span>` : '',
+                            prio     ? `<span style="background:#fce7f3;color:#be185d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-star"></i> Priority ${esc(prio)}</span>` : ''
                         ].filter(Boolean).join('');
                         metaEl.innerHTML = chips || '';
                     })
@@ -1239,6 +1245,13 @@
 
         const agent = window._saCurrentAgent;
 
+        // Prefer trip date from the meta chip element (fetched from GETTRIPDETAILS = actual trip date)
+        // Fall back to passed-in tripDate, then today
+        const metaEl = document.getElementById(`sa-trip-meta-${tripId}`);
+        const actualTripDate = (metaEl && metaEl.getAttribute('data-trip-date'))
+            || (tripDate || '').split('T')[0]
+            || new Date().toISOString().split('T')[0];
+
         // Get account info from row data for print job record
         let accountName = '', accountNumber = '';
         const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
@@ -1247,20 +1260,26 @@
             if (dr) try { const rd = JSON.parse(dr.getAttribute('data-row')); accountName = rd.ACCOUNT_NAME || ''; accountNumber = rd.ACCOUNT_NUMBER || ''; } catch(e) {}
         }
 
+        console.log(`[ShippingAgent] saPrintOrder: order=${orderNumber} tripId=${tripId} tripDate=${actualTripDate} instance=${instanceName}`);
+
         try {
-            // 1. Download PDF via SOAP → saved to C:\fusion\orderpdfdownloads\{date}\{tripId}\{order}.pdf
+            // 1. Download PDF via SOAP → C# saves to C:\fusion\{tripDate}\{tripId}\{order}.pdf
             showNotification(`Downloading invoice PDF for ${orderNumber}...`, 'info');
-            const dlResult = await saDownloadOrderPdf(orderNumber, tripId, tripDate, instanceName);
+            const dlResult = await saDownloadOrderPdf(orderNumber, tripId, actualTripDate, instanceName);
+            console.log('[ShippingAgent] SOAP download result:', dlResult);
             const filePath = dlResult.filePath || dlResult.pdfPath || '';
             if (!filePath) throw new Error('PDF path not returned from C#');
+            console.log('[ShippingAgent] PDF saved at:', filePath);
 
             // 2. Read PDF back to verify content (get base64 + fileSize)
+            console.log('[ShippingAgent] Reading PDF from:', filePath);
             const pdfData  = await saGetPdfBase64(filePath);
             const fileSize = pdfData.fileSize || Math.round((pdfData.base64 || '').length * 0.75);
             const hasLines = fileSize > 500; // >500 bytes = has real PDF content
+            console.log(`[ShippingAgent] PDF read OK: size=${fileSize} hasLines=${hasLines}`);
 
             // 3. Insert into wms_print_jobs (live print status = Downloaded)
-            await saInsertPrintJob(orderNumber, tripId, tripDate, instanceName, filePath, fileSize, accountName, accountNumber);
+            await saInsertPrintJob(orderNumber, tripId, actualTripDate, instanceName, filePath, fileSize, accountName, accountNumber);
 
             // 4. Update print cell badge on the row
             if (rowEl) {
