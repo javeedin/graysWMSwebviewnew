@@ -1021,29 +1021,100 @@
 
     // ─── PDF Download / Print helpers ────────────────────────
 
-    // Call C# printSalesOrder action → SOAP → saves PDF to orderpdfdownloads path → returns filePath
+    // Returns the SOAP URL for the given order/instance (display only)
+    function saSoapReportUrl(instanceName) {
+        return (instanceName || 'PROD').toUpperCase() === 'PROD'
+            ? 'https://efmh.fa.em3.oraclecloud.com/xmlpserver/services/v2/ReportService'
+            : 'https://efmh-test.fa.em3.oraclecloud.com/xmlpserver/services/v2/ReportService';
+    }
+
+    // Show API info popup for the print SOAP call
+    window.saShowPrintApiInfo = function(orderNumber, instanceName) {
+        const soapUrl    = saSoapReportUrl(instanceName);
+        const reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+        const inst       = (instanceName || 'PROD').toUpperCase();
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+
+        const soapXml = `&lt;soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+  xmlns:v2="http://xmlns.oracle.com/oxp/service/v2"&gt;
+  &lt;soapenv:Body&gt;
+    &lt;v2:runReport&gt;
+      &lt;v2:reportRequest&gt;
+        &lt;v2:reportAbsolutePath&gt;${reportPath}&lt;/v2:reportAbsolutePath&gt;
+        &lt;v2:parameterNameValues&gt;
+          &lt;v2:listOfParamNameValues&gt;
+            &lt;v2:item&gt;
+              &lt;v2:name&gt;Order_Number&lt;/v2:name&gt;
+              &lt;v2:values&gt;&lt;v2:item&gt;<strong>${esc(orderNumber)}</strong>&lt;/v2:item&gt;&lt;/v2:values&gt;
+            &lt;/v2:item&gt;
+          &lt;/v2:listOfParamNameValues&gt;
+        &lt;/v2:parameterNameValues&gt;
+      &lt;/v2:reportRequest&gt;
+      &lt;v2:userID&gt;[Fusion username from config]&lt;/v2:userID&gt;
+      &lt;v2:password&gt;[Fusion password from config]&lt;/v2:password&gt;
+    &lt;/v2:runReport&gt;
+  &lt;/soapenv:Body&gt;
+&lt;/soapenv:Envelope&gt;`;
+
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="sa-api-popup" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:#0f172a;border-radius:12px;padding:1.5rem;width:640px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                    <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-soap" style="color:#ef4444;margin-right:6px;"></i>SOAP — Invoice PDF Download</span>
+                    <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#64748b;font-size:1.3rem;cursor:pointer;">&times;</button>
+                </div>
+
+                <!-- Endpoint -->
+                <div style="margin-bottom:0.75rem;">
+                    <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">
+                        <span style="background:#7c3aed;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">SOAP POST</span>
+                        Oracle Fusion BI Publisher — runReport
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #7c3aed;border-radius:6px;padding:0.5rem 0.8rem;">
+                        <div style="color:#a78bfa;font-size:9px;margin-bottom:4px;font-weight:700;">${inst === 'PROD' ? '🟢 PROD' : '🟡 TRAIN/TEST'} — Instance: <strong>${esc(inst)}</strong></div>
+                        <div style="color:#38bdf8;font-size:11px;word-break:break-all;font-family:monospace;">${esc(soapUrl)}</div>
+                    </div>
+                </div>
+
+                <!-- Report details -->
+                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.75rem;font-size:10px;line-height:1.8;color:#94a3b8;">
+                    <div><span style="color:#e2e8f0;font-weight:700;">Report Path:</span> <code style="color:#fbbf24;">${reportPath}</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Parameter:</span> <code>Order_Number</code> = <strong style="color:#4ade80;">${esc(orderNumber)}</strong></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">SOAPAction:</span> <code>"runReport"</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Auth:</span> Fusion credentials from C# local config (LocalStorageManager)</div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Dispatched via:</span> <code>sendMessageToCSharp({ action: 'printSalesOrder', ... })</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">C# Handler:</span> <code>HandlePrintSalesOrder()</code> → <code>FusionPdfDownloader.DownloadSalesOrderPdfAsync()</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">PDF saved to:</span> <code>C:\\fusion\\{tripDate}\\{tripId}\\${esc(orderNumber)}.pdf</code></div>
+                </div>
+
+                <!-- SOAP XML -->
+                <div style="margin-bottom:0.5rem;">
+                    <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">SOAP REQUEST BODY</div>
+                    <pre style="background:#1e293b;border-radius:6px;padding:0.75rem;color:#86efac;font-size:10px;overflow-x:auto;white-space:pre-wrap;margin:0;">${soapXml}</pre>
+                </div>
+            </div>
+        </div>`);
+    };
+
+    // Call C# printSalesOrder action → SOAP → C# saves PDF → returns actual filePath from C#
     function saDownloadOrderPdf(orderNumber, tripId, tripDate, instanceName) {
         const date = (tripDate || new Date().toISOString().split('T')[0]).split('T')[0];
-        // Target path: C:\fusion\orderpdfdownloads\{date}\{tripId}\{orderNumber}.pdf
-        const targetFolder = `C:\\fusion\\orderpdfdownloads\\${date}\\${tripId}`;
         return new Promise((resolve, reject) => {
             if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
+            console.log('[ShippingAgent] printSalesOrder SOAP call:', { orderNumber, tripId, date, instanceName });
             sendMessageToCSharp({
-                action:       'printSalesOrder',
-                orderNumber:  orderNumber,
-                tripId:       tripId,
-                tripDate:     date,
-                instance:     instanceName || 'PROD',
-                outputFolder: targetFolder   // C# will use this if it supports it; fallback handled below
+                action:      'printSalesOrder',
+                orderNumber: orderNumber,
+                tripId:      tripId,
+                tripDate:    date,
+                instance:    instanceName || 'PROD'
             }, function(err, data) {
                 if (err) return reject(new Error(String(err)));
                 try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
                 if (data && data.success === false) return reject(new Error(data.message || 'PDF download failed'));
-                // Override filePath to the correct orderpdfdownloads path
-                if (data) {
-                    data.filePath = `${targetFolder}\\${orderNumber}.pdf`;
-                    data.pdfPath  = data.filePath;
-                }
+                // Use the filePath that C# actually saved to (do NOT override it)
+                console.log('[ShippingAgent] printSalesOrder result:', data);
                 resolve(data);
             });
         });
@@ -1411,8 +1482,12 @@
                         </button>
                         <button id="sa-print-btn-${esc(tripId)}-${esc(o.ORDER_NUMBER)}"
                             onclick="saPrintOrder('${esc(o.ORDER_NUMBER)}','${esc(tripId)}','${esc(o.TRIP_DATE)}','${esc(o.INSTANCE)}')"
-                            style="background:#7c3aed;color:white;border:none;padding:3px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;" title="Download invoice PDF (only when all lines interfaced)">
+                            style="background:#7c3aed;color:white;border:none;padding:3px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;" title="Download invoice PDF via SOAP">
                             <i class="fas fa-print"></i>
+                        </button>
+                        <button onclick="saShowPrintApiInfo('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}')"
+                            style="background:#1e293b;color:#94a3b8;border:none;padding:3px 6px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:600;" title="Show SOAP call details">
+                            <i class="fas fa-code"></i>
                         </button>
                     </div>
                 </td>
