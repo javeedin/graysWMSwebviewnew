@@ -1520,6 +1520,50 @@
         document.body.appendChild(pop);
     };
 
+    window.saShowGetStatusApiInfo = function(tripId, instanceName) {
+        const agent   = window._saCurrentAgent;
+        const agentId = agent ? (agent.ID || agent.id) : '?';
+        const getUrl  = `${APEX_BASE}/agents/${agentId}/trips/${encodeURIComponent(tripId)}/orders/status`;
+
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+
+        const pop = document.createElement('div');
+        pop.id = 'sa-api-popup';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:620px;max-height:90vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#4ade80;"><i class="fas fa-search"></i> GET — WMS_SHIPING_AGENTS_ORDERS_STATUS</span>
+                <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.9rem;">
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Called on trip open — pre-populates order status columns from DB
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #4ade80;border-radius:6px;padding:0.8rem;color:#4ade80;font-size:10px;word-break:break-all;line-height:1.8;">
+                        ${esc(getUrl)}
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.4rem;line-height:1.7;">
+                        <strong style="color:#94a3b8;">agentId:</strong> <code>${agentId}</code> &nbsp;·&nbsp;
+                        <strong style="color:#94a3b8;">tripId:</strong> <code>${esc(tripId)}</code> &nbsp;·&nbsp;
+                        <strong style="color:#94a3b8;">instanceName:</strong> <code>${esc(instanceName || 'PROD')}</code><br>
+                        <strong style="color:#94a3b8;">When:</strong> Inside <code>saLoadTripOrders()</code> — runs every time you click Orders on a trip card.<br>
+                        <strong style="color:#94a3b8;">APEX handler:</strong> URI Template <code>agents/:agentId/trips/:tripId/orders/status</code> — Method <strong>GET</strong> — Source Type <strong>SQL Query</strong>
+                    </div>
+                </div>
+                <div style="background:#1e293b;border-radius:6px;padding:0.7rem 0.8rem;font-size:9px;color:#94a3b8;line-height:1.8;">
+                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.4rem;"><i class="fas fa-exclamation-triangle" style="color:#f59e0b;"></i> If this returns no rows or 404:</div>
+                    <div>1. Make sure Handler B (GET) is deployed in APEX — <code>apex_sql/30_agents_order_status.sql</code></div>
+                    <div>2. URI template must be exactly: <code>agents/:agentId/trips/:tripId/orders/status</code></div>
+                    <div>3. Source Type must be <strong>SQL Query</strong> (not PL/SQL)</div>
+                    <div>4. Run POST (Get Shipment Lines) first to insert data, then reload trip orders</div>
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
+    };
+
     function saCheckedBadge(timeStr, lineCount) {
         return `<div style="font-size:9px;color:#059669;"><i class="fas fa-check-circle"></i> ${timeStr}</div>` +
                `<div style="font-size:9px;color:#94a3b8;">${lineCount} line(s)</div>`;
@@ -1598,6 +1642,9 @@
                     <button onclick="saShowDbSaveApiInfo()"
                         style="background:#1e293b;color:#f59e0b;border:1px solid #f59e0b;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
                         title="Show DB save POST body (WMS_SHIPING_AGENTS_ORDERS_STATUS)"><i class="fas fa-database"></i></button>
+                    <button onclick="saShowGetStatusApiInfo('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#1e293b;color:#4ade80;border:1px solid #4ade80;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Show GET status URL (WMS_SHIPING_AGENTS_ORDERS_STATUS)"><i class="fas fa-search"></i></button>
                     <button id="sa-btn-get-sl-${esc(tripId)}"
                         onclick="saGetAllShipmentLines('${esc(tripId)}','${esc(inst)}')"
                         style="background:#7c3aed;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;">
