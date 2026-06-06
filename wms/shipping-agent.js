@@ -1029,6 +1029,21 @@
     };
 
     // ─── Activity Log Tab ────────────────────────────────────
+
+    const ACTIVITY_LABEL = {
+        CHECK_STATUS:   'Fetching Shipment Lines',
+        PRINT:          'Printing',
+        PICK_RELEASE:   'Pick Release',
+        NOTIFY_PICKER:  'Notify Picker',
+        SHIP_CONFIRM:   'Ship Confirm',
+        CANCEL_LINE:    'Cancelling Lines',
+        ANOMALY_DETECT: 'Anomaly Detection',
+        AI_ANALYSIS:    'AI Analysis',
+        FETCH_ORDERS:   'Fetching Sales Order Lines',
+        FETCH_TRIPS:    'Fetching Trips',
+        ASSIGN_TRIP:    'Assigning Trip',
+    };
+
     window.saRefreshActivity = async function() {
         const agent = window._saCurrentAgent;
         if (!agent) return;
@@ -1043,20 +1058,51 @@
                 return;
             }
             feed.innerHTML = activities.map(a => {
-                const info   = ACTIVITY_ICON[a.ACTIVITY_TYPE] || { icon: 'fa-circle', color: '#64748b' };
-                const isOk   = a.STATUS === 'SUCCESS';
-                const isRetry= a.STATUS === 'RETRY';
-                const statusColor = isOk ? '#059669' : isRetry ? '#d97706' : a.STATUS === 'SKIPPED' ? '#94a3b8' : '#dc2626';
+                // Normalize lowercase ORDS column names
+                const actType    = a.ACTIVITY_TYPE  || a.activity_type  || '';
+                const status     = a.STATUS         || a.status         || '';
+                const msg        = a.MESSAGE        || a.message        || '';
+                const tripId     = a.TRIP_ID        || a.trip_id        || '';
+                const orderNum   = a.ORDER_NUMBER   || a.order_number   || '';
+                const attempt    = a.ATTEMPT_NUMBER || a.attempt_number || 1;
+                const durationMs = a.DURATION_MS    || a.duration_ms    || null;
+                const createdDate= a.CREATED_DATE   || a.created_date   || '';
+
+                const info  = ACTIVITY_ICON[actType] || { icon: 'fa-history', color: '#64748b' };
+                const label = ACTIVITY_LABEL[actType] || actType || 'Activity';
+
+                const isOk    = status === 'SUCCESS';
+                const isFail  = status === 'FAILED';
+                const isRetry = status === 'RETRY';
+                const statusColor = isOk ? '#059669' : isFail ? '#dc2626' : isRetry ? '#d97706' : '#94a3b8';
+                const statusBg    = isOk ? '#f0fdf4' : isFail ? '#fff5f5' : isRetry ? '#fefce8' : '#f8fafc';
+                const statusIcon  = isOk ? 'fa-check-circle' : isFail ? 'fa-times-circle' : isRetry ? 'fa-redo' : 'fa-circle';
+
+                const meta = [
+                    tripId    ? `<span style="background:#ede9fe;color:#6d28d9;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;">Trip ${esc(tripId)}</span>` : '',
+                    orderNum  ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;">Order ${esc(orderNum)}</span>` : '',
+                    durationMs ? `<span style="color:#94a3b8;font-size:8px;">${durationMs}ms</span>` : '',
+                    attempt > 1 ? `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:3px;font-size:8px;font-weight:700;">Attempt #${attempt}</span>` : ''
+                ].filter(Boolean).join(' ');
+
                 return `
-                <div style="display:flex;gap:0.6rem;align-items:flex-start;padding:5px 6px;border-radius:6px;background:${a.STATUS==='FAILED'?'#fff5f5':a.STATUS==='RETRY'?'#fefce8':'#f8fafc'}">
-                    <i class="fas ${info.icon}" style="color:${info.color};margin-top:2px;width:14px;flex-shrink:0;"></i>
+                <div style="display:flex;gap:0.6rem;align-items:flex-start;padding:7px 8px;border-radius:7px;background:${statusBg};border:1px solid ${isOk?'#dcfce7':isFail?'#fee2e2':isRetry?'#fef9c3':'#f1f5f9'};margin-bottom:4px;">
+                    <div style="width:26px;height:26px;border-radius:6px;background:${info.color}20;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                        <i class="fas ${info.icon}" style="color:${info.color};font-size:11px;"></i>
+                    </div>
                     <div style="flex:1;min-width:0;">
-                        <div style="display:flex;justify-content:space-between;gap:0.4rem;flex-wrap:wrap;">
-                            <span style="font-weight:700;color:#1e293b;">${a.ACTIVITY_TYPE}</span>
-                            <span style="font-size:10px;color:${statusColor};font-weight:700;">${a.STATUS}${a.ATTEMPT_NUMBER > 1 ? ` #${a.ATTEMPT_NUMBER}` : ''}</span>
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:0.4rem;flex-wrap:wrap;">
+                            <span style="font-weight:700;color:#1e293b;font-size:11px;">${esc(label)}</span>
+                            <div style="display:flex;align-items:center;gap:4px;">
+                                <i class="fas ${statusIcon}" style="color:${statusColor};font-size:10px;"></i>
+                                <span style="font-size:10px;color:${statusColor};font-weight:700;">${esc(status)}</span>
+                            </div>
                         </div>
-                        <div style="color:#64748b;margin-top:1px;">${esc(a.MESSAGE || '')}</div>
-                        <div style="color:#94a3b8;margin-top:1px;">${a.TRIP_ID ? `Trip: ${esc(a.TRIP_ID)}` : ''} ${a.ORDER_NUMBER ? `· Order: ${esc(a.ORDER_NUMBER)}` : ''} ${a.DURATION_MS ? `· ${a.DURATION_MS}ms` : ''} · ${saFormatDate(a.CREATED_DATE)}</div>
+                        ${msg ? `<div style="color:#475569;font-size:10px;margin-top:2px;white-space:pre-wrap;word-break:break-word;">${esc(msg)}</div>` : ''}
+                        <div style="margin-top:3px;display:flex;gap:4px;flex-wrap:wrap;align-items:center;">
+                            ${meta}
+                            <span style="color:#94a3b8;font-size:8px;">${saFormatDate(createdDate)}</span>
+                        </div>
                     </div>
                 </div>`;
             }).join('');
