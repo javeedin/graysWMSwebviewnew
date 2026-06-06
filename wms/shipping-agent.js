@@ -610,7 +610,7 @@
                 return;
             }
 
-            // Deduplicate by ORDER_NUMBER — keep first occurrence for customer name
+            // Deduplicate by ORDER_NUMBER — keep first occurrence for customer name + all fields for editTripOrder
             const seen = new Set();
             const orders = [];
             rows.forEach(r => {
@@ -618,10 +618,17 @@
                 if (!on || seen.has(on)) return;
                 seen.add(on);
                 orders.push({
-                    ORDER_NUMBER: on,
-                    ACCOUNT_NAME: r.ACCOUNT_NAME || r.account_name || '',
-                    ORDER_TYPE:   r.ORDER_TYPE   || r.order_type   || '',
-                    INSTANCE:     r.INSTANCE     || r.instance     || inst
+                    ORDER_NUMBER:   on,
+                    ACCOUNT_NAME:   r.ACCOUNT_NAME    || r.account_name    || '',
+                    ACCOUNT_NUMBER: r.ACCOUNT_NUMBER  || r.account_number  || '',
+                    ORDER_TYPE:     r.ORDER_TYPE       || r.order_type      || '',
+                    INSTANCE:       r.INSTANCE         || r.instance        || inst,
+                    TRIP_ID:        r.TRIP_ID          || r.trip_id         || tripId,
+                    TRIP_DATE:      r.TRIP_DATE        || r.trip_date       || '',
+                    LORRY_NUMBER:   r.TRIP_LORRY       || r.trip_lorry      || r.LORRY_NUMBER || '',
+                    PICKER:         r.PICKER_NAME      || r.picker_name     || '',
+                    PRIORITY:       r.TRIP_PRIORITY    || r.trip_priority   || '',
+                    PICK_CONFIRM_ST: r.PICK_CONFIRM_ST || r.pick_confirm_st || ''
                 });
             });
 
@@ -654,7 +661,8 @@
         setCell('shipping', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
         setCell('cancel',   `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
         setCell('print',    `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
-        setCell('lines',    `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('staged',    `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('backorder', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
         setCell('checked',  `<span style="color:#94a3b8;font-size:9px;"><i class="fas fa-sync fa-spin"></i> Fetching...</span>`);
 
         try {
@@ -663,13 +671,14 @@
             const lines  = slData.items || [];
 
             if (lines.length === 0) {
-                setCell('status',   saBadge('No Lines', '#f1f5f9', '#94a3b8', 'fa-clock'));
-                setCell('picking',  saBadge('N/A', '#f1f5f9', '#94a3b8', null));
-                setCell('shipping', saBadge('N/A', '#f1f5f9', '#94a3b8', null));
-                setCell('cancel',   saBadge('None', '#f0fdf4', '#15803d', 'fa-check'));
-                setCell('print',    saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
-                setCell('lines',    `<span style="color:#94a3b8;font-size:9px;">No shipment lines yet</span>`);
-                setCell('checked',  saCheckedBadge(timeStr, 0));
+                setCell('status',    saBadge('No Lines', '#f1f5f9', '#94a3b8', 'fa-clock'));
+                setCell('staged',    saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('picking',   saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('shipping',  saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('backorder', saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('cancel',    saBadge('—', '#f1f5f9', '#94a3b8', null));
+                setCell('print',     saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
+                setCell('checked',   saCheckedBadge(timeStr, 0));
                 return;
             }
 
@@ -718,52 +727,69 @@
             else
                 domBadge = saBadge('Pending',          '#f1f5f9', '#64748b', 'fa-clock');
 
-            // ── Picking status: STAGED = picking done ──
-            const pickingDone  = staged + interfaced;
-            const pickingTotal = total - cancelled;
-            let pickBadge;
-            if (pickingTotal === 0)
-                pickBadge = saBadge('N/A',           '#f1f5f9', '#94a3b8', null);
-            else if (pickingDone === pickingTotal)
-                pickBadge = saBadge('Done',          '#dcfce7', '#15803d', 'fa-check');
-            else if (pickingDone === 0)
-                pickBadge = saBadge('Not Picked',    '#fef2f2', '#b91c1c', 'fa-times');
+            // ── Order Status: "Interfaced" if all active lines interfaced, else "9/10 Interfaced" ──
+            const activeLines = total - cancelled; // ignore cancelled
+            let orderStatusBadge;
+            if (activeLines === 0)
+                orderStatusBadge = saBadge('Cancelled', '#fee2e2', '#b91c1c', 'fa-ban');
+            else if (interfaced === activeLines)
+                orderStatusBadge = saBadge('Interfaced', '#dcfce7', '#15803d', 'fa-check-circle');
+            else if (interfaced > 0)
+                orderStatusBadge = saBadge(`${interfaced}/${activeLines} Interfaced`, '#fef9c3', '#a16207', 'fa-truck');
+            else if (staged > 0 && staged === activeLines)
+                orderStatusBadge = saBadge('Staged', '#dbeafe', '#1d4ed8', 'fa-layer-group');
+            else if (staged > 0)
+                orderStatusBadge = saBadge(`${staged}/${activeLines} Staged`, '#e0f2fe', '#0369a1', 'fa-layer-group');
+            else if (releasedToWH > 0)
+                orderStatusBadge = saBadge('Released to WH', '#e0f2fe', '#0369a1', 'fa-share-square');
+            else if (readyToRelease > 0)
+                orderStatusBadge = saBadge('Ready to Release', '#fef9c3', '#a16207', 'fa-clock');
             else
-                pickBadge = saBadge(`${pickingDone}/${pickingTotal} Picked`, '#fef9c3', '#a16207', 'fa-box');
+                orderStatusBadge = saBadge('Pending', '#f1f5f9', '#64748b', 'fa-clock');
 
-            // ── Shipping status: INTERFACED = shipping done ──
-            let shipBadge;
-            if (interfaced === 0 && total > 0)
-                shipBadge = saBadge('Not Shipped',   '#fef2f2', '#b91c1c', 'fa-times');
-            else if (interfaced === pickingTotal)
-                shipBadge = saBadge('Shipped',       '#dcfce7', '#15803d', 'fa-truck');
-            else
-                shipBadge = saBadge(`${interfaced}/${pickingTotal} Shp`, '#fef9c3', '#a16207', 'fa-truck');
+            // ── Staged column ──
+            const stagedBadge = staged === 0
+                ? saBadge('0', '#f1f5f9', '#94a3b8', null)
+                : staged === activeLines
+                    ? saBadge(`${staged}/${activeLines}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
+                    : saBadge(`${staged}/${activeLines}`, '#e0f2fe', '#0369a1', 'fa-layer-group');
+
+            // ── Picking: staged + interfaced = picked ──
+            const pickedCount = staged + interfaced;
+            const pickBadge = activeLines === 0
+                ? saBadge('N/A', '#f1f5f9', '#94a3b8', null)
+                : pickedCount === activeLines
+                    ? saBadge(`${pickedCount}/${activeLines}`, '#dcfce7', '#15803d', 'fa-check')
+                    : pickedCount === 0
+                        ? saBadge(`0/${activeLines}`, '#fef2f2', '#b91c1c', 'fa-times')
+                        : saBadge(`${pickedCount}/${activeLines}`, '#fef9c3', '#a16207', 'fa-box');
+
+            // ── Shipping: interfaced = shipped ──
+            const shipBadge = activeLines === 0
+                ? saBadge('N/A', '#f1f5f9', '#94a3b8', null)
+                : interfaced === activeLines
+                    ? saBadge(`${interfaced}/${activeLines}`, '#dcfce7', '#15803d', 'fa-truck')
+                    : interfaced === 0
+                        ? saBadge(`0/${activeLines}`, '#fef2f2', '#b91c1c', 'fa-times')
+                        : saBadge(`${interfaced}/${activeLines}`, '#fef9c3', '#a16207', 'fa-truck');
+
+            // ── Backorder (other bucket) ──
+            const backorderBadge = other > 0
+                ? saBadge(`${other}`, '#fef9c3', '#a16207', 'fa-exclamation-triangle')
+                : saBadge('0', '#f0fdf4', '#15803d', null);
 
             // ── Cancellation ──
             const cancelBadge = cancelled > 0
-                ? saBadge(`${cancelled} Cancelled`, '#fee2e2', '#b91c1c', 'fa-ban')
-                : saBadge('None',                   '#f0fdf4', '#15803d', 'fa-check');
+                ? saBadge(`${cancelled}`, '#fee2e2', '#b91c1c', 'fa-ban')
+                : saBadge('0', '#f0fdf4', '#15803d', null);
 
-            // ── Line breakdown chips ──
-            const chips = [
-                readyToRelease > 0 ? `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${readyToRelease} Ready</span>` : '',
-                releasedToWH   > 0 ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${releasedToWH} Rel</span>`   : '',
-                staged         > 0 ? `<span style="background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${staged} Stg</span>`         : '',
-                interfaced     > 0 ? `<span style="background:#dcfce7;color:#15803d;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${interfaced} Inf</span>`      : '',
-                cancelled      > 0 ? `<span style="background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${cancelled} Cxl</span>`      : '',
-                other          > 0 ? `<span style="background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${other} Oth</span>`          : ''
-            ].filter(Boolean).join(' ');
-
-            setCell('status',   domBadge);
-            setCell('picking',  pickBadge);
-            setCell('shipping', shipBadge);
-            setCell('cancel',   cancelBadge);
-            setCell('lines',
-                `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px;">${chips || '—'}</div>` +
-                `<div style="color:#94a3b8;font-size:9px;">${total} line(s) · Req: ${totalQty}${stagedQty > 0 ? ` · Stg: ${stagedQty}` : ''}${shippedQty > 0 ? ` · Shp: ${shippedQty}` : ''}</div>`
-            );
-            setCell('checked', saCheckedBadge(timeStr, lines.length));
+            setCell('status',    orderStatusBadge);
+            setCell('staged',    stagedBadge);
+            setCell('picking',   pickBadge);
+            setCell('shipping',  shipBadge);
+            setCell('backorder', backorderBadge);
+            setCell('cancel',    cancelBadge);
+            setCell('checked',   saCheckedBadge(timeStr, lines.length));
 
             // Post activity log for single-order refresh
             const agent = window._saCurrentAgent;
@@ -925,19 +951,25 @@
 
     function saRenderOrdersTable(orders, tripId, inst) {
         const spin = `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`;
-        const rows = orders.map(o => `
+        const rows = orders.map(o => {
+            // Encode row data for editTripOrder (same structure as GETTRIPDETAILS row)
+            const rowJson = JSON.stringify(o).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            return `
             <tr id="sa-order-row-${esc(tripId)}-${esc(o.ORDER_NUMBER)}" style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
-                <td style="padding:6px 8px;min-width:110px;">
-                    <div style="font-weight:700;color:#1e293b;font-size:11px;">${esc(o.ORDER_NUMBER)}</div>
+                <td style="padding:6px 8px;min-width:120px;">
+                    <a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowJson}"
+                        style="font-weight:700;color:#6d28d9;font-size:11px;text-decoration:none;cursor:pointer;"
+                        title="Open order transactions">${esc(o.ORDER_NUMBER)}</a>
                     <div style="color:#64748b;font-size:9px;">${esc(o.ACCOUNT_NAME)}</div>
                     <div style="color:#94a3b8;font-size:9px;">${esc(o.ORDER_TYPE)}</div>
                 </td>
                 <td style="padding:6px 8px;text-align:center;" data-col="status">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="staged">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="picking">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="shipping">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="backorder">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="cancel">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="print">${spin}</td>
-                <td style="padding:6px 8px;font-size:9px;color:#64748b;" data-col="lines">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="checked"><span style="color:#94a3b8;font-size:9px;">—</span></td>
                 <td style="padding:6px 8px;text-align:center;">
                     <button onclick="saFetchOrderStatus('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}','${esc(tripId)}')"
@@ -945,7 +977,8 @@
                         <i class="fas fa-sync"></i> Refresh
                     </button>
                 </td>
-            </tr>`).join('');
+            </tr>`;
+        }).join('');
 
         return `
         <div style="padding:0.5rem 0;overflow-x:auto;">
@@ -966,12 +999,13 @@
                 <thead>
                     <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
                         <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Order # / Customer</th>
-                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Line Status</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Order Status</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Staged</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Picking</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Shipping</th>
-                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Cancellation</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Backorder</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Cancelled</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Printing</th>
-                        <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Line Breakdown / Qty</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Last Checked</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Refresh</th>
                     </tr>
