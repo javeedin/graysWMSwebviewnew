@@ -453,6 +453,7 @@
                 list.innerHTML = `<div style="padding:2rem;text-align:center;color:#94a3b8;font-size:12px;">No trips assigned yet.<br>Click <strong>Assign Trip</strong> to add one.</div>`;
                 return;
             }
+            // Render cards first (meta chips filled async below)
             list.innerHTML = trips.map(t => {
                 const st  = TRIP_STATUS_STYLE[t.STATUS] || TRIP_STATUS_STYLE.PENDING;
                 const pct = t.ORDERS_TOTAL > 0 ? Math.round((t.ORDERS_PROCESSED / t.ORDERS_TOTAL) * 100) : 0;
@@ -467,10 +468,8 @@
                             <div>
                                 <div style="font-size:13px;font-weight:700;color:#1e293b;">${esc(t.TRIP_NAME || t.TRIP_ID)}</div>
                                 <div style="font-size:10px;color:#64748b;">${esc(t.INSTANCE_NAME)} · Assigned: ${saFormatDate(t.ASSIGNED_DATE)}</div>
-                                <div style="display:flex;gap:0.5rem;margin-top:3px;flex-wrap:wrap;">
-                                    ${t.LORRY_NUMBER   ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-truck"></i> ${esc(t.LORRY_NUMBER)}</span>` : ''}
-                                    ${t.LOADING_BAY    ? `<span style="background:#fef9c3;color:#a16207;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-warehouse"></i> Bay ${esc(t.LOADING_BAY)}</span>` : ''}
-                                    ${t.PRIORITY       ? `<span style="background:#fce7f3;color:#be185d;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-exclamation"></i> P${esc(t.PRIORITY)}</span>` : ''}
+                                <div id="sa-trip-meta-${esc(t.TRIP_ID)}" style="display:flex;gap:0.5rem;margin-top:3px;flex-wrap:wrap;">
+                                    <span style="color:#cbd5e1;font-size:9px;"><i class="fas fa-spinner fa-spin"></i></span>
                                 </div>
                             </div>
                         </div>
@@ -507,6 +506,31 @@
                     <div id="sa-trip-orders-${esc(t.TRIP_ID)}" style="display:none;"></div>
                 </div>`;
             }).join('');
+
+            // Async: fetch lorry/bay/priority for each trip from GETTRIPDETAILS (first row only)
+            trips.forEach(t => {
+                wmsGet(`GETTRIPDETAILS/${encodeURIComponent(t.TRIP_ID)}?P_INSTANCE_NAME=${t.INSTANCE_NAME}&limit=1`)
+                    .then(d => {
+                        const row = (d.items || [])[0];
+                        if (!row) return;
+                        const lorry   = row.TRIP_LORRY    || row.trip_lorry    || '';
+                        const bay     = row.LOADING_BAY   || row.loading_bay   || '';
+                        const prio    = row.TRIP_PRIORITY  || row.trip_priority  || '';
+                        const metaEl  = document.getElementById(`sa-trip-meta-${t.TRIP_ID}`);
+                        if (!metaEl) return;
+                        const chips = [
+                            lorry ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-truck"></i> ${esc(lorry)}</span>` : '',
+                            bay   ? `<span style="background:#fef9c3;color:#a16207;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-warehouse"></i> Bay ${esc(bay)}</span>` : '',
+                            prio  ? `<span style="background:#fce7f3;color:#be185d;padding:1px 8px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-star"></i> Priority ${esc(prio)}</span>` : ''
+                        ].filter(Boolean).join('');
+                        metaEl.innerHTML = chips || '';
+                    })
+                    .catch(() => {
+                        const metaEl = document.getElementById(`sa-trip-meta-${t.TRIP_ID}`);
+                        if (metaEl) metaEl.innerHTML = '';
+                    });
+            });
+
         } catch(e) {
             list.innerHTML = `<div style="padding:1rem;color:#dc2626;font-size:12px;">${e.message}</div>`;
         }
