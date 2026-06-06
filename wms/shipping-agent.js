@@ -940,9 +940,8 @@
                     totalQty:        c.totalQty     || 0,
                     stagedQty:       c.stagedQty    || 0,
                     shippedQty:      c.shippedQty   || 0,
-                    orderLinesCount: orderLinesCount,
-                    printTotal:      pTotal,
-                    printPrinted:    pPrinted
+                    orderLinesCount: orderLinesCount
+                    // printTotal / printPrinted omitted — queried live from wms_print_jobs in PL/SQL handler
                 });
             }
         } catch(e) {
@@ -983,6 +982,159 @@
 
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Get Shipment Lines'; }
         showNotification(`Shipment lines fetched for ${fetched} order(s).`, 'success');
+    };
+
+    // ─── PDF Download / Print helpers ────────────────────────
+
+    // Call C# printSalesOrder action → SOAP → saves PDF → returns filePath
+    function saDownloadOrderPdf(orderNumber, tripId, tripDate, instanceName) {
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
+            sendMessageToCSharp({
+                action:      'printSalesOrder',
+                orderNumber: orderNumber,
+                tripId:      tripId,
+                tripDate:    tripDate || new Date().toISOString().split('T')[0],
+                instance:    instanceName || 'PROD'
+            }, function(err, data) {
+                if (err) return reject(new Error(String(err)));
+                try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
+                if (data && data.success === false) return reject(new Error(data.message || 'PDF download failed'));
+                resolve(data);
+            });
+        });
+    }
+
+    // Call C# getPdfAsBase64 → returns base64 string; also validates PDF has content
+    function saGetPdfBase64(filePath) {
+        return new Promise((resolve, reject) => {
+            if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
+            sendMessageToCSharp({ action: 'getPdfAsBase64', filePath: filePath }, function(err, data) {
+                if (err) return reject(new Error(String(err)));
+                try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
+                if (!data || !data.success) return reject(new Error((data && data.message) || 'Failed to read PDF'));
+                resolve(data.data || data);
+            });
+        });
+    }
+
+    // Show PDF in a viewer modal using base64 content
+    function saShowPdfModal(base64, orderNumber) {
+        const existing = document.getElementById('sa-pdf-modal');
+        if (existing) existing.remove();
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="sa-pdf-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:25000;display:flex;flex-direction:column;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:#1e293b;border-radius:12px;padding:1rem;width:90vw;max-width:900px;height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                    <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-file-pdf" style="color:#ef4444;margin-right:6px;"></i>Invoice PDF — ${esc(orderNumber)}</span>
+                    <button onclick="document.getElementById('sa-pdf-modal').remove()" style="background:#475569;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:700;">&times; Close</button>
+                </div>
+                <iframe src="data:application/pdf;base64,${base64}" style="flex:1;border:none;border-radius:8px;background:white;"></iframe>
+            </div>
+        </div>`);
+    }
+
+    // Print a single order: download PDF via SOAP, verify it has content, show in viewer
+    window.saPrintOrder = async function(orderNumber, tripId, tripDate, instanceName) {
+        // Update print button UI to loading state
+        const btn = document.getElementById(`sa-print-btn-${tripId}-${orderNumber}`);
+        const setBtn = (html, disabled) => { if (btn) { btn.innerHTML = html; btn.disabled = !!disabled; } };
+        setBtn('<i class="fas fa-spinner fa-spin"></i>', true);
+
+        const agent = window._saCurrentAgent;
+        try {
+            // 1. Download PDF via SOAP (C# handles Fusion credentials)
+            showNotification(`Downloading PDF for ${orderNumber}...`, 'info');
+            const dlResult = await saDownloadOrderPdf(orderNumber, tripId, tripDate, instanceName);
+            const filePath = dlResult.filePath || dlResult.pdfPath || '';
+
+            if (!filePath) throw new Error('PDF path not returned from C#');
+
+            // 2. Read PDF back and verify it has content
+            const pdfData = await saGetPdfBase64(filePath);
+            const fileSize = pdfData.fileSize || (pdfData.base64 || '').length;
+            if (!fileSize || fileSize < 100) throw new Error('PDF appears empty — invoice may not be generated yet');
+
+            // 3. Show in viewer
+            saShowPdfModal(pdfData.base64, orderNumber);
+
+            // 4. Update print cell badge
+            const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+            if (rowEl) {
+                const pc = rowEl.querySelector('[data-col="print"]');
+                if (pc) pc.innerHTML = saBadge('Printed', '#dcfce7', '#15803d', 'fa-check');
+            }
+
+            // 5. Log activity
+            if (agent) {
+                saLogActivity(agent.ID, tripId, orderNumber, 'PRINT', 'SUCCESS', 1,
+                    `PDF downloaded & verified — ${Math.round(fileSize/1024)}KB`, null, null);
+            }
+
+            setBtn('<i class="fas fa-print"></i> Print', false);
+            showNotification(`PDF downloaded for ${orderNumber}.`, 'success');
+
+        } catch(e) {
+            setBtn('<i class="fas fa-print"></i> Print', false);
+            showNotification(`Print failed for ${orderNumber}: ${e.message}`, 'error');
+            if (agent) {
+                saLogActivity(agent.ID, tripId, orderNumber, 'PRINT', 'FAILED', 1,
+                    `PDF download failed: ${e.message}`, null, null);
+            }
+        }
+    };
+
+    // Print ALL fully-interfaced orders in a trip
+    window.saPrintTrip = async function(tripId, instanceName) {
+        const agent    = window._saCurrentAgent;
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container) return;
+
+        const btn = document.getElementById(`sa-btn-print-trip-${tripId}`);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Printing...'; }
+
+        const rows = Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]'));
+        let printed = 0, skipped = 0;
+
+        for (const row of rows) {
+            const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
+            if (!orderNumber) continue;
+
+            // Only print if status cell shows Interfaced (all lines shipped)
+            const statusCell = row.querySelector('[data-col="status"]');
+            const statusText = statusCell ? statusCell.textContent.trim() : '';
+            if (!statusText.includes('Interfaced') || statusText.includes('/')) {
+                skipped++;
+                continue; // not fully interfaced
+            }
+
+            // Get tripDate from row data attribute
+            let tripDate = new Date().toISOString().split('T')[0];
+            const dataRow = row.querySelector('[data-row]');
+            if (dataRow) {
+                try { const rd = JSON.parse(dataRow.getAttribute('data-row')); tripDate = rd.TRIP_DATE || tripDate; } catch(e) {}
+            }
+
+            try {
+                await saPrintOrder(orderNumber, tripId, tripDate, instanceName);
+                printed++;
+            } catch(e) {
+                console.warn(`[ShippingAgent] Print failed for ${orderNumber}:`, e.message);
+            }
+        }
+
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-print"></i> Print Trip'; }
+
+        if (agent) {
+            saLogActivity(agent.ID, tripId, null, 'PRINT', 'SUCCESS', 1,
+                `Trip print done — ${printed} printed, ${skipped} skipped (not fully interfaced)`, null, null);
+        }
+        showNotification(`Trip print complete: ${printed} printed, ${skipped} skipped.`, 'success');
+    };
+
+    // Cancel Sales Orders — stub (PL/SQL to be written)
+    window.saCancelTripOrders = async function(tripId, instanceName) {
+        showNotification('Cancel Sales Orders: coming soon.', 'info');
     };
 
     window.saShowShipmentLinesApiInfo = function(sampleOrderNumber, instanceName) {
@@ -1035,9 +1187,42 @@
                     <div><code style="color:#f87171;">X → Cancelled</code> → Line cancelled</div>
                 </div>
 
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        APEX — Sales Order Lines count (per order)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #0891b2;border-radius:6px;padding:0.5rem 0.8rem;color:#38bdf8;font-size:10px;word-break:break-all;">
+                        ${esc(APEX_BASE)}/trip/orders/getsalesorderlines/<strong>{ORDER_NUMBER}</strong>?P_INSTANCE_NAME=${esc(inst)}
+                    </div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#d97706;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">POST</span>
+                        APEX — Save Fusion order lines to DB (per order)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #d97706;border-radius:6px;padding:0.5rem 0.8rem;color:#fcd34d;font-size:10px;word-break:break-all;">
+                        ${esc(APEX_BASE)}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${esc(inst)}&amp;p_order_number=<strong>{ORDER_NUMBER}</strong>
+                    </div>
+                </div>
+
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#7c3aed;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">SOAP</span>
+                        Oracle Fusion — Download Invoice PDF (Print button)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #7c3aed;border-radius:6px;padding:0.5rem 0.8rem;color:#c4b5fd;font-size:10px;word-break:break-all;">
+                        ${isProd ? 'https://efmh.fa.em3.oraclecloud.com' : 'https://efmh-test.fa.em3.oraclecloud.com'}/xmlpserver/services/v2/ReportService<br>
+                        <span style="color:#94a3b8;">Report:</span> /Custom/OQ/GR_SalesOrder_Rep.xdo &nbsp;·&nbsp; <span style="color:#94a3b8;">Param:</span> Order_Number=<strong>{ORDER_NUMBER}</strong><br>
+                        <span style="color:#94a3b8;">Via C#:</span> <code>printSalesOrder</code> action → saves PDF to C:\fusion\{date}\{tripId}\{order}.pdf
+                    </div>
+                </div>
+
                 <div style="font-size:9px;color:#64748b;line-height:1.6;">
                     <i class="fas fa-clock" style="color:#7c3aed;"></i> Fetch time stored in <code>window._saOrderLastFetched[orderNumber]</code> — shown in <strong>Last Checked</strong> column.<br>
-                    <i class="fas fa-history" style="color:#7c3aed;"></i> Every fetch posts a <code>CHECK_STATUS</code> entry to the agent Activity Log.
+                    <i class="fas fa-history" style="color:#7c3aed;"></i> Every fetch posts a <code>CHECK_STATUS</code> entry to the agent Activity Log.<br>
+                    <i class="fas fa-print" style="color:#7c3aed;"></i> Print button available per order and at trip level (Print Trip). PDF verified by reading back base64 content.
                 </div>
             </div>`;
         document.body.appendChild(pop);
@@ -1091,10 +1276,17 @@
                 <td style="padding:6px 8px;text-align:center;" data-col="print">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="checked"><span style="color:#94a3b8;font-size:9px;">—</span></td>
                 <td style="padding:6px 8px;text-align:center;">
-                    <button onclick="saFetchOrderStatus('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}','${esc(tripId)}')"
-                        style="background:#e0f2fe;color:#0369a1;border:none;padding:3px 8px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;" title="Refresh shipment lines">
-                        <i class="fas fa-sync"></i> Refresh
-                    </button>
+                    <div style="display:flex;gap:3px;justify-content:center;flex-wrap:wrap;">
+                        <button onclick="saFetchOrderStatus('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}','${esc(tripId)}')"
+                            style="background:#e0f2fe;color:#0369a1;border:none;padding:3px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;" title="Refresh shipment lines">
+                            <i class="fas fa-sync"></i>
+                        </button>
+                        <button id="sa-print-btn-${esc(tripId)}-${esc(o.ORDER_NUMBER)}"
+                            onclick="saPrintOrder('${esc(o.ORDER_NUMBER)}','${esc(tripId)}','${esc(o.TRIP_DATE)}','${esc(o.INSTANCE)}')"
+                            style="background:#7c3aed;color:white;border:none;padding:3px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;" title="Download invoice PDF (only when all lines interfaced)">
+                            <i class="fas fa-print"></i>
+                        </button>
+                    </div>
                 </td>
             </tr>`;
         }).join('');
@@ -1112,6 +1304,17 @@
                         style="background:#7c3aed;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;">
                         <i class="fas fa-download"></i> Get Shipment Lines
                     </button>
+                    <button id="sa-btn-print-trip-${esc(tripId)}"
+                        onclick="saPrintTrip('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#059669;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Download & view invoice PDFs for all fully-interfaced orders">
+                        <i class="fas fa-print"></i> Print Trip
+                    </button>
+                    <button onclick="saCancelTripOrders('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#dc2626;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Cancel Sales Orders">
+                        <i class="fas fa-ban"></i> Cancel Orders
+                    </button>
                 </div>
             </div>
             <table style="width:100%;border-collapse:collapse;font-size:11px;">
@@ -1127,7 +1330,7 @@
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Order Lines</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Printing</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Last Checked</th>
-                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Refresh</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>

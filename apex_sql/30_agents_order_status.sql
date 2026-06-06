@@ -91,10 +91,10 @@ CREATE INDEX idx_saos_order      ON wms_shiping_agents_orders_status (order_numb
 --   "totalQty":         50,
 --   "stagedQty":        10,
 --   "shippedQty":       35,
---   "orderLinesCount":  5,
---   "printTotal":       2,
---   "printPrinted":     2
+--   "orderLinesCount":  5
 -- }
+-- Note: printTotal / printPrinted are NOT passed by JS.
+--       They are queried live from wms_print_jobs to ensure accuracy.
 -- ============================================================
 DECLARE
     v_agent_id          NUMBER;
@@ -118,8 +118,9 @@ DECLARE
     v_staged_qty        NUMBER;
     v_shipped_qty       NUMBER;
     v_order_lines_count NUMBER;
-    v_print_total       NUMBER;
-    v_print_printed     NUMBER;
+    -- Print counts fetched live from wms_print_jobs (not passed by JS)
+    v_print_total       NUMBER := 0;
+    v_print_printed     NUMBER := 0;
 BEGIN
     APEX_JSON.parse(APEX_APPLICATION.G_REQUEST_BODY);
 
@@ -144,17 +145,23 @@ BEGIN
     v_staged_qty        := NVL(APEX_JSON.get_number('stagedQty'),       0);
     v_shipped_qty       := NVL(APEX_JSON.get_number('shippedQty'),      0);
     v_order_lines_count := NVL(APEX_JSON.get_number('orderLinesCount'), 0);
-    v_print_total       := NVL(APEX_JSON.get_number('printTotal'),      0);
-    v_print_printed     := NVL(APEX_JSON.get_number('printPrinted'),    0);
+
+    -- Fetch live print counts from wms_print_jobs (source of truth)
+    SELECT COUNT(*),
+           COUNT(CASE WHEN UPPER(status) = 'PRINTED' THEN 1 END)
+    INTO   v_print_total, v_print_printed
+    FROM   wms_print_jobs
+    WHERE  order_number   = v_order_number
+      AND  instance_name  = v_instance_name;
 
     -- DELETE existing record for this agent/trip/order (full refresh)
     DELETE FROM wms_shiping_agents_orders_status
-    WHERE agent_id    = v_agent_id
-      AND trip_id     = v_trip_id
-      AND order_number= v_order_number
+    WHERE agent_id     = v_agent_id
+      AND trip_id      = v_trip_id
+      AND order_number = v_order_number
       AND instance_name = v_instance_name;
 
-    -- INSERT fresh record
+    -- INSERT fresh record with live print counts
     INSERT INTO wms_shiping_agents_orders_status (
         agent_id, trip_id, order_number, instance_name,
         account_name, order_type, order_status,
@@ -177,7 +184,7 @@ BEGIN
 
     COMMIT;
 
-    HTP.p('{"status":"ok","orderNumber":"' || v_order_number || '"}');
+    HTP.p('{"status":"ok","orderNumber":"' || v_order_number || '","printTotal":' || v_print_total || ',"printPrinted":' || v_print_printed || '}');
 EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK;
