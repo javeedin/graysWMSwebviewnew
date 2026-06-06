@@ -597,6 +597,9 @@
         }
     };
 
+    // Track last-fetch timestamps per order: { orderNumber: Date }
+    window._saOrderLastFetched = window._saOrderLastFetched || {};
+
     window.saFetchOrderStatus = async function(orderNumber, instanceName, tripId) {
         const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
         if (!rowEl) return;
@@ -606,94 +609,140 @@
             if (cell) cell.innerHTML = html;
         };
 
-        setCell('status', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        // Record fetch time immediately
+        const fetchedAt = new Date();
+        window._saOrderLastFetched[orderNumber] = fetchedAt;
+        const timeStr = fetchedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        setCell('status',   `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('picking',  `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('shipping', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('cancel',   `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('print',    `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('lines',    `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+        setCell('checked',  `<span style="color:#94a3b8;font-size:9px;"><i class="fas fa-sync fa-spin"></i> Fetching...</span>`);
 
         try {
-            // Fetch shipment lines for this order
-            const slUrl = `orders/shipmentlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instanceName}`;
-            const slData = await apexGet(slUrl);
+            const slData = await apexGet(`orders/shipmentlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instanceName}`);
             const lines  = slData.items || [];
 
             if (lines.length === 0) {
-                setCell('status',     saBadge('Pending', '#f1f5f9', '#64748b', 'fa-clock'));
-                setCell('picking',    saBadge('N/A', '#f1f5f9', '#94a3b8', null));
-                setCell('shipping',   saBadge('N/A', '#f1f5f9', '#94a3b8', null));
-                setCell('cancel',     saBadge('None', '#f0fdf4', '#15803d', 'fa-check'));
-                setCell('lines',      `<span style="color:#94a3b8;font-size:9px;">No shipment lines</span>`);
+                setCell('status',   saBadge('No Lines', '#f1f5f9', '#94a3b8', 'fa-clock'));
+                setCell('picking',  saBadge('N/A', '#f1f5f9', '#94a3b8', null));
+                setCell('shipping', saBadge('N/A', '#f1f5f9', '#94a3b8', null));
+                setCell('cancel',   saBadge('None', '#f0fdf4', '#15803d', 'fa-check'));
+                setCell('print',    saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
+                setCell('lines',    `<span style="color:#94a3b8;font-size:9px;">No shipment lines yet</span>`);
+                setCell('checked',  saCheckedBadge(timeStr, lines.length));
                 return;
             }
 
-            // Count line statuses
-            let staged=0, released=0, picked=0, shipped=0, cancelled=0, other=0;
-            let pickYes=0, pickNo=0, shipYes=0, shipNo=0;
-            let totalQty=0;
+            // ── Classify each line by status ──
+            // Statuses: READY TO RELEASE, RELEASED TO WAREHOUSE, STAGED, INTERFACED, CANCELLED
+            let readyToRelease = 0, releasedToWH = 0, staged = 0, interfaced = 0, cancelled = 0, other = 0;
+            let totalQty = 0, stagedQty = 0, shippedQty = 0;
 
             lines.forEach(l => {
-                const ls = (l.LINE_STATUS_CODE || l.line_status_code || l.LINE_STATUS || l.line_status || '').toUpperCase();
-                if (ls.includes('STAGED'))                       staged++;
-                else if (ls.includes('RELEASED'))               released++;
-                else if (ls.includes('PICKED'))                 picked++;
-                else if (ls.includes('SHIPPED')||ls.includes('INTERFACED')) shipped++;
-                else if (ls.includes('CANCEL'))                 cancelled++;
-                else if (ls)                                    other++;
+                const ls = (l.LINE_STATUS_CODE || l.line_status_code || l.LINE_STATUS || l.line_status || '').toUpperCase().trim();
+                if      (ls === 'STAGED'            || ls.includes('STAGED'))              staged++;
+                else if (ls === 'INTERFACED'        || ls.includes('INTERFACED'))          interfaced++;
+                else if (ls === 'CANCELLED'         || ls.includes('CANCEL'))              cancelled++;
+                else if (ls === 'RELEASED TO WAREHOUSE' || ls.includes('RELEASED'))        releasedToWH++;
+                else if (ls === 'READY TO RELEASE'  || ls.includes('READY'))               readyToRelease++;
+                else                                                                        other++;
 
-                const pc = (l.PICK_CONFIRM_ST || l.pick_confirm_st || '').toString().toUpperCase();
-                if (pc==='Y'||pc==='YES'||pc==='1') pickYes++; else if (pc) pickNo++;
-
-                const sc = (l.SHIP_CONFIRM_ST || l.ship_confirm_st || '').toString().toUpperCase();
-                if (sc==='Y'||sc==='YES'||sc==='1') shipYes++; else if (sc) shipNo++;
-
-                totalQty += parseFloat(l.REQUESTED_QUANTITY || l.requested_quantity || 0);
+                totalQty   += parseFloat(l.REQUESTED_QUANTITY  || l.requested_quantity  || 0);
+                stagedQty  += parseFloat(l.STAGED_QUANTITY     || l.staged_quantity     || 0);
+                shippedQty += parseFloat(l.SHIPPED_QUANTITY    || l.shipped_quantity    || 0);
             });
 
             const total = lines.length;
-            // Dominant status badge
-            let domBadge;
-            if (shipped > 0 && shipped === total)      domBadge = saBadge('Shipped',   '#dcfce7','#15803d','fa-check-circle');
-            else if (cancelled > 0 && cancelled===total) domBadge = saBadge('Cancelled','#fee2e2','#b91c1c','fa-ban');
-            else if (staged > 0)    domBadge = saBadge('Staged',   '#dbeafe','#1d4ed8','fa-layer-group');
-            else if (released > 0)  domBadge = saBadge('Released', '#e0f2fe','#0369a1','fa-share');
-            else if (picked > 0)    domBadge = saBadge('Picked',   '#ede9fe','#6d28d9','fa-hand-paper');
-            else if (shipped > 0)   domBadge = saBadge('Part Shp', '#f0fdf4','#15803d','fa-truck');
-            else                    domBadge = saBadge('Pending',  '#f1f5f9','#64748b','fa-clock');
 
-            const lineChips = [
-                released  > 0 ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${released} Rel</span>` : '',
-                staged    > 0 ? `<span style="background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${staged} Stg</span>` : '',
-                picked    > 0 ? `<span style="background:#ede9fe;color:#6d28d9;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${picked} Pkd</span>` : '',
-                shipped   > 0 ? `<span style="background:#dcfce7;color:#15803d;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${shipped} Shp</span>` : '',
-                cancelled > 0 ? `<span style="background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${cancelled} Cxl</span>` : '',
-                other     > 0 ? `<span style="background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${other} Oth</span>` : ''
+            // ── Overall line-status badge (dominant) ──
+            let domBadge;
+            if (interfaced > 0 && interfaced === total)
+                domBadge = saBadge('Interfaced',       '#dcfce7', '#15803d', 'fa-check-circle');
+            else if (cancelled > 0 && cancelled === total)
+                domBadge = saBadge('Cancelled',        '#fee2e2', '#b91c1c', 'fa-ban');
+            else if (interfaced > 0)
+                domBadge = saBadge(`Part Interfaced`,  '#bbf7d0', '#166534', 'fa-truck');
+            else if (staged > 0 && staged === total)
+                domBadge = saBadge('Staged',           '#dbeafe', '#1d4ed8', 'fa-layer-group');
+            else if (staged > 0)
+                domBadge = saBadge(`Part Staged`,      '#bfdbfe', '#1d4ed8', 'fa-layer-group');
+            else if (releasedToWH > 0)
+                domBadge = saBadge('Released to WH',   '#e0f2fe', '#0369a1', 'fa-share-square');
+            else if (readyToRelease > 0)
+                domBadge = saBadge('Ready to Release', '#fef9c3', '#a16207', 'fa-clock');
+            else
+                domBadge = saBadge('Pending',          '#f1f5f9', '#64748b', 'fa-clock');
+
+            // ── Picking status: STAGED = picking done ──
+            const pickingDone  = staged + interfaced;
+            const pickingTotal = total - cancelled;
+            let pickBadge;
+            if (pickingTotal === 0)
+                pickBadge = saBadge('N/A',           '#f1f5f9', '#94a3b8', null);
+            else if (pickingDone === pickingTotal)
+                pickBadge = saBadge('Done',          '#dcfce7', '#15803d', 'fa-check');
+            else if (pickingDone === 0)
+                pickBadge = saBadge('Not Picked',    '#fef2f2', '#b91c1c', 'fa-times');
+            else
+                pickBadge = saBadge(`${pickingDone}/${pickingTotal} Picked`, '#fef9c3', '#a16207', 'fa-box');
+
+            // ── Shipping status: INTERFACED = shipping done ──
+            let shipBadge;
+            if (interfaced === 0 && total > 0)
+                shipBadge = saBadge('Not Shipped',   '#fef2f2', '#b91c1c', 'fa-times');
+            else if (interfaced === pickingTotal)
+                shipBadge = saBadge('Shipped',       '#dcfce7', '#15803d', 'fa-truck');
+            else
+                shipBadge = saBadge(`${interfaced}/${pickingTotal} Shp`, '#fef9c3', '#a16207', 'fa-truck');
+
+            // ── Cancellation ──
+            const cancelBadge = cancelled > 0
+                ? saBadge(`${cancelled} Cancelled`, '#fee2e2', '#b91c1c', 'fa-ban')
+                : saBadge('None',                   '#f0fdf4', '#15803d', 'fa-check');
+
+            // ── Line breakdown chips ──
+            const chips = [
+                readyToRelease > 0 ? `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${readyToRelease} Ready</span>` : '',
+                releasedToWH   > 0 ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${releasedToWH} Rel</span>`   : '',
+                staged         > 0 ? `<span style="background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${staged} Stg</span>`         : '',
+                interfaced     > 0 ? `<span style="background:#dcfce7;color:#15803d;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${interfaced} Inf</span>`      : '',
+                cancelled      > 0 ? `<span style="background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${cancelled} Cxl</span>`      : '',
+                other          > 0 ? `<span style="background:#f1f5f9;color:#64748b;padding:1px 5px;border-radius:4px;font-size:8px;font-weight:700;">${other} Oth</span>`          : ''
             ].filter(Boolean).join(' ');
 
             setCell('status',   domBadge);
-            setCell('picking',  saPickBadge(pickYes, pickNo, pickYes+pickNo));
-            setCell('shipping', saShipBadge(shipYes, shipNo, shipYes+shipNo));
-            setCell('cancel',   cancelled > 0 ? saBadge(`${cancelled} Cxl`,'#fee2e2','#b91c1c','fa-ban') : saBadge('None','#f0fdf4','#15803d','fa-check'));
-            setCell('lines',    `<div style="display:flex;flex-wrap:wrap;gap:2px;">${lineChips || '—'}</div><div style="color:#94a3b8;margin-top:2px;font-size:9px;">${total} line(s) · Qty: ${totalQty}</div>`);
+            setCell('picking',  pickBadge);
+            setCell('shipping', shipBadge);
+            setCell('cancel',   cancelBadge);
+            setCell('lines',
+                `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:2px;">${chips || '—'}</div>` +
+                `<div style="color:#94a3b8;font-size:9px;">${total} line(s) · Req: ${totalQty}${stagedQty > 0 ? ` · Stg: ${stagedQty}` : ''}${shippedQty > 0 ? ` · Shp: ${shippedQty}` : ''}</div>`
+            );
+            setCell('checked', saCheckedBadge(timeStr, lines.length));
 
         } catch(e) {
-            setCell('status', `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}">Error</span>`);
+            setCell('status',  `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}">Error</span>`);
+            setCell('checked', `<span style="color:#dc2626;font-size:9px;"><i class="fas fa-exclamation-circle"></i> ${timeStr}</span>`);
         }
 
-        // Fetch print status from wms_print_jobs via the agents enrichment endpoint
+        // ── Print status via agents enrichment ──
         try {
-            const agent   = window._saCurrentAgent;
+            const agent = window._saCurrentAgent;
             if (agent) {
-                // We only have tripId in caller — look it up from the row element
-                const rowEl2 = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
-                const tripIdFromRow = tripId;
-                const pjData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripIdFromRow)}/orders?P_INSTANCE_NAME=${instanceName}`);
-                const match  = (pjData.items || []).find(o => (o.ORDER_NUMBER||o.order_number||'').toString().trim() === orderNumber.toString().trim());
+                const pjData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders?P_INSTANCE_NAME=${instanceName}`);
+                const match  = (pjData.items || []).find(o => (o.ORDER_NUMBER || o.order_number || '').toString().trim() === orderNumber.toString().trim());
                 if (match) {
-                    const total   = match.PRINT_JOBS_TOTAL   || match.print_jobs_total   || 0;
-                    const printed = match.PRINT_JOBS_PRINTED || match.print_jobs_printed || 0;
-                    const pBadge  = total === 0
+                    const pTotal   = parseInt(match.PRINT_JOBS_TOTAL   || match.print_jobs_total   || 0);
+                    const pPrinted = parseInt(match.PRINT_JOBS_PRINTED || match.print_jobs_printed || 0);
+                    setCell('print', pTotal === 0
                         ? saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print')
-                        : printed === total
+                        : pPrinted === pTotal
                             ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
-                            : saBadge(`${printed}/${total}`, '#fef9c3', '#a16207', 'fa-print');
-                    setCell('print', pBadge);
+                            : saBadge(`${pPrinted}/${pTotal}`, '#fef9c3', '#a16207', 'fa-print'));
                 } else {
                     setCell('print', saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
                 }
@@ -702,6 +751,11 @@
             setCell('print', saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
         }
     };
+
+    function saCheckedBadge(timeStr, lineCount) {
+        return `<div style="font-size:9px;color:#059669;"><i class="fas fa-check-circle"></i> ${timeStr}</div>` +
+               `<div style="font-size:9px;color:#94a3b8;">${lineCount} line(s)</div>`;
+    }
 
     // Badge helpers
     function saBadge(label, bg, color, icon) {
@@ -737,8 +791,10 @@
                 <td style="padding:6px 8px;text-align:center;" data-col="cancel">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="print">${spin}</td>
                 <td style="padding:6px 8px;font-size:9px;color:#64748b;" data-col="lines">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="checked"><span style="color:#94a3b8;font-size:9px;">—</span></td>
                 <td style="padding:6px 8px;text-align:center;">
                     <span style="background:#ede9fe;color:#6d28d9;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;"><i class="fas fa-link"></i> Assigned</span>
+                    <br><button onclick="saFetchOrderStatus('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}','${esc(tripId)}')" style="margin-top:3px;background:#e0f2fe;color:#0369a1;border:none;padding:1px 6px;border-radius:4px;font-size:8px;cursor:pointer;font-weight:700;" title="Refresh status"><i class="fas fa-sync"></i></button>
                 </td>
             </tr>`).join('');
 
@@ -763,6 +819,7 @@
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Cancellation</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Printing</th>
                         <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Line Breakdown / Qty</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Last Checked</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Assignment</th>
                     </tr>
                 </thead>
