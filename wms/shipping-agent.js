@@ -990,6 +990,8 @@
                     orderLinesCount: orderLinesCount
                     // printTotal / printPrinted omitted — queried live from wms_print_jobs in PL/SQL
                 };
+                // Store last payload globally so API info popup can display it
+                window._saLastDbSavePayload = payload;
                 console.log('[ShippingAgent] Saving order status to DB:', payload);
                 const saveResult = await apexPost('agents/orders/status/save', payload);
                 console.log('[ShippingAgent] DB save result:', saveResult);
@@ -1469,6 +1471,55 @@
         document.body.appendChild(pop);
     };
 
+    window.saShowDbSaveApiInfo = function() {
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+
+        const payload = window._saLastDbSavePayload;
+        const payloadJson = payload
+            ? JSON.stringify(payload, null, 2)
+            : '// Not yet fetched — click "Get Shipment Lines" first';
+
+        const pop = document.createElement('div');
+        pop.id = 'sa-api-popup';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:620px;max-height:90vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#f59e0b;"><i class="fas fa-database"></i> DB Save — WMS_SHIPING_AGENTS_ORDERS_STATUS</span>
+                <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.9rem;">
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#d97706;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">POST</span>
+                        APEX REST — Save order shipment status per order
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #f59e0b;border-radius:6px;padding:0.6rem 0.8rem;color:#fcd34d;font-size:10px;word-break:break-all;">
+                        ${esc(APEX_BASE)}/agents/orders/status/save
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.35rem;line-height:1.7;">
+                        Called from <code>saFetchOrderStatus()</code> after each Fusion shipmentLines response.<br>
+                        <code>printTotal</code> / <code>printPrinted</code> are <strong>not sent</strong> — PL/SQL queries <code>wms_print_jobs</code> live.<br>
+                        Deployed via: <code>apex_sql/30_agents_order_status.sql</code> — Handler A.
+                    </div>
+                </div>
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;margin-bottom:0.4rem;">
+                        ${payload ? '<span style="color:#4ade80;">● Last actual payload sent</span>' : '<span style="color:#f87171;">● No payload yet — fetch shipment lines first</span>'}
+                    </div>
+                    <pre style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.8rem;overflow-x:auto;font-size:10px;color:#a5f3fc;margin:0;white-space:pre-wrap;line-height:1.6;">${esc(payloadJson)}</pre>
+                </div>
+                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.8rem;font-size:9px;color:#94a3b8;line-height:1.8;">
+                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.4rem;"><i class="fas fa-table" style="color:#f59e0b;"></i> Table: WMS_SHIPING_AGENTS_ORDERS_STATUS</div>
+                    <div>Unique constraint: <code>(agent_id, trip_id, order_number, instance_name)</code></div>
+                    <div>Strategy: <strong>DELETE + INSERT</strong> on every fetch (full refresh per order)</div>
+                    <div>GET endpoint: <code>agents/{agentId}/trips/{tripId}/orders/status</code></div>
+                    <div>DELETE endpoint: <code>agents/{agentId}/trips/{tripId}/orders/status</code></div>
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
+    };
+
     function saCheckedBadge(timeStr, lineCount) {
         return `<div style="font-size:9px;color:#059669;"><i class="fas fa-check-circle"></i> ${timeStr}</div>` +
                `<div style="font-size:9px;color:#94a3b8;">${lineCount} line(s)</div>`;
@@ -1543,7 +1594,10 @@
                 <div style="display:flex;gap:0.4rem;align-items:center;">
                     <button onclick="saShowShipmentLinesApiInfo('${esc(orders[0] && orders[0].ORDER_NUMBER || '')}','${esc(inst)}')"
                         style="background:#1e293b;color:#94a3b8;border:none;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;"
-                        title="Show API info"><i class="fas fa-code"></i></button>
+                        title="Show Fusion API info"><i class="fas fa-code"></i></button>
+                    <button onclick="saShowDbSaveApiInfo()"
+                        style="background:#1e293b;color:#f59e0b;border:1px solid #f59e0b;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Show DB save POST body (WMS_SHIPING_AGENTS_ORDERS_STATUS)"><i class="fas fa-database"></i></button>
                     <button id="sa-btn-get-sl-${esc(tripId)}"
                         onclick="saGetAllShipmentLines('${esc(tripId)}','${esc(inst)}')"
                         style="background:#7c3aed;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;">
