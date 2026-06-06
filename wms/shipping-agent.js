@@ -749,6 +749,19 @@
         setCell('backorder', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
         setCell('checked',  `<span style="color:#94a3b8;font-size:9px;"><i class="fas fa-sync fa-spin"></i> Fetching...</span>`);
 
+        // Declare counts outside try so they're available for the DB save below
+        let readyToRelease = 0, releasedToWH = 0, staged = 0, interfaced = 0, cancelled = 0, other = 0;
+        let totalQty = 0, stagedQty = 0, shippedQty = 0;
+        let totalLines = 0, fusionFetchOk = false;
+        let orderStatusText = 'Pending';
+        let rowAccountName = '', rowOrderType = '';
+
+        // Read account/order type from row data for DB save
+        try {
+            const dr = rowEl.querySelector('[data-row]');
+            if (dr) { const rd = JSON.parse(dr.getAttribute('data-row')); rowAccountName = rd.ACCOUNT_NAME || ''; rowOrderType = rd.ORDER_TYPE || ''; }
+        } catch(e) {}
+
         try {
             // Use Oracle Fusion REST API directly (executeOracleFusionGet via C# bridge)
             const slData = await fusionShipmentLinesGet(orderNumber, instanceName);
@@ -763,14 +776,9 @@
                 setCell('cancel',    saBadge('—', '#f1f5f9', '#94a3b8', null));
                 setCell('print',     saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
                 setCell('checked',   saCheckedBadge(timeStr, 0));
-                return;
-            }
-
-            // ── Classify each line using Fusion field names ──
-            // Fusion fields: LineStatusCode (Y=Interfaced, C=Staged, etc.), LineStatus (display text)
-            // RequestedQuantity, StagedQuantity, ShippedQuantity
-            let readyToRelease = 0, releasedToWH = 0, staged = 0, interfaced = 0, cancelled = 0, other = 0;
-            let totalQty = 0, stagedQty = 0, shippedQty = 0;
+                fusionFetchOk = true;
+                // Fall through to DB save with all zeros
+            } else {
 
             lines.forEach(l => {
                 // Fusion uses LineStatusCode: Y=Interfaced/Shipped, C=Staged, X=Cancelled
@@ -790,21 +798,9 @@
                 shippedQty += parseFloat(l.ShippedQuantity   || 0);
             });
 
-            const total = lines.length;
-
-            // Store counts for DB save (used at end of function)
-            const rowEl2 = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
-            const rowData = rowEl2 ? (function(){try{return JSON.parse(rowEl2.querySelector('[data-row]') && rowEl2.querySelector('[data-row]').getAttribute('data-row') || '{}');}catch(e){return {};}}()) : {};
-            window._saLastFetchedCounts[orderNumber] = {
-                total, active: total - cancelled, staged, interfaced,
-                releasedToWH, readyToRelease, cancelled, other: other,
-                totalQty, stagedQty, shippedQty,
-                accountName: rowData.ACCOUNT_NAME || '',
-                orderType:   rowData.ORDER_TYPE   || '',
-                orderStatus: interfaced === (total - cancelled) && (total - cancelled) > 0
-                    ? 'Interfaced'
-                    : interfaced > 0 ? `${interfaced}/${total - cancelled} Interfaced` : staged > 0 ? 'Staged' : 'Pending'
-            };
+            totalLines = lines.length;
+            const total = totalLines;
+            const activeLines = total - cancelled;
 
             // ── Overall line-status badge (dominant) ──
             let domBadge;
@@ -826,7 +822,6 @@
                 domBadge = saBadge('Pending',          '#f1f5f9', '#64748b', 'fa-clock');
 
             // ── Order Status: "Interfaced" if all active lines interfaced, else "9/10 Interfaced" ──
-            const activeLines = total - cancelled; // ignore cancelled
             let orderStatusBadge;
             if (activeLines === 0)
                 orderStatusBadge = saBadge('Cancelled', '#fee2e2', '#b91c1c', 'fa-ban');
@@ -881,6 +876,15 @@
                 ? saBadge(`${cancelled}`, '#fee2e2', '#b91c1c', 'fa-ban')
                 : saBadge('0', '#f0fdf4', '#15803d', null);
 
+            // Determine order status text for DB save
+            orderStatusText = activeLines === 0 ? 'Cancelled'
+                : interfaced === activeLines ? 'Interfaced'
+                : interfaced > 0 ? `${interfaced}/${activeLines} Interfaced`
+                : staged > 0 ? 'Staged'
+                : releasedToWH > 0 ? 'Released to WH'
+                : readyToRelease > 0 ? 'Ready to Release'
+                : 'Pending';
+
             setCell('status',    orderStatusBadge);
             setCell('staged',    stagedBadge);
             setCell('picking',   pickBadge);
@@ -896,6 +900,8 @@
                     `Shipment lines checked: ${lines.length} line(s) — ${domBadge.replace(/<[^>]+>/g,'').trim()} at ${timeStr}`,
                     null, null);
             }
+            fusionFetchOk = true;
+            } // end else (lines.length > 0)
 
         } catch(e) {
             setCell('status',  `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}">Error</span>`);
@@ -952,32 +958,35 @@
         // ── Save status to DB (DELETE + INSERT via APEX) ──
         try {
             const agent = window._saCurrentAgent;
-            if (agent && window._saLastFetchedCounts[orderNumber]) {
-                const c = window._saLastFetchedCounts[orderNumber];
-                await apexPost('agents/orders/status/save', {
+            if (agent) {
+                const activeL = totalLines - cancelled;
+                const payload = {
                     agentId:         agent.ID,
                     tripId:          tripId,
                     orderNumber:     orderNumber,
                     instanceName:    instanceName,
-                    accountName:     c.accountName  || '',
-                    orderType:       c.orderType    || '',
-                    orderStatus:     c.orderStatus  || '',
-                    totalLines:      c.total        || 0,
-                    activeLines:     c.active       || 0,
-                    stagedLines:     c.staged       || 0,
-                    interfacedLines: c.interfaced   || 0,
-                    releasedLines:   c.releasedToWH || 0,
-                    readyLines:      c.readyToRelease||0,
-                    cancelledLines:  c.cancelled    || 0,
-                    backorderLines:  c.other        || 0,
-                    pickedCount:     c.staged + c.interfaced || 0,
-                    shippedCount:    c.interfaced   || 0,
-                    totalQty:        c.totalQty     || 0,
-                    stagedQty:       c.stagedQty    || 0,
-                    shippedQty:      c.shippedQty   || 0,
+                    accountName:     rowAccountName,
+                    orderType:       rowOrderType,
+                    orderStatus:     orderStatusText,
+                    totalLines:      totalLines,
+                    activeLines:     activeL,
+                    stagedLines:     staged,
+                    interfacedLines: interfaced,
+                    releasedLines:   releasedToWH,
+                    readyLines:      readyToRelease,
+                    cancelledLines:  cancelled,
+                    backorderLines:  other,
+                    pickedCount:     staged + interfaced,
+                    shippedCount:    interfaced,
+                    totalQty:        totalQty,
+                    stagedQty:       stagedQty,
+                    shippedQty:      shippedQty,
                     orderLinesCount: orderLinesCount
-                    // printTotal / printPrinted omitted — queried live from wms_print_jobs in PL/SQL handler
-                });
+                    // printTotal / printPrinted omitted — queried live from wms_print_jobs in PL/SQL
+                };
+                console.log('[ShippingAgent] Saving order status to DB:', payload);
+                const saveResult = await apexPost('agents/orders/status/save', payload);
+                console.log('[ShippingAgent] DB save result:', saveResult);
             }
         } catch(e) {
             console.warn('[ShippingAgent] Save order status failed (non-fatal):', e.message);
