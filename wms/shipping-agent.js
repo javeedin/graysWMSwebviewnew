@@ -694,7 +694,7 @@
                 const lsc  = (l.LineStatusCode || '').toString().toUpperCase().trim();
                 const ls   = (l.LineStatus || l.LineStatusCode || '').toString().toUpperCase().trim();
 
-                if      (lsc === 'Y' || ls.includes('INTERFACED'))              interfaced++;
+                if      (lsc === 'Y' || ls.includes('INTERFACED') || ls.includes('PENDING INVENTORY'))  interfaced++;
                 else if (lsc === 'C' || ls.includes('STAGED'))                  staged++;
                 else if (lsc === 'X' || ls.includes('CANCEL'))                  cancelled++;
                 else if (ls.includes('RELEASED TO WAREHOUSE') || ls.includes('RELEASED')) releasedToWH++;
@@ -914,6 +914,7 @@
                     <div><code style="color:#38bdf8;">Released to WH</code> → Pick wave released, picking in progress</div>
                     <div><code style="color:#60a5fa;">C → Staged</code> → <strong style="color:#e2e8f0;">Picking done</strong> ✓</div>
                     <div><code style="color:#4ade80;">Y → Interfaced</code> → <strong style="color:#e2e8f0;">Shipping done</strong> ✓✓</div>
+                    <div><code style="color:#4ade80;">Pending inventory processing</code> → treated as <strong style="color:#e2e8f0;">Interfaced</strong> ✓✓</div>
                     <div><code style="color:#f87171;">X → Cancelled</code> → Line cancelled</div>
                 </div>
 
