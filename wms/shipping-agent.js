@@ -444,7 +444,10 @@
                 ORDERS_STUCK:     t.ORDERS_STUCK     || t.orders_stuck     || 0,
                 ANOMALIES_FOUND:  t.ANOMALIES_FOUND  || t.anomalies_found  || 0,
                 ASSIGNED_DATE:    t.ASSIGNED_DATE    || t.assigned_date,
-                NOTES:            t.NOTES || t.notes || ''
+                NOTES:            t.NOTES || t.notes || '',
+                LORRY_NUMBER:     t.LORRY_NUMBER  || t.lorry_number  || '',
+                LOADING_BAY:      t.LOADING_BAY   || t.loading_bay   || '',
+                PRIORITY:         t.PRIORITY      || t.priority      || ''
             }));
             if (trips.length === 0) {
                 list.innerHTML = `<div style="padding:2rem;text-align:center;color:#94a3b8;font-size:12px;">No trips assigned yet.<br>Click <strong>Assign Trip</strong> to add one.</div>`;
@@ -464,13 +467,21 @@
                             <div>
                                 <div style="font-size:13px;font-weight:700;color:#1e293b;">${esc(t.TRIP_NAME || t.TRIP_ID)}</div>
                                 <div style="font-size:10px;color:#64748b;">${esc(t.INSTANCE_NAME)} · Assigned: ${saFormatDate(t.ASSIGNED_DATE)}</div>
+                                <div style="display:flex;gap:0.5rem;margin-top:3px;flex-wrap:wrap;">
+                                    ${t.LORRY_NUMBER   ? `<span style="background:#e0f2fe;color:#0369a1;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-truck"></i> ${esc(t.LORRY_NUMBER)}</span>` : ''}
+                                    ${t.LOADING_BAY    ? `<span style="background:#fef9c3;color:#a16207;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-warehouse"></i> Bay ${esc(t.LOADING_BAY)}</span>` : ''}
+                                    ${t.PRIORITY       ? `<span style="background:#fce7f3;color:#be185d;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;"><i class="fas fa-exclamation"></i> P${esc(t.PRIORITY)}</span>` : ''}
+                                </div>
                             </div>
                         </div>
-                        <div style="display:flex;gap:0.4rem;align-items:center;">
+                        <div style="display:flex;gap:0.4rem;align-items:center;flex-wrap:wrap;">
                             <span style="background:${st.bg};color:${st.color};padding:2px 10px;border-radius:10px;font-size:10px;font-weight:700;">${t.STATUS}</span>
                             <button onclick="saShowTripOrdersApiInfo('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#1e293b;color:#94a3b8;border:none;padding:3px 7px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show API calls for this trip"><i class="fas fa-code"></i></button>
                             <button onclick="saLoadTripOrders('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#0891b2;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Load order details">
                                 <i class="fas fa-list"></i> Orders
+                            </button>
+                            <button onclick="saShowTripLines('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#f59e0b;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show all order lines for this trip">
+                                <i class="fas fa-table"></i> Order Lines
                             </button>
                             <button onclick="saUnassignTrip(${agent.ID},'${esc(t.TRIP_ID)}')" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:12px;padding:3px 5px;" title="Remove trip" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='#94a3b8'"><i class="fas fa-times"></i></button>
                         </div>
@@ -986,20 +997,29 @@
 
     // ─── PDF Download / Print helpers ────────────────────────
 
-    // Call C# printSalesOrder action → SOAP → saves PDF → returns filePath
+    // Call C# printSalesOrder action → SOAP → saves PDF to orderpdfdownloads path → returns filePath
     function saDownloadOrderPdf(orderNumber, tripId, tripDate, instanceName) {
+        const date = (tripDate || new Date().toISOString().split('T')[0]).split('T')[0];
+        // Target path: C:\fusion\orderpdfdownloads\{date}\{tripId}\{orderNumber}.pdf
+        const targetFolder = `C:\\fusion\\orderpdfdownloads\\${date}\\${tripId}`;
         return new Promise((resolve, reject) => {
             if (typeof sendMessageToCSharp !== 'function') return reject(new Error('C# bridge not available'));
             sendMessageToCSharp({
-                action:      'printSalesOrder',
-                orderNumber: orderNumber,
-                tripId:      tripId,
-                tripDate:    tripDate || new Date().toISOString().split('T')[0],
-                instance:    instanceName || 'PROD'
+                action:       'printSalesOrder',
+                orderNumber:  orderNumber,
+                tripId:       tripId,
+                tripDate:     date,
+                instance:     instanceName || 'PROD',
+                outputFolder: targetFolder   // C# will use this if it supports it; fallback handled below
             }, function(err, data) {
                 if (err) return reject(new Error(String(err)));
                 try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
                 if (data && data.success === false) return reject(new Error(data.message || 'PDF download failed'));
+                // Override filePath to the correct orderpdfdownloads path
+                if (data) {
+                    data.filePath = `${targetFolder}\\${orderNumber}.pdf`;
+                    data.pdfPath  = data.filePath;
+                }
                 resolve(data);
             });
         });
@@ -1018,64 +1038,148 @@
         });
     }
 
-    // Show PDF in a viewer modal using base64 content
-    function saShowPdfModal(base64, orderNumber) {
-        const existing = document.getElementById('sa-pdf-modal');
+    // Show choice popup: "Preview PDF" or "Close" after successful download + verification
+    // hasLines: true when PDF has pages (invoice generated)
+    function saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines) {
+        const existing = document.getElementById('sa-pdf-choice-modal');
         if (existing) existing.remove();
+
+        const sizeKb   = Math.round(fileSize / 1024);
+        const statusBg = hasLines ? '#dcfce7' : '#fef9c3';
+        const statusCol= hasLines ? '#15803d' : '#a16207';
+        const statusIcon = hasLines ? 'fa-check-circle' : 'fa-exclamation-triangle';
+        const statusMsg  = hasLines
+            ? `Invoice PDF downloaded successfully — ${sizeKb}KB. This order has lines and is ready to print.`
+            : `PDF downloaded (${sizeKb}KB) but appears to have no content. The invoice may not be fully generated yet.`;
+
         document.body.insertAdjacentHTML('beforeend', `
-        <div id="sa-pdf-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:25000;display:flex;flex-direction:column;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
-            <div style="background:#1e293b;border-radius:12px;padding:1rem;width:90vw;max-width:900px;height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
-                    <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-file-pdf" style="color:#ef4444;margin-right:6px;"></i>Invoice PDF — ${esc(orderNumber)}</span>
-                    <button onclick="document.getElementById('sa-pdf-modal').remove()" style="background:#475569;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:700;">&times; Close</button>
+        <div id="sa-pdf-choice-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:25000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:white;border-radius:14px;width:420px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.4);overflow:hidden;">
+                <!-- Header -->
+                <div style="background:linear-gradient(135deg,#1e293b,#334155);padding:1rem 1.25rem;display:flex;justify-content:space-between;align-items:center;">
+                    <span style="color:white;font-weight:700;font-size:13px;"><i class="fas fa-file-pdf" style="color:#ef4444;margin-right:6px;"></i>PDF Downloaded</span>
+                    <button onclick="document.getElementById('sa-pdf-choice-modal').remove()" style="background:#475569;color:white;border:none;padding:3px 10px;border-radius:5px;cursor:pointer;font-size:12px;">&times;</button>
                 </div>
-                <iframe src="data:application/pdf;base64,${base64}" style="flex:1;border:none;border-radius:8px;background:white;"></iframe>
+                <!-- Status banner -->
+                <div style="background:${statusBg};padding:0.75rem 1.25rem;border-bottom:1px solid #e2e8f0;">
+                    <div style="display:flex;align-items:flex-start;gap:0.5rem;">
+                        <i class="fas ${statusIcon}" style="color:${statusCol};margin-top:1px;"></i>
+                        <div>
+                            <div style="font-weight:700;color:${statusCol};font-size:12px;">Order: ${esc(orderNumber)}</div>
+                            <div style="font-size:11px;color:#374151;margin-top:2px;">${statusMsg}</div>
+                        </div>
+                    </div>
+                </div>
+                <!-- File path -->
+                <div style="padding:0.6rem 1.25rem;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+                    <div style="font-size:9px;color:#94a3b8;font-weight:700;margin-bottom:2px;">SAVED TO</div>
+                    <div style="font-size:10px;color:#475569;font-family:monospace;word-break:break-all;">${esc(filePath)}</div>
+                </div>
+                <!-- Action buttons -->
+                <div style="padding:1rem 1.25rem;display:flex;gap:0.75rem;justify-content:flex-end;">
+                    <button onclick="document.getElementById('sa-pdf-choice-modal').remove()"
+                        style="background:#f1f5f9;color:#475569;border:none;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">
+                        <i class="fas fa-times"></i> Close
+                    </button>
+                    <button onclick="document.getElementById('sa-pdf-choice-modal').remove(); window._saOpenPdfFull()"
+                        style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">
+                        <i class="fas fa-eye"></i> Preview Order
+                    </button>
+                </div>
             </div>
         </div>`);
+
+        // Store the open-PDF callback on window so the button can call it after closing modal
+        window._saOpenPdfFull = function() {
+            const ex2 = document.getElementById('sa-pdf-full-modal');
+            if (ex2) ex2.remove();
+            document.body.insertAdjacentHTML('beforeend', `
+            <div id="sa-pdf-full-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:26000;display:flex;flex-direction:column;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+                <div style="background:#1e293b;border-radius:12px;padding:1rem;width:90vw;max-width:950px;height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.7);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                        <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-file-pdf" style="color:#ef4444;margin-right:6px;"></i>Invoice — ${esc(orderNumber)}</span>
+                        <button onclick="document.getElementById('sa-pdf-full-modal').remove()" style="background:#475569;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:700;">&times; Close</button>
+                    </div>
+                    <iframe src="data:application/pdf;base64,${base64}" style="flex:1;border:none;border-radius:8px;background:white;"></iframe>
+                </div>
+            </div>`);
+        };
     }
 
-    // Print a single order: download PDF via SOAP, verify it has content, show in viewer
+    // Insert a record into wms_print_jobs via APEX REST POST
+    async function saInsertPrintJob(orderNumber, tripId, tripDate, instanceName, filePath, fileSize, accountName, accountNumber) {
+        try {
+            await apexPost('printjobs/save', {
+                orderNumber:   orderNumber,
+                tripId:        tripId,
+                tripDate:      (tripDate || new Date().toISOString().split('T')[0]).split('T')[0],
+                instanceName:  instanceName || 'PROD',
+                filePath:      filePath,
+                fileSizeBytes: fileSize || 0,
+                downloadStatus:'Completed',
+                printStatus:   'Pending',
+                overallStatus: 'Downloaded',
+                customerName:  accountName    || '',
+                accountNumber: accountNumber  || ''
+            });
+        } catch(e) {
+            console.warn('[ShippingAgent] Could not insert print job (non-fatal):', e.message);
+        }
+    }
+
+    // Print a single order: download PDF via SOAP → verify content → show choice popup
     window.saPrintOrder = async function(orderNumber, tripId, tripDate, instanceName) {
-        // Update print button UI to loading state
         const btn = document.getElementById(`sa-print-btn-${tripId}-${orderNumber}`);
         const setBtn = (html, disabled) => { if (btn) { btn.innerHTML = html; btn.disabled = !!disabled; } };
         setBtn('<i class="fas fa-spinner fa-spin"></i>', true);
 
         const agent = window._saCurrentAgent;
+
+        // Get account info from row data for print job record
+        let accountName = '', accountNumber = '';
+        const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+        if (rowEl) {
+            const dr = rowEl.querySelector('[data-row]');
+            if (dr) try { const rd = JSON.parse(dr.getAttribute('data-row')); accountName = rd.ACCOUNT_NAME || ''; accountNumber = rd.ACCOUNT_NUMBER || ''; } catch(e) {}
+        }
+
         try {
-            // 1. Download PDF via SOAP (C# handles Fusion credentials)
-            showNotification(`Downloading PDF for ${orderNumber}...`, 'info');
+            // 1. Download PDF via SOAP → saved to C:\fusion\orderpdfdownloads\{date}\{tripId}\{order}.pdf
+            showNotification(`Downloading invoice PDF for ${orderNumber}...`, 'info');
             const dlResult = await saDownloadOrderPdf(orderNumber, tripId, tripDate, instanceName);
             const filePath = dlResult.filePath || dlResult.pdfPath || '';
-
             if (!filePath) throw new Error('PDF path not returned from C#');
 
-            // 2. Read PDF back and verify it has content
-            const pdfData = await saGetPdfBase64(filePath);
-            const fileSize = pdfData.fileSize || (pdfData.base64 || '').length;
-            if (!fileSize || fileSize < 100) throw new Error('PDF appears empty — invoice may not be generated yet');
+            // 2. Read PDF back to verify content (get base64 + fileSize)
+            const pdfData  = await saGetPdfBase64(filePath);
+            const fileSize = pdfData.fileSize || Math.round((pdfData.base64 || '').length * 0.75);
+            const hasLines = fileSize > 500; // >500 bytes = has real PDF content
 
-            // 3. Show in viewer
-            saShowPdfModal(pdfData.base64, orderNumber);
+            // 3. Insert into wms_print_jobs (live print status = Downloaded)
+            await saInsertPrintJob(orderNumber, tripId, tripDate, instanceName, filePath, fileSize, accountName, accountNumber);
 
-            // 4. Update print cell badge
-            const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+            // 4. Update print cell badge on the row
             if (rowEl) {
                 const pc = rowEl.querySelector('[data-col="print"]');
-                if (pc) pc.innerHTML = saBadge('Printed', '#dcfce7', '#15803d', 'fa-check');
+                if (pc) pc.innerHTML = hasLines
+                    ? saBadge('Downloaded', '#dcfce7', '#15803d', 'fa-check')
+                    : saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle');
             }
 
-            // 5. Log activity
+            // 5. Show choice popup (Preview or Close)
+            saShowPdfChoice(pdfData.base64, orderNumber, filePath, fileSize, hasLines);
+
+            // 6. Log activity
             if (agent) {
                 saLogActivity(agent.ID, tripId, orderNumber, 'PRINT', 'SUCCESS', 1,
-                    `PDF downloaded & verified — ${Math.round(fileSize/1024)}KB`, null, null);
+                    `PDF downloaded — ${Math.round(fileSize/1024)}KB, hasLines: ${hasLines}`, null, null);
             }
 
-            setBtn('<i class="fas fa-print"></i> Print', false);
-            showNotification(`PDF downloaded for ${orderNumber}.`, 'success');
+            setBtn('<i class="fas fa-print"></i>', false);
+            showNotification(`PDF for ${orderNumber} downloaded${hasLines ? ' — has content.' : ' — may be empty!'}`, hasLines ? 'success' : 'warning');
 
         } catch(e) {
-            setBtn('<i class="fas fa-print"></i> Print', false);
+            setBtn('<i class="fas fa-print"></i>', false);
             showNotification(`Print failed for ${orderNumber}: ${e.message}`, 'error');
             if (agent) {
                 saLogActivity(agent.ID, tripId, orderNumber, 'PRINT', 'FAILED', 1,
@@ -1347,6 +1451,65 @@
             await saLoadTrips();
         } catch(e) {
             showNotification('Failed to remove trip: ' + e.message, 'error');
+        }
+    };
+
+    // ─── Show Trip Order Lines dialog ────────────────────────
+
+    window.saShowTripLines = async function(tripId, instanceName) {
+        const inst = instanceName || 'PROD';
+        const url  = `${APEX_BASE.replace('TRIPMANAGEMENT','TRIPMANAGEMENT')}/gettrillines?P_TRIP_ID=${encodeURIComponent(tripId)}&P_INSTANCE_NAME=${inst}`;
+
+        // Show modal with spinner first
+        const existing = document.getElementById('sa-triplines-modal');
+        if (existing) existing.remove();
+        document.body.insertAdjacentHTML('beforeend', `
+        <div id="sa-triplines-modal" style="position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:22000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:white;border-radius:12px;width:95vw;max-width:1200px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+                <div style="padding:1rem 1.25rem;background:linear-gradient(135deg,#1e293b,#334155);border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="color:white;font-weight:700;font-size:14px;"><i class="fas fa-table" style="color:#fbbf24;margin-right:6px;"></i>Order Lines — Trip ${esc(tripId)}</div>
+                        <div style="color:#94a3b8;font-size:10px;margin-top:2px;">${esc(inst)} · ${esc(url)}</div>
+                    </div>
+                    <button onclick="document.getElementById('sa-triplines-modal').remove()" style="background:#475569;color:white;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-weight:700;">&times;</button>
+                </div>
+                <div id="sa-triplines-body" style="flex:1;overflow:auto;padding:1rem;">
+                    <div style="text-align:center;padding:2rem;color:#94a3b8;"><i class="fas fa-spinner fa-spin fa-2x"></i><div style="margin-top:0.5rem;">Loading order lines...</div></div>
+                </div>
+            </div>
+        </div>`);
+
+        try {
+            const data  = await rawGet(`${APEX_BASE}/gettrillines?P_TRIP_ID=${encodeURIComponent(tripId)}&P_INSTANCE_NAME=${inst}`);
+            const lines = data.items || [];
+            const body  = document.getElementById('sa-triplines-body');
+            if (!body) return;
+
+            if (lines.length === 0) {
+                body.innerHTML = `<div style="text-align:center;padding:2rem;color:#94a3b8;font-size:12px;">No order lines found for trip ${esc(tripId)}.</div>`;
+                return;
+            }
+
+            // Collect column headers dynamically from first row
+            const cols = Object.keys(lines[0]);
+            const thStyle = 'padding:6px 10px;text-align:left;font-size:10px;color:#64748b;font-weight:700;white-space:nowrap;border-bottom:2px solid #e2e8f0;background:#f8fafc;';
+            const tdStyle = 'padding:5px 10px;font-size:11px;color:#1e293b;border-bottom:1px solid #f1f5f9;white-space:nowrap;';
+
+            body.innerHTML = `
+            <div style="margin-bottom:0.5rem;font-size:11px;color:#475569;font-weight:600;">${lines.length} line(s)</div>
+            <div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr>${cols.map(c => `<th style="${thStyle}">${esc(c)}</th>`).join('')}</tr></thead>
+                <tbody>${lines.map((row, i) => `
+                <tr style="background:${i%2===0?'white':'#f8fafc'};" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='${i%2===0?'white':'#f8fafc'}'">
+                    ${cols.map(c => `<td style="${tdStyle}">${esc(String(row[c] ?? ''))}</td>`).join('')}
+                </tr>`).join('')}
+                </tbody>
+            </table>
+            </div>`;
+        } catch(e) {
+            const body = document.getElementById('sa-triplines-body');
+            if (body) body.innerHTML = `<div style="padding:1rem;color:#dc2626;font-size:12px;">${esc(e.message)}</div>`;
         }
     };
 
