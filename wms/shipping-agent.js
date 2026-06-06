@@ -640,17 +640,18 @@
 
         if (!silent) {
             // Toggle hide/show when user clicks Orders button
-            if (container.style.display !== 'none' && container.innerHTML.trim() !== '') {
-                container.style.display = 'none';
+            if (container.dataset.loaded === '1') {
+                // Already loaded — just toggle visibility
+                container.style.display = container.style.display === 'none' ? 'block' : 'none';
                 return;
             }
             container.style.display = 'block';
             container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
         } else {
-            // Silent auto-load: render into hidden container so DB GET runs and populates rows
-            if (container.innerHTML.trim() !== '') return; // already loaded
+            // Silent auto-load: skip if already loaded
+            if (container.dataset.loaded === '1') return;
             container.style.display = 'none';
-            container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
+            container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i></div>`;
         }
 
         try {
@@ -687,6 +688,8 @@
             });
 
             container.innerHTML = saRenderOrdersTable(orders, tripId, inst);
+            container.dataset.loaded = '1';
+            if (silent) container.style.display = 'none'; // keep hidden after silent load
 
             // Pre-populate from DB (previously saved status)
             try {
