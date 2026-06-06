@@ -634,13 +634,62 @@
 
             container.innerHTML = saRenderOrdersTable(orders, tripId, inst);
 
+            // Pre-populate from DB (previously saved status)
+            try {
+                const dbData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders/status`);
+                (dbData.items || []).forEach(rec => {
+                    const on = (rec.ORDER_NUMBER || rec.order_number || '').toString().trim();
+                    const rowEl = document.getElementById(`sa-order-row-${tripId}-${on}`);
+                    if (!rowEl) return;
+                    const sc = (col, html) => { const c = rowEl.querySelector(`[data-col="${col}"]`); if (c) c.innerHTML = html; };
+                    const activeL  = parseInt(rec.ACTIVE_LINES   || rec.active_lines   || 0);
+                    const stagedL  = parseInt(rec.STAGED_LINES   || rec.staged_lines   || 0);
+                    const ifcL     = parseInt(rec.INTERFACED_LINES|| rec.interfaced_lines|| 0);
+                    const cancelL  = parseInt(rec.CANCELLED_LINES|| rec.cancelled_lines || 0);
+                    const otherL   = parseInt(rec.BACKORDER_LINES || rec.backorder_lines || 0);
+                    const pickedL  = parseInt(rec.PICKED_COUNT   || rec.picked_count   || 0);
+                    const shippedL = parseInt(rec.SHIPPED_COUNT  || rec.shipped_count  || 0);
+                    const pTotal   = parseInt(rec.PRINT_TOTAL    || rec.print_total    || 0);
+                    const pPrint   = parseInt(rec.PRINT_PRINTED  || rec.print_printed  || 0);
+                    const olCount  = parseInt(rec.ORDER_LINES_COUNT || rec.order_lines_count || 0);
+                    const status   = rec.ORDER_STATUS || rec.order_status || '';
+                    const lastF    = (rec.LAST_FETCHED || rec.last_fetched || '').toString().substring(0,16);
+
+                    // Order Status badge
+                    let stBadge;
+                    if (status.includes('Interfaced') && !status.includes('/'))
+                        stBadge = saBadge('Interfaced', '#dcfce7', '#15803d', 'fa-check-circle');
+                    else if (status.includes('Interfaced'))
+                        stBadge = saBadge(status, '#fef9c3', '#a16207', 'fa-truck');
+                    else if (status.includes('Staged'))
+                        stBadge = saBadge(status, '#dbeafe', '#1d4ed8', 'fa-layer-group');
+                    else if (status)
+                        stBadge = saBadge(status, '#f1f5f9', '#64748b', 'fa-clock');
+                    else stBadge = `<span style="color:#94a3b8;font-size:9px;">—</span>`;
+
+                    sc('status',    stBadge);
+                    sc('staged',    stagedL > 0 ? saBadge(`${stagedL}/${activeL}`, '#dbeafe', '#1d4ed8', 'fa-layer-group') : saBadge('0', '#f0fdf4', '#15803d', null));
+                    sc('picking',   activeL > 0 ? (pickedL === activeL ? saBadge(`${pickedL}/${activeL}`, '#dcfce7', '#15803d', 'fa-check') : saBadge(`${pickedL}/${activeL}`, '#fef9c3', '#a16207', 'fa-box')) : saBadge('N/A', '#f1f5f9', '#94a3b8', null));
+                    sc('shipping',  activeL > 0 ? (shippedL === activeL ? saBadge(`${shippedL}/${activeL}`, '#dcfce7', '#15803d', 'fa-truck') : saBadge(`${shippedL}/${activeL}`, '#fef9c3', '#a16207', 'fa-truck')) : saBadge('N/A', '#f1f5f9', '#94a3b8', null));
+                    sc('backorder', otherL > 0 ? saBadge(`${otherL}`, '#fef9c3', '#a16207', 'fa-exclamation-triangle') : saBadge('0', '#f0fdf4', '#15803d', null));
+                    sc('cancel',    cancelL > 0 ? saBadge(`${cancelL}`, '#fee2e2', '#b91c1c', 'fa-ban') : saBadge('0', '#f0fdf4', '#15803d', null));
+                    sc('order_lines', olCount > 0 ? `<span style="font-weight:700;color:#1e293b;font-size:11px;">${olCount}</span><div style="color:#94a3b8;font-size:8px;">lines</div>` : `<span style="color:#94a3b8;font-size:9px;">—</span>`);
+                    sc('print',     pTotal > 0 ? (pPrint === pTotal ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check') : saBadge(`${pPrint}/${pTotal}`, '#fef9c3', '#a16207', 'fa-print')) : saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print'));
+                    sc('checked',   lastF ? `<span style="font-size:8px;color:#64748b;">${lastF}</span>` : `<span style="color:#94a3b8;font-size:9px;">—</span>`);
+                });
+            } catch(e) {
+                console.warn('[ShippingAgent] Could not pre-populate from DB:', e.message);
+            }
+
         } catch(e) {
             container.innerHTML = `<div style="padding:0.75rem 1rem;color:#dc2626;font-size:11px;">${e.message}</div>`;
         }
     };
 
     // Track last-fetch timestamps per order: { orderNumber: Date }
-    window._saOrderLastFetched = window._saOrderLastFetched || {};
+    window._saOrderLastFetched    = window._saOrderLastFetched    || {};
+    // Track classified line counts per order for DB save
+    window._saLastFetchedCounts   = window._saLastFetchedCounts   || {};
 
     window.saFetchOrderStatus = async function(orderNumber, instanceName, tripId) {
         const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
@@ -707,6 +756,20 @@
             });
 
             const total = lines.length;
+
+            // Store counts for DB save (used at end of function)
+            const rowEl2 = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+            const rowData = rowEl2 ? (function(){try{return JSON.parse(rowEl2.querySelector('[data-row]') && rowEl2.querySelector('[data-row]').getAttribute('data-row') || '{}');}catch(e){return {};}}()) : {};
+            window._saLastFetchedCounts[orderNumber] = {
+                total, active: total - cancelled, staged, interfaced,
+                releasedToWH, readyToRelease, cancelled, other: other,
+                totalQty, stagedQty, shippedQty,
+                accountName: rowData.ACCOUNT_NAME || '',
+                orderType:   rowData.ORDER_TYPE   || '',
+                orderStatus: interfaced === (total - cancelled) && (total - cancelled) > 0
+                    ? 'Interfaced'
+                    : interfaced > 0 ? `${interfaced}/${total - cancelled} Interfaced` : staged > 0 ? 'Staged' : 'Pending'
+            };
 
             // ── Overall line-status badge (dominant) ──
             let domBadge;
@@ -811,25 +874,79 @@
         }
 
         // ── Print status via agents enrichment ──
+        let pTotal = 0, pPrinted = 0;
         try {
             const agent = window._saCurrentAgent;
             if (agent) {
                 const pjData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders?P_INSTANCE_NAME=${instanceName}`);
                 const match  = (pjData.items || []).find(o => (o.ORDER_NUMBER || o.order_number || '').toString().trim() === orderNumber.toString().trim());
                 if (match) {
-                    const pTotal   = parseInt(match.PRINT_JOBS_TOTAL   || match.print_jobs_total   || 0);
-                    const pPrinted = parseInt(match.PRINT_JOBS_PRINTED || match.print_jobs_printed || 0);
-                    setCell('print', pTotal === 0
-                        ? saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print')
-                        : pPrinted === pTotal
-                            ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
-                            : saBadge(`${pPrinted}/${pTotal}`, '#fef9c3', '#a16207', 'fa-print'));
-                } else {
-                    setCell('print', saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
+                    pTotal   = parseInt(match.PRINT_JOBS_TOTAL   || match.print_jobs_total   || 0);
+                    pPrinted = parseInt(match.PRINT_JOBS_PRINTED || match.print_jobs_printed || 0);
                 }
             }
+        } catch(e) { /* non-fatal */ }
+
+        const printBadge = pTotal === 0
+            ? saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print')
+            : pPrinted === pTotal
+                ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
+                : saBadge(`${pPrinted}/${pTotal}`, '#fef9c3', '#a16207', 'fa-print');
+        setCell('print', printBadge);
+
+        // ── Order Lines count: GET getsalesorderlines ──
+        let orderLinesCount = 0;
+        try {
+            setCell('order_lines', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
+            const olData = await apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instanceName}`);
+            orderLinesCount = (olData.items || []).length || (olData.count) || 0;
+            setCell('order_lines', `<span style="font-weight:700;color:#1e293b;font-size:11px;">${orderLinesCount}</span><div style="color:#94a3b8;font-size:8px;">lines</div>`);
         } catch(e) {
-            setCell('print', saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
+            setCell('order_lines', `<span style="color:#94a3b8;font-size:9px;">—</span>`);
+        }
+
+        // ── Fetch Fusion order lines (save to APEX DB) ──
+        try {
+            await apexPost(`trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instanceName}&p_order_number=${encodeURIComponent(orderNumber)}`, {});
+            saLogActivity(window._saCurrentAgent && window._saCurrentAgent.ID, tripId, orderNumber,
+                'FETCH_ORDERS', 'SUCCESS', 1, `Fusion order lines fetched for ${orderNumber}`, null, null);
+        } catch(e) {
+            console.warn('[ShippingAgent] fetchfusionorderlines failed (non-fatal):', e.message);
+        }
+
+        // ── Save status to DB (DELETE + INSERT via APEX) ──
+        try {
+            const agent = window._saCurrentAgent;
+            if (agent && window._saLastFetchedCounts[orderNumber]) {
+                const c = window._saLastFetchedCounts[orderNumber];
+                await apexPost('agents/orders/status/save', {
+                    agentId:         agent.ID,
+                    tripId:          tripId,
+                    orderNumber:     orderNumber,
+                    instanceName:    instanceName,
+                    accountName:     c.accountName  || '',
+                    orderType:       c.orderType    || '',
+                    orderStatus:     c.orderStatus  || '',
+                    totalLines:      c.total        || 0,
+                    activeLines:     c.active       || 0,
+                    stagedLines:     c.staged       || 0,
+                    interfacedLines: c.interfaced   || 0,
+                    releasedLines:   c.releasedToWH || 0,
+                    readyLines:      c.readyToRelease||0,
+                    cancelledLines:  c.cancelled    || 0,
+                    backorderLines:  c.other        || 0,
+                    pickedCount:     c.staged + c.interfaced || 0,
+                    shippedCount:    c.interfaced   || 0,
+                    totalQty:        c.totalQty     || 0,
+                    stagedQty:       c.stagedQty    || 0,
+                    shippedQty:      c.shippedQty   || 0,
+                    orderLinesCount: orderLinesCount,
+                    printTotal:      pTotal,
+                    printPrinted:    pPrinted
+                });
+            }
+        } catch(e) {
+            console.warn('[ShippingAgent] Save order status failed (non-fatal):', e.message);
         }
     };
 
@@ -970,6 +1087,7 @@
                 <td style="padding:6px 8px;text-align:center;" data-col="shipping">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="backorder">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="cancel">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="order_lines">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="print">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="checked"><span style="color:#94a3b8;font-size:9px;">—</span></td>
                 <td style="padding:6px 8px;text-align:center;">
@@ -1006,6 +1124,7 @@
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Shipping</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Backorder</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Cancelled</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Order Lines</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Printing</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Last Checked</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Refresh</th>
