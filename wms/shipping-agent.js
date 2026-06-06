@@ -589,9 +589,6 @@
 
             container.innerHTML = saRenderOrdersTable(orders, tripId, inst);
 
-            // Auto-fetch live status for each order
-            orders.forEach(o => saFetchOrderStatus(o.ORDER_NUMBER, o.INSTANCE, tripId));
-
         } catch(e) {
             container.innerHTML = `<div style="padding:0.75rem 1rem;color:#dc2626;font-size:11px;">${e.message}</div>`;
         }
@@ -724,9 +721,23 @@
             );
             setCell('checked', saCheckedBadge(timeStr, lines.length));
 
+            // Post activity log for single-order refresh
+            const agent = window._saCurrentAgent;
+            if (agent) {
+                saLogActivity(agent.ID, tripId, orderNumber, 'CHECK_STATUS', 'SUCCESS', 1,
+                    `Shipment lines checked: ${lines.length} line(s) — ${domBadge.replace(/<[^>]+>/g,'').trim()} at ${timeStr}`,
+                    null, null);
+            }
+
         } catch(e) {
             setCell('status',  `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}">Error</span>`);
             setCell('checked', `<span style="color:#dc2626;font-size:9px;"><i class="fas fa-exclamation-circle"></i> ${timeStr}</span>`);
+
+            const agent = window._saCurrentAgent;
+            if (agent) {
+                saLogActivity(agent.ID, tripId, orderNumber, 'CHECK_STATUS', 'FAILED', 1,
+                    `Shipment lines fetch failed: ${e.message}`, null, null);
+            }
         }
 
         // ── Print status via agents enrichment ──
@@ -750,6 +761,86 @@
         } catch(e) {
             setCell('print', saBadge('N/A', '#f1f5f9', '#94a3b8', 'fa-print'));
         }
+    };
+
+    // Run shipment lines fetch for ALL orders in the trip table
+    window.saGetAllShipmentLines = async function(tripId, instanceName) {
+        const agent = window._saCurrentAgent;
+        const btn   = document.getElementById(`sa-btn-get-sl-${tripId}`);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...'; }
+
+        // Collect all order rows in this trip's container
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container) return;
+        const rows = container.querySelectorAll('tr[id^="sa-order-row-"]');
+
+        let fetched = 0;
+        const fetchPromises = Array.from(rows).map(async row => {
+            // Extract orderNumber and instance from row id: sa-order-row-{tripId}-{orderNumber}
+            const idParts = row.id.replace(`sa-order-row-${tripId}-`, '');
+            const orderNumber = idParts;
+            if (!orderNumber) return;
+            await saFetchOrderStatus(orderNumber, instanceName, tripId);
+            fetched++;
+        });
+
+        await Promise.all(fetchPromises);
+
+        // Post activity log entry
+        if (agent) {
+            const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'SUCCESS', 1,
+                `Fetched shipment lines for ${fetched} order(s) at ${now}`,
+                JSON.stringify({ orders: fetched, instance: instanceName }), null);
+        }
+
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Get Shipment Lines'; }
+        showNotification(`Shipment lines fetched for ${fetched} order(s).`, 'success');
+    };
+
+    window.saShowShipmentLinesApiInfo = function(sampleOrderNumber, instanceName) {
+        const url = `${APEX_BASE}/orders/shipmentlines/${sampleOrderNumber || '{ORDER_NUMBER}'}?P_INSTANCE_NAME=${instanceName || 'PROD'}`;
+
+        const existing = document.getElementById('sa-api-popup');
+        if (existing) existing.remove();
+
+        const pop = document.createElement('div');
+        pop.id = 'sa-api-popup';
+        pop.style.cssText = 'position:fixed;top:60px;right:20px;width:560px;max-height:85vh;overflow-y:auto;background:#0f172a;color:#e2e8f0;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.75rem 1rem;background:#1e293b;border-radius:12px 12px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#7c3aed;"><i class="fas fa-code"></i> Get Shipment Lines — API Info</span>
+                <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:1rem;display:flex;flex-direction:column;gap:0.8rem;">
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        Shipment Lines per Order (called once per order)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.7rem;">
+                        <div style="color:#38bdf8;word-break:break-all;">${esc(url)}</div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.4rem;line-height:1.5;">
+                        <strong>Module:</strong> TRIPMANAGEMENT &nbsp;·&nbsp; <strong>Endpoint:</strong> orders/shipmentlines/{ORDER_NUMBER}<br>
+                        <strong>Param:</strong> P_INSTANCE_NAME — PROD or TRAIN<br>
+                        <strong>Response fields used:</strong> LINE_STATUS_CODE, REQUESTED_QUANTITY, STAGED_QUANTITY, SHIPPED_QUANTITY
+                    </div>
+                </div>
+                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.7rem;font-size:9px;color:#94a3b8;line-height:1.6;">
+                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.3rem;"><i class="fas fa-info-circle" style="color:#7c3aed;"></i> Status Classification Logic</div>
+                    <div><span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:3px;font-weight:700;">Ready to Release</span> → waiting for pick wave release</div>
+                    <div><span style="background:#e0f2fe;color:#0369a1;padding:1px 5px;border-radius:3px;font-weight:700;">Released to WH</span> → pick wave released, picking in progress</div>
+                    <div><span style="background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-weight:700;">Staged</span> → <strong>Picking done</strong></div>
+                    <div><span style="background:#dcfce7;color:#15803d;padding:1px 5px;border-radius:3px;font-weight:700;">Interfaced</span> → <strong>Shipping done</strong></div>
+                    <div><span style="background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:3px;font-weight:700;">Cancelled</span> → line cancelled</div>
+                </div>
+                <div style="font-size:9px;color:#64748b;">
+                    <i class="fas fa-clock" style="color:#7c3aed;"></i> Each fetch time is recorded in <code>window._saOrderLastFetched[orderNumber]</code> and shown in the <strong>Last Checked</strong> column.<br>
+                    All calls go via <strong>C# RestApiClient</strong> (sendMessageToCSharp → executeGet). Check console for <code>[ShippingAgent] GET ...</code> logs.
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
     };
 
     function saCheckedBadge(timeStr, lineCount) {
@@ -793,8 +884,10 @@
                 <td style="padding:6px 8px;font-size:9px;color:#64748b;" data-col="lines">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="checked"><span style="color:#94a3b8;font-size:9px;">—</span></td>
                 <td style="padding:6px 8px;text-align:center;">
-                    <span style="background:#ede9fe;color:#6d28d9;padding:2px 6px;border-radius:6px;font-size:9px;font-weight:700;"><i class="fas fa-link"></i> Assigned</span>
-                    <br><button onclick="saFetchOrderStatus('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}','${esc(tripId)}')" style="margin-top:3px;background:#e0f2fe;color:#0369a1;border:none;padding:1px 6px;border-radius:4px;font-size:8px;cursor:pointer;font-weight:700;" title="Refresh status"><i class="fas fa-sync"></i></button>
+                    <button onclick="saFetchOrderStatus('${esc(o.ORDER_NUMBER)}','${esc(o.INSTANCE)}','${esc(tripId)}')"
+                        style="background:#e0f2fe;color:#0369a1;border:none;padding:3px 8px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;" title="Refresh shipment lines">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
                 </td>
             </tr>`).join('');
 
@@ -802,11 +895,15 @@
         <div style="padding:0.5rem 0;overflow-x:auto;">
             <div style="padding:0 1rem 0.4rem;display:flex;justify-content:space-between;align-items:center;">
                 <span style="font-size:10px;font-weight:700;color:#475569;">${orders.length} ORDER(S)</span>
-                <div style="display:flex;gap:0.5rem;font-size:9px;color:#64748b;">
-                    <span style="background:#dbeafe;color:#1d4ed8;padding:1px 5px;border-radius:3px;font-weight:700;">Stg=Staged</span>
-                    <span style="background:#ede9fe;color:#6d28d9;padding:1px 5px;border-radius:3px;font-weight:700;">Pkd=Picked</span>
-                    <span style="background:#dcfce7;color:#15803d;padding:1px 5px;border-radius:3px;font-weight:700;">Shp=Shipped</span>
-                    <span style="background:#fee2e2;color:#b91c1c;padding:1px 5px;border-radius:3px;font-weight:700;">Cxl=Cancelled</span>
+                <div style="display:flex;gap:0.4rem;align-items:center;">
+                    <button onclick="saShowShipmentLinesApiInfo('${esc(orders[0] && orders[0].ORDER_NUMBER || '')}','${esc(inst)}')"
+                        style="background:#1e293b;color:#94a3b8;border:none;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;"
+                        title="Show API info"><i class="fas fa-code"></i></button>
+                    <button id="sa-btn-get-sl-${esc(tripId)}"
+                        onclick="saGetAllShipmentLines('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#7c3aed;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;">
+                        <i class="fas fa-download"></i> Get Shipment Lines
+                    </button>
                 </div>
             </div>
             <table style="width:100%;border-collapse:collapse;font-size:11px;">
@@ -820,7 +917,7 @@
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Printing</th>
                         <th style="padding:5px 8px;text-align:left;font-size:10px;color:#64748b;font-weight:700;">Line Breakdown / Qty</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Last Checked</th>
-                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Assignment</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Refresh</th>
                     </tr>
                 </thead>
                 <tbody>${rows}</tbody>
