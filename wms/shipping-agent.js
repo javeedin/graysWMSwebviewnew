@@ -2818,29 +2818,37 @@
         // ── TASK 2: Check Order Lines for Scheduled / Manual Reservations ──
         if (!cfg.task2) { console.log(`[ShippingAgent] Task 2 disabled for trip ${tripId}`); }
         else {
-        saCpSetTask(`Task 2: Checking order line statuses — Trip ${tripId}`);
+        saCpSetTask(`Task 2: Checking order lines for Scheduled/Manual Reservations — Trip ${tripId}`);
         console.log(`[ShippingAgent] Task 2: Check order line statuses for trip ${tripId}`);
-        let scheduledCount = 0;
+
+        // Collect all lines needing cancellation grouped by order
+        const cancelGroups = {}; // { orderNumber: [ line, ... ] }
         for (const row of orderRows) {
             const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
             if (!orderNumber) continue;
+            saCpSetTask(`Task 2: Fetching lines for ${orderNumber}`);
             try {
                 const olData = await apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instance}`);
-                const lines  = olData.items || [];
-                const scheduled = lines.filter(l => {
+                const lines  = (olData.items || []);
+                const toCancel = lines.filter(l => {
                     const s = (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().toUpperCase();
                     return s.includes('SCHEDULED') || s.includes('MANUAL') || s.includes('RESERVATION');
                 });
-                if (scheduled.length > 0) {
-                    scheduledCount += scheduled.length;
-                    await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', scheduled.length,
-                        `Order ${orderNumber}: ${scheduled.length} line(s) in Scheduled/Manual Reservations status`, null, null);
+                if (toCancel.length > 0) {
+                    cancelGroups[orderNumber] = toCancel;
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', toCancel.length,
+                        `Order ${orderNumber}: ${toCancel.length} line(s) need cancellation (Scheduled/Manual Reservations)`, null, null);
                 }
-            } catch(e) { /* non-fatal */ }
+            } catch(e) { console.warn(`[ShippingAgent] Task 2 error for ${orderNumber}:`, e.message); }
         }
-        if (scheduledCount > 0) {
+
+        const totalToCancel = Object.values(cancelGroups).reduce((s, arr) => s + arr.length, 0);
+        if (totalToCancel > 0) {
             await saLogNotification(agent.ID, tripId, null, 'ANOMALY',
-                `Trip ${tripId}: ${scheduledCount} order line(s) in Scheduled/Manual Reservations — may need attention`, 'WARN');
+                `Trip ${tripId}: ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) need cancellation`, 'WARN');
+            // Show review dialog — user confirms before cancellation runs
+            saCpSetTask(`Task 2: ⚠ ${totalToCancel} line(s) need cancellation — review dialog open`);
+            await saShowCancelReviewDialog(agent, tripId, instance, cancelGroups);
         }
 
         } // end task2
@@ -2888,6 +2896,136 @@
             showNotification(`Auto-printed ${autoPrinted} order(s) for trip ${tripId}.`, 'success');
         }
         } // end task3
+    }
+
+    // ─── Cancel Review Dialog ─────────────────────────────────
+    // Shows lines needing cancellation grouped by order. User reviews and confirms.
+    // cancelGroups: { orderNumber: [ lineObj, ... ] }
+    function saShowCancelReviewDialog(agent, tripId, instance, cancelGroups) {
+        return new Promise(resolve => {
+            document.getElementById('sa-cancel-review-dlg')?.remove();
+
+            const orders = Object.keys(cancelGroups).sort();
+            const totalLines = orders.reduce((s, o) => s + cancelGroups[o].length, 0);
+            const cancelUrl = (orderNumber) =>
+                `${APEX_BASE}/trip/orders/cancelscheduledlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instance}`;
+
+            const orderRows = orders.map(orderNumber => {
+                const lines = cancelGroups[orderNumber];
+                const lineRows = lines.map(l => {
+                    const lineNum   = l.LINE_NUMBER   || l.line_number   || l.LINE_ID   || l.line_id   || '—';
+                    const item      = l.ITEM_NUMBER   || l.item_number   || l.ITEM      || l.item      || '—';
+                    const desc      = l.ITEM_DESC     || l.item_desc     || l.DESCRIPTION || l.description || '';
+                    const status    = l.LINE_STATUS   || l.line_status   || l.STATUS    || l.status    || '—';
+                    const qty       = l.ORDERED_QTY   || l.ordered_qty   || l.QTY       || l.qty       || '—';
+                    const fulfillId = l.SOURCE_FULFILLMENT_LINE_ID || l.source_fulfillment_line_id ||
+                                      l.FULFILLMENT_LINE_ID || l.fulfillment_line_id || '—';
+                    return `<tr style="border-bottom:1px solid #1e293b;">
+                        <td style="padding:4px 6px;color:#f59e0b;font-size:10px;">${esc(String(lineNum))}</td>
+                        <td style="padding:4px 6px;font-size:10px;">${esc(String(item))}</td>
+                        <td style="padding:4px 6px;font-size:9px;color:#94a3b8;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(String(desc))}</td>
+                        <td style="padding:4px 6px;font-size:10px;"><span style="background:#7f1d1d;color:#fca5a5;padding:1px 6px;border-radius:4px;">${esc(String(status))}</span></td>
+                        <td style="padding:4px 6px;font-size:10px;text-align:right;">${esc(String(qty))}</td>
+                        <td style="padding:4px 6px;font-size:9px;color:#64748b;">${esc(String(fulfillId))}</td>
+                    </tr>`;
+                }).join('');
+
+                return `<div style="margin-bottom:0.75rem;border:1px solid #1e293b;border-radius:8px;overflow:hidden;">
+                    <div style="background:#0f172a;padding:0.4rem 0.75rem;display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-weight:700;color:#a78bfa;font-size:11px;"><i class="fas fa-file-invoice"></i> Order ${esc(orderNumber)}</span>
+                        <span style="font-size:9px;color:#f87171;">${lines.length} line(s) to cancel</span>
+                    </div>
+                    <table style="width:100%;border-collapse:collapse;background:#0a0f1e;">
+                        <thead>
+                            <tr style="background:#1e293b;">
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Line#</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Item</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Description</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Status</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:right;">Qty</th>
+                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">FulfillmentLineId</th>
+                            </tr>
+                        </thead>
+                        <tbody>${lineRows}</tbody>
+                    </table>
+                    <div style="padding:0.35rem 0.75rem;background:#0f172a;font-size:9px;color:#64748b;">
+                        <i class="fas fa-plug" style="color:#0e7490;"></i> Cancel endpoint: <code style="color:#38bdf8;">${esc(cancelUrl(orderNumber))}</code>
+                    </div>
+                </div>`;
+            }).join('');
+
+            const dlg = document.createElement('div');
+            dlg.id = 'sa-cancel-review-dlg';
+            dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:99999;display:flex;align-items:center;justify-content:center;';
+            dlg.innerHTML = `
+                <div style="background:#1e293b;border-radius:14px;width:700px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.5);overflow:hidden;border:2px solid #f87171;">
+                    <div style="padding:0.9rem 1.2rem;background:#0f172a;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+                        <span style="font-size:20px;">⚠️</span>
+                        <div>
+                            <div style="font-weight:800;font-size:13px;color:#f87171;">Lines Requiring Cancellation — Trip ${esc(tripId)}</div>
+                            <div style="font-size:10px;color:#64748b;margin-top:2px;">${orders.length} order(s) · ${totalLines} line(s) in Scheduled / Manual Reservations status</div>
+                        </div>
+                        <button onclick="document.getElementById('sa-cancel-review-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">×</button>
+                    </div>
+                    <div style="overflow-y:auto;padding:1rem;flex:1;color:#e2e8f0;">
+                        <div style="font-size:10px;color:#94a3b8;margin-bottom:0.75rem;">
+                            Review the lines below. Click <strong style="color:#f87171;">Cancel All Listed Lines</strong> to proceed with cancellation order by order,
+                            or <strong style="color:#64748b;">Skip</strong> to leave them as-is this tick.
+                        </div>
+                        ${orderRows}
+                    </div>
+                    <div style="padding:0.75rem 1.2rem;border-top:1px solid #0f172a;display:flex;justify-content:flex-end;gap:0.5rem;background:#0f172a;flex-shrink:0;">
+                        <button id="sa-cancel-skip-btn" onclick="document.getElementById('sa-cancel-review-dlg').remove()"
+                            style="padding:0.45rem 1rem;border:1px solid #334155;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:600;color:#94a3b8;">
+                            Skip This Tick
+                        </button>
+                        <button id="sa-cancel-confirm-btn"
+                            style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#dc2626;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                            <i class="fas fa-ban"></i> Cancel All Listed Lines (${totalLines})
+                        </button>
+                    </div>
+                </div>`;
+            document.body.appendChild(dlg);
+
+            // Confirm button — runs cancellation order by order
+            document.getElementById('sa-cancel-confirm-btn').onclick = async () => {
+                const confirmBtn = document.getElementById('sa-cancel-confirm-btn');
+                const skipBtn   = document.getElementById('sa-cancel-skip-btn');
+                confirmBtn.disabled = true;
+                skipBtn.disabled    = true;
+                confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
+
+                let successCount = 0, failCount = 0;
+                for (const orderNumber of orders) {
+                    try {
+                        await new Promise((res, rej) => {
+                            sendMessageToCSharp({
+                                action  : 'executePost',
+                                fullUrl : cancelUrl(orderNumber),
+                                payload : {}
+                            }, (err, data) => err ? rej(new Error(err)) : res(data));
+                        });
+                        successCount++;
+                        await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS', cancelGroups[orderNumber].length,
+                            `Cancelled ${cancelGroups[orderNumber].length} Scheduled/Manual Reservations line(s)`, null, null);
+                    } catch(e) {
+                        failCount++;
+                        await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
+                    }
+                }
+
+                document.getElementById('sa-cancel-review-dlg')?.remove();
+                if (failCount === 0) {
+                    showNotification(`✅ Cancelled lines for ${successCount} order(s) successfully.`, 'success');
+                } else {
+                    showNotification(`⚠ Cancelled ${successCount} OK, ${failCount} failed — check activity log.`, 'warning');
+                }
+                resolve();
+            };
+
+            // Skip closes and resolves
+            document.getElementById('sa-cancel-skip-btn').addEventListener('click', resolve, { once: true });
+        });
     }
 
     async function saDetectAnomalies(agent, trip, orders, instance) {
