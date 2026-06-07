@@ -840,11 +840,15 @@
                 // Fall through to DB save with all zeros
             } else {
 
+            let shippedLines = 0;
             lines.forEach(l => {
                 // Fusion uses LineStatusCode: Y=Interfaced/Shipped, C=Staged, X=Cancelled
                 // LineStatus text: "Ready to Release", "Released to Warehouse", "Staged", "Interfaced", "Cancelled"
                 const lsc  = (l.LineStatusCode || '').toString().toUpperCase().trim();
                 const ls   = (l.LineStatus || l.LineStatusCode || '').toString().toUpperCase().trim();
+
+                const isShipped = ls.includes('SHIPPED') && !ls.includes('INTERFACED');
+                if (isShipped) shippedLines++;
 
                 if      (lsc === 'Y' || ls.includes('INTERFACED') || ls.includes('PENDING INVENTORY') || ls.includes('SHIPPED'))  interfaced++;
                 else if (lsc === 'C' || ls.includes('STAGED'))                  staged++;
@@ -952,6 +956,11 @@
             setCell('backorder', backorderBadge);
             setCell('cancel',    cancelBadge);
             setCell('checked',   saCheckedBadge(timeStr, lines.length));
+            // Update shipped indicator in first column
+            if (shippedLines > 0) {
+                const indEl = row.querySelector('[data-col="shipped-indicator"]');
+                if (indEl) indEl.innerHTML = `<span style="background:#fef9c3;color:#a16207;border:1px solid #fde68a;padding:0px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="${shippedLines} line(s) with Shipped status">${shippedLines}s</span>`;
+            }
 
             // Post activity log for single-order refresh
             const agent = window._saCurrentAgent;
@@ -1881,7 +1890,7 @@
                         style="font-weight:700;color:#6d28d9;font-size:11px;text-decoration:none;cursor:pointer;"
                         title="Open order transactions">${esc(o.ORDER_NUMBER)}</a>
                     <div style="color:#64748b;font-size:9px;">${esc(o.ACCOUNT_NAME)}</div>
-                    <div style="color:#94a3b8;font-size:9px;">${esc(o.ORDER_TYPE)}</div>
+                    <div style="color:#94a3b8;font-size:9px;">${esc(o.ORDER_TYPE)} <span data-col="shipped-indicator"></span></div>
                 </td>
                 <td style="padding:6px 8px;text-align:center;" data-col="status">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="staged">${spin}</td>
