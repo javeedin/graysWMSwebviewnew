@@ -2517,21 +2517,45 @@
 
     function saRenderCpTrip(t, agentId) {
         const paused = window._saPausedTrips[t.TRIP_ID];
-        // Read KPIs from the orders container
         const kpi = saCpComputeKpi(t.TRIP_ID);
-        return `<div id="sa-cp-trip-${esc(t.TRIP_ID)}" style="border-right:1px solid #1e293b;padding:0.5rem 0.8rem;min-width:220px;flex-shrink:0;">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+        const agent = window._saCurrentAgent;
+        const instance = (agent && agent.INSTANCE_NAME) || 'PROD';
+        const printUrl = `${WMS_BASE}printjobs/trip/${encodeURIComponent(t.TRIP_ID)}`;
+        return `<div id="sa-cp-trip-${esc(t.TRIP_ID)}" style="border-right:1px solid #1e293b;padding:0.5rem 0.8rem;min-width:240px;flex-shrink:0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;gap:4px;">
                 <span style="font-weight:700;color:#e2e8f0;font-size:11px;"><i class="fas fa-truck" style="color:#7c3aed;"></i> ${esc(t.TRIP_NAME || t.TRIP_ID)}</span>
-                <button onclick="saToggleTripPause('${esc(t.TRIP_ID)}')" id="sa-cp-pause-${esc(t.TRIP_ID)}"
-                    style="background:${paused?'#059669':'#d97706'};color:white;border:none;padding:1px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;">
-                    ${paused ? '<i class="fas fa-play"></i> Resume' : '<i class="fas fa-pause"></i> Pause'}
-                </button>
+                <div style="display:flex;gap:3px;align-items:center;">
+                    <button onclick="saCpRefreshTrip('${esc(t.TRIP_ID)}','${esc(instance)}')" title="Refresh print status"
+                        style="background:#1e40af;color:white;border:none;padding:1px 6px;border-radius:5px;font-size:9px;cursor:pointer;" id="sa-cp-refresh-${esc(t.TRIP_ID)}">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button onclick="saShowApiInfo('Print Status API','GET','${esc(printUrl)}',null,'printjobs/trip/:tripId\\nReturns all orders with print_total and print_printed for the trip')"
+                        title="API info" style="background:#0e7490;color:white;border:none;padding:1px 6px;border-radius:5px;font-size:9px;cursor:pointer;">
+                        <i class="fas fa-plug"></i>
+                    </button>
+                    <button onclick="saToggleTripPause('${esc(t.TRIP_ID)}')" id="sa-cp-pause-${esc(t.TRIP_ID)}"
+                        style="background:${paused?'#059669':'#d97706'};color:white;border:none;padding:1px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;">
+                        ${paused ? '<i class="fas fa-play"></i> Resume' : '<i class="fas fa-pause"></i> Pause'}
+                    </button>
+                </div>
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;" id="sa-cp-kpi-${esc(t.TRIP_ID)}">
                 ${saRenderCpKpis(kpi)}
             </div>
         </div>`;
     }
+
+    window.saCpRefreshTrip = async function(tripId, instance) {
+        const btn = document.getElementById(`sa-cp-refresh-${tripId}`);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+        try {
+            await saGetPrintStatus(tripId, instance);
+            console.log(`[ShippingAgent] CP refresh — cache for ${tripId}:`, JSON.stringify(window._saPrintCache[tripId]));
+            const kpiEl = document.getElementById(`sa-cp-kpi-${tripId}`);
+            if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(tripId));
+        } catch(e) { console.error('[ShippingAgent] CP refresh failed:', e); }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-sync-alt"></i>'; }
+    };
 
     function saRenderCpKpis(kpi) {
         const chip = (label, val, color) =>
@@ -2571,6 +2595,7 @@
             const info = printMap[on];
             if (info && info.total > 0 && info.printed >= info.total) printed++;
         });
+        console.log(`[ShippingAgent] KPI trip=${tripId} orders=${orderNumbers.length} cacheKeys=${Object.keys(printMap).length} printed=${printed}`);
         // If no orders in DOM yet but cache has data, use cache length as total
         const printTotal = Object.keys(printMap).length;
         const printPrinted = Object.values(printMap).filter(v => v.total > 0 && v.printed >= v.total).length;
