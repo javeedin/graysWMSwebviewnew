@@ -2465,7 +2465,7 @@
     window._saPausedTrips = window._saPausedTrips || {};
 
     // ─── Control Panel ───────────────────────────────────────
-    window.saShowControlPanel = function(agent) {
+    window.saShowControlPanel = async function(agent) {
         const existing = document.getElementById('sa-control-panel');
         if (existing) existing.remove();
 
