@@ -2457,9 +2457,18 @@
         }
     };
 
+    window.saShowCloseAgentApiInfo = function() {
+        const agent = window._saCurrentAgent;
+        const agentId = agent ? agent.ID : ':agentId';
+        const url = `${APEX_BASE}/agents/${agentId}/close`;
+        saShowApiInfo('Close Agent API', 'POST', url, '{}', 'URI Template: agents/:agentId/close\nSets AGENT_STATUS=CLOSED permanently in wms_agents');
+    };
+
     window.saCloseAgent = async function() {
         const agent = window._saCurrentAgent;
         if (!agent) return;
+        const closeUrl = `${APEX_BASE}/agents/${agent.ID}/close`;
+        console.log('[ShippingAgent] Close agent URL:', closeUrl);
         if (!confirm(`Close agent "${agent.NAME}"?\n\nThis will permanently set its status to CLOSED. It will no longer appear in the active agents list.\n\nYou can still view its history but it cannot be restarted.`)) return;
         try {
             await apexPost(`agents/${agent.ID}/close`, {});
@@ -2478,7 +2487,8 @@
             await saRefreshDashboard();
             showNotification(`Agent "${agent.NAME}" has been closed.`, 'success');
         } catch(e) {
-            showNotification('Failed to close agent: ' + e.message, 'error');
+            showNotification(`Failed to close agent: ${e.message} | URL: ${closeUrl}`, 'error');
+            console.error('[ShippingAgent] Close agent failed:', closeUrl, e);
         }
     };
 
