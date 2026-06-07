@@ -2238,13 +2238,58 @@
     window.saStartAgent = async function() {
         const agent = window._saCurrentAgent;
         if (!agent) return;
+
+        // Show interval selection dialog
+        const existing = document.getElementById('sa-start-dlg');
+        if (existing) existing.remove();
+
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-start-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:white;border-radius:14px;width:420px;box-shadow:0 24px 80px rgba(0,0,0,0.35);overflow:hidden;">
+                <div style="padding:1rem 1.2rem;background:#0f172a;display:flex;justify-content:space-between;align-items:center;">
+                    <span style="font-weight:800;font-size:14px;color:#7c3aed;"><i class="fas fa-play-circle"></i> Start Agent — ${esc(agent.NAME)}</span>
+                    <button onclick="document.getElementById('sa-start-dlg').remove()" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">×</button>
+                </div>
+                <div style="padding:1.2rem;">
+                    <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:0.75rem;">Select refresh interval:</div>
+                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin-bottom:1rem;">
+                        ${[['1 min',60],['5 mins',300],['10 mins',600],['15 mins',900],['30 mins',1800],['60 mins',3600]].map(([label,secs]) => `
+                        <button onclick="saConfirmStartAgent(${secs})"
+                            style="padding:0.6rem;border:2px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:700;color:#1e293b;transition:all 0.15s;"
+                            onmouseover="this.style.borderColor='#7c3aed';this.style.background='#f5f3ff';"
+                            onmouseout="this.style.borderColor='#e2e8f0';this.style.background='white';">
+                            <i class="fas fa-clock" style="color:#7c3aed;margin-bottom:3px;display:block;font-size:16px;"></i>
+                            ${label}
+                        </button>`).join('')}
+                    </div>
+                    <div style="font-size:10px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:0.75rem;line-height:1.7;">
+                        On each tick the agent will:<br>
+                        <span style="color:#7c3aed;">①</span> Check Shipment Lines (Oracle Fusion)<br>
+                        <span style="color:#7c3aed;">②</span> Check Order Lines for <strong>Scheduled / Manual Reservations</strong><br>
+                        <span style="color:#7c3aed;">③</span> Auto-Print orders with status <strong>Interfaced</strong>
+                    </div>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+    };
+
+    window.saConfirmStartAgent = async function(intervalSeconds) {
+        document.getElementById('sa-start-dlg')?.remove();
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
         try {
-            await apexPut(`agents/${agent.ID}/status`, { status: 'RUNNING' });
+            // Save interval to DB then start
+            await apexPut(`agents/${agent.ID}/status`, { status: 'RUNNING', checkIntervalSeconds: intervalSeconds });
             agent.STATUS = 'RUNNING';
+            agent.CHECK_INTERVAL_SECONDS = intervalSeconds;
             saUpdateDetailStatusBadge('RUNNING');
             saRenderCards(window._saAgents);
-            saStartAgentLoop(agent);
-            showNotification(`Agent "${agent.NAME}" started.`, 'success');
+            saStartAgentLoop(agent, intervalSeconds);
+            showNotification(`Agent "${agent.NAME}" started — refreshing every ${intervalSeconds >= 3600 ? intervalSeconds/3600+'h' : intervalSeconds >= 60 ? intervalSeconds/60+'min' : intervalSeconds+'s'}.`, 'success');
+            // Open control panel
+            saShowControlPanel(agent);
         } catch(e) {
             showNotification('Failed to start agent: ' + e.message, 'error');
         }
@@ -2306,11 +2351,139 @@
         }
     };
 
+    // Per-trip pause state: { tripId: true/false }
+    window._saPausedTrips = window._saPausedTrips || {};
+
+    // ─── Control Panel ───────────────────────────────────────
+    window.saShowControlPanel = function(agent) {
+        const existing = document.getElementById('sa-control-panel');
+        if (existing) existing.remove();
+
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const intervalSec = agent.CHECK_INTERVAL_SECONDS || 60;
+        const intervalLabel = intervalSec >= 3600 ? intervalSec/3600+'h' : intervalSec/60+'min';
+
+        const panel = document.createElement('div');
+        panel.id = 'sa-control-panel';
+        panel.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#0f172a;color:#e2e8f0;z-index:9999;border-top:2px solid #7c3aed;font-size:11px;';
+        panel.innerHTML = `
+            <div style="display:flex;align-items:center;gap:1rem;padding:0.5rem 1rem;border-bottom:1px solid #1e293b;flex-wrap:wrap;">
+                <span style="font-weight:800;color:#a78bfa;font-size:12px;"><i class="fas fa-robot"></i> ${esc(agent.NAME)}</span>
+                <span id="sa-cp-status" style="background:#059669;color:white;padding:1px 8px;border-radius:8px;font-size:10px;font-weight:700;">RUNNING</span>
+                <span style="color:#64748b;font-size:10px;"><i class="fas fa-clock"></i> Every ${intervalLabel}</span>
+                <span id="sa-cp-countdown" style="color:#f59e0b;font-size:10px;font-weight:700;"></span>
+                <span id="sa-cp-last-tick" style="color:#64748b;font-size:9px;"></span>
+                <div style="margin-left:auto;display:flex;gap:0.4rem;">
+                    <button onclick="saPauseAgent()" style="background:#d97706;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-pause"></i> Pause All</button>
+                    <button onclick="saStopAgent()" style="background:#dc2626;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-stop"></i> Stop</button>
+                    <button onclick="document.getElementById('sa-control-panel').remove()" style="background:#334155;color:#94a3b8;border:none;padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;">▼ Hide</button>
+                </div>
+            </div>
+            <div style="display:flex;gap:0;overflow-x:auto;" id="sa-cp-trips">
+                ${trips.length === 0
+                    ? '<div style="padding:0.75rem 1rem;color:#64748b;font-size:11px;">No trips assigned</div>'
+                    : trips.map(t => saRenderCpTrip(t, agent.ID)).join('')}
+            </div>`;
+        document.body.appendChild(panel);
+
+        // Start countdown timer
+        saStartCpCountdown(agent);
+    };
+
+    function saRenderCpTrip(t, agentId) {
+        const paused = window._saPausedTrips[t.TRIP_ID];
+        // Read KPIs from the orders container
+        const kpi = saCpComputeKpi(t.TRIP_ID);
+        return `<div id="sa-cp-trip-${esc(t.TRIP_ID)}" style="border-right:1px solid #1e293b;padding:0.5rem 0.8rem;min-width:220px;flex-shrink:0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;">
+                <span style="font-weight:700;color:#e2e8f0;font-size:11px;"><i class="fas fa-truck" style="color:#7c3aed;"></i> ${esc(t.TRIP_NAME || t.TRIP_ID)}</span>
+                <button onclick="saToggleTripPause('${esc(t.TRIP_ID)}')" id="sa-cp-pause-${esc(t.TRIP_ID)}"
+                    style="background:${paused?'#059669':'#d97706'};color:white;border:none;padding:1px 7px;border-radius:5px;font-size:9px;cursor:pointer;font-weight:700;">
+                    ${paused ? '<i class="fas fa-play"></i> Resume' : '<i class="fas fa-pause"></i> Pause'}
+                </button>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;" id="sa-cp-kpi-${esc(t.TRIP_ID)}">
+                ${saRenderCpKpis(kpi)}
+            </div>
+        </div>`;
+    }
+
+    function saRenderCpKpis(kpi) {
+        const chip = (label, val, color) =>
+            `<div style="background:#1e293b;border-radius:4px;padding:3px 5px;">
+                <div style="font-size:8px;color:#64748b;">${label}</div>
+                <div style="font-weight:700;color:${color};font-size:11px;">${val}</div>
+            </div>`;
+        return chip('Interfaced', `${kpi.interfaced}/${kpi.total}`, kpi.interfaced===kpi.total&&kpi.total>0?'#4ade80':'#f59e0b')
+             + chip('Printed', `${kpi.printed}/${kpi.total}`, kpi.printed===kpi.total&&kpi.total>0?'#4ade80':'#94a3b8')
+             + chip('Ifc Lines', `${kpi.ifcLines}/${kpi.totalLines}`, '#38bdf8')
+             + chip('To Cancel', `${kpi.toCancel}`, kpi.toCancel>0?'#f87171':'#4ade80');
+    }
+
+    function saCpComputeKpi(tripId) {
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        let total=0, interfaced=0, printed=0, ifcLines=0, totalLines=0, toCancel=0;
+        if (container) {
+            container.querySelectorAll('tr[id^="sa-order-row-"]').forEach(row => {
+                total++;
+                const st  = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
+                const prt = (row.querySelector('[data-col="print"]')?.textContent  || '').trim();
+                const ifc = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\d+/)?.[0] || 0);
+                const tl  = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\/(\d+)/)?.[1] || 0);
+                if (st.includes('Interfaced') && !st.includes('/')) interfaced++;
+                if (prt.toLowerCase().includes('printed') && !prt.includes('/')) printed++;
+                ifcLines  += ifc;
+                totalLines += tl;
+                // Count cancelled lines (backorder bucket treated as potential cancel)
+                toCancel += parseInt(row.querySelector('[data-col="backorder"]')?.textContent?.match(/\d+/)?.[0] || 0);
+            });
+        }
+        return { total, interfaced, printed, ifcLines, totalLines, toCancel };
+    }
+
+    window.saToggleTripPause = function(tripId) {
+        window._saPausedTrips = window._saPausedTrips || {};
+        window._saPausedTrips[tripId] = !window._saPausedTrips[tripId];
+        const paused = window._saPausedTrips[tripId];
+        const btn = document.getElementById(`sa-cp-pause-${tripId}`);
+        if (btn) {
+            btn.style.background = paused ? '#059669' : '#d97706';
+            btn.innerHTML = paused ? '<i class="fas fa-play"></i> Resume' : '<i class="fas fa-pause"></i> Pause';
+        }
+        showNotification(`Trip ${tripId} ${paused ? 'paused' : 'resumed'}.`, 'info');
+    };
+
+    function saUpdateCpKpis() {
+        const agent = window._saCurrentAgent;
+        if (!agent) return;
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        trips.forEach(t => {
+            const kpiEl = document.getElementById(`sa-cp-kpi-${t.TRIP_ID}`);
+            if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(t.TRIP_ID));
+        });
+    }
+
+    function saStartCpCountdown(agent) {
+        clearInterval(window._saCpCountdown);
+        const totalSec = agent.CHECK_INTERVAL_SECONDS || 60;
+        let remaining = totalSec;
+        window._saCpCountdown = setInterval(() => {
+            remaining--;
+            if (remaining <= 0) remaining = totalSec;
+            const el = document.getElementById('sa-cp-countdown');
+            if (el) el.textContent = `Next tick in ${remaining}s`;
+        }, 1000);
+    }
+
     // ─── Agent Loop ──────────────────────────────────────────
-    function saStartAgentLoop(agent) {
+    function saStartAgentLoop(agent, overrideIntervalSeconds) {
         saStopAgentLoop(agent.ID); // clear any existing
-        const intervalMs = Math.max((agent.CHECK_INTERVAL_SECONDS || 60), 10) * 1000;
-        window._saLoops[agent.ID] = setInterval(() => saAgentTick(agent), intervalMs);
+        const intervalMs = Math.max((overrideIntervalSeconds || agent.CHECK_INTERVAL_SECONDS || 60), 10) * 1000;
+        agent.CHECK_INTERVAL_SECONDS = Math.round(intervalMs / 1000);
+        window._saLoops[agent.ID] = setInterval(() => {
+            saAgentTick(agent);
+            saUpdateCpKpis();
+        }, intervalMs);
         console.log(`[ShippingAgent] Loop started for agent ${agent.ID}, interval ${intervalMs}ms`);
         // Run immediately
         saAgentTick(agent);
@@ -2325,80 +2498,105 @@
     }
 
     async function saAgentTick(agent) {
-        console.log(`[ShippingAgent] Tick for agent ${agent.ID} (${agent.NAME})`);
-        const capabilities = (agent.CAPABILITIES || '').split(',').map(c => c.trim());
-        const instance     = agent.INSTANCE_NAME || 'PROD';
+        const tickTime = new Date().toLocaleTimeString();
+        console.log(`[ShippingAgent] ⏱ Tick at ${tickTime} for agent ${agent.ID} (${agent.NAME})`);
+        const el = document.getElementById('sa-cp-last-tick');
+        if (el) el.textContent = `Last tick: ${tickTime}`;
 
-        let trips = [];
-        try {
-            const data = await apexGet(`agents/${agent.ID}/trips`);
-            trips = (data.items || []).filter(t => t.STATUS === 'ACTIVE' || t.STATUS === 'PENDING');
-        } catch(e) {
-            console.error('[ShippingAgent] Failed to load trips for tick:', e);
-            return;
-        }
+        const instance = agent.INSTANCE_NAME || 'PROD';
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
 
         for (const trip of trips) {
-            await saProcessTrip(agent, trip, capabilities, instance);
+            // Skip paused trips
+            if (window._saPausedTrips && window._saPausedTrips[trip.TRIP_ID]) {
+                console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} is paused — skipping`);
+                continue;
+            }
+            await saProcessTripTick(agent, trip, instance);
         }
 
-        // Refresh activity feed if currently viewing this agent's activity tab
+        saUpdateCpKpis();
+
         if (window._saCurrentAgent && window._saCurrentAgent.ID === agent.ID) {
             const actTab = document.getElementById('sa-tab-activity');
-            if (actTab && actTab.style.display !== 'none') {
-                saRefreshActivity();
-            }
+            if (actTab && actTab.style.display !== 'none') saRefreshActivity();
         }
     }
 
-    async function saProcessTrip(agent, trip, capabilities, instance) {
-        const fusionBase = instance.toUpperCase() === 'PROD'
-            ? 'https://efmh.fa.em3.oraclecloud.com'
-            : 'https://efmh-test.fa.em3.oraclecloud.com';
+    async function saProcessTripTick(agent, trip, instance) {
+        const tripId  = trip.TRIP_ID;
+        const t0      = Date.now();
+        console.log(`[ShippingAgent] Processing trip ${tripId}`);
 
-        // Get orders for this trip from APEX (stored trip data)
-        let orders = [];
-        if (window.tripOrdersStore && window.tripOrdersStore[trip.TRIP_ID]) {
-            const tripData = window.tripOrdersStore[trip.TRIP_ID];
-            orders = [...new Set((tripData || []).map(o => o.ORDER_NUMBER).filter(Boolean))];
+        // Collect order rows from the rendered table
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        if (!container || container.dataset.loaded !== '1') {
+            console.log(`[ShippingAgent] Trip ${tripId} orders not loaded yet — skipping`);
+            return;
+        }
+        const orderRows = Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]'));
+        if (orderRows.length === 0) return;
+
+        // ── TASK 1: Check Shipment Lines (Fusion) ───────────
+        console.log(`[ShippingAgent] Task 1: Get Shipment Lines for trip ${tripId}`);
+        try {
+            await saGetAllShipmentLines(tripId, instance);
+            await saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'SUCCESS', orderRows.length,
+                `Shipment lines checked for ${orderRows.length} order(s)`, null, Date.now()-t0);
+        } catch(e) {
+            await saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'FAILED', 1, e.message, null, Date.now()-t0);
         }
 
-        const t0 = Date.now();
+        // ── TASK 2: Check Order Lines for Scheduled / Manual Reservations ──
+        console.log(`[ShippingAgent] Task 2: Check order line statuses for trip ${tripId}`);
+        let scheduledCount = 0;
+        for (const row of orderRows) {
+            const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
+            if (!orderNumber) continue;
+            try {
+                const olData = await apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instance}`);
+                const lines  = olData.items || [];
+                const scheduled = lines.filter(l => {
+                    const s = (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().toUpperCase();
+                    return s.includes('SCHEDULED') || s.includes('MANUAL') || s.includes('RESERVATION');
+                });
+                if (scheduled.length > 0) {
+                    scheduledCount += scheduled.length;
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', scheduled.length,
+                        `Order ${orderNumber}: ${scheduled.length} line(s) in Scheduled/Manual Reservations status`, null, null);
+                }
+            } catch(e) { /* non-fatal */ }
+        }
+        if (scheduledCount > 0) {
+            await saLogNotification(agent.ID, tripId, null, 'ANOMALY',
+                `Trip ${tripId}: ${scheduledCount} order line(s) in Scheduled/Manual Reservations — may need attention`, 'WARN');
+        }
 
-        // ── MONITOR: Check shipment line statuses ────────────
-        if (capabilities.includes('MONITOR') && orders.length > 0) {
-            let stuck = 0;
-            for (const order of orders) {
+        // ── TASK 3: Auto-Print Interfaced Orders ─────────────
+        console.log(`[ShippingAgent] Task 3: Auto-print interfaced orders for trip ${tripId}`);
+        let autoPrinted = 0;
+        for (const row of orderRows) {
+            const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
+            if (!orderNumber) continue;
+            const statusText = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
+            const printText  = (row.querySelector('[data-col="print"]')?.textContent  || '').trim();
+            // Only print if fully Interfaced and not already printed
+            if (statusText === 'Interfaced' && !printText.toLowerCase().includes('printed')) {
+                console.log(`[ShippingAgent] Auto-printing interfaced order ${orderNumber}`);
                 try {
-                    const url = `${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${order}&limit=500`;
-                    await saLogActivity(agent.ID, trip.TRIP_ID, order, 'CHECK_STATUS', 'SUCCESS', 1,
-                        `Checked shipment lines for order ${order}`, null, Date.now() - t0);
+                    await saPrintOrder(orderNumber, tripId, '', instance, true); // silent=true
+                    autoPrinted++;
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'AUTO_PRINT', 'SUCCESS', 1,
+                        `Auto-printed interfaced order ${orderNumber}`, null, null);
                 } catch(e) {
-                    await saLogActivity(agent.ID, trip.TRIP_ID, order, 'CHECK_STATUS', 'FAILED', 1, e.message, null, Date.now() - t0);
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'AUTO_PRINT', 'FAILED', 1,
+                        `Auto-print failed for ${orderNumber}: ${e.message}`, null, null);
                 }
             }
         }
-
-        // ── ANOMALY: Detect mismatches ───────────────────────
-        if (capabilities.includes('ANOMALY') && orders.length > 0) {
-            try {
-                const anomalyMsg = await saDetectAnomalies(agent, trip, orders, instance);
-                if (anomalyMsg) {
-                    await saLogActivity(agent.ID, trip.TRIP_ID, null, 'ANOMALY_DETECT', 'SUCCESS', 1, anomalyMsg, null, Date.now() - t0);
-                    await saLogNotification(agent.ID, trip.TRIP_ID, null, 'ANOMALY', anomalyMsg, 'WARN');
-                }
-            } catch(e) {
-                await saLogActivity(agent.ID, trip.TRIP_ID, null, 'ANOMALY_DETECT', 'FAILED', 1, e.message, null, Date.now() - t0);
-            }
-        }
-
-        // ── AI_ANALYSIS: Summarise trip status ───────────────
-        if (capabilities.includes('AI_ANALYSIS') && orders.length > 0) {
-            try {
-                await saRunAiAnalysis(agent, trip, orders);
-            } catch(e) {
-                await saLogActivity(agent.ID, trip.TRIP_ID, null, 'AI_ANALYSIS', 'FAILED', 1, e.message, null, Date.now() - t0);
-            }
+        if (autoPrinted > 0) {
+            await saGetPrintStatus(tripId, instance);  // refresh print column after batch print
+            showNotification(`Auto-printed ${autoPrinted} order(s) for trip ${tripId}.`, 'success');
         }
     }
 
