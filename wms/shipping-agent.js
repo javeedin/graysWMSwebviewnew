@@ -846,7 +846,7 @@
                 const lsc  = (l.LineStatusCode || '').toString().toUpperCase().trim();
                 const ls   = (l.LineStatus || l.LineStatusCode || '').toString().toUpperCase().trim();
 
-                if      (lsc === 'Y' || ls.includes('INTERFACED') || ls.includes('PENDING INVENTORY'))  interfaced++;
+                if      (lsc === 'Y' || ls.includes('INTERFACED') || ls.includes('PENDING INVENTORY') || ls.includes('SHIPPED'))  interfaced++;
                 else if (lsc === 'C' || ls.includes('STAGED'))                  staged++;
                 else if (lsc === 'X' || ls.includes('CANCEL'))                  cancelled++;
                 else if (ls.includes('RELEASED TO WAREHOUSE') || ls.includes('RELEASED')) releasedToWH++;
@@ -1623,10 +1623,11 @@
             const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
             if (!orderNumber) continue;
 
-            // Only print if status cell shows Interfaced (all lines shipped)
+            // Only print if status cell shows Interfaced or Shipped (all lines done)
             const statusCell = row.querySelector('[data-col="status"]');
             const statusText = statusCell ? statusCell.textContent.trim() : '';
-            if (!statusText.includes('Interfaced') || statusText.includes('/')) {
+            const isPrintable = (statusText.includes('Interfaced') || statusText.includes('Shipped')) && !statusText.includes('/');
+            if (!isPrintable) {
                 skipped++;
                 continue; // not fully interfaced
             }
@@ -2582,7 +2583,7 @@
                 const st  = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
                 const ifc = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\d+/)?.[0] || 0);
                 const tl  = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\/(\d+)/)?.[1] || 0);
-                if (st.includes('Interfaced') && !st.includes('/')) interfaced++;
+                if ((st.includes('Interfaced') || st.includes('Shipped')) && !st.includes('/')) interfaced++;
                 ifcLines  += ifc;
                 totalLines += tl;
                 toCancel  += parseInt(row.querySelector('[data-col="backorder"]')?.textContent?.match(/\d+/)?.[0] || 0);
@@ -2878,8 +2879,9 @@
                 continue;
             }
 
-            // Only print if fully Interfaced and not yet downloaded/printed
-            if (statusText === 'Interfaced') {
+            // Only print if fully Interfaced or Shipped and not yet downloaded/printed
+            const readyToPrint = statusText === 'Interfaced' || statusText === 'Shipped' || statusText.includes('Shipped');
+            if (readyToPrint) {
                 console.log(`[ShippingAgent] Auto-printing interfaced order ${orderNumber}`);
                 saCpSetTask(`Task 3: Printing ${orderNumber} — Trip ${tripId}`);
                 try {
