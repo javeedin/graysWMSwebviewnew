@@ -1036,7 +1036,7 @@
 
         // ── Fetch Fusion order lines (save to APEX DB) ──
         try {
-            await apexPost(`trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instanceName}&p_order_number=${encodeURIComponent(orderNumber)}`, {});
+            await apexPost(`trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${instanceName}&p_order_number=${encodeURIComponent(orderNumber)}&p_trip_id=${encodeURIComponent(tripId)}`, {});
             saLogActivity(window._saCurrentAgent && window._saCurrentAgent.ID, tripId, orderNumber,
                 'FETCH_ORDERS', 'SUCCESS', 1, `Fusion order lines fetched for ${orderNumber}`, null, null);
         } catch(e) {
@@ -1754,7 +1754,7 @@
                 setStatus('Syncing order lines from Fusion…');
                 setProgress(`Order ${done + 1} of ${orderNumbers.length}: ${orderNum}`);
                 try {
-                    const postUrl = `${APEX_BASE}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${encodeURIComponent(inst)}&p_order_number=${encodeURIComponent(orderNum)}`;
+                    const postUrl = `${APEX_BASE}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${encodeURIComponent(inst)}&p_order_number=${encodeURIComponent(orderNum)}&p_trip_id=${encodeURIComponent(tripId)}`;
                     await new Promise((res, rej) => {
                         sendMessageToCSharp({ action: 'executePost', fullUrl: postUrl, body: '{}' },
                             (err, data) => err ? rej(new Error(String(err))) : res(data));
@@ -2029,7 +2029,7 @@
                         APEX — Save Fusion order lines to DB (per order)
                     </div>
                     <div style="background:#1e293b;border:1px solid #d97706;border-radius:6px;padding:0.5rem 0.8rem;color:#fcd34d;font-size:10px;word-break:break-all;">
-                        ${esc(APEX_BASE)}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${esc(inst)}&amp;p_order_number=<strong>{ORDER_NUMBER}</strong>
+                        ${esc(APEX_BASE)}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${esc(inst)}&amp;p_order_number=<strong>{ORDER_NUMBER}</strong>&amp;p_trip_id=<strong>${esc(String(tripId))}</strong>
                     </div>
                 </div>
 
