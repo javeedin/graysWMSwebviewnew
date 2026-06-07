@@ -2499,6 +2499,16 @@
 
         // Start countdown timer
         saStartCpCountdown(agent);
+
+        // Immediately fetch fresh print status for each active trip, then refresh KPIs
+        const instance = agent.INSTANCE_NAME || 'PROD';
+        const runCfg = window._saAgentRunConfig || {};
+        for (const t of trips) {
+            const cfg = runCfg[t.TRIP_ID] || { enabled: true };
+            if (!cfg.enabled) continue;
+            try { await saGetPrintStatus(t.TRIP_ID, instance); } catch(e) { /* non-fatal */ }
+        }
+        saUpdateCpKpis();
     };
 
     function saRenderCpTrip(t, agentId) {
@@ -2525,9 +2535,10 @@
                 <div style="font-size:8px;color:#64748b;">${label}</div>
                 <div style="font-weight:700;color:${color};font-size:11px;">${val}</div>
             </div>`;
-        return chip('Interfaced', `${kpi.interfaced}/${kpi.total}`, kpi.interfaced===kpi.total&&kpi.total>0?'#4ade80':'#f59e0b')
-             + chip('Printed', `${kpi.printed}/${kpi.total}`, kpi.printed===kpi.total&&kpi.total>0?'#4ade80':'#94a3b8')
-             + chip('Ifc Lines', `${kpi.ifcLines}/${kpi.totalLines}`, '#38bdf8')
+        const done = (a, b) => b > 0 && a === b;
+        return chip('Interfaced', done(kpi.interfaced,kpi.total) ? '✓ '+kpi.total : `${kpi.interfaced}/${kpi.total}`, done(kpi.interfaced,kpi.total)?'#4ade80':'#f59e0b')
+             + chip('Printed',   done(kpi.printed,kpi.total)    ? '✓ '+kpi.total : `${kpi.printed}/${kpi.total}`,    done(kpi.printed,kpi.total)?'#4ade80':'#94a3b8')
+             + chip('Ifc Lines', done(kpi.ifcLines,kpi.totalLines) ? '✓ '+kpi.totalLines : `${kpi.ifcLines}/${kpi.totalLines}`, done(kpi.ifcLines,kpi.totalLines)?'#4ade80':'#38bdf8')
              + chip('To Cancel', `${kpi.toCancel}`, kpi.toCancel>0?'#f87171':'#4ade80');
     }
 
@@ -2542,7 +2553,9 @@
                 const ifc = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\d+/)?.[0] || 0);
                 const tl  = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\/(\d+)/)?.[1] || 0);
                 if (st.includes('Interfaced') && !st.includes('/')) interfaced++;
-                if (prt.toLowerCase().includes('printed') && !prt.includes('/')) printed++;
+                // "Printed" badge OR "X/Y" where X===Y means printed
+                const pm = prt.match(/(\d+)\/(\d+)/);
+                if (prt.toLowerCase().includes('printed') || (pm && parseInt(pm[1]) > 0 && pm[1] === pm[2])) printed++;
                 ifcLines  += ifc;
                 totalLines += tl;
                 // Count cancelled lines (backorder bucket treated as potential cancel)
