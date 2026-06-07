@@ -1496,23 +1496,32 @@
 
     // Insert a record into wms_print_jobs via APEX REST POST
     async function saInsertPrintJob(orderNumber, tripId, tripDate, instanceName, filePath, fileSize, accountName, accountNumber) {
+        const cleanDate = (tripDate || new Date().toISOString().split('T')[0]).split('T')[0];
+        const payload = {
+            orderNumber,
+            tripId,
+            tripDate:      cleanDate,
+            instanceName:  instanceName || 'PROD',
+            filePath:      filePath      || '',
+            fileSizeBytes: fileSize      || 0,
+            downloadStatus: 'Completed',
+            printStatus:    'Pending',
+            overallStatus:  'Downloaded',
+            customerName:  accountName   || '',
+            accountNumber: accountNumber || ''
+        };
+        console.log('[ShippingAgent] POST printjobs/save payload:', JSON.stringify(payload));
         try {
-            await apexPost('printjobs/save', {
-                orderNumber:   orderNumber,
-                tripId:        tripId,
-                tripDate:      (tripDate || new Date().toISOString().split('T')[0]).split('T')[0],
-                instanceName:  instanceName || 'PROD',
-                filePath:      filePath,
-                fileSizeBytes: fileSize || 0,
-                downloadStatus:'Completed',
-                printStatus:   'Pending',
-                overallStatus: 'Downloaded',
-                customerName:  accountName    || '',
-                accountNumber: accountNumber  || ''
-            });
+            const result = await apexPost('printjobs/save', payload);
+            console.log('[ShippingAgent] printjobs/save response:', JSON.stringify(result));
+            if (result && result.status === 'error') {
+                console.error('[ShippingAgent] printjobs/save ERROR:', result.message);
+                showNotification(`Print job save failed: ${result.message}`, 'error');
+            }
         } catch(e) {
             console.error('[ShippingAgent] Could not insert print job:', e.message,
                 '— Check that APEX handler printjobs/save is deployed (31_agents_printjob_save.sql)');
+            showNotification(`Print job save failed: ${e.message}`, 'error');
         }
     }
 

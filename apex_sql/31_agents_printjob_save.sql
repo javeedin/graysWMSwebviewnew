@@ -55,20 +55,20 @@ BEGIN
     v_customer_name   := APEX_JSON.get_varchar2('customerName');
     v_account_number  := APEX_JSON.get_varchar2('accountNumber');
 
-    -- Ensure wms_trip_config row exists for this trip/date (required by FK)
+    -- Ensure wms_trip_config row exists (MERGE on trip_id + TRUNC(trip_date) for safety)
     MERGE INTO wms_trip_config tc
-    USING (SELECT v_trip_id AS trip_id, v_trip_date AS trip_date FROM dual) src
-       ON (tc.trip_id = src.trip_id AND tc.trip_date = src.trip_date)
+    USING (SELECT v_trip_id AS trip_id, TRUNC(v_trip_date) AS trip_date FROM dual) src
+       ON (tc.trip_id = src.trip_id AND TRUNC(tc.trip_date) = src.trip_date)
     WHEN NOT MATCHED THEN
         INSERT (trip_id, trip_date, auto_print_enabled, created_date)
-        VALUES (v_trip_id, v_trip_date, 'N', SYSDATE);
+        VALUES (v_trip_id, TRUNC(v_trip_date), 'N', SYSDATE);
 
-    -- Retrieve the trip_config_id
+    -- Retrieve the trip_config_id (use TRUNC to ignore time component)
     SELECT trip_config_id
     INTO   v_trip_config_id
     FROM   wms_trip_config
-    WHERE  trip_id   = v_trip_id
-      AND  trip_date = v_trip_date;
+    WHERE  trip_id        = v_trip_id
+      AND  TRUNC(trip_date) = TRUNC(v_trip_date);
 
     -- Insert print job record
     INSERT INTO wms_print_jobs (
@@ -90,7 +90,7 @@ BEGIN
         v_trip_config_id,
         v_order_number,
         v_trip_id,
-        v_trip_date,
+        TRUNC(v_trip_date),
         v_customer_name,
         v_account_number,
         v_download_status,
@@ -105,11 +105,11 @@ BEGIN
 
     COMMIT;
 
-    HTP.p('{"status":"ok","orderNumber":"' || v_order_number || '","tripId":"' || v_trip_id || '"}');
+    HTP.p('{"status":"ok","orderNumber":"' || v_order_number || '","tripId":"' || v_trip_id || '","tripConfigId":' || v_trip_config_id || '}');
 EXCEPTION
     WHEN OTHERS THEN
         ROLLBACK;
-        HTP.p('{"status":"error","message":"' || REPLACE(SQLERRM, '"', '''') || '"}');
+        HTP.p('{"status":"error","message":"' || REPLACE(SQLERRM, '"', '''') || '","orderNumber":"' || v_order_number || '","tripId":"' || v_trip_id || '","tripDate":"' || TO_CHAR(v_trip_date,'YYYY-MM-DD') || '"}');
 END;
 
 
