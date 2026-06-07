@@ -2564,8 +2564,8 @@
                 <div style="font-weight:700;color:${color};font-size:11px;">${val}</div>
             </div>`;
         const done = (a, b) => b > 0 && a === b;
-        return chip('Interfaced', done(kpi.interfaced,kpi.total) ? '✓ '+kpi.total : `${kpi.interfaced}/${kpi.total}`, done(kpi.interfaced,kpi.total)?'#4ade80':'#f59e0b')
-             + chip('Printed',   done(kpi.printed,kpi.total)    ? '✓ '+kpi.total : `${kpi.printed}/${kpi.total}`,    done(kpi.printed,kpi.total)?'#4ade80':'#94a3b8')
+        return chip('Interfaced',  done(kpi.interfaced,kpi.total) ? '✓ '+kpi.total : `${kpi.interfaced}/${kpi.total}`, done(kpi.interfaced,kpi.total)?'#4ade80':'#f59e0b')
+             + chip('Downloaded', done(kpi.printed,kpi.total)    ? '✓ '+kpi.total : `${kpi.printed}/${kpi.total}`,    done(kpi.printed,kpi.total)?'#4ade80':'#94a3b8')
              + chip('Ifc Lines', done(kpi.ifcLines,kpi.totalLines) ? '✓ '+kpi.totalLines : `${kpi.ifcLines}/${kpi.totalLines}`, done(kpi.ifcLines,kpi.totalLines)?'#4ade80':'#38bdf8')
              + chip('To Cancel', `${kpi.toCancel}`, kpi.toCancel>0?'#f87171':'#4ade80');
     }
@@ -2588,17 +2588,17 @@
                 toCancel  += parseInt(row.querySelector('[data-col="backorder"]')?.textContent?.match(/\d+/)?.[0] || 0);
             });
         }
-        // Use cached print data from API — not DOM badge text
+        // Use cached print data from API — presence in wms_print_jobs = downloaded = done
         const printMap = window._saPrintCache && window._saPrintCache[tripId] || {};
         let printed = 0;
         orderNumbers.forEach(on => {
             const info = printMap[on];
-            if (info && info.total > 0 && info.printed >= info.total) printed++;
+            if (info && info.total > 0) printed++; // downloaded = done
         });
         console.log(`[ShippingAgent] KPI trip=${tripId} domOrders=${JSON.stringify(orderNumbers.slice(0,3))} cacheKeys=${JSON.stringify(Object.keys(printMap).slice(0,3))} printed=${printed}`);
         // If no orders in DOM yet but cache has data, use cache length as total
         const printTotal = Object.keys(printMap).length;
-        const printPrinted = Object.values(printMap).filter(v => v.total > 0 && v.printed >= v.total).length;
+        const printPrinted = Object.values(printMap).filter(v => v.total > 0).length;
         if (total === 0 && printTotal > 0) {
             return { total: printTotal, interfaced: 0, printed: printPrinted, ifcLines: 0, totalLines: 0, toCancel: 0 };
         }
