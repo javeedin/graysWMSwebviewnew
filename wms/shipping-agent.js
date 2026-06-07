@@ -323,19 +323,12 @@
                 </div>
                 <div style="margin-top:5px;font-size:10px;color:#cbd5e1;border-top:1px solid #f1f5f9;padding-top:4px;">
                     <i class="fas fa-calendar-plus" style="color:#a78bfa;"></i> Created: <span style="color:#7c3aed;font-weight:600;">${saFormatDate(agent.CREATED_DATE)}</span>
-                </div>`;
+                </div>
+                ${isSelected ? `<div id="sa-left-trips-${agent.ID}" style="margin-top:6px;border-top:1px solid #e2e8f0;padding-top:6px;">
+                    <div style="font-size:9px;color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Loading trips...</div>
+                </div>` : ''}`;
 
-            // If this agent is selected, append trip checklist below the card
-            if (isSelected) {
-                const tripList = document.createElement('div');
-                tripList.id = `sa-left-trips-${agent.ID}`;
-                tripList.style.cssText = 'background:#f8fafc;border-radius:8px;padding:0.5rem 0.75rem;margin-top:4px;border:1px solid #e2e8f0;';
-                tripList.innerHTML = `<div style="font-size:9px;color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Loading trips...</div>`;
-                container.appendChild(card);
-                container.appendChild(tripList);
-            } else {
-                container.appendChild(card);
-            }
+            container.appendChild(card);
         });
     }
 
@@ -786,6 +779,9 @@
                 console.warn('[ShippingAgent] Could not pre-populate from DB:', e.message);
             }
 
+            // Auto-run Get Shipment Lines silently after orders are loaded
+            setTimeout(() => saGetAllShipmentLines(tripId, inst), 300);
+
         } catch(e) {
             container.innerHTML = `<div style="padding:0.75rem 1rem;color:#dc2626;font-size:11px;">${e.message}</div>`;
         }
@@ -984,19 +980,26 @@
             }
         }
 
-        // ── Print status via agents enrichment ──
+        // ── Print status — query wms_print_jobs directly via APEX ──
         let pTotal = 0, pPrinted = 0;
         try {
-            const agent = window._saCurrentAgent;
-            if (agent) {
-                const pjData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders?P_INSTANCE_NAME=${instanceName}`);
-                const match  = (pjData.items || []).find(o => (o.ORDER_NUMBER || o.order_number || '').toString().trim() === orderNumber.toString().trim());
-                if (match) {
-                    pTotal   = parseInt(match.PRINT_JOBS_TOTAL   || match.print_jobs_total   || 0);
-                    pPrinted = parseInt(match.PRINT_JOBS_PRINTED || match.print_jobs_printed || 0);
+            const pjData = await apexGet(`printjobs/order/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instanceName}`);
+            pTotal   = parseInt((pjData.items || []).length || pjData.total || 0);
+            pPrinted = parseInt((pjData.items || []).filter(j => (j.PRINT_STATUS || j.print_status || '').toUpperCase() === 'PRINTED').length || 0);
+        } catch(e) {
+            // Fallback: try getting counts from wms_shiping_agents_orders_status if print endpoint not deployed
+            try {
+                const agent = window._saCurrentAgent;
+                if (agent) {
+                    const dbData = await apexGet(`agents/${agent.ID}/trips/${encodeURIComponent(tripId)}/orders/status`);
+                    const match = (dbData.items || []).find(o => (o.ORDER_NUMBER || o.order_number || '').toString().trim() === orderNumber.toString().trim());
+                    if (match) {
+                        pTotal   = parseInt(match.PRINT_TOTAL   || match.print_total   || 0);
+                        pPrinted = parseInt(match.PRINT_PRINTED || match.print_printed || 0);
+                    }
                 }
-            }
-        } catch(e) { /* non-fatal */ }
+            } catch(e2) { /* non-fatal */ }
+        }
 
         const printBadge = pTotal === 0
             ? saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print')
@@ -1061,6 +1064,17 @@
                 console.log('[ShippingAgent] DB save result:', saveResult);
                 if (saveResult && saveResult.status === 'error') {
                     console.error('[ShippingAgent] DB save returned error:', saveResult.message);
+                }
+                // Update print cell immediately from DB save response (has live print counts from wms_print_jobs)
+                if (saveResult && saveResult.printTotal !== undefined) {
+                    const pt = parseInt(saveResult.printTotal  || 0);
+                    const pp = parseInt(saveResult.printPrinted || 0);
+                    const pb = pt === 0
+                        ? saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print')
+                        : pp === pt
+                            ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
+                            : saBadge(`${pp}/${pt}`, '#fef9c3', '#a16207', 'fa-print');
+                    setCell('print', pb);
                 }
             }
         } catch(e) {
