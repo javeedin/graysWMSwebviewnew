@@ -1162,6 +1162,17 @@
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-print"></i> Get Print Status'; }
     };
 
+    // Open the PDF download folder for this trip in Windows Explorer
+    window.saOpenPdfFolder = function(tripId) {
+        const metaEl = document.getElementById(`sa-trip-meta-${tripId}`);
+        const tripDate = (metaEl && metaEl.getAttribute('data-trip-date')) || new Date().toISOString().split('T')[0];
+        const folderPath = `C:\\fusion\\${tripDate}\\${tripId}`;
+
+        sendMessageToCSharp({ action: 'openFolder', folderPath }, function(err) {
+            if (err) showNotification(`Could not open folder: ${err}`, 'error');
+        });
+    };
+
     // ─── PDF Download / Print helpers ────────────────────────
 
     // Returns the SOAP URL for the given order/instance (display only)
@@ -1777,6 +1788,11 @@
                         style="background:#0891b2;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
                         title="Fetch live print status from wms_print_jobs for this trip">
                         <i class="fas fa-print"></i> Get Print Status
+                    </button>
+                    <button onclick="saOpenPdfFolder('${esc(tripId)}')"
+                        style="background:#475569;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Open PDF download folder in Windows Explorer">
+                        <i class="fas fa-folder-open"></i> Open PDF Folder
                     </button>
                     <button id="sa-btn-print-trip-${esc(tripId)}"
                         onclick="saPrintTrip('${esc(tripId)}','${esc(inst)}')"

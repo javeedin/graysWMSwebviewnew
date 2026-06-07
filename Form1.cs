@@ -1825,6 +1825,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleLoadLocalFile(wv, messageJson, requestId);
                                     break;
 
+                                case "openFolder":
+                                    HandleOpenFolder(wv, messageJson, requestId);
+                                    break;
+
                                 case "logout":
                                     HandleLogout();
                                     break;
@@ -3407,6 +3411,37 @@ navPanel.Controls.Add(wmsDevButton);
         }
 
         // ========== MRA INTERFACE HANDLER ==========
+
+        private void HandleOpenFolder(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(messageJson);
+                var root = doc.RootElement;
+                string folderPath = root.TryGetProperty("folderPath", out var fp) ? fp.GetString() : null;
+
+                if (string.IsNullOrWhiteSpace(folderPath))
+                    folderPath = @"C:\fusion";
+
+                // Create folder if it doesn't exist so Explorer doesn't error
+                if (!Directory.Exists(folderPath))
+                    Directory.CreateDirectory(folderPath);
+
+                System.Diagnostics.Debug.WriteLine($"[C#] Opening folder: {folderPath}");
+                System.Diagnostics.Process.Start("explorer.exe", folderPath);
+
+                var response = new { action = "openFolderResponse", requestId, success = true, folderPath };
+                var json = System.Text.Json.JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] HandleOpenFolder: {ex.Message}");
+                var response = new { action = "openFolderResponse", requestId, success = false, message = ex.Message };
+                var json = System.Text.Json.JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(json);
+            }
+        }
 
         private async Task HandleProcessMRAInterface(WebView2 wv, string messageJson, string requestId)
         {
