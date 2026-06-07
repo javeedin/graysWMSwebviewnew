@@ -679,21 +679,14 @@
         const container = document.getElementById(`sa-trip-orders-${tripId}`);
         if (!container) return;
 
-        if (!silent) {
-            // Toggle hide/show when user clicks Orders button
-            if (container.dataset.loaded === '1') {
-                // Already loaded — just toggle visibility
-                container.style.display = container.style.display === 'none' ? 'block' : 'none';
-                return;
-            }
-            container.style.display = 'block';
-            container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
-        } else {
-            // Silent auto-load: skip if already loaded
-            if (container.dataset.loaded === '1') return;
-            container.style.display = 'none';
-            container.innerHTML = `<div style="padding:1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i></div>`;
+        if (container.dataset.loaded === '1') {
+            // Already loaded — Orders button toggles visibility
+            if (!silent) container.style.display = container.style.display === 'none' ? 'block' : 'none';
+            return;
         }
+        // Always show the container while loading (visible to user)
+        container.style.display = 'block';
+        container.innerHTML = `<div style="padding:0.75rem 1rem;text-align:center;color:#94a3b8;font-size:11px;"><i class="fas fa-spinner fa-spin"></i> Loading orders...</div>`;
 
         try {
             const inst = instanceName || 'PROD';
@@ -730,7 +723,7 @@
 
             container.innerHTML = saRenderOrdersTable(orders, tripId, inst);
             container.dataset.loaded = '1';
-            if (silent) container.style.display = 'none'; // keep hidden after silent load
+            container.style.display = 'block';
 
             // Pre-populate from DB (previously saved status)
             try {
