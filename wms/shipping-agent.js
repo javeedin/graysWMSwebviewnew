@@ -1679,35 +1679,53 @@
 
     // Cancel Orders — shows dialog immediately with spinner, then loads lines.
     // Does NOT depend on DOM order rows being loaded first.
+    // Cancel Orders — shows dialog immediately, then syncs + fetches lines.
     window.saCancelTripOrders = async function(tripId, instanceName) {
-        const inst  = instanceName || 'PROD';
-        const agent = window._saCurrentAgent || null;
+        const inst    = instanceName || 'PROD';
+        const agent   = window._saCurrentAgent || null;
+        const getUrl  = `${APEX_BASE}/trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
 
-        // Show dialog immediately with loading spinner
+        // Show dialog immediately
         document.getElementById('sa-all-lines-dlg')?.remove();
         const dlg = document.createElement('div');
         dlg.id = 'sa-all-lines-dlg';
-        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
         dlg.innerHTML = `
-            <div style="background:#1e293b;border-radius:14px;width:860px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6);overflow:hidden;border:2px solid #334155;">
-                <div style="padding:0.85rem 1.2rem;background:#0f172a;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+            <div style="background:#ffffff;border-radius:14px;width:95vw;max-width:1100px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.25);overflow:hidden;border:2px solid #e2e8f0;">
+                <!-- Header -->
+                <div style="padding:0.85rem 1.2rem;background:#f8fafc;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
                     <span style="font-size:18px;">📋</span>
                     <div>
-                        <div style="font-weight:800;font-size:13px;color:#e2e8f0;">Sales Order Lines — Trip ${esc(String(tripId))}</div>
-                        <div style="font-size:10px;color:#64748b;margin-top:2px;" id="sa-all-lines-subtitle">Loading…</div>
+                        <div style="font-weight:800;font-size:14px;color:#1e293b;">Sales Order Lines — Trip ${esc(String(tripId))}</div>
+                        <div style="font-size:11px;color:#64748b;margin-top:2px;" id="sa-all-lines-subtitle">Loading…</div>
                     </div>
-                    <button onclick="document.getElementById('sa-all-lines-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
+                    <!-- API icon -->
+                    <button title="Show API endpoint being called" onclick="
+                        const p=document.getElementById('sa-lines-api-popup');
+                        if(p){p.remove();return;}
+                        const pop=document.createElement('div');
+                        pop.id='sa-lines-api-popup';
+                        pop.style.cssText='position:absolute;top:3.5rem;left:1rem;right:1rem;background:#0f172a;border:1px solid #0e7490;border-radius:8px;padding:0.75rem 1rem;z-index:100000;font-size:11px;color:#38bdf8;word-break:break-all;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+                        pop.innerHTML='<strong style=\'color:#7dd3fc;\'>GET</strong> ${esc(getUrl)}<button onclick=\'document.getElementById(\\\'sa-lines-api-popup\\\').remove()\' style=\'float:right;background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;\'>×</button>';
+                        document.getElementById('sa-all-lines-dlg').querySelector('div').style.position='relative';
+                        document.getElementById('sa-all-lines-dlg').querySelector('div').appendChild(pop);
+                    " style="margin-left:0.25rem;background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 7px;cursor:pointer;color:#0e7490;font-size:11px;" title="View API URL">
+                        <i class="fas fa-plug"></i>
+                    </button>
+                    <button onclick="document.getElementById('sa-all-lines-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:22px;cursor:pointer;line-height:1;">×</button>
                 </div>
-                <div id="sa-all-lines-body" style="flex:1;display:flex;align-items:center;justify-content:center;padding:2rem;color:#94a3b8;font-size:12px;min-height:200px;">
-                    <div style="text-align:center;">
+                <!-- Body -->
+                <div id="sa-all-lines-body" style="flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                    <div style="text-align:center;color:#94a3b8;padding:2rem;">
                         <i class="fas fa-spinner fa-spin" style="font-size:28px;color:#7c3aed;margin-bottom:0.75rem;display:block;"></i>
-                        <div id="sa-all-lines-status" style="font-size:12px;color:#94a3b8;">Syncing order lines from Fusion…</div>
-                        <div id="sa-all-lines-progress" style="margin-top:0.4rem;font-size:10px;color:#475569;"></div>
+                        <div id="sa-all-lines-status" style="font-size:12px;color:#64748b;">Syncing order lines from Fusion…</div>
+                        <div id="sa-all-lines-progress" style="margin-top:0.4rem;font-size:10px;color:#94a3b8;"></div>
                     </div>
                 </div>
-                <div style="padding:0.5rem 1.2rem;border-top:1px solid #0f172a;background:#0f172a;display:flex;justify-content:flex-end;" id="sa-all-lines-footer">
+                <!-- Footer -->
+                <div style="padding:0.6rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;align-items:center;gap:0.5rem;" id="sa-all-lines-footer">
                     <button onclick="document.getElementById('sa-all-lines-dlg').remove()"
-                        style="padding:0.4rem 1rem;border:1px solid #334155;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:600;color:#94a3b8;">
+                        style="padding:0.4rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:#475569;margin-left:auto;">
                         Close
                     </button>
                 </div>
@@ -1733,7 +1751,7 @@
             let done = 0;
             for (const orderNum of orderNumbers) {
                 if (!isOpen()) return;
-                setStatus(`Syncing order lines from Fusion…`);
+                setStatus('Syncing order lines from Fusion…');
                 setProgress(`Order ${done + 1} of ${orderNumbers.length}: ${orderNum}`);
                 try {
                     const postUrl = `${APEX_BASE}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${encodeURIComponent(inst)}&p_order_number=${encodeURIComponent(orderNum)}`;
@@ -1746,42 +1764,38 @@
                 }
                 done++;
             }
-        } else {
-            setStatus('Fetching lines from WMS…');
-            setProgress('');
         }
 
         if (!isOpen()) return;
 
-        // STEP 3: GET all lines for the trip (no status filter)
+        // STEP 3: GET all lines for the trip
         setStatus('Fetching order lines from WMS…');
         setProgress('');
         let allLines = [];
         try {
-            const getUrl = `trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
-            const data   = await apexGet(getUrl);
+            const relUrl = `trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+            const data   = await apexGet(relUrl);
             allLines = (data && data.items) ? data.items : (Array.isArray(data) ? data : []);
         } catch(e) {
             if (!isOpen()) return;
             const body = document.getElementById('sa-all-lines-body');
-            if (body) body.innerHTML = `<div style="text-align:center;padding:2rem;color:#f87171;">
+            if (body) body.innerHTML = `<div style="text-align:center;padding:2rem;color:#dc2626;">
                 <i class="fas fa-exclamation-circle" style="font-size:28px;margin-bottom:0.5rem;display:block;"></i>
-                Failed to fetch order lines:<br><span style="font-size:10px;color:#64748b;">${esc(e.message)}</span>
+                <div style="font-weight:700;margin-bottom:0.4rem;">Failed to fetch order lines</div>
+                <div style="font-size:10px;color:#64748b;word-break:break-all;">${esc(e.message)}</div>
+                <div style="margin-top:0.75rem;font-size:10px;color:#94a3b8;word-break:break-all;">URL: ${esc(getUrl)}</div>
             </div>`;
             return;
         }
 
         if (!isOpen()) return;
 
-        // STEP 4: Populate dialog with results
-        saPopulateAllLinesDialog(agent || { ID: null }, tripId, inst, allLines, setSubtitle);
+        // STEP 4: Populate dialog
+        saPopulateAllLinesDialog(agent || { ID: null }, tripId, inst, allLines, getUrl, setSubtitle);
     };
 
-    // ─── All Lines Dialog (Cancel Orders) ────────────────────
-    // Shows every line for the trip. Scheduled/Manual Reservation rows are
-    // flagged in red and included in the "Cancel Flagged" action.
     // Populates the already-open sa-all-lines-dlg with fetched lines.
-    function saPopulateAllLinesDialog(agent, tripId, inst, allLines, setSubtitle) {
+    function saPopulateAllLinesDialog(agent, tripId, inst, allLines, getUrl, setSubtitle) {
         const dlg = document.getElementById('sa-all-lines-dlg');
         if (!dlg) return;
 
@@ -1793,104 +1807,107 @@
         const cancelUrl = (orderNumber) =>
             `${APEX_BASE}/trip/orders/cancelscheduledlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${inst}`;
 
-        // Group lines by order number
+        // Group by order number
         const orderMap = {};
         for (const line of allLines) {
-            const orderNum = line.SOURCE_ORDER_NUMBER || line.source_order_number || '—';
-            if (!orderMap[orderNum]) orderMap[orderNum] = [];
-            orderMap[orderNum].push(line);
+            const on = line.SOURCE_ORDER_NUMBER || line.source_order_number || '—';
+            if (!orderMap[on]) orderMap[on] = [];
+            orderMap[on].push(line);
         }
         const orders       = Object.keys(orderMap).sort();
         const flaggedLines  = allLines.filter(l => isCancellable(l.STATUS || l.status));
         const totalFlagged  = flaggedLines.length;
 
-        // Update subtitle
-        if (setSubtitle) setSubtitle(`${orders.length} order(s) · ${allLines.length} line(s)${totalFlagged > 0 ? ` · ⚠ ${totalFlagged} flagged` : ' · nothing to cancel'}`);
+        if (setSubtitle) setSubtitle(
+            `${orders.length} order(s) · ${allLines.length} line(s)` +
+            (totalFlagged > 0 ? ` · ⚠ ${totalFlagged} flagged for cancellation` : ' · nothing to cancel')
+        );
 
-        // Update dialog border colour
-        const inner = dlg.querySelector('div');
-        if (inner) inner.style.borderColor = totalFlagged > 0 ? '#b91c1c' : '#334155';
+        // Status badge helper — colour by status keyword
+        const statusBadge = (status, flagged) => {
+            const s = (status || '').toUpperCase();
+            let bg = '#f1f5f9', color = '#475569';
+            if (flagged)                      { bg = '#fef2f2'; color = '#dc2626'; }
+            else if (s.includes('INTERFAC'))  { bg = '#f0fdf4'; color = '#16a34a'; }
+            else if (s.includes('SHIPPED'))   { bg = '#ecfdf5'; color = '#059669'; }
+            else if (s.includes('PENDING'))   { bg = '#fffbeb'; color = '#d97706'; }
+            else if (s.includes('CANCELLED')) { bg = '#fef2f2'; color = '#dc2626'; }
+            return `<span style="background:${bg};color:${color};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;white-space:nowrap;">${esc(status)}</span>`;
+        };
 
-        // Build order sections HTML
-        const orderSections = orders.length === 0
-            ? `<div style="text-align:center;padding:2rem;color:#64748b;font-size:12px;"><i class="fas fa-inbox" style="font-size:24px;margin-bottom:0.5rem;display:block;"></i>No order lines found for this trip.</div>`
-            : orders.map(orderNum => {
-                const lines     = orderMap[orderNum];
-                const hasFlagged = lines.some(l => isCancellable(l.STATUS || l.status));
-                const flaggedCnt = lines.filter(l => isCancellable(l.STATUS || l.status)).length;
+        // Build order sections
+        const noLines = `<div style="text-align:center;padding:3rem;color:#94a3b8;">
+            <i class="fas fa-inbox" style="font-size:32px;margin-bottom:0.75rem;display:block;"></i>
+            <div style="font-size:13px;color:#64748b;font-weight:600;">No order lines found for this trip.</div>
+            <div style="font-size:10px;color:#94a3b8;margin-top:0.4rem;word-break:break-all;">URL called: ${esc(getUrl)}</div>
+        </div>`;
 
-                const lineRows = lines.map(l => {
-                    const status   = l.STATUS              || l.status              || '—';
-                    const flagged  = isCancellable(status);
-                    const lineNum  = l.LINE_NUMBER         || l.line_number         || '—';
-                    const item     = l.PRODUCT_NUMBER      || l.product_number      || '—';
-                    const desc     = l.PRODUCT_DESCRIPTION || l.product_description || '';
-                    const ordQty   = l.ORDERED_QUANTITY    || l.ordered_quantity    || '—';
-                    const resQty   = l.RESERVED_QUANTITY   || l.reserved_quantity   || '—';
-                    const fulfId   = l.FULFILL_LINE_ID     || l.fulfill_line_id     || '—';
-                    const cancelSt = l.CANCEL_STATUS       || l.cancel_status       || '';
-                    const rowBg    = flagged ? 'background:rgba(220,38,38,0.12);' : '';
-                    const statusBadge = flagged
-                        ? `<span style="background:#7f1d1d;color:#fca5a5;padding:1px 6px;border-radius:4px;font-size:9px;white-space:nowrap;">⚠ ${esc(status)}</span>`
-                        : `<span style="background:#1e293b;color:#94a3b8;padding:1px 6px;border-radius:4px;font-size:9px;white-space:nowrap;">${esc(status)}</span>`;
-                    return `<tr style="border-bottom:1px solid #1e293b;${rowBg}">
-                        <td style="padding:4px 6px;color:${flagged?'#f87171':'#f59e0b'};font-size:10px;font-weight:${flagged?'700':'400'};">${esc(String(lineNum))}</td>
-                        <td style="padding:4px 6px;font-size:10px;">${esc(String(item))}</td>
-                        <td style="padding:4px 6px;font-size:9px;color:#94a3b8;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(desc)}">${esc(desc)}</td>
-                        <td style="padding:4px 6px;">${statusBadge}</td>
-                        <td style="padding:4px 6px;font-size:10px;text-align:right;">${esc(String(ordQty))}</td>
-                        <td style="padding:4px 6px;font-size:10px;text-align:right;color:#64748b;">${esc(String(resQty))}</td>
-                        <td style="padding:4px 6px;font-size:9px;color:#64748b;">${esc(String(fulfId))}</td>
-                        <td style="padding:4px 6px;font-size:9px;color:#64748b;">${esc(String(cancelSt))}</td>
-                    </tr>`;
-                }).join('');
+        const orderSections = orders.length === 0 ? noLines : orders.map(orderNum => {
+            const lines      = orderMap[orderNum];
+            const hasFlagged = lines.some(l => isCancellable(l.STATUS || l.status));
+            const flaggedCnt = lines.filter(l => isCancellable(l.STATUS || l.status)).length;
 
-                const headerBg   = hasFlagged ? 'background:linear-gradient(90deg,#450a0a,#0f172a);' : 'background:#0f172a;';
-                const countBadge = hasFlagged
-                    ? `<span style="background:#dc2626;color:white;padding:1px 7px;border-radius:10px;font-size:9px;margin-left:6px;">⚠ ${flaggedCnt} to cancel</span>`
-                    : `<span style="background:#1e293b;color:#64748b;padding:1px 7px;border-radius:10px;font-size:9px;margin-left:6px;">${lines.length} line(s)</span>`;
-
-                return `<div style="margin-bottom:0.6rem;border:1px solid ${hasFlagged?'#b91c1c':'#1e293b'};border-radius:8px;overflow:hidden;">
-                    <div style="${headerBg}padding:0.35rem 0.75rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
-                        <span style="font-weight:700;color:#a78bfa;font-size:11px;"><i class="fas fa-file-invoice"></i> ${esc(orderNum)}</span>
-                        ${countBadge}
-                        ${hasFlagged ? `<span style="margin-left:auto;font-size:9px;color:#475569;word-break:break-all;"><i class="fas fa-plug" style="color:#0e7490;"></i> ${esc(cancelUrl(orderNum))}</span>` : ''}
-                    </div>
-                    <table style="width:100%;border-collapse:collapse;background:#0a0f1e;">
-                        <thead>
-                            <tr style="background:#1e293b;">
-                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Line#</th>
-                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Item</th>
-                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Description</th>
-                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Status</th>
-                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:right;">Ord Qty</th>
-                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:right;">Res Qty</th>
-                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Fulfill Line ID</th>
-                                <th style="padding:3px 6px;font-size:9px;color:#64748b;text-align:left;">Cancel Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>${lineRows}</tbody>
-                    </table>
-                </div>`;
+            const lineRows = lines.map(l => {
+                const status   = l.STATUS              || l.status              || '—';
+                const flagged  = isCancellable(status);
+                const lineNum  = l.LINE_NUMBER         || l.line_number         || '—';
+                const item     = l.PRODUCT_NUMBER      || l.product_number      || '—';
+                const desc     = l.PRODUCT_DESCRIPTION || l.product_description || '';
+                const ordQty   = l.ORDERED_QUANTITY    || l.ordered_quantity    || '—';
+                const resQty   = l.RESERVED_QUANTITY   || l.reserved_quantity   || '—';
+                const fulfId   = l.FULFILL_LINE_ID     || l.fulfill_line_id     || '—';
+                const cancelSt = l.CANCEL_STATUS       || l.cancel_status       || '';
+                const rowBg    = flagged ? 'background:#fff5f5;' : (lines.indexOf(l)%2===0?'background:#fafafa;':'');
+                return `<tr style="border-bottom:1px solid #f1f5f9;${rowBg}">
+                    <td style="padding:5px 8px;color:${flagged?'#dc2626':'#374151'};font-size:11px;font-weight:${flagged?'700':'400'};">${esc(String(lineNum))}</td>
+                    <td style="padding:5px 8px;font-size:11px;color:#1e293b;font-weight:600;">${esc(String(item))}</td>
+                    <td style="padding:5px 8px;font-size:10px;color:#64748b;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(desc)}">${esc(desc)}</td>
+                    <td style="padding:5px 8px;">${statusBadge(status, flagged)}</td>
+                    <td style="padding:5px 8px;font-size:11px;color:#1e293b;text-align:right;">${esc(String(ordQty))}</td>
+                    <td style="padding:5px 8px;font-size:11px;color:#64748b;text-align:right;">${esc(String(resQty))}</td>
+                    <td style="padding:5px 8px;font-size:10px;color:#94a3b8;">${esc(String(fulfId))}</td>
+                    <td style="padding:5px 8px;font-size:10px;color:#94a3b8;">${esc(String(cancelSt))}</td>
+                </tr>`;
             }).join('');
+
+            const countBadge = hasFlagged
+                ? `<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-left:8px;">⚠ ${flaggedCnt} to cancel</span>`
+                : `<span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:8px;">${lines.length} line(s)</span>`;
+
+            return `<div style="margin-bottom:0.75rem;border:1px solid ${hasFlagged?'#fca5a5':'#e2e8f0'};border-radius:8px;overflow:hidden;">
+                <div style="background:${hasFlagged?'#fff5f5':'#f8fafc'};padding:0.4rem 0.75rem;display:flex;align-items:center;flex-wrap:wrap;gap:0.25rem;border-bottom:1px solid ${hasFlagged?'#fca5a5':'#e2e8f0'};">
+                    <span style="font-weight:700;color:#7c3aed;font-size:12px;"><i class="fas fa-file-invoice"></i> ${esc(orderNum)}</span>
+                    ${countBadge}
+                    ${hasFlagged ? `<span style="margin-left:auto;font-size:9px;color:#94a3b8;word-break:break-all;"><i class="fas fa-plug" style="color:#0e7490;"></i> ${esc(cancelUrl(orderNum))}</span>` : ''}
+                </div>
+                <table style="width:100%;border-collapse:collapse;background:#fff;">
+                    <thead>
+                        <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Line#</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Item</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Description</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Status</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:right;font-weight:600;">Ord Qty</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:right;font-weight:600;">Res Qty</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Fulfill Line ID</th>
+                            <th style="padding:4px 8px;font-size:10px;color:#64748b;text-align:left;font-weight:600;">Cancel Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>${lineRows}</tbody>
+                </table>
+            </div>`;
+        }).join('');
 
         // Inject body
         const body = document.getElementById('sa-all-lines-body');
         if (body) {
-            body.style.display = '';
-            body.style.alignItems = '';
-            body.style.justifyContent = '';
-            body.style.minHeight = '';
-            body.innerHTML = totalFlagged > 0
-                ? `<div style="padding:0.4rem 0.75rem;background:#1a0505;border-bottom:1px solid #7f1d1d;font-size:10px;color:#fca5a5;flex-shrink:0;">
-                       <i class="fas fa-exclamation-triangle" style="color:#dc2626;"></i>
-                       Rows in <strong style="color:#f87171;">red</strong> have status <strong>Scheduled</strong> or <strong>Manual Reservation Required</strong> and will be cancelled.
-                   </div>
-                   <div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;">${orderSections}</div>`
-                : `<div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;">${orderSections}</div>`;
-            body.style.display = 'flex';
-            body.style.flexDirection = 'column';
-            body.style.overflow = 'hidden';
+            const legendHtml = totalFlagged > 0
+                ? `<div style="padding:0.5rem 1rem;background:#fff5f5;border-bottom:1px solid #fca5a5;font-size:11px;color:#dc2626;flex-shrink:0;">
+                       <i class="fas fa-exclamation-triangle"></i>
+                       Rows highlighted in <strong>red</strong> have status <strong>Scheduled</strong> or <strong>Manual Reservation Required</strong> — they will be cancelled.
+                   </div>` : '';
+            body.style.cssText = 'flex:1;display:flex;flex-direction:column;overflow:hidden;';
+            body.innerHTML = legendHtml + `<div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;">${orderSections}</div>`;
         }
 
         // Update footer
@@ -1898,13 +1915,13 @@
         if (footer) {
             const cancelOrders = orders.filter(o => orderMap[o].some(l => isCancellable(l.STATUS || l.status)));
             footer.innerHTML = `
-                <span style="font-size:10px;color:#64748b;margin-right:auto;">
+                <span style="font-size:11px;color:#64748b;">
                     ${totalFlagged > 0
-                        ? `<i class="fas fa-ban" style="color:#dc2626;"></i> ${totalFlagged} line(s) across ${cancelOrders.length} order(s) will be cancelled`
-                        : '<i class="fas fa-check-circle" style="color:#22c55e;"></i> Nothing to cancel'}
+                        ? `<i class="fas fa-ban" style="color:#dc2626;"></i> <strong style="color:#dc2626;">${totalFlagged}</strong> line(s) across <strong>${cancelOrders.length}</strong> order(s) will be cancelled`
+                        : '<i class="fas fa-check-circle" style="color:#22c55e;"></i> No lines require cancellation'}
                 </span>
                 <button onclick="document.getElementById('sa-all-lines-dlg').remove()"
-                    style="padding:0.4rem 1rem;border:1px solid #334155;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:600;color:#94a3b8;margin-left:0.5rem;">
+                    style="padding:0.4rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:#475569;margin-left:auto;">
                     Close
                 </button>
                 ${totalFlagged > 0 ? `<button id="sa-all-lines-cancel-btn"
@@ -1919,7 +1936,6 @@
                     if (!cancelGroups[on]) cancelGroups[on] = [];
                     cancelGroups[on].push(line);
                 }
-
                 document.getElementById('sa-all-lines-cancel-btn').onclick = async () => {
                     const btn = document.getElementById('sa-all-lines-cancel-btn');
                     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling…'; }
@@ -1933,7 +1949,7 @@
                             successCount++;
                             if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS',
                                 cancelGroups[orderNumber].length,
-                                `Cancelled ${cancelGroups[orderNumber].length} Scheduled/Manual Reservations line(s)`, null, null);
+                                `Cancelled ${cancelGroups[orderNumber].length} line(s)`, null, null);
                         } catch(e) {
                             failCount++;
                             if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
