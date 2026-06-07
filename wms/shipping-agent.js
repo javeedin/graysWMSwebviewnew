@@ -772,8 +772,9 @@
                 console.warn('[ShippingAgent] Could not pre-populate from DB:', e.message);
             }
 
-            // Auto-run Get Shipment Lines silently after orders are loaded
-            setTimeout(() => saGetAllShipmentLines(tripId, inst), 300);
+            // Auto-run print status + shipment lines after orders are loaded
+            setTimeout(() => saGetPrintStatus(tripId, inst), 200);
+            setTimeout(() => saGetAllShipmentLines(tripId, inst), 500);
 
         } catch(e) {
             container.innerHTML = `<div style="padding:0.75rem 1rem;color:#dc2626;font-size:11px;">${e.message}</div>`;
@@ -1109,6 +1110,56 @@
 
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-download"></i> Get Shipment Lines'; }
         showNotification(`Shipment lines fetched for ${fetched} order(s).`, 'success');
+    };
+
+    // Fetch live print status from wms_print_jobs for all orders in the trip and update grid
+    window.saGetPrintStatus = async function(tripId, instanceName) {
+        const btn = document.getElementById(`sa-btn-print-status-${tripId}`);
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...'; }
+
+        try {
+            const data = await apexGet(`printjobs/trip/${encodeURIComponent(tripId)}`);
+            const rows = (data.items || []);
+
+            if (rows.length === 0) {
+                showNotification('No print jobs found for this trip.', 'info');
+            } else {
+                // Build a map: orderNumber → { printTotal, printPrinted }
+                const map = {};
+                rows.forEach(r => {
+                    const on       = (r.ORDER_NUMBER || r.order_number || '').toString().trim();
+                    const total    = parseInt(r.PRINT_TOTAL   || r.print_total   || 0);
+                    const printed  = parseInt(r.PRINT_PRINTED || r.print_printed || 0);
+                    if (on) map[on] = { total, printed };
+                });
+
+                // Update the print cell for every order row in this trip
+                const container = document.getElementById(`sa-trip-orders-${tripId}`);
+                if (container) {
+                    container.querySelectorAll('tr[id^="sa-order-row-"]').forEach(row => {
+                        const parts = row.id.split(`sa-order-row-${tripId}-`);
+                        const on = parts[1] || '';
+                        const cell = row.querySelector('[data-col="print"]');
+                        if (!cell) return;
+                        const info = map[on];
+                        if (info && info.total > 0) {
+                            cell.innerHTML = info.printed === info.total
+                                ? saBadge('Printed', '#dcfce7', '#15803d', 'fa-check')
+                                : saBadge(`${info.printed}/${info.total}`, '#fef9c3', '#a16207', 'fa-print');
+                        } else {
+                            cell.innerHTML = saBadge('No Jobs', '#f1f5f9', '#94a3b8', 'fa-print');
+                        }
+                    });
+                }
+
+                showNotification(`Print status updated for ${rows.length} order(s).`, 'success');
+            }
+        } catch(e) {
+            showNotification(`Print status fetch failed: ${e.message}`, 'error');
+            console.error('[ShippingAgent] saGetPrintStatus failed:', e);
+        }
+
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-print"></i> Get Print Status'; }
     };
 
     // ─── PDF Download / Print helpers ────────────────────────
@@ -1720,6 +1771,12 @@
                         onclick="saGetAllShipmentLines('${esc(tripId)}','${esc(inst)}')"
                         style="background:#7c3aed;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;">
                         <i class="fas fa-download"></i> Get Shipment Lines
+                    </button>
+                    <button id="sa-btn-print-status-${esc(tripId)}"
+                        onclick="saGetPrintStatus('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#0891b2;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Fetch live print status from wms_print_jobs for this trip">
+                        <i class="fas fa-print"></i> Get Print Status
                     </button>
                     <button id="sa-btn-print-trip-${esc(tripId)}"
                         onclick="saPrintTrip('${esc(tripId)}','${esc(inst)}')"
