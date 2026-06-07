@@ -1677,60 +1677,96 @@
         showNotification(`Trip print complete: ${printed} printed, ${skipped} skipped.`, 'success');
     };
 
-    // Cancel Sales Orders — fetches all trip lines, shows Scheduled/Manual Reservations for review
+    // Cancel Sales Orders — two-step:
+    //   1. POST fetchfusionorderlines for each order (syncs lines from Fusion into WMS)
+    //   2. GET getsalesorderlinesbytrip/:tripId?P_CANCEL_ONLY=Y (read Scheduled/Manual Reservation lines)
     window.saCancelTripOrders = async function(tripId, instanceName) {
-        const inst   = instanceName || 'PROD';
-        const agent  = window._saCurrentAgent || null;
-        const url    = `${APEX_BASE}/trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}&P_CANCEL_ONLY=Y`;
+        const inst  = instanceName || 'PROD';
+        const agent = window._saCurrentAgent || null;
 
-        // Show loading indicator on the button
+        // Button loading state
         const btn = [...document.querySelectorAll('[onclick]')].find(el =>
             el.getAttribute('onclick') && el.getAttribute('onclick').includes(`saCancelTripOrders('${tripId}'`));
         const origHtml = btn ? btn.innerHTML : '';
-        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...'; }
+        const setBtnState = (loading, label) => {
+            if (!btn) return;
+            btn.disabled = loading;
+            btn.innerHTML = loading
+                ? `<i class="fas fa-spinner fa-spin"></i> ${label}`
+                : origHtml;
+        };
 
-        let allLines = [];
-        try {
-            const data = await new Promise((resolve, reject) => {
-                sendMessageToCSharp({ action: 'apiGet', url }, (err, result) => {
-                    if (err) reject(new Error(err));
-                    else resolve(result);
-                });
-            });
-            allLines = (data && data.items) ? data.items : (Array.isArray(data) ? data : []);
-        } catch(e) {
-            showNotification(`Failed to load trip lines: ${e.message}`, 'error');
-            if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+        // ── STEP 1: Collect order numbers from DOM ─────────────
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        const orderRows = container
+            ? Array.from(container.querySelectorAll(`tr[id^="sa-order-row-${tripId}-"]`))
+            : [];
+        const orderNumbers = orderRows
+            .map(r => r.id.replace(`sa-order-row-${tripId}-`, '').trim())
+            .filter(Boolean);
+
+        if (orderNumbers.length === 0) {
+            showNotification(`No orders found in DOM for Trip ${tripId}. Load the trip first.`, 'warning');
             return;
-        } finally {
-            if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
         }
 
-        // API already filters to Scheduled / Manual Reservation lines (P_CANCEL_ONLY=Y)
-        const cancelLines = allLines;
+        // ── STEP 2: POST fetchfusionorderlines per order ───────
+        // Endpoint: POST trip/order/fetchfusionorderlines?P_INSTANCE_NAME=X&p_order_number=ORDER
+        setBtnState(true, `Syncing ${orderNumbers.length} order(s)...`);
+        let syncOk = 0, syncFail = 0;
+        for (const orderNum of orderNumbers) {
+            try {
+                const postUrl = `${APEX_BASE}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${encodeURIComponent(inst)}&p_order_number=${encodeURIComponent(orderNum)}`;
+                await new Promise((resolve, reject) => {
+                    sendMessageToCSharp({ action: 'executePost', fullUrl: postUrl, body: '{}' }, (err, data) => {
+                        if (err) reject(new Error(String(err)));
+                        else resolve(data);
+                    });
+                });
+                syncOk++;
+            } catch(e) {
+                console.warn(`[saCancelTripOrders] fetchfusionorderlines failed for ${orderNum}:`, e.message);
+                syncFail++;
+            }
+        }
+        console.log(`[saCancelTripOrders] Sync done — OK:${syncOk} FAIL:${syncFail}`);
 
-        if (cancelLines.length === 0) {
+        // ── STEP 3: GET getsalesorderlinesbytrip with P_CANCEL_ONLY=Y ──
+        setBtnState(true, 'Fetching lines...');
+        let allLines = [];
+        try {
+            const getUrl = `trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}&P_CANCEL_ONLY=Y`;
+            const data   = await apexGet(getUrl);
+            allLines = (data && data.items) ? data.items : (Array.isArray(data) ? data : []);
+        } catch(e) {
+            showNotification(`Failed to fetch trip order lines: ${e.message}`, 'error');
+            setBtnState(false);
+            return;
+        } finally {
+            setBtnState(false);
+        }
+
+        // API already filtered — just check if anything came back
+        if (allLines.length === 0) {
             showNotification(`No Scheduled or Manual Reservation lines found for Trip ${tripId}.`, 'info');
             return;
         }
 
-        // Group by order number
+        // ── STEP 4: Group by order number and show review dialog ──
         const cancelGroups = {};
-        for (const line of cancelLines) {
+        for (const line of allLines) {
             const orderNum = line.SOURCE_ORDER_NUMBER || line.source_order_number || line.ORDER_NUMBER || '—';
             if (!cancelGroups[orderNum]) cancelGroups[orderNum] = [];
-            // Normalise field names to match saShowCancelReviewDialog expectations
             cancelGroups[orderNum].push({
-                LINE_NUMBER            : line.LINE_NUMBER    || line.line_number    || '—',
-                ITEM_NUMBER            : line.PRODUCT_NUMBER || line.product_number || '—',
-                DESCRIPTION            : line.PRODUCT_DESCRIPTION || line.product_description || '',
-                STATUS                 : line.STATUS         || line.status         || '—',
-                ORDERED_QTY            : line.ORDERED_QUANTITY || line.ordered_quantity || '—',
-                FULFILLMENT_LINE_ID    : line.FULFILL_LINE_ID || line.fulfill_line_id || '—',
+                LINE_NUMBER         : line.LINE_NUMBER         || line.line_number         || '—',
+                ITEM_NUMBER         : line.PRODUCT_NUMBER      || line.product_number      || '—',
+                DESCRIPTION         : line.PRODUCT_DESCRIPTION || line.product_description || '',
+                STATUS              : line.STATUS              || line.status              || '—',
+                ORDERED_QTY         : line.ORDERED_QUANTITY    || line.ordered_quantity    || '—',
+                FULFILLMENT_LINE_ID : line.FULFILL_LINE_ID     || line.fulfill_line_id     || '—',
             });
         }
 
-        // Re-use the existing cancel review dialog (passes null for agent if opened manually)
         const fakeAgent = agent || { ID: null };
         await saShowCancelReviewDialog(fakeAgent, tripId, inst, cancelGroups);
     };
