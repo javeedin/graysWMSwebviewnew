@@ -748,9 +748,9 @@
 
                     // Order Status badge
                     let stBadge;
-                    if (status.includes('Interfaced') && !status.includes('/'))
+                    if ((status.includes('Interfaced') || status.includes('Shipped')) && !status.includes('/'))
                         stBadge = saBadge('Interfaced', '#dcfce7', '#15803d', 'fa-check-circle');
-                    else if (status.includes('Interfaced'))
+                    else if (status.includes('Interfaced') || status.includes('Shipped'))
                         stBadge = saBadge(status, '#fef9c3', '#a16207', 'fa-truck');
                     else if (status.includes('Staged'))
                         stBadge = saBadge(status, '#dbeafe', '#1d4ed8', 'fa-layer-group');
@@ -867,8 +867,11 @@
             const activeLines = total - cancelled;
 
             // ── Overall line-status badge (dominant) ──
+            // interfaced bucket includes Shipped lines — show as Interfaced
             let domBadge;
             if (interfaced > 0 && interfaced === total)
+                domBadge = saBadge('Interfaced',       '#dcfce7', '#15803d', 'fa-check-circle');
+            else if (interfaced > 0 && interfaced === activeLines)
                 domBadge = saBadge('Interfaced',       '#dcfce7', '#15803d', 'fa-check-circle');
             else if (cancelled > 0 && cancelled === total)
                 domBadge = saBadge('Cancelled',        '#fee2e2', '#b91c1c', 'fa-ban');
