@@ -324,7 +324,18 @@
                 <div style="margin-top:5px;font-size:10px;color:#cbd5e1;border-top:1px solid #f1f5f9;padding-top:4px;">
                     <i class="fas fa-calendar-plus" style="color:#a78bfa;"></i> Created: <span style="color:#7c3aed;font-weight:600;">${saFormatDate(agent.CREATED_DATE)}</span>
                 </div>`;
-            container.appendChild(card);
+
+            // If this agent is selected, append trip checklist below the card
+            if (isSelected) {
+                const tripList = document.createElement('div');
+                tripList.id = `sa-left-trips-${agent.ID}`;
+                tripList.style.cssText = 'background:#f8fafc;border-radius:8px;padding:0.5rem 0.75rem;margin-top:4px;border:1px solid #e2e8f0;';
+                tripList.innerHTML = `<div style="font-size:9px;color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Loading trips...</div>`;
+                container.appendChild(card);
+                container.appendChild(tripList);
+            } else {
+                container.appendChild(card);
+            }
         });
     }
 
@@ -451,12 +462,40 @@
                 LOADING_BAY:      t.LOADING_BAY   || t.loading_bay   || '',
                 PRIORITY:         t.PRIORITY      || t.priority      || ''
             }));
+            // Store trips for this agent globally
+            window._saAgentTrips = window._saAgentTrips || {};
+            window._saAgentTrips[agent.ID] = trips;
+
+            // Populate left-panel trip checklist (all checked by default)
+            window._saSelectedTrips = window._saSelectedTrips || {};
+            trips.forEach(t => {
+                if (window._saSelectedTrips[t.TRIP_ID] === undefined)
+                    window._saSelectedTrips[t.TRIP_ID] = true;
+            });
+            const leftTrips = document.getElementById(`sa-left-trips-${agent.ID}`);
+            if (leftTrips) {
+                leftTrips.innerHTML = trips.length === 0
+                    ? `<div style="font-size:9px;color:#94a3b8;">No trips assigned</div>`
+                    : `<div style="font-size:9px;font-weight:700;color:#475569;margin-bottom:4px;">TRIPS — select to show</div>` +
+                      trips.map(t => {
+                          const checked = window._saSelectedTrips[t.TRIP_ID] !== false;
+                          const st = TRIP_STATUS_STYLE[t.STATUS] || TRIP_STATUS_STYLE.PENDING;
+                          return `<label style="display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer;font-size:10px;color:#1e293b;" onclick="event.stopPropagation()">
+                              <input type="checkbox" ${checked ? 'checked' : ''} onchange="saToggleTripVisible('${esc(t.TRIP_ID)}', this.checked)" style="accent-color:#7c3aed;cursor:pointer;">
+                              <span style="font-weight:600;">${esc(t.TRIP_NAME || t.TRIP_ID)}</span>
+                              <span style="background:${st.bg};color:${st.color};padding:1px 6px;border-radius:6px;font-size:8px;font-weight:700;">${t.STATUS}</span>
+                          </label>`;
+                      }).join('');
+            }
+
             if (trips.length === 0) {
                 list.innerHTML = `<div style="padding:2rem;text-align:center;color:#94a3b8;font-size:12px;">No trips assigned yet.<br>Click <strong>Assign Trip</strong> to add one.</div>`;
                 return;
             }
+            // Render cards — only show trips that are checked in left panel
+            const visibleTrips = trips.filter(t => window._saSelectedTrips[t.TRIP_ID] !== false);
             // Render cards first (meta chips filled async below)
-            list.innerHTML = trips.map(t => {
+            list.innerHTML = visibleTrips.map(t => {
                 const st  = TRIP_STATUS_STYLE[t.STATUS] || TRIP_STATUS_STYLE.PENDING;
                 const pct = t.ORDERS_TOTAL > 0 ? Math.round((t.ORDERS_PROCESSED / t.ORDERS_TOTAL) * 100) : 0;
                 return `
@@ -509,10 +548,12 @@
                 </div>`;
             }).join('');
 
-            // Auto-load orders for every trip (silent) so DB status GET runs on agent open
+            // Auto-load orders for ALL trips (silent) so DB status GET runs on agent open
+            // Use all trips (not just visible) so data is ready if user unchecks then re-checks
             trips.forEach(t => {
                 saLoadTripOrders(t.TRIP_ID, t.INSTANCE_NAME, true);
             });
+
 
             // Async: fetch lorry/bay/priority for each trip from GETTRIPDETAILS (first row only)
             trips.forEach(t => {
@@ -548,6 +589,13 @@
             list.innerHTML = `<div style="padding:1rem;color:#dc2626;font-size:12px;">${e.message}</div>`;
         }
     }
+
+    // Toggle a trip's visibility in the right panel and re-render trips
+    window.saToggleTripVisible = function(tripId, checked) {
+        window._saSelectedTrips = window._saSelectedTrips || {};
+        window._saSelectedTrips[tripId] = checked;
+        saLoadTrips(); // re-render right panel with updated selection
+    };
 
     window.saShowTripOrdersApiInfo = function(tripId, instanceName) {
         const agent  = window._saCurrentAgent;
