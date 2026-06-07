@@ -976,8 +976,12 @@
             } // end else (lines.length > 0)
 
         } catch(e) {
-            setCell('status',  `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}">Error</span>`);
-            setCell('checked', `<span style="color:#dc2626;font-size:9px;"><i class="fas fa-exclamation-circle"></i> ${timeStr}</span>`);
+            // Don't overwrite status with Error — preserve last good status, just flag checked cell
+            const existingStatus = rowEl?.querySelector('[data-col="status"]')?.textContent?.trim();
+            if (!existingStatus || existingStatus === '' || existingStatus === '—') {
+                setCell('status', `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}">Error</span>`);
+            }
+            setCell('checked', `<span style="color:#dc2626;font-size:9px;" title="${esc(e.message)}"><i class="fas fa-exclamation-circle"></i> ${timeStr}</span>`);
 
             const agent = window._saCurrentAgent;
             if (agent) {
