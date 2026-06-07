@@ -2037,36 +2037,95 @@
                     document.body.appendChild(pop);
                 };
 
-                // Cancel button — calls Fusion PATCH per order
+                // Cancel button — calls Fusion PATCH per order, shows full response
                 document.getElementById('sa-all-lines-cancel-btn').onclick = async () => {
                     const btn = document.getElementById('sa-all-lines-cancel-btn');
                     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling…'; }
-                    let successCount = 0, failCount = 0;
+
+                    const results = []; // { orderNumber, url, requestBody, status, response, ok }
+
                     for (const orderNumber of cancelOrders) {
-                        const url  = fusionCancelUrl(orderNumber);
-                        const body = JSON.stringify(buildCancelBody(cancelGroups[orderNumber]));
+                        const url         = fusionCancelUrl(orderNumber);
+                        const requestBody = buildCancelBody(cancelGroups[orderNumber]);
+                        const bodyStr     = JSON.stringify(requestBody);
+                        let responseText  = '', ok = false, httpStatus = '';
+
                         try {
-                            await new Promise((res, rej) => {
+                            const raw = await new Promise((res, rej) => {
                                 sendMessageToCSharp({
                                     action  : 'executeOracleFusionPatch',
                                     fullUrl : url,
-                                    body    : body,
+                                    body    : bodyStr,
                                     instance: inst
-                                }, (err, data) => err ? rej(new Error(err)) : res(data));
+                                }, (err, data) => err ? rej(new Error(String(err))) : res(data));
                             });
-                            successCount++;
+                            // data comes back as parsed object or string
+                            responseText = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
+                            ok = true;
                             if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS',
                                 cancelGroups[orderNumber].length,
                                 `Cancelled ${cancelGroups[orderNumber].length} line(s) via Fusion PATCH`, null, null);
                         } catch(e) {
-                            failCount++;
+                            responseText = e.message;
+                            ok = false;
                             if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
                         }
+                        results.push({ orderNumber, url, requestBody, bodyStr, responseText, ok });
                     }
-                    document.getElementById('sa-all-lines-dlg')?.remove();
-                    document.getElementById('sa-lines-footer-api')?.remove();
-                    if (failCount === 0) showNotification(`Cancelled lines for ${successCount} order(s) successfully.`, 'success');
-                    else showNotification(`Cancelled ${successCount} OK, ${failCount} failed.`, 'warning');
+
+                    // Show response dialog (keep cancel dialog open behind it)
+                    document.getElementById('sa-cancel-response-dlg')?.remove();
+                    const successCount = results.filter(r => r.ok).length;
+                    const failCount    = results.filter(r => !r.ok).length;
+
+                    const resultRows = results.map(r => `
+                        <div style="margin-bottom:1rem;border:1px solid ${r.ok?'#bbf7d0':'#fca5a5'};border-radius:8px;overflow:hidden;">
+                            <div style="background:${r.ok?'#f0fdf4':'#fff5f5'};padding:0.4rem 0.75rem;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid ${r.ok?'#bbf7d0':'#fca5a5'};">
+                                <i class="fas ${r.ok?'fa-check-circle':'fa-times-circle'}" style="color:${r.ok?'#16a34a':'#dc2626'};"></i>
+                                <strong style="font-size:12px;color:${r.ok?'#15803d':'#dc2626'};">Order ${esc(r.orderNumber)}</strong>
+                                <span style="margin-left:auto;font-size:10px;color:#64748b;">PATCH</span>
+                            </div>
+                            <div style="padding:0.5rem 0.75rem;background:#fafafa;">
+                                <div style="font-size:10px;color:#64748b;margin-bottom:0.25rem;word-break:break-all;">
+                                    <strong>URL:</strong> ${esc(r.url)}
+                                </div>
+                                <details style="margin-bottom:0.4rem;">
+                                    <summary style="font-size:10px;color:#7c3aed;cursor:pointer;font-weight:600;">Request Body</summary>
+                                    <pre style="margin:0.25rem 0 0;font-size:9px;color:#374151;background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:0.4rem;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto;">${esc(JSON.stringify(r.requestBody, null, 2))}</pre>
+                                </details>
+                                <div style="font-size:10px;color:#374151;font-weight:600;margin-bottom:0.25rem;">Response:</div>
+                                <pre style="margin:0;font-size:9px;color:${r.ok?'#15803d':'#dc2626'};background:#fff;border:1px solid #e2e8f0;border-radius:4px;padding:0.4rem;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;">${esc(r.responseText)}</pre>
+                            </div>
+                        </div>`).join('');
+
+                    const rdlg = document.createElement('div');
+                    rdlg.id = 'sa-cancel-response-dlg';
+                    rdlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100000;display:flex;align-items:center;justify-content:center;';
+                    rdlg.innerHTML = `
+                        <div style="background:#fff;border-radius:14px;width:700px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.3);overflow:hidden;border:2px solid ${failCount===0?'#bbf7d0':'#fca5a5'};">
+                            <div style="padding:0.85rem 1.2rem;background:${failCount===0?'#f0fdf4':'#fff5f5'};border-bottom:1px solid ${failCount===0?'#bbf7d0':'#fca5a5'};display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+                                <i class="fas ${failCount===0?'fa-check-circle':'fa-exclamation-triangle'}" style="font-size:18px;color:${failCount===0?'#16a34a':'#dc2626'};"></i>
+                                <div>
+                                    <div style="font-weight:800;font-size:13px;color:${failCount===0?'#15803d':'#dc2626'};">
+                                        ${failCount===0 ? 'Cancellation Successful' : `${failCount} order(s) failed`}
+                                    </div>
+                                    <div style="font-size:10px;color:#64748b;margin-top:2px;">
+                                        ${successCount} succeeded · ${failCount} failed · PATCH to Oracle Fusion (${isProd?'PROD':'TEST'})
+                                    </div>
+                                </div>
+                                <button onclick="document.getElementById('sa-cancel-response-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
+                            </div>
+                            <div style="overflow-y:auto;padding:1rem;flex:1;">${resultRows}</div>
+                            <div style="padding:0.6rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;justify-content:flex-end;">
+                                <button onclick="document.getElementById('sa-cancel-response-dlg').remove();document.getElementById('sa-all-lines-dlg')?.remove();"
+                                    style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                                    Close
+                                </button>
+                            </div>
+                        </div>`;
+                    document.body.appendChild(rdlg);
+
+                    if (btn) { btn.disabled = false; btn.innerHTML = `<i class="fas fa-ban"></i> Cancel ${totalFlagged} Flagged Line(s)`; }
                 };
             }
         }
