@@ -232,7 +232,7 @@
                 INSTANCE_NAME:        a.INSTANCE_NAME || a.instance_name || '',
                 CAPABILITIES:         a.CAPABILITIES  || a.capabilities  || '',
                 STATUS:               a.STATUS || a.status || 'IDLE',
-                AGENT_STATUS:         a.AGENT_STATUS || a.agent_status || 'ACTIVE',
+                AGENT_STATUS:         a.AGENT_STATUS || a.agent_status || (a.CLOSED_DATE || a.closed_date ? 'CLOSED' : 'ACTIVE'),
                 CHECK_INTERVAL_SECONDS: a.CHECK_INTERVAL_SECONDS || a.check_interval_seconds || 60,
                 MAX_RETRIES:          a.MAX_RETRIES   || a.max_retries   || 3,
                 CREATED_BY:           a.CREATED_BY    || a.created_by    || '',
@@ -315,7 +315,7 @@
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">
                     <div style="font-size:13px;font-weight:700;color:#1e293b;line-height:1.3;">${loopIndicator}${esc(agent.NAME)}</div>
                     <div style="display:flex;gap:4px;align-items:center;flex-shrink:0;margin-left:6px;">
-                        <span style="background:${agent.AGENT_STATUS==='CLOSED'?'#fee2e2':'#dcfce7'};color:${agent.AGENT_STATUS==='CLOSED'?'#b91c1c':'#15803d'};padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;">${agent.AGENT_STATUS||'ACTIVE'}</span>
+                        <span style="background:${agent.AGENT_STATUS==='CLOSED'?'#fee2e2':agent.AGENT_STATUS==='ACTIVE'?'#dcfce7':'#fef9c3'};color:${agent.AGENT_STATUS==='CLOSED'?'#b91c1c':agent.AGENT_STATUS==='ACTIVE'?'#15803d':'#a16207'};padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;">${agent.AGENT_STATUS||'ACTIVE'}</span>
                         <span style="background:${st.bg};color:${st.color};padding:2px 7px;border-radius:10px;font-size:9px;font-weight:700;">${agent.STATUS}</span>
                     </div>
                 </div>
