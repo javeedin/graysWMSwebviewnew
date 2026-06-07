@@ -2695,15 +2695,69 @@
         // Auto-stop if all work is done
         if (saCheckAllDone(agent)) {
             saStopAgentLoop(agent.ID);
-            saCpSetTask('✅ All done');
+            clearInterval(window._saCpCountdown);
+            saCpSetTask('✅ All tasks completed');
             const statusEl = document.getElementById('sa-cp-status');
             if (statusEl) { statusEl.textContent = 'COMPLETED'; statusEl.style.background = '#059669'; }
             const countdownEl = document.getElementById('sa-cp-countdown');
             if (countdownEl) countdownEl.textContent = '';
-            clearInterval(window._saCpCountdown);
-            showNotification(`🎉 Agent "${agent.NAME}" — all orders are Interfaced and printed! Agent stopped.`, 'success');
             try { await apexPut(`agents/${agent.ID}/status`, { status: 'IDLE' }); agent.STATUS = 'IDLE'; saUpdateDetailStatusBadge('IDLE'); saRenderCards(window._saAgents); } catch(e) {}
+            saShowCompletionDialog(agent);
         }
+    }
+
+    function saShowCompletionDialog(agent) {
+        document.getElementById('sa-completion-dlg')?.remove();
+
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const runCfg = window._saAgentRunConfig || {};
+        const completedAt = new Date().toLocaleTimeString();
+
+        const tripSummaryRows = trips.map(t => {
+            const cfg = runCfg[t.TRIP_ID] || { enabled:true, task1:true, task2:true, task3:true };
+            if (!cfg.enabled) return '';
+            const kpi = saCpComputeKpi(t.TRIP_ID);
+            const tasksDone = [
+                cfg.task1 ? `<span style="color:#4ade80;"><i class="fas fa-check"></i> Shipment Lines checked (${kpi.ifcLines}/${kpi.totalLines} interfaced)</span>` : '',
+                cfg.task2 ? `<span style="color:#4ade80;"><i class="fas fa-check"></i> Scheduled / Manual Reservations checked</span>` : '',
+                cfg.task3 ? `<span style="color:#4ade80;"><i class="fas fa-check"></i> All ${kpi.printed} order(s) printed</span>` : '',
+            ].filter(Boolean).join('<br>');
+            return `
+                <div style="border:1px solid #1e293b;border-radius:8px;padding:0.6rem 0.8rem;margin-bottom:0.5rem;background:#0f172a;">
+                    <div style="font-weight:700;color:#a78bfa;font-size:11px;margin-bottom:0.35rem;">
+                        <i class="fas fa-truck"></i> Trip ${esc(t.TRIP_NAME || t.TRIP_ID)}
+                        <span style="color:#4ade80;margin-left:0.5rem;font-size:10px;">✓ ${kpi.interfaced}/${kpi.total} Interfaced &nbsp; ✓ ${kpi.printed}/${kpi.total} Printed</span>
+                    </div>
+                    <div style="font-size:10px;line-height:1.9;">${tasksDone}</div>
+                </div>`;
+        }).join('');
+
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-completion-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#1e293b;border-radius:14px;width:460px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.5);overflow:hidden;border:2px solid #4ade80;">
+                <div style="padding:1rem 1.2rem;background:#0f172a;display:flex;align-items:center;gap:0.75rem;">
+                    <span style="font-size:22px;">🎉</span>
+                    <div>
+                        <div style="font-weight:800;font-size:13px;color:#4ade80;">All Tasks Completed — Agent Stopped</div>
+                        <div style="font-size:10px;color:#64748b;margin-top:2px;">${esc(agent.NAME)} &nbsp;·&nbsp; Completed at ${completedAt}</div>
+                    </div>
+                </div>
+                <div style="overflow-y:auto;padding:1rem;">
+                    <div style="font-size:10px;color:#94a3b8;margin-bottom:0.75rem;">
+                        The following tasks were completed for all active trips. The agent has been stopped automatically.
+                    </div>
+                    ${tripSummaryRows || '<div style="color:#64748b;font-size:11px;">No active trips.</div>'}
+                </div>
+                <div style="padding:0.75rem 1.2rem;border-top:1px solid #0f172a;display:flex;justify-content:flex-end;gap:0.5rem;background:#0f172a;">
+                    <button onclick="document.getElementById('sa-completion-dlg').remove()"
+                        style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#4ade80;cursor:pointer;font-size:12px;font-weight:700;color:#0f172a;">
+                        <i class="fas fa-check"></i> OK
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
     }
 
     async function saProcessTripTick(agent, trip, instance, cfg) {
