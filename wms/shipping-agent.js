@@ -1795,17 +1795,33 @@
     };
 
     // Populates the already-open sa-all-lines-dlg with fetched lines.
+    // Populates the already-open sa-all-lines-dlg with fetched lines.
     function saPopulateAllLinesDialog(agent, tripId, inst, allLines, getUrl, setSubtitle) {
         const dlg = document.getElementById('sa-all-lines-dlg');
         if (!dlg) return;
+
+        const isProd = (inst || '').toUpperCase() === 'PROD';
+        const fusionBase = isProd
+            ? 'https://efmh.fa.em3.oraclecloud.com'
+            : 'https://efmh-test.fa.em3.oraclecloud.com';
 
         const isCancellable = (status) => {
             const s = (status || '').toUpperCase();
             return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION');
         };
 
-        const cancelUrl = (orderNumber) =>
-            `${APEX_BASE}/trip/orders/cancelscheduledlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${inst}`;
+        // Build Fusion cancel URL and JSON body for an order's flagged lines
+        const fusionCancelUrl = (orderNumber) =>
+            `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${encodeURIComponent(orderNumber)}`;
+
+        const buildCancelBody = (orderLines) => ({
+            lines: orderLines.map(l => ({
+                FulfillLineId : l.FULFILL_LINE_ID     || l.fulfill_line_id     || null,
+                LineNumber    : l.LINE_NUMBER         || l.line_number         || null,
+                StatusCode    : 'CANCEL',
+                RequestedQuantity : 0
+            }))
+        });
 
         // Group by order number
         const orderMap = {};
@@ -1814,28 +1830,54 @@
             if (!orderMap[on]) orderMap[on] = [];
             orderMap[on].push(line);
         }
-        const orders       = Object.keys(orderMap).sort();
-        const flaggedLines  = allLines.filter(l => isCancellable(l.STATUS || l.status));
-        const totalFlagged  = flaggedLines.length;
+        const orders      = Object.keys(orderMap).sort();
+        const flaggedLines = allLines.filter(l => isCancellable(l.STATUS || l.status));
+        const totalFlagged = flaggedLines.length;
+
+        // KPI counts by status
+        const statusCounts = {};
+        for (const l of allLines) {
+            const s = l.STATUS || l.status || 'Unknown';
+            statusCounts[s] = (statusCounts[s] || 0) + 1;
+        }
 
         if (setSubtitle) setSubtitle(
             `${orders.length} order(s) · ${allLines.length} line(s)` +
             (totalFlagged > 0 ? ` · ⚠ ${totalFlagged} flagged for cancellation` : ' · nothing to cancel')
         );
 
-        // Status badge helper — colour by status keyword
+        // Status badge colours
         const statusBadge = (status, flagged) => {
             const s = (status || '').toUpperCase();
             let bg = '#f1f5f9', color = '#475569';
-            if (flagged)                      { bg = '#fef2f2'; color = '#dc2626'; }
-            else if (s.includes('INTERFAC'))  { bg = '#f0fdf4'; color = '#16a34a'; }
-            else if (s.includes('SHIPPED'))   { bg = '#ecfdf5'; color = '#059669'; }
-            else if (s.includes('PENDING'))   { bg = '#fffbeb'; color = '#d97706'; }
-            else if (s.includes('CANCELLED')) { bg = '#fef2f2'; color = '#dc2626'; }
+            if (flagged)                           { bg = '#fef2f2'; color = '#dc2626'; }
+            else if (s.includes('INTERFAC'))       { bg = '#f0fdf4'; color = '#16a34a'; }
+            else if (s.includes('SHIPPED'))        { bg = '#ecfdf5'; color = '#059669'; }
+            else if (s.includes('AWAIT'))          { bg = '#eff6ff'; color = '#2563eb'; }
+            else if (s.includes('PENDING'))        { bg = '#fffbeb'; color = '#d97706'; }
+            else if (s.includes('CANCELLED'))      { bg = '#fef2f2'; color = '#dc2626'; }
             return `<span style="background:${bg};color:${color};padding:2px 8px;border-radius:4px;font-size:10px;font-weight:600;white-space:nowrap;">${esc(status)}</span>`;
         };
 
-        // Build order sections
+        // KPI chips
+        const kpiHtml = Object.entries(statusCounts)
+            .sort((a,b) => b[1]-a[1])
+            .map(([st, cnt]) => {
+                const flagged = isCancellable(st);
+                const s = st.toUpperCase();
+                let bg = '#f1f5f9', color = '#475569';
+                if (flagged)                      { bg = '#fef2f2'; color = '#dc2626'; }
+                else if (s.includes('INTERFAC'))  { bg = '#f0fdf4'; color = '#16a34a'; }
+                else if (s.includes('SHIPPED'))   { bg = '#ecfdf5'; color = '#059669'; }
+                else if (s.includes('AWAIT'))     { bg = '#eff6ff'; color = '#2563eb'; }
+                else if (s.includes('PENDING'))   { bg = '#fffbeb'; color = '#d97706'; }
+                else if (s.includes('CANCELLED')) { bg = '#fef2f2'; color = '#dc2626'; }
+                return `<span style="background:${bg};color:${color};padding:3px 10px;border-radius:12px;font-size:10px;font-weight:700;white-space:nowrap;border:1px solid ${bg};">
+                    ${esc(st)} <strong style="margin-left:4px;">${cnt}</strong>
+                </span>`;
+            }).join('');
+
+        // No lines message
         const noLines = `<div style="text-align:center;padding:3rem;color:#94a3b8;">
             <i class="fas fa-inbox" style="font-size:32px;margin-bottom:0.75rem;display:block;"></i>
             <div style="font-size:13px;color:#64748b;font-weight:600;">No order lines found for this trip.</div>
@@ -1846,8 +1888,11 @@
             const lines      = orderMap[orderNum];
             const hasFlagged = lines.some(l => isCancellable(l.STATUS || l.status));
             const flaggedCnt = lines.filter(l => isCancellable(l.STATUS || l.status)).length;
+            const flaggedForOrder = lines.filter(l => isCancellable(l.STATUS || l.status));
+            const cancelBodyPreview = hasFlagged ? JSON.stringify(buildCancelBody(flaggedForOrder), null, 2) : '';
+            const fusionUrl = fusionCancelUrl(orderNum);
 
-            const lineRows = lines.map(l => {
+            const lineRows = lines.map((l, idx) => {
                 const status   = l.STATUS              || l.status              || '—';
                 const flagged  = isCancellable(status);
                 const lineNum  = l.LINE_NUMBER         || l.line_number         || '—';
@@ -1857,8 +1902,8 @@
                 const resQty   = l.RESERVED_QUANTITY   || l.reserved_quantity   || '—';
                 const fulfId   = l.FULFILL_LINE_ID     || l.fulfill_line_id     || '—';
                 const cancelSt = l.CANCEL_STATUS       || l.cancel_status       || '';
-                const rowBg    = flagged ? 'background:#fff5f5;' : (lines.indexOf(l)%2===0?'background:#fafafa;':'');
-                return `<tr style="border-bottom:1px solid #f1f5f9;${rowBg}">
+                const rowBg    = flagged ? 'background:#fff5f5;' : (idx%2===0?'background:#fafafa;':'');
+                return `<tr class="sa-lines-row" data-search="${esc((status+' '+item+' '+desc+' '+lineNum).toLowerCase())}" style="border-bottom:1px solid #f1f5f9;${rowBg}">
                     <td style="padding:5px 8px;color:${flagged?'#dc2626':'#374151'};font-size:11px;font-weight:${flagged?'700':'400'};">${esc(String(lineNum))}</td>
                     <td style="padding:5px 8px;font-size:11px;color:#1e293b;font-weight:600;">${esc(String(item))}</td>
                     <td style="padding:5px 8px;font-size:10px;color:#64748b;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(desc)}">${esc(desc)}</td>
@@ -1874,11 +1919,24 @@
                 ? `<span style="background:#fee2e2;color:#dc2626;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;margin-left:8px;">⚠ ${flaggedCnt} to cancel</span>`
                 : `<span style="background:#f1f5f9;color:#64748b;padding:2px 8px;border-radius:10px;font-size:10px;margin-left:8px;">${lines.length} line(s)</span>`;
 
+            // API icon (hover tooltip) — only shown when there are flagged lines
+            const apiIconHtml = hasFlagged ? `
+                <span style="margin-left:auto;position:relative;display:inline-block;" class="sa-cancel-api-wrap">
+                    <button title="View cancel API details" onmouseenter="this.nextElementSibling.style.display='block'" onmouseleave="this.nextElementSibling.style.display='none'"
+                        style="background:none;border:1px solid #e2e8f0;border-radius:5px;padding:2px 7px;cursor:pointer;color:#0e7490;font-size:10px;">
+                        <i class="fas fa-plug"></i> API
+                    </button>
+                    <div style="display:none;position:absolute;right:0;top:110%;width:480px;background:#0f172a;border:1px solid #0e7490;border-radius:8px;padding:0.75rem;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+                        <div style="font-size:10px;color:#7dd3fc;margin-bottom:0.4rem;"><strong>PATCH</strong> ${esc(fusionUrl)}</div>
+                        <pre style="font-size:9px;color:#a5f3fc;white-space:pre-wrap;word-break:break-all;margin:0;max-height:200px;overflow-y:auto;">${esc(cancelBodyPreview)}</pre>
+                    </div>
+                </span>` : '';
+
             return `<div style="margin-bottom:0.75rem;border:1px solid ${hasFlagged?'#fca5a5':'#e2e8f0'};border-radius:8px;overflow:hidden;">
-                <div style="background:${hasFlagged?'#fff5f5':'#f8fafc'};padding:0.4rem 0.75rem;display:flex;align-items:center;flex-wrap:wrap;gap:0.25rem;border-bottom:1px solid ${hasFlagged?'#fca5a5':'#e2e8f0'};">
+                <div style="background:${hasFlagged?'#fff5f5':'#f8fafc'};padding:0.4rem 0.75rem;display:flex;align-items:center;gap:0.25rem;border-bottom:1px solid ${hasFlagged?'#fca5a5':'#e2e8f0'};">
                     <span style="font-weight:700;color:#7c3aed;font-size:12px;"><i class="fas fa-file-invoice"></i> ${esc(orderNum)}</span>
                     ${countBadge}
-                    ${hasFlagged ? `<span style="margin-left:auto;font-size:9px;color:#94a3b8;word-break:break-all;"><i class="fas fa-plug" style="color:#0e7490;"></i> ${esc(cancelUrl(orderNum))}</span>` : ''}
+                    ${apiIconHtml}
                 </div>
                 <table style="width:100%;border-collapse:collapse;background:#fff;">
                     <thead>
@@ -1898,19 +1956,33 @@
             </div>`;
         }).join('');
 
-        // Inject body
+        // Inject body: legend + KPI bar + search + order sections
         const body = document.getElementById('sa-all-lines-body');
         if (body) {
             const legendHtml = totalFlagged > 0
-                ? `<div style="padding:0.5rem 1rem;background:#fff5f5;border-bottom:1px solid #fca5a5;font-size:11px;color:#dc2626;flex-shrink:0;">
+                ? `<div style="padding:0.45rem 1rem;background:#fff5f5;border-bottom:1px solid #fca5a5;font-size:11px;color:#dc2626;flex-shrink:0;">
                        <i class="fas fa-exclamation-triangle"></i>
-                       Rows highlighted in <strong>red</strong> have status <strong>Scheduled</strong> or <strong>Manual Reservation Required</strong> — they will be cancelled.
+                       Rows in <strong>red</strong> = <strong>Scheduled</strong> or <strong>Manual Reservation Required</strong> — will be cancelled.
                    </div>` : '';
+
+            const kpiBarHtml = allLines.length > 0
+                ? `<div style="padding:0.5rem 1rem;border-bottom:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:0.4rem;align-items:center;flex-shrink:0;background:#fafafa;">
+                       <span style="font-size:10px;color:#94a3b8;font-weight:600;margin-right:0.25rem;">Status:</span>
+                       ${kpiHtml}
+                   </div>` : '';
+
+            const searchBarHtml = `<div style="padding:0.4rem 1rem;border-bottom:1px solid #e2e8f0;flex-shrink:0;background:#fff;">
+                <input id="sa-lines-search" type="text" placeholder="🔍  Search item, status, description, line #…"
+                    oninput="(function(v){document.querySelectorAll('.sa-lines-row').forEach(r=>{r.style.display=r.dataset.search.includes(v.toLowerCase())?'':'none'});})(this.value)"
+                    style="width:100%;box-sizing:border-box;padding:5px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;color:#1e293b;outline:none;">
+            </div>`;
+
             body.style.cssText = 'flex:1;display:flex;flex-direction:column;overflow:hidden;';
-            body.innerHTML = legendHtml + `<div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;">${orderSections}</div>`;
+            body.innerHTML = legendHtml + kpiBarHtml + searchBarHtml +
+                `<div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;">${orderSections}</div>`;
         }
 
-        // Update footer
+        // Update footer with correct Fusion cancel API
         const footer = document.getElementById('sa-all-lines-footer');
         if (footer) {
             const cancelOrders = orders.filter(o => orderMap[o].some(l => isCancellable(l.STATUS || l.status)));
@@ -1924,7 +1996,12 @@
                     style="padding:0.4rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:#475569;margin-left:auto;">
                     Close
                 </button>
-                ${totalFlagged > 0 ? `<button id="sa-all-lines-cancel-btn"
+                ${totalFlagged > 0 ? `
+                <button id="sa-all-lines-api-btn" title="View cancel API details"
+                    style="padding:0.4rem 0.75rem;border:1px solid #0e7490;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;color:#0e7490;margin-left:0.5rem;">
+                    <i class="fas fa-plug"></i>
+                </button>
+                <button id="sa-all-lines-cancel-btn"
                     style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#dc2626;cursor:pointer;font-size:12px;font-weight:700;color:white;margin-left:0.5rem;">
                     <i class="fas fa-ban"></i> Cancel ${totalFlagged} Flagged Line(s)
                 </button>` : ''}`;
@@ -1936,26 +2013,58 @@
                     if (!cancelGroups[on]) cancelGroups[on] = [];
                     cancelGroups[on].push(line);
                 }
+
+                // API info button in footer — shows all orders' URLs + bodies
+                document.getElementById('sa-all-lines-api-btn').onclick = () => {
+                    const existing = document.getElementById('sa-lines-footer-api');
+                    if (existing) { existing.remove(); return; }
+                    const pop = document.createElement('div');
+                    pop.id = 'sa-lines-footer-api';
+                    pop.style.cssText = 'position:fixed;bottom:4rem;right:1rem;width:520px;max-height:60vh;overflow-y:auto;background:#0f172a;border:1px solid #0e7490;border-radius:10px;padding:1rem;z-index:100000;box-shadow:0 8px 32px rgba(0,0,0,0.5);';
+                    pop.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                        <span style="font-size:11px;color:#7dd3fc;font-weight:700;"><i class="fas fa-plug"></i> Cancel API — ${isProd?'PROD':'TEST'}</span>
+                        <button onclick="document.getElementById('sa-lines-footer-api').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+                    </div>` +
+                    cancelOrders.map(on => {
+                        const body = JSON.stringify(buildCancelBody(cancelGroups[on]), null, 2);
+                        return `<div style="margin-bottom:0.75rem;border:1px solid #1e293b;border-radius:6px;overflow:hidden;">
+                            <div style="background:#1e293b;padding:0.3rem 0.6rem;font-size:9px;color:#7dd3fc;">
+                                <strong>PATCH</strong> ${esc(fusionCancelUrl(on))}
+                            </div>
+                            <pre style="margin:0;padding:0.5rem;font-size:9px;color:#a5f3fc;white-space:pre-wrap;word-break:break-all;">${esc(body)}</pre>
+                        </div>`;
+                    }).join('');
+                    document.body.appendChild(pop);
+                };
+
+                // Cancel button — calls Fusion PATCH per order
                 document.getElementById('sa-all-lines-cancel-btn').onclick = async () => {
                     const btn = document.getElementById('sa-all-lines-cancel-btn');
                     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling…'; }
                     let successCount = 0, failCount = 0;
                     for (const orderNumber of cancelOrders) {
+                        const url  = fusionCancelUrl(orderNumber);
+                        const body = JSON.stringify(buildCancelBody(cancelGroups[orderNumber]));
                         try {
                             await new Promise((res, rej) => {
-                                sendMessageToCSharp({ action: 'executePost', fullUrl: cancelUrl(orderNumber), body: '{}' },
-                                    (err, data) => err ? rej(new Error(err)) : res(data));
+                                sendMessageToCSharp({
+                                    action  : 'executeOracleFusionPatch',
+                                    fullUrl : url,
+                                    body    : body,
+                                    instance: inst
+                                }, (err, data) => err ? rej(new Error(err)) : res(data));
                             });
                             successCount++;
                             if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS',
                                 cancelGroups[orderNumber].length,
-                                `Cancelled ${cancelGroups[orderNumber].length} line(s)`, null, null);
+                                `Cancelled ${cancelGroups[orderNumber].length} line(s) via Fusion PATCH`, null, null);
                         } catch(e) {
                             failCount++;
                             if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
                         }
                     }
                     document.getElementById('sa-all-lines-dlg')?.remove();
+                    document.getElementById('sa-lines-footer-api')?.remove();
                     if (failCount === 0) showNotification(`Cancelled lines for ${successCount} order(s) successfully.`, 'success');
                     else showNotification(`Cancelled ${successCount} OK, ${failCount} failed.`, 'warning');
                 };
