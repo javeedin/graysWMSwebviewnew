@@ -2115,8 +2115,14 @@
                                 <button onclick="document.getElementById('sa-cancel-response-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;">×</button>
                             </div>
                             <div style="overflow-y:auto;padding:1rem;flex:1;">${resultRows}</div>
-                            <div style="padding:0.6rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;justify-content:flex-end;">
-                                <button onclick="document.getElementById('sa-cancel-response-dlg').remove();document.getElementById('sa-all-lines-dlg')?.remove();"
+                            <div style="padding:0.6rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;justify-content:flex-end;gap:0.5rem;">
+                                <button onclick="
+                                    document.getElementById('sa-cancel-response-dlg').remove();
+                                    saCancelTripOrders('${esc(String(tripId))}','${esc(inst)}');"
+                                    style="padding:0.4rem 1.2rem;border:1px solid #7c3aed;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:700;color:#7c3aed;">
+                                    <i class="fas fa-sync-alt"></i> Refresh Lines
+                                </button>
+                                <button onclick="document.getElementById('sa-cancel-response-dlg').remove();"
                                     style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:700;color:white;">
                                     Close
                                 </button>
