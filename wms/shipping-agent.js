@@ -2505,12 +2505,12 @@
         saStartCpCountdown(agent);
 
         // Immediately fetch fresh print status for each active trip, then refresh KPIs
-        const instance = agent.INSTANCE_NAME || 'PROD';
         const runCfg = window._saAgentRunConfig || {};
         for (const t of trips) {
             const cfg = runCfg[t.TRIP_ID] || { enabled: true };
             if (!cfg.enabled) continue;
-            try { await saGetPrintStatus(t.TRIP_ID, instance); } catch(e) { /* non-fatal */ }
+            const tripInst = t.INSTANCE_NAME || t.instance_name || agent.INSTANCE_NAME || 'PROD';
+            try { await saGetPrintStatus(t.TRIP_ID, tripInst); } catch(e) { /* non-fatal */ }
         }
         saUpdateCpKpis();
     };
@@ -2519,7 +2519,7 @@
         const paused = window._saPausedTrips[t.TRIP_ID];
         const kpi = saCpComputeKpi(t.TRIP_ID);
         const agent = window._saCurrentAgent;
-        const instance = (agent && agent.INSTANCE_NAME) || 'PROD';
+        const instance = t.INSTANCE_NAME || t.instance_name || (agent && agent.INSTANCE_NAME) || 'PROD';
         const printUrl = `${APEX_BASE}/printjobs/trip/${encodeURIComponent(t.TRIP_ID)}`;
         return `<div id="sa-cp-trip-${esc(t.TRIP_ID)}" style="border-right:1px solid #1e293b;padding:0.5rem 0.8rem;min-width:240px;flex-shrink:0;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;gap:4px;">
@@ -2627,7 +2627,8 @@
         for (const t of trips) {
             const cfg = runCfg[t.TRIP_ID] || { enabled: true };
             if (!cfg.enabled) continue;
-            try { await saGetPrintStatus(t.TRIP_ID, instance); } catch(e) { /* non-fatal */ }
+            const tripInst = t.INSTANCE_NAME || t.instance_name || agent.INSTANCE_NAME || 'PROD';
+            try { await saGetPrintStatus(t.TRIP_ID, tripInst); } catch(e) { /* non-fatal */ }
         }
         trips.forEach(t => {
             const kpiEl = document.getElementById(`sa-cp-kpi-${t.TRIP_ID}`);
@@ -2693,7 +2694,6 @@
         const el = document.getElementById('sa-cp-last-tick');
         if (el) el.textContent = `Last tick: ${tickTime}`;
 
-        const instance = agent.INSTANCE_NAME || 'PROD';
         const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
 
         for (const trip of trips) {
@@ -2706,6 +2706,8 @@
                 console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} is paused — skipping`);
                 continue;
             }
+            // Use trip's own instance name (PROD/TEST), fall back to agent's
+            const instance = trip.INSTANCE_NAME || trip.instance_name || agent.INSTANCE_NAME || 'PROD';
             await saProcessTripTick(agent, trip, instance, cfg);
         }
 
