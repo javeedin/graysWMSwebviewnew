@@ -2235,60 +2235,170 @@
     }
 
     // ─── Agent Controls ──────────────────────────────────────
+    // Run config per trip: { [tripId]: { enabled, task1, task2, task3 } }
+    window._saAgentRunConfig = window._saAgentRunConfig || {};
+
     window.saStartAgent = async function() {
         const agent = window._saCurrentAgent;
         if (!agent) return;
 
-        // Show interval selection dialog
-        const existing = document.getElementById('sa-start-dlg');
-        if (existing) existing.remove();
+        document.getElementById('sa-start-dlg')?.remove();
+
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+
+        // Build trip rows HTML
+        const tripRows = trips.length === 0
+            ? '<div style="color:#94a3b8;font-size:11px;padding:0.5rem;">No trips assigned to this agent.</div>'
+            : trips.map(t => {
+                const tid = esc(t.TRIP_ID);
+                const tname = esc(t.TRIP_NAME || t.TRIP_ID);
+                const tdate = t.TRIP_DATE ? esc(t.TRIP_DATE.split('T')[0]) : '';
+                return `
+                <div id="sa-dlg-trip-${tid}" style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:0.5rem;">
+                    <label style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem 0.75rem;background:#f8fafc;cursor:pointer;font-weight:700;font-size:12px;color:#1e293b;">
+                        <input type="checkbox" id="sa-dlg-trip-chk-${tid}" checked
+                            onchange="saStartDlgToggleTrip('${tid}')"
+                            style="width:15px;height:15px;accent-color:#7c3aed;">
+                        <i class="fas fa-truck" style="color:#7c3aed;"></i>
+                        ${tname}
+                        ${tdate ? `<span style="font-weight:400;color:#64748b;font-size:10px;">— ${tdate}</span>` : ''}
+                    </label>
+                    <div id="sa-dlg-tasks-${tid}" style="padding:0.4rem 0.75rem 0.5rem 2.2rem;display:flex;flex-direction:column;gap:4px;background:white;">
+                        ${[
+                            ['task1','fa-search','Check Shipment Lines','Fetches latest shipment line statuses from Oracle Fusion'],
+                            ['task2','fa-exclamation-triangle','Check Scheduled / Manual Reservations','Detects order lines stuck in Scheduled or Manual Reservations'],
+                            ['task3','fa-print','Auto-Print Interfaced Orders','Downloads and prints PDFs for orders with Interfaced status']
+                        ].map(([key,icon,label,desc]) => `
+                        <label style="display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;font-size:11px;color:#334155;">
+                            <input type="checkbox" id="sa-dlg-${key}-${tid}" checked
+                                style="margin-top:2px;width:13px;height:13px;accent-color:#7c3aed;">
+                            <span>
+                                <i class="fas ${icon}" style="color:#7c3aed;width:12px;"></i>
+                                <strong>${label}</strong>
+                                <span style="color:#94a3b8;display:block;font-size:9px;margin-top:1px;">${desc}</span>
+                            </span>
+                        </label>`).join('')}
+                    </div>
+                </div>`;
+            }).join('');
 
         const dlg = document.createElement('div');
         dlg.id = 'sa-start-dlg';
-        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
         dlg.innerHTML = `
-            <div style="background:white;border-radius:14px;width:420px;box-shadow:0 24px 80px rgba(0,0,0,0.35);overflow:hidden;">
-                <div style="padding:1rem 1.2rem;background:#0f172a;display:flex;justify-content:space-between;align-items:center;">
-                    <span style="font-weight:800;font-size:14px;color:#7c3aed;"><i class="fas fa-play-circle"></i> Start Agent — ${esc(agent.NAME)}</span>
+            <div style="background:white;border-radius:14px;width:480px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.35);overflow:hidden;">
+                <div style="padding:0.9rem 1.2rem;background:#0f172a;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+                    <span style="font-weight:800;font-size:14px;color:#a78bfa;"><i class="fas fa-play-circle"></i> Start Agent — ${esc(agent.NAME)}</span>
                     <button onclick="document.getElementById('sa-start-dlg').remove()" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">×</button>
                 </div>
-                <div style="padding:1.2rem;">
-                    <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:0.75rem;">Select refresh interval:</div>
-                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin-bottom:1rem;">
-                        ${[['5 mins',300],['10 mins',600],['15 mins',900],['30 mins',1800],['60 mins',3600]].map(([label,secs]) => `
-                        <button onclick="saConfirmStartAgent(${secs})"
-                            style="padding:0.6rem;border:2px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:700;color:#1e293b;transition:all 0.15s;"
-                            onmouseover="this.style.borderColor='#7c3aed';this.style.background='#f5f3ff';"
-                            onmouseout="this.style.borderColor='#e2e8f0';this.style.background='white';">
-                            <i class="fas fa-clock" style="color:#7c3aed;margin-bottom:3px;display:block;font-size:16px;"></i>
-                            ${label}
-                        </button>`).join('')}
+
+                <div style="overflow-y:auto;padding:1rem 1.2rem;flex:1;">
+
+                    <!-- SECTION 1: Interval -->
+                    <div style="margin-bottom:1rem;">
+                        <div style="font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
+                            <i class="fas fa-clock"></i> &nbsp;1 — Refresh Interval
+                        </div>
+                        <div style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                            ${[['5 min',300],['10 min',600],['15 min',900],['30 min',1800],['60 min',3600]].map(([label,secs]) => `
+                            <button id="sa-dlg-int-${secs}" onclick="saStartDlgSelectInterval(${secs})"
+                                style="padding:0.4rem 0.8rem;border:2px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:11px;font-weight:700;color:#475569;transition:all 0.15s;">
+                                ${label}
+                            </button>`).join('')}
+                        </div>
+                        <div id="sa-dlg-int-warn" style="font-size:9px;color:#ef4444;margin-top:4px;display:none;">Please select an interval.</div>
                     </div>
-                    <div style="font-size:10px;color:#94a3b8;border-top:1px solid #f1f5f9;padding-top:0.75rem;line-height:1.7;">
-                        On each tick the agent will:<br>
-                        <span style="color:#7c3aed;">①</span> Check Shipment Lines (Oracle Fusion)<br>
-                        <span style="color:#7c3aed;">②</span> Check Order Lines for <strong>Scheduled / Manual Reservations</strong><br>
-                        <span style="color:#7c3aed;">③</span> Auto-Print orders with status <strong>Interfaced</strong>
+
+                    <!-- SECTION 2: Trips & Tasks -->
+                    <div>
+                        <div style="font-size:10px;font-weight:800;color:#7c3aed;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:0.5rem;">
+                            <i class="fas fa-truck"></i> &nbsp;2 — Trips &amp; Tasks
+                        </div>
+                        ${tripRows}
                     </div>
+
+                </div>
+
+                <div style="padding:0.75rem 1.2rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:0.5rem;flex-shrink:0;background:#fafafa;">
+                    <button onclick="document.getElementById('sa-start-dlg').remove()"
+                        style="padding:0.45rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:600;color:#64748b;">
+                        Cancel
+                    </button>
+                    <button onclick="saConfirmStartAgent()"
+                        style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#7c3aed;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                        <i class="fas fa-play"></i> Start Agent
+                    </button>
                 </div>
             </div>`;
         document.body.appendChild(dlg);
+
+        // Pre-select 5min interval
+        saStartDlgSelectInterval(300);
     };
 
-    window.saConfirmStartAgent = async function(intervalSeconds) {
-        document.getElementById('sa-start-dlg')?.remove();
+    window._saStartDlgInterval = 300;
+
+    window.saStartDlgSelectInterval = function(secs) {
+        window._saStartDlgInterval = secs;
+        [300,600,900,1800,3600].forEach(s => {
+            const btn = document.getElementById(`sa-dlg-int-${s}`);
+            if (!btn) return;
+            if (s === secs) {
+                btn.style.borderColor = '#7c3aed';
+                btn.style.background  = '#f5f3ff';
+                btn.style.color       = '#7c3aed';
+            } else {
+                btn.style.borderColor = '#e2e8f0';
+                btn.style.background  = 'white';
+                btn.style.color       = '#475569';
+            }
+        });
+        document.getElementById('sa-dlg-int-warn').style.display = 'none';
+    };
+
+    window.saStartDlgToggleTrip = function(tripId) {
+        const enabled = document.getElementById(`sa-dlg-trip-chk-${tripId}`)?.checked;
+        const tasksDiv = document.getElementById(`sa-dlg-tasks-${tripId}`);
+        if (tasksDiv) {
+            tasksDiv.style.opacity  = enabled ? '1' : '0.35';
+            tasksDiv.style.pointerEvents = enabled ? '' : 'none';
+        }
+    };
+
+    window.saConfirmStartAgent = async function() {
         const agent = window._saCurrentAgent;
         if (!agent) return;
+
+        const intervalSeconds = window._saStartDlgInterval || 300;
+        if (!intervalSeconds) {
+            document.getElementById('sa-dlg-int-warn').style.display = 'block';
+            return;
+        }
+
+        // Build run config from dialog checkboxes
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        window._saAgentRunConfig = {};
+        trips.forEach(t => {
+            const tid = t.TRIP_ID;
+            window._saAgentRunConfig[tid] = {
+                enabled : !!(document.getElementById(`sa-dlg-trip-chk-${tid}`)?.checked),
+                task1   : !!(document.getElementById(`sa-dlg-task1-${tid}`)?.checked),
+                task2   : !!(document.getElementById(`sa-dlg-task2-${tid}`)?.checked),
+                task3   : !!(document.getElementById(`sa-dlg-task3-${tid}`)?.checked),
+            };
+        });
+
+        document.getElementById('sa-start-dlg').remove();
+
         try {
-            // Save interval to DB then start
             await apexPut(`agents/${agent.ID}/status`, { status: 'RUNNING', checkIntervalSeconds: intervalSeconds });
             agent.STATUS = 'RUNNING';
             agent.CHECK_INTERVAL_SECONDS = intervalSeconds;
             saUpdateDetailStatusBadge('RUNNING');
             saRenderCards(window._saAgents);
             saStartAgentLoop(agent, intervalSeconds);
-            showNotification(`Agent "${agent.NAME}" started — refreshing every ${intervalSeconds >= 3600 ? intervalSeconds/3600+'h' : intervalSeconds >= 60 ? intervalSeconds/60+'min' : intervalSeconds+'s'}.`, 'success');
-            // Open control panel
+            const intervalLabel = intervalSeconds >= 3600 ? intervalSeconds/3600+'h' : intervalSeconds/60+'min';
+            showNotification(`Agent "${agent.NAME}" started — every ${intervalLabel}.`, 'success');
             saShowControlPanel(agent);
         } catch(e) {
             showNotification('Failed to start agent: ' + e.message, 'error');
@@ -2527,12 +2637,16 @@
         const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
 
         for (const trip of trips) {
-            // Skip paused trips
+            const cfg = (window._saAgentRunConfig && window._saAgentRunConfig[trip.TRIP_ID]) || { enabled:true, task1:true, task2:true, task3:true };
+            if (!cfg.enabled) {
+                console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} not in run config — skipping`);
+                continue;
+            }
             if (window._saPausedTrips && window._saPausedTrips[trip.TRIP_ID]) {
                 console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} is paused — skipping`);
                 continue;
             }
-            await saProcessTripTick(agent, trip, instance);
+            await saProcessTripTick(agent, trip, instance, cfg);
         }
 
         saUpdateCpKpis();
@@ -2557,7 +2671,8 @@
         }
     }
 
-    async function saProcessTripTick(agent, trip, instance) {
+    async function saProcessTripTick(agent, trip, instance, cfg) {
+        cfg = cfg || { task1:true, task2:true, task3:true };
         const tripId  = trip.TRIP_ID;
         const t0      = Date.now();
         console.log(`[ShippingAgent] Processing trip ${tripId}`);
@@ -2572,6 +2687,8 @@
         if (orderRows.length === 0) return;
 
         // ── TASK 1: Check Shipment Lines (Fusion) ───────────
+        if (!cfg.task1) { console.log(`[ShippingAgent] Task 1 disabled for trip ${tripId}`); }
+        else {
         saCpSetTask(`Task 1: Checking shipment lines — Trip ${tripId}`);
         console.log(`[ShippingAgent] Task 1: Get Shipment Lines for trip ${tripId}`);
         try {
@@ -2582,7 +2699,11 @@
             await saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'FAILED', 1, e.message, null, Date.now()-t0);
         }
 
+        } // end task1
+
         // ── TASK 2: Check Order Lines for Scheduled / Manual Reservations ──
+        if (!cfg.task2) { console.log(`[ShippingAgent] Task 2 disabled for trip ${tripId}`); }
+        else {
         saCpSetTask(`Task 2: Checking order line statuses — Trip ${tripId}`);
         console.log(`[ShippingAgent] Task 2: Check order line statuses for trip ${tripId}`);
         let scheduledCount = 0;
@@ -2608,7 +2729,11 @@
                 `Trip ${tripId}: ${scheduledCount} order line(s) in Scheduled/Manual Reservations — may need attention`, 'WARN');
         }
 
+        } // end task2
+
         // ── TASK 3: Auto-Print Interfaced Orders ─────────────
+        if (!cfg.task3) { console.log(`[ShippingAgent] Task 3 disabled for trip ${tripId}`); }
+        else {
         saCpSetTask(`Task 3: Auto-printing interfaced orders — Trip ${tripId}`);
         console.log(`[ShippingAgent] Task 3: Auto-print interfaced orders for trip ${tripId}`);
         let autoPrinted = 0;
@@ -2648,6 +2773,7 @@
             await saGetPrintStatus(tripId, instance);  // refresh print column after batch print
             showNotification(`Auto-printed ${autoPrinted} order(s) for trip ${tripId}.`, 'success');
         }
+        } // end task3
     }
 
     async function saDetectAnomalies(agent, trip, orders, instance) {
