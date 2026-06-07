@@ -5,12 +5,15 @@
 -- URI Template: trip/orders/getsalesorderlinesbytrip/:tripId
 -- Method:       GET
 -- Source Type:  SQL Query
--- URI Bind:     :tripId       (VARCHAR2)
--- Query Param:  :P_INSTANCE_NAME (VARCHAR2, optional)
+-- URI Bind:     :tripId          (VARCHAR2)
+-- Query Params: :P_INSTANCE_NAME (VARCHAR2, optional)
+--               :P_CANCEL_ONLY   (VARCHAR2, optional — pass 'Y' to return
+--                                 only lines with status Scheduled or
+--                                 Manual Reservation Required)
 -- ============================================================
--- Returns all sales order lines for every order in the given trip.
--- Used by Shipping Agents "Cancel Orders" to find lines with
--- status 'Scheduled' or 'Manual Reservation Required' in one call.
+-- Returns sales order lines for every order in the given trip.
+-- Pass P_CANCEL_ONLY=Y to pre-filter to cancellable lines only.
+-- Used by Shipping Agents "Cancel Orders" button.
 -- ============================================================
 SELECT
     sol.TRIP_ID,
@@ -36,6 +39,10 @@ SELECT
 FROM WMS_V_SALES_ORDER_LINES sol
 WHERE sol.TRIP_ID       = :tripId
   AND sol.INSTANCE_NAME = NVL(:P_INSTANCE_NAME, sol.INSTANCE_NAME)
+  AND (   :P_CANCEL_ONLY IS NULL
+       OR :P_CANCEL_ONLY <> 'Y'
+       OR UPPER(sol.STATUS) LIKE '%SCHEDULED%'
+       OR UPPER(sol.STATUS) LIKE '%MANUAL RESERVATION%')
 ORDER BY sol.SOURCE_ORDER_NUMBER, sol.LINE_NUMBER
 
 

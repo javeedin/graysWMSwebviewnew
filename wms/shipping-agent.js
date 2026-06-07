@@ -1681,7 +1681,7 @@
     window.saCancelTripOrders = async function(tripId, instanceName) {
         const inst   = instanceName || 'PROD';
         const agent  = window._saCurrentAgent || null;
-        const url    = `${APEX_BASE}/trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+        const url    = `${APEX_BASE}/trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}&P_CANCEL_ONLY=Y`;
 
         // Show loading indicator on the button
         const btn = [...document.querySelectorAll('[onclick]')].find(el =>
@@ -1706,11 +1706,8 @@
             if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
         }
 
-        // Filter to lines needing cancellation
-        const cancelLines = allLines.filter(l => {
-            const st = (l.STATUS || l.status || '').toUpperCase();
-            return st.includes('SCHEDULED') || st.includes('MANUAL RESERVATION');
-        });
+        // API already filters to Scheduled / Manual Reservation lines (P_CANCEL_ONLY=Y)
+        const cancelLines = allLines;
 
         if (cancelLines.length === 0) {
             showNotification(`No Scheduled or Manual Reservation lines found for Trip ${tripId}.`, 'info');
