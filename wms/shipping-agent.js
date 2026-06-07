@@ -1677,9 +1677,65 @@
         showNotification(`Trip print complete: ${printed} printed, ${skipped} skipped.`, 'success');
     };
 
-    // Cancel Sales Orders — stub (PL/SQL to be written)
+    // Cancel Sales Orders — fetches all trip lines, shows Scheduled/Manual Reservations for review
     window.saCancelTripOrders = async function(tripId, instanceName) {
-        showNotification('Cancel Sales Orders: coming soon.', 'info');
+        const inst   = instanceName || 'PROD';
+        const agent  = window._saCurrentAgent || null;
+        const url    = `${APEX_BASE}/trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+
+        // Show loading indicator on the button
+        const btn = [...document.querySelectorAll('[onclick]')].find(el =>
+            el.getAttribute('onclick') && el.getAttribute('onclick').includes(`saCancelTripOrders('${tripId}'`));
+        const origHtml = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...'; }
+
+        let allLines = [];
+        try {
+            const data = await new Promise((resolve, reject) => {
+                sendMessageToCSharp({ action: 'apiGet', url }, (err, result) => {
+                    if (err) reject(new Error(err));
+                    else resolve(result);
+                });
+            });
+            allLines = (data && data.items) ? data.items : (Array.isArray(data) ? data : []);
+        } catch(e) {
+            showNotification(`Failed to load trip lines: ${e.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+            return;
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+        }
+
+        // Filter to lines needing cancellation
+        const cancelLines = allLines.filter(l => {
+            const st = (l.STATUS || l.status || '').toUpperCase();
+            return st.includes('SCHEDULED') || st.includes('MANUAL RESERVATION');
+        });
+
+        if (cancelLines.length === 0) {
+            showNotification(`No Scheduled or Manual Reservation lines found for Trip ${tripId}.`, 'info');
+            return;
+        }
+
+        // Group by order number
+        const cancelGroups = {};
+        for (const line of cancelLines) {
+            const orderNum = line.SOURCE_ORDER_NUMBER || line.source_order_number || line.ORDER_NUMBER || '—';
+            if (!cancelGroups[orderNum]) cancelGroups[orderNum] = [];
+            // Normalise field names to match saShowCancelReviewDialog expectations
+            cancelGroups[orderNum].push({
+                LINE_NUMBER            : line.LINE_NUMBER    || line.line_number    || '—',
+                ITEM_NUMBER            : line.PRODUCT_NUMBER || line.product_number || '—',
+                DESCRIPTION            : line.PRODUCT_DESCRIPTION || line.product_description || '',
+                STATUS                 : line.STATUS         || line.status         || '—',
+                ORDERED_QTY            : line.ORDERED_QUANTITY || line.ordered_quantity || '—',
+                FULFILLMENT_LINE_ID    : line.FULFILL_LINE_ID || line.fulfill_line_id || '—',
+            });
+        }
+
+        // Re-use the existing cancel review dialog (passes null for agent if opened manually)
+        const fakeAgent = agent || { ID: null };
+        await saShowCancelReviewDialog(fakeAgent, tripId, inst, cancelGroups);
     };
 
     window.saShowShipmentLinesApiInfo = function(sampleOrderNumber, instanceName) {
