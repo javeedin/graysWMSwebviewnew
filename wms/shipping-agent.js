@@ -1526,7 +1526,7 @@
     }
 
     // Print a single order: download PDF via SOAP → verify content → show choice popup
-    window.saPrintOrder = async function(orderNumber, tripId, tripDate, instanceName) {
+    window.saPrintOrder = async function(orderNumber, tripId, tripDate, instanceName, silent) {
         const btn = document.getElementById(`sa-print-btn-${tripId}-${orderNumber}`);
         const setBtn = (html, disabled) => { if (btn) { btn.innerHTML = html; btn.disabled = !!disabled; } };
         setBtn('<i class="fas fa-spinner fa-spin"></i>', true);
@@ -1581,8 +1581,8 @@
                     : saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle');
             }
 
-            // 5. Show choice popup (Preview or Close)
-            saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines);
+            // 5. Show choice popup only for individual prints (not batch Print Trip)
+            if (!silent) saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines);
 
             // 6. Log activity
             if (agent) {
@@ -1635,7 +1635,7 @@
             }
 
             try {
-                await saPrintOrder(orderNumber, tripId, tripDate, instanceName);
+                await saPrintOrder(orderNumber, tripId, tripDate, instanceName, true); // silent=true: no popup
                 printed++;
             } catch(e) {
                 console.warn(`[ShippingAgent] Print failed for ${orderNumber}:`, e.message);
