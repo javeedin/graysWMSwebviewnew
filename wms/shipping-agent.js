@@ -1112,6 +1112,9 @@
         showNotification(`Shipment lines fetched for ${fetched} order(s).`, 'success');
     };
 
+    // Cache: { [tripId]: { [orderNumber]: { total, printed } } }
+    window._saPrintCache = window._saPrintCache || {};
+
     // Fetch live print status from wms_print_jobs for all orders in the trip and update grid
     window.saGetPrintStatus = async function(tripId, instanceName) {
         const btn = document.getElementById(`sa-btn-print-status-${tripId}`);
@@ -1121,18 +1124,19 @@
             const data = await apexGet(`printjobs/trip/${encodeURIComponent(tripId)}`);
             const rows = (data.items || []);
 
+            // Build map and store in cache
+            const map = {};
+            rows.forEach(r => {
+                const on      = (r.ORDER_NUMBER || r.order_number || '').toString().trim();
+                const total   = parseInt(r.PRINT_TOTAL   || r.print_total   || 0);
+                const printed = parseInt(r.PRINT_PRINTED || r.print_printed || 0);
+                if (on) map[on] = { total, printed };
+            });
+            window._saPrintCache[tripId] = map;
+
             if (rows.length === 0) {
                 showNotification('No print jobs found for this trip.', 'info');
             } else {
-                // Build a map: orderNumber → { printTotal, printPrinted }
-                const map = {};
-                rows.forEach(r => {
-                    const on       = (r.ORDER_NUMBER || r.order_number || '').toString().trim();
-                    const total    = parseInt(r.PRINT_TOTAL   || r.print_total   || 0);
-                    const printed  = parseInt(r.PRINT_PRINTED || r.print_printed || 0);
-                    if (on) map[on] = { total, printed };
-                });
-
                 // Update the print cell for every order row in this trip
                 const container = document.getElementById(`sa-trip-orders-${tripId}`);
                 if (container) {
@@ -2544,23 +2548,34 @@
 
     function saCpComputeKpi(tripId) {
         const container = document.getElementById(`sa-trip-orders-${tripId}`);
-        let total=0, interfaced=0, printed=0, ifcLines=0, totalLines=0, toCancel=0;
+        let total=0, interfaced=0, ifcLines=0, totalLines=0, toCancel=0;
+        const orderNumbers = [];
         if (container) {
             container.querySelectorAll('tr[id^="sa-order-row-"]').forEach(row => {
                 total++;
+                const on  = row.id.replace(`sa-order-row-${tripId}-`, '');
+                if (on) orderNumbers.push(on);
                 const st  = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
-                const prt = (row.querySelector('[data-col="print"]')?.textContent  || '').trim();
                 const ifc = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\d+/)?.[0] || 0);
                 const tl  = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\/(\d+)/)?.[1] || 0);
                 if (st.includes('Interfaced') && !st.includes('/')) interfaced++;
-                // "Printed" badge OR "X/Y" where X===Y means printed
-                const pm = prt.match(/(\d+)\/(\d+)/);
-                if (prt.toLowerCase().includes('printed') || (pm && parseInt(pm[1]) > 0 && pm[1] === pm[2])) printed++;
                 ifcLines  += ifc;
                 totalLines += tl;
-                // Count cancelled lines (backorder bucket treated as potential cancel)
-                toCancel += parseInt(row.querySelector('[data-col="backorder"]')?.textContent?.match(/\d+/)?.[0] || 0);
+                toCancel  += parseInt(row.querySelector('[data-col="backorder"]')?.textContent?.match(/\d+/)?.[0] || 0);
             });
+        }
+        // Use cached print data from API — not DOM badge text
+        const printMap = window._saPrintCache && window._saPrintCache[tripId] || {};
+        let printed = 0;
+        orderNumbers.forEach(on => {
+            const info = printMap[on];
+            if (info && info.total > 0 && info.printed >= info.total) printed++;
+        });
+        // If no orders in DOM yet but cache has data, use cache length as total
+        const printTotal = Object.keys(printMap).length;
+        const printPrinted = Object.values(printMap).filter(v => v.total > 0 && v.printed >= v.total).length;
+        if (total === 0 && printTotal > 0) {
+            return { total: printTotal, interfaced: 0, printed: printPrinted, ifcLines: 0, totalLines: 0, toCancel: 0 };
         }
         return { total, interfaced, printed, ifcLines, totalLines, toCancel };
     }
@@ -2577,10 +2592,18 @@
         showNotification(`Trip ${tripId} ${paused ? 'paused' : 'resumed'}.`, 'info');
     };
 
-    function saUpdateCpKpis() {
+    async function saUpdateCpKpis() {
         const agent = window._saCurrentAgent;
         if (!agent) return;
         const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const instance = agent.INSTANCE_NAME || 'PROD';
+        const runCfg = window._saAgentRunConfig || {};
+        // Refresh print cache from API for each active trip
+        for (const t of trips) {
+            const cfg = runCfg[t.TRIP_ID] || { enabled: true };
+            if (!cfg.enabled) continue;
+            try { await saGetPrintStatus(t.TRIP_ID, instance); } catch(e) { /* non-fatal */ }
+        }
         trips.forEach(t => {
             const kpiEl = document.getElementById(`sa-cp-kpi-${t.TRIP_ID}`);
             if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(t.TRIP_ID));
@@ -2624,8 +2647,7 @@
         const intervalMs = Math.max((overrideIntervalSeconds || agent.CHECK_INTERVAL_SECONDS || 300), 300) * 1000;
         agent.CHECK_INTERVAL_SECONDS = Math.round(intervalMs / 1000);
         window._saLoops[agent.ID] = setInterval(() => {
-            saAgentTick(agent);
-            saUpdateCpKpis();
+            saAgentTick(agent); // saAgentTick calls saUpdateCpKpis internally
         }, intervalMs);
         console.log(`[ShippingAgent] Loop started for agent ${agent.ID}, interval ${intervalMs}ms`);
         // Run immediately
@@ -2662,7 +2684,7 @@
             await saProcessTripTick(agent, trip, instance, cfg);
         }
 
-        saUpdateCpKpis();
+        await saUpdateCpKpis();
         saCpSetTask('');
 
         if (window._saCurrentAgent && window._saCurrentAgent.ID === agent.ID) {
