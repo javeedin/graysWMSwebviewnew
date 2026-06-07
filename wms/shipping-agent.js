@@ -1162,6 +1162,140 @@
         if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-print"></i> Get Print Status'; }
     };
 
+    // ─── Verify PDFs dialog ───────────────────────────────────
+    window.saVerifyPdfs = async function(tripId, instanceName) {
+        const metaEl   = document.getElementById(`sa-trip-meta-${tripId}`);
+        const tripDate = (metaEl && metaEl.getAttribute('data-trip-date')) || new Date().toISOString().split('T')[0];
+
+        // Collect orders from the rendered table
+        const container = document.getElementById(`sa-trip-orders-${tripId}`);
+        const orderRows = container ? Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]')) : [];
+
+        const orders = orderRows.map(row => {
+            const parts = row.id.split(`sa-order-row-${tripId}-`);
+            const on = parts[1] || '';
+            let customer = '';
+            try { const a = row.querySelector('a[data-row]'); if (a) { const d = JSON.parse(a.getAttribute('data-row').replace(/&quot;/g,'"')); customer = d.ACCOUNT_NAME || ''; } } catch(e) {}
+            return { orderNumber: on, customer };
+        }).filter(o => o.orderNumber);
+
+        if (orders.length === 0) {
+            showNotification('No orders found — click Orders first.', 'info');
+            return;
+        }
+
+        // Build dialog
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-verify-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:99998;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:white;border-radius:14px;width:92vw;max-width:1100px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.4);overflow:hidden;">
+                <div style="padding:0.9rem 1.2rem;background:#0f172a;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+                    <span style="font-size:14px;font-weight:800;color:#f59e0b;"><i class="fas fa-file-pdf"></i> Verify PDFs — Trip ${esc(tripId)} &nbsp;<span style="font-size:10px;color:#94a3b8;font-weight:400;">Date: ${esc(tripDate)} &nbsp;·&nbsp; ${orders.length} orders</span></span>
+                    <button onclick="document.getElementById('sa-verify-dlg').remove()" style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">×</button>
+                </div>
+                <div style="overflow:auto;flex:1;">
+                    <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                        <thead>
+                            <tr style="background:#f8fafc;position:sticky;top:0;z-index:1;">
+                                <th style="padding:8px 10px;text-align:left;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">#</th>
+                                <th style="padding:8px 10px;text-align:left;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">Order Number</th>
+                                <th style="padding:8px 10px;text-align:left;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">Customer</th>
+                                <th style="padding:8px 10px;text-align:left;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">File Name</th>
+                                <th style="padding:8px 10px;text-align:center;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">File Exists</th>
+                                <th style="padding:8px 10px;text-align:center;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">Lines Exist</th>
+                                <th style="padding:8px 10px;text-align:center;color:#475569;font-weight:700;border-bottom:2px solid #e2e8f0;">Preview</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sa-verify-tbody">
+                            ${orders.map((o, i) => `
+                            <tr id="sa-verify-row-${esc(o.orderNumber)}" style="border-bottom:1px solid #f1f5f9;">
+                                <td style="padding:7px 10px;color:#94a3b8;">${i+1}</td>
+                                <td style="padding:7px 10px;font-weight:700;color:#1e293b;">${esc(o.orderNumber)}</td>
+                                <td style="padding:7px 10px;color:#475569;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(o.customer)}</td>
+                                <td style="padding:7px 10px;color:#64748b;font-family:monospace;font-size:10px;">${esc(o.orderNumber)}.pdf</td>
+                                <td style="padding:7px 10px;text-align:center;" id="sv-exists-${esc(o.orderNumber)}"><i class="fas fa-spinner fa-spin" style="color:#94a3b8;"></i></td>
+                                <td style="padding:7px 10px;text-align:center;" id="sv-lines-${esc(o.orderNumber)}"><i class="fas fa-spinner fa-spin" style="color:#94a3b8;"></i></td>
+                                <td style="padding:7px 10px;text-align:center;" id="sv-preview-${esc(o.orderNumber)}">—</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+
+        // Verify each order sequentially
+        for (const o of orders) {
+            await new Promise(resolve => {
+                sendMessageToCSharp({
+                    action: 'verifyOrderPdf',
+                    orderNumber: o.orderNumber,
+                    tripId, tripDate
+                }, function(err, data) {
+                    try { if (typeof data === 'string') data = JSON.parse(data); } catch(e) {}
+
+                    const existsCell  = document.getElementById(`sv-exists-${o.orderNumber}`);
+                    const linesCell   = document.getElementById(`sv-lines-${o.orderNumber}`);
+                    const previewCell = document.getElementById(`sv-preview-${o.orderNumber}`);
+                    const row         = document.getElementById(`sa-verify-row-${o.orderNumber}`);
+
+                    if (err || !data || data.success === false) {
+                        if (existsCell) existsCell.innerHTML = `<span style="color:#dc2626;font-size:13px;">✗</span>`;
+                        if (linesCell)  linesCell.innerHTML  = `<span style="color:#dc2626;font-size:13px;">✗</span>`;
+                        if (previewCell) previewCell.innerHTML = `<span style="font-size:9px;color:#94a3b8;">error</span>`;
+                        resolve(); return;
+                    }
+
+                    // File exists?
+                    if (existsCell) existsCell.innerHTML = data.exists
+                        ? `<span style="color:#15803d;font-size:16px;">✓</span>`
+                        : `<span style="color:#dc2626;font-size:16px;">✗</span><div style="font-size:8px;color:#94a3b8;">not found</div>`;
+
+                    // Lines exist? (fileSize > 500 = has content)
+                    if (linesCell) linesCell.innerHTML = !data.exists
+                        ? `<span style="color:#94a3b8;">—</span>`
+                        : data.hasLines
+                            ? `<span style="color:#15803d;font-size:16px;">✓</span><div style="font-size:8px;color:#64748b;">${Math.round(data.fileSize/1024)}KB</div>`
+                            : `<span style="color:#f59e0b;font-size:16px;">⚠</span><div style="font-size:8px;color:#94a3b8;">empty / no lines</div>`;
+
+                    // Highlight row red if missing or empty
+                    if (row && (!data.exists || !data.hasLines)) row.style.background = '#fff5f5';
+
+                    // PDF preview thumbnail
+                    if (previewCell && data.base64) {
+                        const pdfUrl = `data:application/pdf;base64,${data.base64}`;
+                        previewCell.innerHTML = `
+                            <button onclick="saVerifyShowPdf('${o.orderNumber}','${data.base64}')"
+                                style="background:#7c3aed;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:9px;cursor:pointer;">
+                                <i class="fas fa-eye"></i> View
+                            </button>`;
+                    } else if (previewCell && data.exists) {
+                        previewCell.innerHTML = `<span style="font-size:9px;color:#94a3b8;">too large</span>`;
+                    }
+
+                    resolve();
+                });
+            });
+        }
+    };
+
+    // Show PDF fullscreen from base64
+    window.saVerifyShowPdf = function(orderNumber, base64) {
+        const existing = document.getElementById('sa-pdf-viewer-dlg');
+        if (existing) existing.remove();
+
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-pdf-viewer-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.8);z-index:99999;display:flex;flex-direction:column;';
+        dlg.innerHTML = `
+            <div style="padding:0.6rem 1rem;background:#1e293b;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+                <span style="color:white;font-weight:700;font-size:13px;"><i class="fas fa-file-pdf" style="color:#f87171;"></i> ${esc(orderNumber)}.pdf</span>
+                <button onclick="document.getElementById('sa-pdf-viewer-dlg').remove()" style="background:#dc2626;color:white;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-weight:700;">✕ Close</button>
+            </div>
+            <iframe src="data:application/pdf;base64,${base64}" style="flex:1;border:none;"></iframe>`;
+        document.body.appendChild(dlg);
+    };
+
     // Open the PDF download folder for this trip in Windows Explorer
     window.saOpenPdfFolder = function(tripId) {
         const metaEl = document.getElementById(`sa-trip-meta-${tripId}`);
@@ -1793,6 +1927,11 @@
                         style="background:#475569;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
                         title="Open PDF download folder in Windows Explorer">
                         <i class="fas fa-folder-open"></i> Open PDF Folder
+                    </button>
+                    <button onclick="saVerifyPdfs('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#0f172a;color:#f59e0b;border:1px solid #f59e0b;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="Check each order PDF exists and has lines">
+                        <i class="fas fa-file-pdf"></i> Verify PDFs
                     </button>
                     <button id="sa-btn-print-trip-${esc(tripId)}"
                         onclick="saPrintTrip('${esc(tripId)}','${esc(inst)}')"

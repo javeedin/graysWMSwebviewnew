@@ -1829,6 +1829,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
 
+                                case "verifyOrderPdf":
+                                    HandleVerifyOrderPdf(wv, messageJson, requestId);
+                                    break;
+
                                 case "logout":
                                     HandleLogout();
                                     break;
@@ -3411,6 +3415,57 @@ navPanel.Controls.Add(wmsDevButton);
         }
 
         // ========== MRA INTERFACE HANDLER ==========
+
+        private void HandleVerifyOrderPdf(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(messageJson);
+                var root = doc.RootElement;
+                string orderNumber = root.TryGetProperty("orderNumber", out var on) ? on.GetString() : "";
+                string tripId      = root.TryGetProperty("tripId",      out var ti) ? ti.GetString() : "";
+                string tripDate    = root.TryGetProperty("tripDate",    out var td) ? td.GetString() : "";
+
+                string folderPath = $@"C:\fusion\{tripDate}\{tripId}";
+                string filePath   = System.IO.Path.Combine(folderPath, $"{orderNumber}.pdf");
+
+                bool   exists   = System.IO.File.Exists(filePath);
+                long   fileSize = 0;
+                bool   hasLines = false;
+                string base64   = "";
+
+                if (exists)
+                {
+                    byte[] bytes = System.IO.File.ReadAllBytes(filePath);
+                    fileSize = bytes.Length;
+                    hasLines = fileSize > 500;
+                    // Only send base64 if file has content (cap at 5MB to avoid huge payloads)
+                    if (hasLines && fileSize < 5 * 1024 * 1024)
+                        base64 = Convert.ToBase64String(bytes);
+                }
+
+                var response = new
+                {
+                    action      = "verifyOrderPdfResponse",
+                    requestId,
+                    orderNumber,
+                    filePath,
+                    exists,
+                    fileSize,
+                    hasLines,
+                    base64
+                };
+                var json = System.Text.Json.JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(json);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] HandleVerifyOrderPdf: {ex.Message}");
+                var response = new { action = "verifyOrderPdfResponse", requestId, exists = false, hasLines = false, base64 = "", message = ex.Message };
+                var json = System.Text.Json.JsonSerializer.Serialize(response);
+                wv.CoreWebView2.PostWebMessageAsJson(json);
+            }
+        }
 
         private void HandleOpenFolder(WebView2 wv, string messageJson, string requestId)
         {
