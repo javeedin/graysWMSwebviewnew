@@ -1816,10 +1816,9 @@
 
         const buildCancelBody = (orderLines) => ({
             lines: orderLines.map(l => ({
-                FulfillLineId : l.FULFILL_LINE_ID     || l.fulfill_line_id     || null,
-                LineNumber    : l.LINE_NUMBER         || l.line_number         || null,
-                StatusCode    : 'CANCEL',
-                RequestedQuantity : 0
+                FulfillLineId   : l.FULFILL_LINE_ID  || l.fulfill_line_id  || null,
+                OrderedQuantity : 0,
+                CancelReason    : 'OUT OF STOCK'
             }))
         });
 
