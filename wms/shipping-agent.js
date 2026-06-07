@@ -2520,7 +2520,7 @@
         const kpi = saCpComputeKpi(t.TRIP_ID);
         const agent = window._saCurrentAgent;
         const instance = (agent && agent.INSTANCE_NAME) || 'PROD';
-        const printUrl = `${WMS_BASE}printjobs/trip/${encodeURIComponent(t.TRIP_ID)}`;
+        const printUrl = `${APEX_BASE}/printjobs/trip/${encodeURIComponent(t.TRIP_ID)}`;
         return `<div id="sa-cp-trip-${esc(t.TRIP_ID)}" style="border-right:1px solid #1e293b;padding:0.5rem 0.8rem;min-width:240px;flex-shrink:0;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.35rem;gap:4px;">
                 <span style="font-weight:700;color:#e2e8f0;font-size:11px;"><i class="fas fa-truck" style="color:#7c3aed;"></i> ${esc(t.TRIP_NAME || t.TRIP_ID)}</span>
@@ -2595,7 +2595,7 @@
             const info = printMap[on];
             if (info && info.total > 0 && info.printed >= info.total) printed++;
         });
-        console.log(`[ShippingAgent] KPI trip=${tripId} orders=${orderNumbers.length} cacheKeys=${Object.keys(printMap).length} printed=${printed}`);
+        console.log(`[ShippingAgent] KPI trip=${tripId} domOrders=${JSON.stringify(orderNumbers.slice(0,3))} cacheKeys=${JSON.stringify(Object.keys(printMap).slice(0,3))} printed=${printed}`);
         // If no orders in DOM yet but cache has data, use cache length as total
         const printTotal = Object.keys(printMap).length;
         const printPrinted = Object.values(printMap).filter(v => v.total > 0 && v.printed >= v.total).length;
