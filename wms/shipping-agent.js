@@ -190,12 +190,14 @@
 
     // ─── Page initialisation ────────────────────────────────
     window.saInitPage = async function() {
-        // Default date filter: today only
+        // Default date filter: today
         const today = new Date().toISOString().slice(0, 10);
-        const fromEl = document.getElementById('sa-from-date');
-        const toEl   = document.getElementById('sa-to-date');
-        if (fromEl && !fromEl.value) fromEl.value = today;
-        if (toEl   && !toEl.value)   toEl.value   = today;
+        const fromEl    = document.getElementById('sa-from-date');
+        const toEl      = document.getElementById('sa-to-date');
+        const statusEl  = document.getElementById('sa-status-filter');
+        if (fromEl   && !fromEl.value)   fromEl.value   = today;
+        if (toEl     && !toEl.value)     toEl.value     = today;
+        if (statusEl && !statusEl.value) statusEl.value = 'ACTIVE';
         try {
             await saRefreshDashboard();
         } catch(e) {
@@ -203,13 +205,15 @@
         }
     };
 
-    // Build the agents/list query string from date inputs
+    // Build the agents/list query string from date + status inputs
     function saListQueryString() {
-        const from = document.getElementById('sa-from-date')?.value || '';
-        const to   = document.getElementById('sa-to-date')?.value   || '';
-        const parts = [];
-        if (from) parts.push(`FROM_DATE=${encodeURIComponent(from)}`);
-        if (to)   parts.push(`TO_DATE=${encodeURIComponent(to)}`);
+        const from   = document.getElementById('sa-from-date')?.value   || '';
+        const to     = document.getElementById('sa-to-date')?.value     || '';
+        const status = document.getElementById('sa-status-filter')?.value || 'ACTIVE';
+        const parts  = [];
+        if (from)                parts.push(`FROM_DATE=${encodeURIComponent(from)}`);
+        if (to)                  parts.push(`TO_DATE=${encodeURIComponent(to)}`);
+        if (status !== 'ALL')    parts.push(`AGENT_STATUS=${encodeURIComponent(status)}`);
         return parts.length ? `agents/list?${parts.join('&')}` : 'agents/list';
     }
 
@@ -253,11 +257,12 @@
 
     // Called from the API icon on the page header
     window.saShowPageApiInfo = function() {
-        const path = saListQueryString();
-        const from = document.getElementById('sa-from-date')?.value || '(all)';
-        const to   = document.getElementById('sa-to-date')?.value   || '(all)';
+        const path   = saListQueryString();
+        const from   = document.getElementById('sa-from-date')?.value    || '(all)';
+        const to     = document.getElementById('sa-to-date')?.value      || '(all)';
+        const status = document.getElementById('sa-status-filter')?.value || 'ACTIVE';
         saShowApiInfo('GET', `${APEX_BASE}/${path}`,
-            { note: 'Query parameters', FROM_DATE: from, TO_DATE: to });
+            { note: 'Query parameters', FROM_DATE: from, TO_DATE: to, AGENT_STATUS: status });
     };
 
     function saUpdateStats(agents) {

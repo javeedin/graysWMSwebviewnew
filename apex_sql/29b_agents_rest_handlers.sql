@@ -119,8 +119,9 @@ FROM wms_agents_config c
 LEFT JOIN wms_agents_performance p
        ON p.agent_id  = c.id
       AND p.perf_date = TRUNC(SYSDATE)
-WHERE (:FROM_DATE IS NULL OR TRUNC(c.created_date) >= TO_DATE(:FROM_DATE, 'YYYY-MM-DD'))
-  AND (:TO_DATE   IS NULL OR TRUNC(c.created_date) <= TO_DATE(:TO_DATE,   'YYYY-MM-DD'))
+WHERE (:FROM_DATE    IS NULL OR TRUNC(NVL(c.last_active_date, c.created_date)) >= TO_DATE(:FROM_DATE, 'YYYY-MM-DD'))
+  AND (:TO_DATE      IS NULL OR TRUNC(NVL(c.last_active_date, c.created_date)) <= TO_DATE(:TO_DATE,   'YYYY-MM-DD'))
+  AND (:AGENT_STATUS IS NULL OR c.agent_status = :AGENT_STATUS)
 ORDER BY c.id DESC
 
 
