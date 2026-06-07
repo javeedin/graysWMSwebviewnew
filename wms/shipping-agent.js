@@ -2255,7 +2255,7 @@
                 <div style="padding:1.2rem;">
                     <div style="font-size:12px;font-weight:700;color:#475569;margin-bottom:0.75rem;">Select refresh interval:</div>
                     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.5rem;margin-bottom:1rem;">
-                        ${[['1 min',60],['5 mins',300],['10 mins',600],['15 mins',900],['30 mins',1800],['60 mins',3600]].map(([label,secs]) => `
+                        ${[['5 mins',300],['10 mins',600],['15 mins',900],['30 mins',1800],['60 mins',3600]].map(([label,secs]) => `
                         <button onclick="saConfirmStartAgent(${secs})"
                             style="padding:0.6rem;border:2px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:700;color:#1e293b;transition:all 0.15s;"
                             onmouseover="this.style.borderColor='#7c3aed';this.style.background='#f5f3ff';"
@@ -2373,6 +2373,7 @@
                 <span style="color:#64748b;font-size:10px;"><i class="fas fa-clock"></i> Every ${intervalLabel}</span>
                 <span id="sa-cp-countdown" style="color:#f59e0b;font-size:10px;font-weight:700;"></span>
                 <span id="sa-cp-last-tick" style="color:#64748b;font-size:9px;"></span>
+                <span id="sa-cp-task" style="color:#38bdf8;font-size:9px;font-style:italic;"></span>
                 <div style="margin-left:auto;display:flex;gap:0.4rem;">
                     <button onclick="saPauseAgent()" style="background:#d97706;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-pause"></i> Pause All</button>
                     <button onclick="saStopAgent()" style="background:#dc2626;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-stop"></i> Stop</button>
@@ -2475,10 +2476,29 @@
         }, 1000);
     }
 
+    function saCpSetTask(msg) {
+        const el = document.getElementById('sa-cp-task');
+        if (el) el.textContent = msg ? `▶ ${msg}` : '';
+    }
+
+    // Check if all trips are done (all orders Interfaced + all printed)
+    function saCheckAllDone(agent) {
+        const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        if (trips.length === 0) return false;
+        let allDone = true;
+        for (const t of trips) {
+            if (window._saPausedTrips && window._saPausedTrips[t.TRIP_ID]) continue;
+            const kpi = saCpComputeKpi(t.TRIP_ID);
+            if (kpi.total === 0) { allDone = false; break; }
+            if (kpi.interfaced < kpi.total || kpi.printed < kpi.total) { allDone = false; break; }
+        }
+        return allDone;
+    }
+
     // ─── Agent Loop ──────────────────────────────────────────
     function saStartAgentLoop(agent, overrideIntervalSeconds) {
         saStopAgentLoop(agent.ID); // clear any existing
-        const intervalMs = Math.max((overrideIntervalSeconds || agent.CHECK_INTERVAL_SECONDS || 60), 10) * 1000;
+        const intervalMs = Math.max((overrideIntervalSeconds || agent.CHECK_INTERVAL_SECONDS || 300), 300) * 1000;
         agent.CHECK_INTERVAL_SECONDS = Math.round(intervalMs / 1000);
         window._saLoops[agent.ID] = setInterval(() => {
             saAgentTick(agent);
@@ -2516,10 +2536,24 @@
         }
 
         saUpdateCpKpis();
+        saCpSetTask('');
 
         if (window._saCurrentAgent && window._saCurrentAgent.ID === agent.ID) {
             const actTab = document.getElementById('sa-tab-activity');
             if (actTab && actTab.style.display !== 'none') saRefreshActivity();
+        }
+
+        // Auto-stop if all work is done
+        if (saCheckAllDone(agent)) {
+            saStopAgentLoop(agent.ID);
+            saCpSetTask('✅ All done');
+            const statusEl = document.getElementById('sa-cp-status');
+            if (statusEl) { statusEl.textContent = 'COMPLETED'; statusEl.style.background = '#059669'; }
+            const countdownEl = document.getElementById('sa-cp-countdown');
+            if (countdownEl) countdownEl.textContent = '';
+            clearInterval(window._saCpCountdown);
+            showNotification(`🎉 Agent "${agent.NAME}" — all orders are Interfaced and printed! Agent stopped.`, 'success');
+            try { await apexPut(`agents/${agent.ID}/status`, { status: 'IDLE' }); agent.STATUS = 'IDLE'; saUpdateDetailStatusBadge('IDLE'); saRenderCards(window._saAgents); } catch(e) {}
         }
     }
 
@@ -2538,6 +2572,7 @@
         if (orderRows.length === 0) return;
 
         // ── TASK 1: Check Shipment Lines (Fusion) ───────────
+        saCpSetTask(`Task 1: Checking shipment lines — Trip ${tripId}`);
         console.log(`[ShippingAgent] Task 1: Get Shipment Lines for trip ${tripId}`);
         try {
             await saGetAllShipmentLines(tripId, instance);
@@ -2548,6 +2583,7 @@
         }
 
         // ── TASK 2: Check Order Lines for Scheduled / Manual Reservations ──
+        saCpSetTask(`Task 2: Checking order line statuses — Trip ${tripId}`);
         console.log(`[ShippingAgent] Task 2: Check order line statuses for trip ${tripId}`);
         let scheduledCount = 0;
         for (const row of orderRows) {
@@ -2573,6 +2609,7 @@
         }
 
         // ── TASK 3: Auto-Print Interfaced Orders ─────────────
+        saCpSetTask(`Task 3: Auto-printing interfaced orders — Trip ${tripId}`);
         console.log(`[ShippingAgent] Task 3: Auto-print interfaced orders for trip ${tripId}`);
         let autoPrinted = 0;
         for (const row of orderRows) {
@@ -2580,9 +2617,22 @@
             if (!orderNumber) continue;
             const statusText = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
             const printText  = (row.querySelector('[data-col="print"]')?.textContent  || '').trim();
-            // Only print if fully Interfaced and not already printed
-            if (statusText === 'Interfaced' && !printText.toLowerCase().includes('printed')) {
+
+            // Parse print_printed / print_total from cell (format: "X/Y" or "No Jobs" or "Printed X/X")
+            const printMatch = printText.match(/(\d+)\/(\d+)/);
+            const printTotal   = printMatch ? parseInt(printMatch[2]) : 0;
+            const printPrinted = printMatch ? parseInt(printMatch[1]) : 0;
+
+            // Skip if already downloaded (print_total > 0 means PDF exists in wms_print_jobs)
+            if (printTotal > 0) {
+                console.log(`[ShippingAgent] Order ${orderNumber} already downloaded (${printPrinted}/${printTotal}) — skipping download`);
+                continue;
+            }
+
+            // Only print if fully Interfaced and not yet downloaded/printed
+            if (statusText === 'Interfaced') {
                 console.log(`[ShippingAgent] Auto-printing interfaced order ${orderNumber}`);
+                saCpSetTask(`Task 3: Printing ${orderNumber} — Trip ${tripId}`);
                 try {
                     await saPrintOrder(orderNumber, tripId, '', instance, true); // silent=true
                     autoPrinted++;
