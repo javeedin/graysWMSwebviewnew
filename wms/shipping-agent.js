@@ -1677,112 +1677,147 @@
         showNotification(`Trip print complete: ${printed} printed, ${skipped} skipped.`, 'success');
     };
 
-    // Cancel Sales Orders — three-step:
-    //   1. POST fetchfusionorderlines per order (sync from Fusion into WMS)
-    //   2. GET getsalesorderlinesbytrip/:tripId (ALL lines, no filter)
-    //   3. Show full-lines dialog — Scheduled/Manual rows flagged red, user confirms
+    // Cancel Orders — shows dialog immediately with spinner, then loads lines.
+    // Does NOT depend on DOM order rows being loaded first.
     window.saCancelTripOrders = async function(tripId, instanceName) {
         const inst  = instanceName || 'PROD';
         const agent = window._saCurrentAgent || null;
 
-        // Button loading state
-        const btn = [...document.querySelectorAll('[onclick]')].find(el =>
-            el.getAttribute('onclick') && el.getAttribute('onclick').includes(`saCancelTripOrders('${tripId}'`));
-        const origHtml = btn ? btn.innerHTML : '';
-        const setBtnState = (loading, label) => {
-            if (!btn) return;
-            btn.disabled = loading;
-            btn.innerHTML = loading ? `<i class="fas fa-spinner fa-spin"></i> ${label}` : origHtml;
-        };
+        // Show dialog immediately with loading spinner
+        document.getElementById('sa-all-lines-dlg')?.remove();
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-all-lines-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#1e293b;border-radius:14px;width:860px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6);overflow:hidden;border:2px solid #334155;">
+                <div style="padding:0.85rem 1.2rem;background:#0f172a;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+                    <span style="font-size:18px;">📋</span>
+                    <div>
+                        <div style="font-weight:800;font-size:13px;color:#e2e8f0;">Sales Order Lines — Trip ${esc(String(tripId))}</div>
+                        <div style="font-size:10px;color:#64748b;margin-top:2px;" id="sa-all-lines-subtitle">Loading…</div>
+                    </div>
+                    <button onclick="document.getElementById('sa-all-lines-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
+                </div>
+                <div id="sa-all-lines-body" style="flex:1;display:flex;align-items:center;justify-content:center;padding:2rem;color:#94a3b8;font-size:12px;min-height:200px;">
+                    <div style="text-align:center;">
+                        <i class="fas fa-spinner fa-spin" style="font-size:28px;color:#7c3aed;margin-bottom:0.75rem;display:block;"></i>
+                        <div id="sa-all-lines-status" style="font-size:12px;color:#94a3b8;">Syncing order lines from Fusion…</div>
+                        <div id="sa-all-lines-progress" style="margin-top:0.4rem;font-size:10px;color:#475569;"></div>
+                    </div>
+                </div>
+                <div style="padding:0.5rem 1.2rem;border-top:1px solid #0f172a;background:#0f172a;display:flex;justify-content:flex-end;" id="sa-all-lines-footer">
+                    <button onclick="document.getElementById('sa-all-lines-dlg').remove()"
+                        style="padding:0.4rem 1rem;border:1px solid #334155;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:600;color:#94a3b8;">
+                        Close
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
 
-        // ── STEP 1: Collect order numbers from DOM ─────────────
-        const container = document.getElementById(`sa-trip-orders-${tripId}`);
-        const orderRows = container
-            ? Array.from(container.querySelectorAll(`tr[id^="sa-order-row-${tripId}-"]`))
+        const setStatus   = (msg) => { const el = document.getElementById('sa-all-lines-status');   if (el) el.textContent = msg; };
+        const setProgress = (msg) => { const el = document.getElementById('sa-all-lines-progress'); if (el) el.textContent = msg; };
+        const setSubtitle = (msg) => { const el = document.getElementById('sa-all-lines-subtitle'); if (el) el.textContent = msg; };
+        const isOpen      = ()    => !!document.getElementById('sa-all-lines-dlg');
+
+        // STEP 1: Get order numbers from DOM (best-effort for POST sync)
+        const domContainer = document.getElementById(`sa-trip-orders-${tripId}`);
+        const domRows = domContainer
+            ? Array.from(domContainer.querySelectorAll(`tr[id^="sa-order-row-${tripId}-"]`))
             : [];
-        const orderNumbers = orderRows
+        const orderNumbers = domRows
             .map(r => r.id.replace(`sa-order-row-${tripId}-`, '').trim())
             .filter(Boolean);
 
-        if (orderNumbers.length === 0) {
-            showNotification(`No orders found for Trip ${tripId}. Load the trip first.`, 'warning');
-            return;
-        }
-
-        // ── STEP 2: POST fetchfusionorderlines per order ───────
-        setBtnState(true, `Syncing ${orderNumbers.length} order(s)...`);
-        let syncOk = 0, syncFail = 0;
-        for (const orderNum of orderNumbers) {
-            try {
-                const postUrl = `${APEX_BASE}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${encodeURIComponent(inst)}&p_order_number=${encodeURIComponent(orderNum)}`;
-                await new Promise((resolve, reject) => {
-                    sendMessageToCSharp({ action: 'executePost', fullUrl: postUrl, body: '{}' }, (err, data) => {
-                        if (err) reject(new Error(String(err)));
-                        else resolve(data);
+        // STEP 2: POST fetchfusionorderlines per order (if DOM rows available)
+        if (orderNumbers.length > 0) {
+            let done = 0;
+            for (const orderNum of orderNumbers) {
+                if (!isOpen()) return;
+                setStatus(`Syncing order lines from Fusion…`);
+                setProgress(`Order ${done + 1} of ${orderNumbers.length}: ${orderNum}`);
+                try {
+                    const postUrl = `${APEX_BASE}/trip/order/fetchfusionorderlines?P_INSTANCE_NAME=${encodeURIComponent(inst)}&p_order_number=${encodeURIComponent(orderNum)}`;
+                    await new Promise((res, rej) => {
+                        sendMessageToCSharp({ action: 'executePost', fullUrl: postUrl, body: '{}' },
+                            (err, data) => err ? rej(new Error(String(err))) : res(data));
                     });
-                });
-                syncOk++;
-            } catch(e) {
-                console.warn(`[saCancelTripOrders] fetchfusionorderlines failed for ${orderNum}:`, e.message);
-                syncFail++;
+                } catch(e) {
+                    console.warn(`[saCancelTripOrders] POST failed for ${orderNum}:`, e.message);
+                }
+                done++;
             }
+        } else {
+            setStatus('Fetching lines from WMS…');
+            setProgress('');
         }
-        console.log(`[saCancelTripOrders] Sync done — OK:${syncOk} FAIL:${syncFail}`);
 
-        // ── STEP 3: GET all lines for the trip (no filter) ────
-        setBtnState(true, 'Fetching lines...');
+        if (!isOpen()) return;
+
+        // STEP 3: GET all lines for the trip (no status filter)
+        setStatus('Fetching order lines from WMS…');
+        setProgress('');
         let allLines = [];
         try {
             const getUrl = `trip/orders/getsalesorderlinesbytrip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
             const data   = await apexGet(getUrl);
             allLines = (data && data.items) ? data.items : (Array.isArray(data) ? data : []);
         } catch(e) {
-            showNotification(`Failed to fetch trip order lines: ${e.message}`, 'error');
-            setBtnState(false);
-            return;
-        } finally {
-            setBtnState(false);
-        }
-
-        if (allLines.length === 0) {
-            showNotification(`No order lines found for Trip ${tripId}.`, 'info');
+            if (!isOpen()) return;
+            const body = document.getElementById('sa-all-lines-body');
+            if (body) body.innerHTML = `<div style="text-align:center;padding:2rem;color:#f87171;">
+                <i class="fas fa-exclamation-circle" style="font-size:28px;margin-bottom:0.5rem;display:block;"></i>
+                Failed to fetch order lines:<br><span style="font-size:10px;color:#64748b;">${esc(e.message)}</span>
+            </div>`;
             return;
         }
 
-        // ── STEP 4: Show full-lines dialog ─────────────────────
-        const fakeAgent = agent || { ID: null };
-        await saShowAllLinesDialog(fakeAgent, tripId, inst, allLines);
+        if (!isOpen()) return;
+
+        // STEP 4: Populate dialog with results
+        saPopulateAllLinesDialog(agent || { ID: null }, tripId, inst, allLines, setSubtitle);
     };
 
     // ─── All Lines Dialog (Cancel Orders) ────────────────────
     // Shows every line for the trip. Scheduled/Manual Reservation rows are
     // flagged in red and included in the "Cancel Flagged" action.
-    function saShowAllLinesDialog(agent, tripId, inst, allLines) {
-        return new Promise(resolve => {
-            document.getElementById('sa-all-lines-dlg')?.remove();
+    // Populates the already-open sa-all-lines-dlg with fetched lines.
+    function saPopulateAllLinesDialog(agent, tripId, inst, allLines, setSubtitle) {
+        const dlg = document.getElementById('sa-all-lines-dlg');
+        if (!dlg) return;
 
-            const isCancellable = (status) => {
-                const s = (status || '').toUpperCase();
-                return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION');
-            };
+        const isCancellable = (status) => {
+            const s = (status || '').toUpperCase();
+            return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION');
+        };
 
-            // Group lines by order number
-            const orderMap = {};
-            for (const line of allLines) {
-                const orderNum = line.SOURCE_ORDER_NUMBER || line.source_order_number || '—';
-                if (!orderMap[orderNum]) orderMap[orderNum] = [];
-                orderMap[orderNum].push(line);
-            }
+        const cancelUrl = (orderNumber) =>
+            `${APEX_BASE}/trip/orders/cancelscheduledlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${inst}`;
 
-            const orders      = Object.keys(orderMap).sort();
-            const flaggedLines = allLines.filter(l => isCancellable(l.STATUS || l.status));
-            const cancelUrl   = (orderNumber) =>
-                `${APEX_BASE}/trip/orders/cancelscheduledlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${inst}`;
+        // Group lines by order number
+        const orderMap = {};
+        for (const line of allLines) {
+            const orderNum = line.SOURCE_ORDER_NUMBER || line.source_order_number || '—';
+            if (!orderMap[orderNum]) orderMap[orderNum] = [];
+            orderMap[orderNum].push(line);
+        }
+        const orders       = Object.keys(orderMap).sort();
+        const flaggedLines  = allLines.filter(l => isCancellable(l.STATUS || l.status));
+        const totalFlagged  = flaggedLines.length;
 
-            // Build order sections
-            const orderSections = orders.map(orderNum => {
-                const lines = orderMap[orderNum];
+        // Update subtitle
+        if (setSubtitle) setSubtitle(`${orders.length} order(s) · ${allLines.length} line(s)${totalFlagged > 0 ? ` · ⚠ ${totalFlagged} flagged` : ' · nothing to cancel'}`);
+
+        // Update dialog border colour
+        const inner = dlg.querySelector('div');
+        if (inner) inner.style.borderColor = totalFlagged > 0 ? '#b91c1c' : '#334155';
+
+        // Build order sections HTML
+        const orderSections = orders.length === 0
+            ? `<div style="text-align:center;padding:2rem;color:#64748b;font-size:12px;"><i class="fas fa-inbox" style="font-size:24px;margin-bottom:0.5rem;display:block;"></i>No order lines found for this trip.</div>`
+            : orders.map(orderNum => {
+                const lines     = orderMap[orderNum];
                 const hasFlagged = lines.some(l => isCancellable(l.STATUS || l.status));
+                const flaggedCnt = lines.filter(l => isCancellable(l.STATUS || l.status)).length;
 
                 const lineRows = lines.map(l => {
                     const status   = l.STATUS              || l.status              || '—';
@@ -1794,12 +1829,10 @@
                     const resQty   = l.RESERVED_QUANTITY   || l.reserved_quantity   || '—';
                     const fulfId   = l.FULFILL_LINE_ID     || l.fulfill_line_id     || '—';
                     const cancelSt = l.CANCEL_STATUS       || l.cancel_status       || '';
-
-                    const rowBg    = flagged ? 'background:rgba(220,38,38,0.10);' : '';
+                    const rowBg    = flagged ? 'background:rgba(220,38,38,0.12);' : '';
                     const statusBadge = flagged
                         ? `<span style="background:#7f1d1d;color:#fca5a5;padding:1px 6px;border-radius:4px;font-size:9px;white-space:nowrap;">⚠ ${esc(status)}</span>`
                         : `<span style="background:#1e293b;color:#94a3b8;padding:1px 6px;border-radius:4px;font-size:9px;white-space:nowrap;">${esc(status)}</span>`;
-
                     return `<tr style="border-bottom:1px solid #1e293b;${rowBg}">
                         <td style="padding:4px 6px;color:${flagged?'#f87171':'#f59e0b'};font-size:10px;font-weight:${flagged?'700':'400'};">${esc(String(lineNum))}</td>
                         <td style="padding:4px 6px;font-size:10px;">${esc(String(item))}</td>
@@ -1812,17 +1845,16 @@
                     </tr>`;
                 }).join('');
 
-                const orderHeaderBg  = hasFlagged ? 'background:linear-gradient(90deg,#450a0a,#0f172a);' : 'background:#0f172a;';
-                const flaggedCount   = lines.filter(l => isCancellable(l.STATUS || l.status)).length;
-                const flaggedBadge   = hasFlagged
-                    ? `<span style="background:#dc2626;color:white;padding:1px 7px;border-radius:10px;font-size:9px;margin-left:6px;">⚠ ${flaggedCount} to cancel</span>`
+                const headerBg   = hasFlagged ? 'background:linear-gradient(90deg,#450a0a,#0f172a);' : 'background:#0f172a;';
+                const countBadge = hasFlagged
+                    ? `<span style="background:#dc2626;color:white;padding:1px 7px;border-radius:10px;font-size:9px;margin-left:6px;">⚠ ${flaggedCnt} to cancel</span>`
                     : `<span style="background:#1e293b;color:#64748b;padding:1px 7px;border-radius:10px;font-size:9px;margin-left:6px;">${lines.length} line(s)</span>`;
 
                 return `<div style="margin-bottom:0.6rem;border:1px solid ${hasFlagged?'#b91c1c':'#1e293b'};border-radius:8px;overflow:hidden;">
-                    <div style="${orderHeaderBg}padding:0.35rem 0.75rem;display:flex;align-items:center;gap:0.5rem;">
+                    <div style="${headerBg}padding:0.35rem 0.75rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
                         <span style="font-weight:700;color:#a78bfa;font-size:11px;"><i class="fas fa-file-invoice"></i> ${esc(orderNum)}</span>
-                        ${flaggedBadge}
-                        ${hasFlagged ? `<span style="margin-left:auto;font-size:9px;color:#64748b;"><i class="fas fa-plug" style="color:#0e7490;"></i> ${esc(cancelUrl(orderNum))}</span>` : ''}
+                        ${countBadge}
+                        ${hasFlagged ? `<span style="margin-left:auto;font-size:9px;color:#475569;word-break:break-all;"><i class="fas fa-plug" style="color:#0e7490;"></i> ${esc(cancelUrl(orderNum))}</span>` : ''}
                     </div>
                     <table style="width:100%;border-collapse:collapse;background:#0a0f1e;">
                         <thead>
@@ -1842,104 +1874,77 @@
                 </div>`;
             }).join('');
 
-            const totalFlagged = flaggedLines.length;
-            const dlg = document.createElement('div');
-            dlg.id = 'sa-all-lines-dlg';
-            dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
-            dlg.innerHTML = `
-                <div style="background:#1e293b;border-radius:14px;width:860px;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 24px 80px rgba(0,0,0,0.6);overflow:hidden;border:2px solid ${totalFlagged>0?'#b91c1c':'#334155'};">
-                    <!-- Header -->
-                    <div style="padding:0.85rem 1.2rem;background:#0f172a;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
-                        <span style="font-size:18px;">${totalFlagged>0?'⚠️':'📋'}</span>
-                        <div>
-                            <div style="font-weight:800;font-size:13px;color:${totalFlagged>0?'#f87171':'#e2e8f0'};">
-                                Sales Order Lines — Trip ${esc(String(tripId))}
-                            </div>
-                            <div style="font-size:10px;color:#64748b;margin-top:2px;">
-                                ${orders.length} order(s) · ${allLines.length} total line(s)
-                                ${totalFlagged>0 ? `· <span style="color:#f87171;font-weight:700;">⚠ ${totalFlagged} flagged for cancellation</span>` : '· <span style="color:#22c55e;">No lines require cancellation</span>'}
-                            </div>
-                        </div>
-                        <button onclick="document.getElementById('sa-all-lines-dlg').remove()" style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
-                    </div>
-                    <!-- Legend -->
-                    ${totalFlagged>0 ? `<div style="padding:0.4rem 1.2rem;background:#1a0505;border-bottom:1px solid #7f1d1d;font-size:10px;color:#fca5a5;flex-shrink:0;">
-                        <i class="fas fa-exclamation-triangle" style="color:#dc2626;"></i>
-                        Rows highlighted in <strong style="color:#f87171;">red</strong> have status <strong>Scheduled</strong> or <strong>Manual Reservation Required</strong> and will be cancelled.
-                    </div>` : ''}
-                    <!-- Lines -->
-                    <div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;color:#e2e8f0;">
-                        ${orderSections}
-                    </div>
-                    <!-- Footer -->
-                    <div style="padding:0.65rem 1.2rem;border-top:1px solid #0f172a;display:flex;justify-content:space-between;align-items:center;background:#0f172a;flex-shrink:0;">
-                        <span style="font-size:10px;color:#64748b;">
-                            ${totalFlagged>0
-                                ? `<i class="fas fa-ban" style="color:#dc2626;"></i> ${totalFlagged} line(s) across ${Object.keys(orderMap).filter(o=>orderMap[o].some(l=>isCancellable(l.STATUS||l.status))).length} order(s) will be cancelled`
-                                : '<i class="fas fa-check-circle" style="color:#22c55e;"></i> Nothing to cancel'}
-                        </span>
-                        <div style="display:flex;gap:0.5rem;">
-                            <button onclick="document.getElementById('sa-all-lines-dlg').remove()"
-                                style="padding:0.4rem 1rem;border:1px solid #334155;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:600;color:#94a3b8;">
-                                Close
-                            </button>
-                            ${totalFlagged>0 ? `<button id="sa-all-lines-cancel-btn"
-                                style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#dc2626;cursor:pointer;font-size:12px;font-weight:700;color:white;">
-                                <i class="fas fa-ban"></i> Cancel ${totalFlagged} Flagged Line(s)
-                            </button>` : ''}
-                        </div>
-                    </div>
-                </div>`;
-            document.body.appendChild(dlg);
+        // Inject body
+        const body = document.getElementById('sa-all-lines-body');
+        if (body) {
+            body.style.display = '';
+            body.style.alignItems = '';
+            body.style.justifyContent = '';
+            body.style.minHeight = '';
+            body.innerHTML = totalFlagged > 0
+                ? `<div style="padding:0.4rem 0.75rem;background:#1a0505;border-bottom:1px solid #7f1d1d;font-size:10px;color:#fca5a5;flex-shrink:0;">
+                       <i class="fas fa-exclamation-triangle" style="color:#dc2626;"></i>
+                       Rows in <strong style="color:#f87171;">red</strong> have status <strong>Scheduled</strong> or <strong>Manual Reservation Required</strong> and will be cancelled.
+                   </div>
+                   <div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;">${orderSections}</div>`
+                : `<div style="overflow-y:auto;padding:0.75rem 1rem;flex:1;">${orderSections}</div>`;
+            body.style.display = 'flex';
+            body.style.flexDirection = 'column';
+            body.style.overflow = 'hidden';
+        }
 
-            if (totalFlagged === 0) { resolve(); return; }
+        // Update footer
+        const footer = document.getElementById('sa-all-lines-footer');
+        if (footer) {
+            const cancelOrders = orders.filter(o => orderMap[o].some(l => isCancellable(l.STATUS || l.status)));
+            footer.innerHTML = `
+                <span style="font-size:10px;color:#64748b;margin-right:auto;">
+                    ${totalFlagged > 0
+                        ? `<i class="fas fa-ban" style="color:#dc2626;"></i> ${totalFlagged} line(s) across ${cancelOrders.length} order(s) will be cancelled`
+                        : '<i class="fas fa-check-circle" style="color:#22c55e;"></i> Nothing to cancel'}
+                </span>
+                <button onclick="document.getElementById('sa-all-lines-dlg').remove()"
+                    style="padding:0.4rem 1rem;border:1px solid #334155;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:600;color:#94a3b8;margin-left:0.5rem;">
+                    Close
+                </button>
+                ${totalFlagged > 0 ? `<button id="sa-all-lines-cancel-btn"
+                    style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#dc2626;cursor:pointer;font-size:12px;font-weight:700;color:white;margin-left:0.5rem;">
+                    <i class="fas fa-ban"></i> Cancel ${totalFlagged} Flagged Line(s)
+                </button>` : ''}`;
 
-            // Build cancelGroups from flagged lines only
-            const cancelGroups = {};
-            for (const line of flaggedLines) {
-                const orderNum = line.SOURCE_ORDER_NUMBER || line.source_order_number || '—';
-                if (!cancelGroups[orderNum]) cancelGroups[orderNum] = [];
-                cancelGroups[orderNum].push(line);
-            }
-            const cancelOrders = Object.keys(cancelGroups).sort();
+            if (totalFlagged > 0) {
+                const cancelGroups = {};
+                for (const line of flaggedLines) {
+                    const on = line.SOURCE_ORDER_NUMBER || line.source_order_number || '—';
+                    if (!cancelGroups[on]) cancelGroups[on] = [];
+                    cancelGroups[on].push(line);
+                }
 
-            document.getElementById('sa-all-lines-cancel-btn').onclick = async () => {
-                const confirmBtn = document.getElementById('sa-all-lines-cancel-btn');
-                if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...'; }
-
-                let successCount = 0, failCount = 0;
-                for (const orderNumber of cancelOrders) {
-                    try {
-                        await new Promise((res, rej) => {
-                            sendMessageToCSharp({
-                                action  : 'executePost',
-                                fullUrl : cancelUrl(orderNumber),
-                                body    : '{}'
-                            }, (err, data) => err ? rej(new Error(err)) : res(data));
-                        });
-                        successCount++;
-                        const linesForOrder = cancelGroups[orderNumber].length;
-                        if (agent.ID) {
-                            await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS', linesForOrder,
-                                `Cancelled ${linesForOrder} Scheduled/Manual Reservations line(s)`, null, null);
-                        }
-                    } catch(e) {
-                        failCount++;
-                        if (agent.ID) {
-                            await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
+                document.getElementById('sa-all-lines-cancel-btn').onclick = async () => {
+                    const btn = document.getElementById('sa-all-lines-cancel-btn');
+                    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling…'; }
+                    let successCount = 0, failCount = 0;
+                    for (const orderNumber of cancelOrders) {
+                        try {
+                            await new Promise((res, rej) => {
+                                sendMessageToCSharp({ action: 'executePost', fullUrl: cancelUrl(orderNumber), body: '{}' },
+                                    (err, data) => err ? rej(new Error(err)) : res(data));
+                            });
+                            successCount++;
+                            if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS',
+                                cancelGroups[orderNumber].length,
+                                `Cancelled ${cancelGroups[orderNumber].length} Scheduled/Manual Reservations line(s)`, null, null);
+                        } catch(e) {
+                            failCount++;
+                            if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
                         }
                     }
-                }
-
-                document.getElementById('sa-all-lines-dlg')?.remove();
-                if (failCount === 0) {
-                    showNotification(`✅ Cancelled lines for ${successCount} order(s) successfully.`, 'success');
-                } else {
-                    showNotification(`⚠ Cancelled ${successCount} OK, ${failCount} failed — check console.`, 'warning');
-                }
-                resolve();
-            };
-        });
+                    document.getElementById('sa-all-lines-dlg')?.remove();
+                    if (failCount === 0) showNotification(`Cancelled lines for ${successCount} order(s) successfully.`, 'success');
+                    else showNotification(`Cancelled ${successCount} OK, ${failCount} failed.`, 'warning');
+                };
+            }
+        }
     }
 
     window.saShowShipmentLinesApiInfo = function(sampleOrderNumber, instanceName) {
