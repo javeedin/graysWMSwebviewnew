@@ -201,35 +201,44 @@ END;
 -- URI Bind:      :agentId (NUMBER), :tripId (VARCHAR2)
 -- ============================================================
 SELECT
-    id,
-    agent_id,
-    trip_id,
-    order_number,
-    instance_name,
-    account_name,
-    order_type,
-    order_status,
-    total_lines,
-    active_lines,
-    staged_lines,
-    interfaced_lines,
-    released_lines,
-    ready_lines,
-    cancelled_lines,
-    backorder_lines,
-    picked_count,
-    shipped_count,
-    total_qty,
-    staged_qty,
-    shipped_qty,
-    order_lines_count,
-    print_total,
-    print_printed,
-    last_fetched,
-    created_date
-FROM wms_shiping_agents_orders_status
-WHERE agent_id = :agentId
-  AND trip_id  = :tripId
+    s.id,
+    s.agent_id,
+    s.trip_id,
+    s.order_number,
+    s.instance_name,
+    s.account_name,
+    s.order_type,
+    s.order_status,
+    s.total_lines,
+    s.active_lines,
+    s.staged_lines,
+    s.interfaced_lines,
+    s.released_lines,
+    s.ready_lines,
+    s.cancelled_lines,
+    s.backorder_lines,
+    s.picked_count,
+    s.shipped_count,
+    s.total_qty,
+    s.staged_qty,
+    s.shipped_qty,
+    s.order_lines_count,
+    -- Live print counts joined from wms_print_jobs (always current)
+    NVL(pj.print_total,   0) AS print_total,
+    NVL(pj.print_printed, 0) AS print_printed,
+    s.last_fetched,
+    s.created_date
+FROM wms_shiping_agents_orders_status s
+LEFT JOIN (
+    SELECT
+        order_number,
+        COUNT(*)                                                        AS print_total,
+        COUNT(CASE WHEN UPPER(print_status) = 'PRINTED' THEN 1 END)   AS print_printed
+    FROM wms_print_jobs
+    GROUP BY order_number
+) pj ON pj.order_number = s.order_number
+WHERE s.agent_id = :agentId
+  AND s.trip_id  = :tripId
 ORDER BY order_number
 
 
