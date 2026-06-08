@@ -1300,6 +1300,8 @@ function loadData() {
     const fromDate = document.getElementById('fpDate').value;
     const instance = document.getElementById('fpInstance').value;
     if (!fromDate) { alert('Please select a date.'); return; }
+    // Clear print status cache so fresh data is fetched on next load
+    window._pvPrintCache = {};
 
     // Format date as DD-MM-YYYY for the API
     const d = new Date(fromDate);
@@ -1430,7 +1432,8 @@ function applyFilters() {
     updateSummary(rows, filteredOrders);
     if (viewMode === 'summary') { renderSummaryView(); return; }
     renderView(filteredOrders);
-    setTimeout(() => fetchAndInjectPrintStatus(), 50);
+    // Paint from cache only — no re-fetch (fetch happens once in handlePickersViewData)
+    setTimeout(() => paintAllFromCache(), 20);
 }
 
 function clearFilters() {
@@ -1684,7 +1687,7 @@ function sortGrid(col) {
     if (gridSortCol === col) gridSortAsc = !gridSortAsc;
     else { gridSortCol = col; gridSortAsc = true; }
     renderViewRaw(lastRenderedOrders);
-    setTimeout(() => fetchAndInjectPrintStatus(), 50);
+    setTimeout(() => paintAllFromCache(), 20);
 }
 
 // ── Export to Excel (ExcelJS — styled with progress bar) ─────────────────────
@@ -2090,40 +2093,36 @@ function buildOrderCard(o, showAll) {
     return div;
 }
 
-// ── PDF print-status injection ────────────────────────────────────────────────
-window._pvPrintCache = {};
+// ── PDF print-status — fetched once per Fetch Data click, cached forever ────────
+window._pvPrintCache = {};   // { orderNum: rows[] }  — null means "fetched, no record"
 
-// Promise wrapper: send executeGet via C# IPC (same pattern as shipping-agent apexGet)
+// Promise wrapper: executeGet via C# IPC
 function pvApexGet(path) {
     return new Promise((resolve, reject) => {
         if (!window.chrome || !window.chrome.webview) return reject(new Error('WebView2 not available'));
         const reqId = 'pv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
         const url = getApiBase() + '/' + path;
-        const timer = setTimeout(() => {
-            delete window.pendingRequests[reqId];
-            reject(new Error('timeout'));
-        }, 10000);
+        const timer = setTimeout(() => { delete window.pendingRequests[reqId]; reject(new Error('timeout')); }, 12000);
         if (!window.pendingRequests) window.pendingRequests = {};
         window.pendingRequests[reqId] = function(err, dataStr) {
             clearTimeout(timer);
             if (err) return reject(new Error(String(err)));
-            try {
-                // C# returns data as a JSON string inside msg.data — parse it
-                const parsed = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
-                resolve(parsed);
-            } catch(e) { reject(e); }
+            try { resolve(typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr); }
+            catch(e) { reject(e); }
         };
         window.chrome.webview.postMessage({ action: 'executeGet', requestId: reqId, fullUrl: url });
     });
 }
 
+// Paint a single order into whatever slots are currently in the DOM
 function paintPdfCard(orderNum, rows) {
-    // No record in DB — blank card, dash in grid
+    const esc = CSS.escape(orderNum);
+    const cardSlot = document.querySelector(`.card-pdf-status[data-order="${esc}"]`);
+    const gridCell = document.querySelector(`.grid-pdf-cell[data-order="${esc}"]`);
+
     if (!rows || !rows.length) {
-        const s = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
-        if (s) s.innerHTML = '';
-        const g = document.querySelector(`.grid-pdf-cell[data-order="${CSS.escape(orderNum)}"]`);
-        if (g) { g.style.color = '#cbd5e1'; g.style.fontSize = '0.75rem'; g.textContent = '—'; }
+        if (cardSlot) cardSlot.innerHTML = '';
+        if (gridCell) { gridCell.innerHTML = ''; gridCell.style.color = '#cbd5e1'; gridCell.style.fontSize = '0.75rem'; gridCell.textContent = '—'; }
         return;
     }
     const total   = rows.length;
@@ -2138,71 +2137,71 @@ function paintPdfCard(orderNum, rows) {
         color = '#d97706'; bg = '#fef3c7'; icon = 'fa-print'; lbl = `${printed}/${total} printed`;
         gridHtml = `<span style="color:#d97706;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
     } else if (overall.includes('DOWNLOAD') || overall.includes('COMPLETED')) {
-        color = '#2563eb'; bg = '#dbeafe'; icon = 'fa-check-circle'; lbl = `PDF Downloaded`;
+        color = '#2563eb'; bg = '#dbeafe'; icon = 'fa-check-circle'; lbl = 'PDF Downloaded';
         gridHtml = `<span style="color:#2563eb;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
     } else {
-        color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = `Not printed yet`;
+        color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = 'Not printed yet';
         gridHtml = `<span style="color:#6b7280;font-size:0.75rem;"><i class="fas fa-hourglass"></i> —</span>`;
     }
     const badge = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.45rem;font-weight:600;font-size:0.65rem;"><i class="fas ${icon}" style="font-size:0.6rem;"></i>${lbl}</span>`;
-    const cardSlot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
     if (cardSlot) cardSlot.innerHTML = badge;
-    const gridCell = document.querySelector(`.grid-pdf-cell[data-order="${CSS.escape(orderNum)}"]`);
     if (gridCell) gridCell.innerHTML = gridHtml;
 }
 
+// Paint all currently visible DOM elements from cache — no API calls
+function paintAllFromCache() {
+    const cache = window._pvPrintCache;
+    if (!Object.keys(cache).length) return;
+    document.querySelectorAll('[data-order-num]').forEach(el => {
+        const on = el.dataset.orderNum;
+        if (on && on in cache) paintPdfCard(on, cache[on]);
+    });
+}
+
+// Fetch print status for every visible order, store in cache, then paint.
+// Only called once after Fetch Data completes — never on view/filter switch.
 async function fetchAndInjectPrintStatus() {
-    // Collect from both card view and grid view
-    const cardEls = document.querySelectorAll('.order-card[data-order-num]');
-    const gridEls = document.querySelectorAll('tr[data-order-num]');
-    if (!cardEls.length && !gridEls.length) return;
+    const allEls = document.querySelectorAll('.order-card[data-order-num], tr[data-order-num]');
+    if (!allEls.length) return;
 
     const inst = (document.getElementById('fpInstance') || {}).value || 'PROD';
 
-    // Merge unique orders from both views
+    // Collect unique orders — skip any already cached
     const tripIds = new Set();
     const noTrip  = [];
     const seen    = new Set();
-    const allEls  = [...cardEls, ...gridEls];
     allEls.forEach(el => {
-        const orderNum = el.dataset.orderNum;
-        if (!orderNum || seen.has(orderNum)) return;
-        seen.add(orderNum);
+        const on  = el.dataset.orderNum;
         const tid = el.dataset.tripId;
+        if (!on || seen.has(on)) return;
+        seen.add(on);
+        if (on in window._pvPrintCache) return; // already have it
         if (tid) tripIds.add(tid);
-        else noTrip.push(orderNum);
+        else noTrip.push(on);
     });
 
-    // One call per trip → printjobs/trip/:tripId returns summary per order_number
-    // (columns: print_total, print_printed, overall_status)
-    // We synthesise fake "rows" so paintPdfCard can handle both sources uniformly
+    // Per-trip call (one call gets all orders for that trip)
     const tripPromises = [...tripIds].map(async tripId => {
         try {
             const data = await pvApexGet(`printjobs/trip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
             const rows = Array.isArray(data) ? data : (data.items || []);
             const byOrder = {};
             rows.forEach(r => {
-                const on = r.order_number || r.ORDER_NUMBER || '';
+                const on      = r.order_number || r.ORDER_NUMBER || '';
                 if (!on) return;
-                // Build synthetic rows array matching printjobs/order shape
                 const total   = Number(r.print_total   || r.PRINT_TOTAL   || 0);
                 const printed = Number(r.print_printed || r.PRINT_PRINTED || 0);
                 const overall = r.overall_status || r.OVERALL_STATUS || '';
                 byOrder[on] = Array.from({ length: total }, (_, i) => ({
-                    print_status:   i < printed ? 'PRINTED' : 'PENDING',
+                    print_status: i < printed ? 'PRINTED' : 'PENDING',
                     overall_status: overall
                 }));
             });
-            // Paint all cards + grid rows for this trip
-            [...seen].filter(on => {
-                const el = document.querySelector(`.order-card[data-trip-id="${tripId}"][data-order-num="${on}"]`)
-                        || document.querySelector(`tr[data-trip-id="${tripId}"][data-order-num="${on}"]`);
-                return !!el;
-            }).forEach(on => paintPdfCard(on, byOrder[on] || null));
-            // Also catch orders in this trip that came via allEls scan
+            // Store + paint every order in this trip
             document.querySelectorAll(`[data-trip-id="${tripId}"][data-order-num]`).forEach(el => {
                 const on = el.dataset.orderNum;
-                paintPdfCard(on, byOrder[on] || null);
+                window._pvPrintCache[on] = byOrder[on] || [];
+                paintPdfCard(on, window._pvPrintCache[on]);
             });
         } catch(e) {
             console.warn('[PrintStatus] trip fetch failed:', tripId, e);
@@ -2211,14 +2210,16 @@ async function fetchAndInjectPrintStatus() {
     await Promise.all(tripPromises);
 
     // Per-order calls for orders without a tripId
-    const orderPromises = noTrip.map(async orderNum => {
+    const orderPromises = noTrip.map(async on => {
         try {
-            const data = await pvApexGet(`printjobs/order/${encodeURIComponent(orderNum)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+            const data = await pvApexGet(`printjobs/order/${encodeURIComponent(on)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
             const rows = Array.isArray(data) ? data : (data.items || []);
-            paintPdfCard(orderNum, rows);
+            window._pvPrintCache[on] = rows;
+            paintPdfCard(on, rows);
         } catch(e) {
-            console.warn('[PrintStatus] order fetch failed:', orderNum, e);
-            paintPdfCard(orderNum, null);
+            console.warn('[PrintStatus] order fetch failed:', on, e);
+            window._pvPrintCache[on] = [];
+            paintPdfCard(on, []);
         }
     });
     await Promise.all(orderPromises);
