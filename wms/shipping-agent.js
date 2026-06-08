@@ -1158,10 +1158,11 @@
             // Build map and store in cache
             const map = {};
             rows.forEach(r => {
-                const on      = (r.ORDER_NUMBER || r.order_number || '').toString().trim();
-                const total   = parseInt(r.PRINT_TOTAL   || r.print_total   || 0);
-                const printed = parseInt(r.PRINT_PRINTED || r.print_printed || 0);
-                if (on) map[on] = { total, printed };
+                const on       = (r.ORDER_NUMBER || r.order_number || '').toString().trim();
+                const total    = parseInt(r.PRINT_TOTAL   || r.print_total   || 0);
+                const printed  = parseInt(r.PRINT_PRINTED || r.print_printed || 0);
+                const filePath = r.FILE_PATH || r.file_path || r.LAST_FILE_PATH || r.last_file_path || '';
+                if (on) map[on] = { total, printed, filePath };
             });
             window._saPrintCache[tripId] = map;
 
@@ -3076,7 +3077,8 @@
         return chip('Interfaced',  done(kpi.interfaced,kpi.total) ? '✓ '+kpi.total : `${kpi.interfaced}/${kpi.total}`, done(kpi.interfaced,kpi.total)?'#4ade80':'#f59e0b')
              + chip('Downloaded', done(kpi.printed,kpi.total)    ? '✓ '+kpi.total : `${kpi.printed}/${kpi.total}`,    done(kpi.printed,kpi.total)?'#4ade80':'#94a3b8')
              + chip('Ifc Lines', done(kpi.ifcLines,kpi.totalLines) ? '✓ '+kpi.totalLines : `${kpi.ifcLines}/${kpi.totalLines}`, done(kpi.ifcLines,kpi.totalLines)?'#4ade80':'#38bdf8')
-             + chip('To Cancel', `${kpi.toCancel}`, kpi.toCancel>0?'#f87171':'#4ade80');
+             + chip('To Cancel', `${kpi.toCancel}`, kpi.toCancel>0?'#f87171':'#4ade80')
+             + chip('Cancelled', `${kpi.autoCancelled||0}`, (kpi.autoCancelled||0)>0?'#fb923c':'#475569');
     }
 
     function saCpComputeKpi(tripId) {
@@ -3113,10 +3115,11 @@
         // If no orders in DOM yet but cache has data, use cache length as total
         const printTotal = Object.keys(printMap).length;
         const printPrinted = Object.values(printMap).filter(v => v.total > 0).length;
+        const autoCancelled = (window._saCancelledLines && window._saCancelledLines[tripId]) || 0;
         if (total === 0 && printTotal > 0) {
-            return { total: printTotal, interfaced: 0, printed: printPrinted, ifcLines: 0, totalLines: 0, toCancel: 0 };
+            return { total: printTotal, interfaced: 0, printed: printPrinted, ifcLines: 0, totalLines: 0, toCancel: 0, autoCancelled };
         }
-        return { total, interfaced, printed, ifcLines, totalLines, toCancel };
+        return { total, interfaced, printed, ifcLines, totalLines, toCancel, autoCancelled };
     }
 
     window.saToggleTripPause = function(tripId) {
@@ -3446,7 +3449,7 @@
         // ── Collect per-trip data ───────────────────────────────────────────────
         const reportTrips = [];
         let grandOrders = 0, grandInterfaced = 0, grandPrinted = 0;
-        let grandIfcLines = 0, grandTotalLines = 0, grandToCancel = 0;
+        let grandIfcLines = 0, grandTotalLines = 0, grandToCancel = 0, grandCancelled = 0;
         const customerSet = new Set();
 
         // If no trips in _saAgentTrips, try to collect from all visible trip containers
@@ -3464,6 +3467,7 @@
             grandIfcLines   += kpi.ifcLines;
             grandTotalLines += kpi.totalLines;
             grandToCancel   += kpi.toCancel;
+            grandCancelled  += kpi.autoCancelled || 0;
 
             // ── Collect order rows from DOM ────────────────────────────────────
             const container = document.getElementById(`sa-trip-orders-${t.TRIP_ID}`);
@@ -3536,7 +3540,8 @@
                 { lbl:'Interfaced',  val: kpi.interfaced,  col:'#059669', bg:'#d1fae5' },
                 { lbl:'PDFs',        val: kpi.printed,     col:'#2563eb', bg:'#dbeafe' },
                 { lbl:'Lines IFC',   val:`${kpi.ifcLines}/${kpi.totalLines}`, col:'#0891b2', bg:'#cffafe' },
-                { lbl:'To Cancel',   val: kpi.toCancel,    col: kpi.toCancel>0?'#dc2626':'#6b7280', bg: kpi.toCancel>0?'#fee2e2':'#f1f5f9' },
+                { lbl:'To Cancel',   val: kpi.toCancel,       col: kpi.toCancel>0?'#dc2626':'#6b7280',        bg: kpi.toCancel>0?'#fee2e2':'#f1f5f9' },
+                { lbl:'Auto-Cancelled', val: kpi.autoCancelled||0, col: (kpi.autoCancelled||0)>0?'#ea580c':'#6b7280', bg: (kpi.autoCancelled||0)>0?'#ffedd5':'#f1f5f9' },
             ].map(k => `<div style="background:${k.bg};border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;">
                 <div style="font-size:18px;font-weight:800;color:${k.col};">${k.val}</div>
                 <div style="font-size:9px;color:#64748b;font-weight:600;margin-top:2px;">${k.lbl}</div>
@@ -3577,8 +3582,9 @@
             { icon:'✅', lbl:'Interfaced Orders', val: grandInterfaced,     col:'#059669', bg:'#d1fae5' },
             { icon:'🖨️', lbl:'PDFs Downloaded',   val: grandPrinted,        col:'#2563eb', bg:'#dbeafe' },
             { icon:'📋', lbl:'Lines Interfaced',  val: `${grandIfcLines}/${grandTotalLines}`, col:'#0369a1', bg:'#e0f2fe' },
-            { icon:'❌', lbl:'Lines to Cancel',   val: grandToCancel,       col: grandToCancel>0?'#dc2626':'#6b7280', bg: grandToCancel>0?'#fee2e2':'#f1f5f9' },
-            { icon:'🔄', lbl:'Refreshes Done',    val: tickCount,           col:'#d97706', bg:'#fef3c7' },
+            { icon:'❌', lbl:'Lines to Cancel',   val: grandToCancel,    col: grandToCancel>0?'#dc2626':'#6b7280',   bg: grandToCancel>0?'#fee2e2':'#f1f5f9' },
+            { icon:'🚫', lbl:'Auto-Cancelled',   val: grandCancelled,   col: grandCancelled>0?'#ea580c':'#6b7280',  bg: grandCancelled>0?'#ffedd5':'#f1f5f9' },
+            { icon:'🔄', lbl:'Refreshes Done',   val: tickCount,        col:'#d97706', bg:'#fef3c7' },
         ].map(k => `
             <div style="background:${k.bg};border-radius:12px;padding:14px 16px;text-align:center;flex:1;min-width:100px;">
                 <div style="font-size:22px;margin-bottom:4px;">${k.icon}</div>
@@ -3604,10 +3610,13 @@
 </head>
 <body style="padding:30px 36px;max-width:1000px;margin:0 auto;">
 
-  <!-- Print Button -->
-  <div class="no-print" style="text-align:right;margin-bottom:20px;">
+  <!-- Toolbar -->
+  <div class="no-print" style="text-align:right;margin-bottom:20px;display:flex;justify-content:flex-end;gap:10px;">
     <button onclick="window.print()" style="background:#4f46e5;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
       🖨️ Print / Save as PDF
+    </button>
+    <button onclick="window.close()" style="background:#dc2626;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+      ✕ Close
     </button>
   </div>
 
@@ -3755,12 +3764,61 @@
 
         const totalToCancel = Object.values(cancelGroups).reduce((s, arr) => s + arr.length, 0);
         if (totalToCancel > 0) {
-            saConsoleLog(`Task 2 ⚠ ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) require cancellation — opening review dialog`, 'warn');
+            saConsoleLog(`Task 2 ⚠ ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) — auto-cancelling now`, 'warn');
+            saCpSetTask(`Task 2: Auto-cancelling ${totalToCancel} line(s) — Trip ${tripId}`);
             await saLogNotification(agent.ID, tripId, null, 'ANOMALY',
-                `Trip ${tripId}: ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) need cancellation`, 'WARN');
-            // Show review dialog — user confirms before cancellation runs
-            saCpSetTask(`Task 2: ⚠ ${totalToCancel} line(s) need cancellation — review dialog open`);
-            await saShowCancelReviewDialog(agent, tripId, instance, cancelGroups);
+                `Trip ${tripId}: ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) — auto-cancelling`, 'WARN');
+
+            const isProd     = (instance || '').toUpperCase() !== 'TEST';
+            const fusionBase = isProd ? 'https://efmh.fa.em3.oraclecloud.com' : 'https://efmh-test.fa.em3.oraclecloud.com';
+            const cancelUrl  = (orderNum) => `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:${encodeURIComponent(orderNum)}`;
+            const cancelBody = (lines) => ({
+                lines: lines.map(l => ({
+                    FulfillLineId   : l.FULFILL_LINE_ID || l.fulfill_line_id || null,
+                    OrderedQuantity : 0,
+                    CancelReason    : 'OUT OF STOCK'
+                }))
+            });
+
+            let autoCancelled = 0;
+            for (const orderNum of Object.keys(cancelGroups)) {
+                const lines = cancelGroups[orderNum];
+                saCpSetTask(`Task 2: Cancelling ${lines.length} line(s) for ${orderNum}`);
+                saConsoleLog(`Task 2   Cancelling ${lines.length} line(s) for order ${orderNum} …`, 'info');
+                try {
+                    await new Promise((res, rej) => {
+                        sendMessageToCSharp({
+                            action  : 'executeOracleFusionPatch',
+                            fullUrl : cancelUrl(orderNum),
+                            body    : JSON.stringify(cancelBody(lines)),
+                            instance: instance
+                        }, (err, data) => err ? rej(new Error(String(err))) : res(data));
+                    });
+                    autoCancelled += lines.length;
+                    saConsoleLog(`Task 2 ✓ Order ${orderNum}: ${lines.length} line(s) cancelled successfully`, 'success');
+                    await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'SUCCESS', lines.length,
+                        `Auto-cancelled ${lines.length} line(s) via Fusion PATCH`, null, null);
+                    // Update the KPI cancelled counter in DOM
+                    if (!window._saCancelledLines) window._saCancelledLines = {};
+                    window._saCancelledLines[tripId] = (window._saCancelledLines[tripId] || 0) + lines.length;
+                    // Update the backorder/cancel cell in the order row
+                    const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNum}`);
+                    if (rowEl) {
+                        const cancelCell = rowEl.querySelector('[data-col="cancel"]');
+                        if (cancelCell) cancelCell.innerHTML = `<span style="background:#fef9c3;color:#a16207;padding:1px 5px;border-radius:4px;font-size:9px;font-weight:700;" title="Auto-cancelled by agent">${lines.length} ✓</span>`;
+                    }
+                } catch(e) {
+                    saConsoleLog(`Task 2 ✗ Order ${orderNum}: cancel failed — ${e.message}`, 'error');
+                    await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', 1, e.message, null, null);
+                }
+            }
+            if (autoCancelled > 0) {
+                saConsoleLog(`Task 2 ✓ Auto-cancelled ${autoCancelled} line(s) for trip ${tripId}`, 'success');
+                showNotification(`Auto-cancelled ${autoCancelled} line(s) for trip ${tripId}.`, 'success');
+                // Refresh KPI panel
+                const kpiEl = document.getElementById(`sa-cp-kpi-${tripId}`);
+                if (kpiEl) kpiEl.innerHTML = saRenderCpKpis(saCpComputeKpi(tripId));
+            }
         } else {
             saConsoleLog(`Task 2 ✓ No lines requiring cancellation found`, 'success');
         }
