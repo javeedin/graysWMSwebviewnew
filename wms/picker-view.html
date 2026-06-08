@@ -1667,7 +1667,7 @@ function renderGridView(area, orders) {
                 </div>
             </td>
             <td><span class="gt-badge ${statusCls[o.pickStatus]||'gt-none'}">${statusLbl[o.pickStatus]||'Pending'}</span></td>
-            <td class="grid-pdf-cell" data-order="${o.orderNum}"></td>
+            <td class="grid-pdf-cell" data-order="${o.orderNum}" style="color:#94a3b8;font-size:0.7rem;">…</td>
         </tr>`).join('');
 
     area.innerHTML = `
@@ -1684,6 +1684,7 @@ function sortGrid(col) {
     if (gridSortCol === col) gridSortAsc = !gridSortAsc;
     else { gridSortCol = col; gridSortAsc = true; }
     renderViewRaw(lastRenderedOrders);
+    setTimeout(() => fetchAndInjectPrintStatus(), 50);
 }
 
 // ── Export to Excel (ExcelJS — styled with progress bar) ─────────────────────
@@ -2117,12 +2118,12 @@ function pvApexGet(path) {
 }
 
 function paintPdfCard(orderNum, rows) {
-    // No record in DB — clear both card slot and grid cell
+    // No record in DB — blank card, dash in grid
     if (!rows || !rows.length) {
         const s = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
         if (s) s.innerHTML = '';
         const g = document.querySelector(`.grid-pdf-cell[data-order="${CSS.escape(orderNum)}"]`);
-        if (g) g.innerHTML = '';
+        if (g) { g.style.color = '#cbd5e1'; g.style.fontSize = '0.75rem'; g.textContent = '—'; }
         return;
     }
     const total   = rows.length;
