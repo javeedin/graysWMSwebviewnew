@@ -3615,7 +3615,7 @@
     <button onclick="window.print()" style="background:#4f46e5;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
       🖨️ Print / Save as PDF
     </button>
-    <button onclick="window.close()" style="background:#dc2626;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+    <button onclick="document.getElementById('sa-report-overlay').remove()" style="background:#dc2626;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
       ✕ Close
     </button>
   </div>
@@ -3677,21 +3677,29 @@
 </body>
 </html>`;
 
-        // Use Blob URL — more reliable in WebView2 than document.write
-        try {
-            const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-            const url  = URL.createObjectURL(blob);
-            const win  = window.open(url, '_blank', 'width=1050,height=800');
-            if (!win) {
-                // Fallback: navigate current window if popup blocked
-                const a = document.createElement('a');
-                a.href = url; a.target = '_blank'; a.click();
+        // Render report as full-screen overlay inside current page
+        // (avoids WebView2 blob:null restriction with window.open)
+        document.getElementById('sa-report-overlay')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'sa-report-overlay';
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:999999;background:#f8fafc;overflow-y:auto;';
+        // Extract just the <body> content from the HTML string and inject it
+        const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+        const bodyContent = bodyMatch ? bodyMatch[1] : html;
+        // Add print styles inline
+        const styleEl = document.createElement('style');
+        styleEl.textContent = `
+            #sa-report-overlay * { box-sizing:border-box; }
+            @media print {
+                body > *:not(#sa-report-overlay) { display:none !important; }
+                #sa-report-overlay { position:static !important; overflow:visible !important; }
+                .no-print { display:none !important; }
             }
-            setTimeout(() => URL.revokeObjectURL(url), 60000);
-        } catch(e) {
-            console.error('[Report] Failed to open report:', e);
-            alert('Could not open report: ' + e.message);
-        }
+        `;
+        document.head.appendChild(styleEl);
+        overlay.innerHTML = `<div style="padding:30px 36px;max-width:1000px;margin:0 auto;">${bodyContent}</div>`;
+        document.body.appendChild(overlay);
+        overlay.scrollTop = 0;
     };
 
     async function saProcessTripTick(agent, trip, instance, cfg) {
