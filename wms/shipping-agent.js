@@ -3431,6 +3431,8 @@
         const startTime  = stats.startTime ? new Date(stats.startTime) : null;
         const tickCount  = stats.tickCount  || 0;
 
+        console.log('[Report] agent=', agent.ID, agent.NAME, 'trips=', trips.length, 'stats=', stats);
+
         const fmtDt  = d => d ? d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '—';
         const fmtDur = (s, e) => {
             if (!s || !e) return '—';
@@ -3447,10 +3449,15 @@
         let grandIfcLines = 0, grandTotalLines = 0, grandToCancel = 0;
         const customerSet = new Set();
 
-        for (const t of trips) {
+        // If no trips in _saAgentTrips, try to collect from all visible trip containers
+        const tripsToProcess = trips.length > 0 ? trips : [];
+        console.log('[Report] tripsToProcess=', tripsToProcess.map(t => t.TRIP_ID));
+
+        for (const t of tripsToProcess) {
             const cfg  = runCfg[t.TRIP_ID] || { enabled:true };
-            if (!cfg.enabled) continue;
+            if (!cfg.enabled) { console.log('[Report] trip', t.TRIP_ID, 'disabled, skipping'); continue; }
             const kpi  = saCpComputeKpi(t.TRIP_ID);
+            console.log('[Report] trip', t.TRIP_ID, 'kpi=', kpi);
             grandOrders     += kpi.total;
             grandInterfaced += kpi.interfaced;
             grandPrinted    += kpi.printed;
@@ -3460,7 +3467,9 @@
 
             // ── Collect order rows from DOM ────────────────────────────────────
             const container = document.getElementById(`sa-trip-orders-${t.TRIP_ID}`);
+            console.log('[Report] container for trip', t.TRIP_ID, '=', container ? 'found' : 'NOT FOUND');
             const orderRows = container ? Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]')) : [];
+            console.log('[Report] orderRows count=', orderRows.length);
             const orders = orderRows.map(row => {
                 const dc = (col) => (row.querySelector(`[data-col="${col}"]`)?.textContent || '').trim();
                 const orderNum  = (row.id.split(`sa-order-row-${t.TRIP_ID}-`)[1] || '');
@@ -3659,11 +3668,21 @@
 </body>
 </html>`;
 
-        const win = window.open('', '_blank', 'width=1050,height=800');
-        if (!win) { alert('Popup blocked — please allow popups for this page.'); return; }
-        win.document.write(html);
-        win.document.close();
-        win.focus();
+        // Use Blob URL — more reliable in WebView2 than document.write
+        try {
+            const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+            const url  = URL.createObjectURL(blob);
+            const win  = window.open(url, '_blank', 'width=1050,height=800');
+            if (!win) {
+                // Fallback: navigate current window if popup blocked
+                const a = document.createElement('a');
+                a.href = url; a.target = '_blank'; a.click();
+            }
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch(e) {
+            console.error('[Report] Failed to open report:', e);
+            alert('Could not open report: ' + e.message);
+        }
     };
 
     async function saProcessTripTick(agent, trip, instance, cfg) {
