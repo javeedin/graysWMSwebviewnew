@@ -2081,9 +2081,7 @@ function buildOrderCard(o, showAll) {
             ${priLbl ? `<div class="card-meta-row"><i class="fas fa-flag" style="color:var(--rose,#f43f5e);"></i><span><span class="pri-badge ${priCls}">P${priLbl}</span></span></div>` : ''}
             <div class="card-meta-row"><i class="fas fa-layer-group" style="color:var(--slate-400);"></i><span>${o.items.length} item lines</span></div>
         </div>
-        <div class="card-pdf-status" data-order="${o.orderNum}" style="margin-top:0.4rem;font-size:0.68rem;">
-            <span style="color:var(--slate-400,#94a3b8);"><i class="fas fa-circle-notch fa-spin" style="margin-right:0.25rem;"></i>Loading PDF status…</span>
-        </div>
+        <div class="card-pdf-status" data-order="${o.orderNum}" style="margin-top:0.4rem;min-height:1rem;"></div>
     `;
     return div;
 }
@@ -2091,69 +2089,51 @@ function buildOrderCard(o, showAll) {
 // ── PDF print-status injection ────────────────────────────────────────────────
 window._pvPrintCache = {};
 
-// Promise wrapper: send getPrintJobs via C# IPC, resolve on printJobsResponse callback
-function getPrintJobsViaIPC(tripId, startDate) {
+// Promise wrapper: send executeGet via C# IPC (same pattern as shipping-agent apexGet)
+function pvApexGet(path) {
     return new Promise((resolve, reject) => {
-        const reqId = 'pv-pj-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        if (!window.chrome || !window.chrome.webview) return reject(new Error('WebView2 not available'));
+        const reqId = 'pv-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        const url = getApiBase() + '/' + path;
         const timer = setTimeout(() => {
-            delete window._pvPrintCallbacks[reqId];
-            resolve({ jobs: [], stats: {} }); // timeout = treat as no jobs
-        }, 8000);
-        if (!window._pvPrintCallbacks) window._pvPrintCallbacks = {};
-        window._pvPrintCallbacks[reqId] = function(data) {
+            delete window.pendingRequests[reqId];
+            reject(new Error('timeout'));
+        }, 10000);
+        if (!window.pendingRequests) window.pendingRequests = {};
+        window.pendingRequests[reqId] = function(err, dataStr) {
             clearTimeout(timer);
-            delete window._pvPrintCallbacks[reqId];
-            resolve(data || { jobs: [], stats: {} });
+            delete window.pendingRequests[reqId];
+            if (err) return reject(new Error(String(err)));
+            try { resolve(typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr); }
+            catch(e) { reject(e); }
         };
-        window.chrome.webview.postMessage({
-            action:    'getPrintJobs',
-            requestId: reqId,
-            tripId:    tripId || null,
-            startDate: startDate || null
-        });
+        window.chrome.webview.postMessage({ action: 'executeGet', requestId: reqId, fullUrl: url });
     });
 }
 
-// Route printJobsResponse back to the right promise
-(function() {
-    const _orig = window.handlePrintJobsResponse;
-    window.handlePrintJobsResponse = function(data) {
-        if (_orig) _orig(data);
-        if (!window._pvPrintCallbacks) return;
-        const reqId = data && data.requestId;
-        if (reqId && window._pvPrintCallbacks[reqId]) {
-            window._pvPrintCallbacks[reqId](data.data || data);
-        }
-    };
-})();
-
-function paintPdfCard(orderNum, jobs) {
+function paintPdfCard(orderNum, rows) {
     const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
     if (!slot) return;
-    if (!jobs || !jobs.length) {
-        slot.innerHTML = `<span style="color:var(--slate-300,#cbd5e1);font-size:0.65rem;"><i class="fas fa-file-pdf" style="margin-right:0.2rem;"></i>No PDF jobs</span>`;
+    // rows = items from printjobs/order/:orderNumber or null if no record
+    if (!rows || !rows.length) {
+        slot.innerHTML = ''; // no record in DB — show nothing
         return;
     }
-    // downloadStatus: 0=Pending, 1=Downloading, 2=Completed/Downloaded, 3=Failed
-    const total      = jobs.length;
-    const downloaded = jobs.filter(j => {
-        const ds = j.downloadStatus !== undefined ? j.downloadStatus : (j.DownloadStatus !== undefined ? j.DownloadStatus : -1);
-        return ds === 2 || ds === 'Completed' || ds === 'Downloaded';
-    }).length;
-    const failed = jobs.filter(j => {
-        const ds = j.downloadStatus !== undefined ? j.downloadStatus : (j.DownloadStatus !== undefined ? j.DownloadStatus : -1);
-        return ds === 3 || ds === 'Failed';
-    }).length;
+    const total   = rows.length;
+    // print_status column from DB: 'PRINTED', 'PENDING', etc.
+    const printed = rows.filter(r => (r.print_status || r.PRINT_STATUS || '').toString().toUpperCase() === 'PRINTED').length;
+    // overall_status from DB
+    const overall = (rows[0].overall_status || rows[0].OVERALL_STATUS || '').toString().toUpperCase();
 
     let color, bg, icon, lbl;
-    if (downloaded >= total) {
-        color = '#059669'; bg = '#d1fae5'; icon = 'fa-check-circle'; lbl = `PDF Downloaded (${total})`;
-    } else if (downloaded > 0) {
-        color = '#d97706'; bg = '#fef3c7'; icon = 'fa-download'; lbl = `${downloaded}/${total} downloaded`;
-    } else if (failed > 0) {
-        color = '#dc2626'; bg = '#fee2e2'; icon = 'fa-times-circle'; lbl = `Download failed`;
+    if (printed >= total) {
+        color = '#059669'; bg = '#d1fae5'; icon = 'fa-print'; lbl = `Printed (${total})`;
+    } else if (printed > 0) {
+        color = '#d97706'; bg = '#fef3c7'; icon = 'fa-print'; lbl = `${printed}/${total} printed`;
+    } else if (overall.includes('DOWNLOAD') || overall.includes('COMPLETED')) {
+        color = '#2563eb'; bg = '#dbeafe'; icon = 'fa-check-circle'; lbl = `PDF Downloaded`;
     } else {
-        color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = `${total} job${total>1?'s':''} – pending`;
+        color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = `Not printed yet`;
     }
     slot.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.45rem;font-weight:600;font-size:0.65rem;">
         <i class="fas ${icon}" style="font-size:0.6rem;"></i>${lbl}
@@ -2164,62 +2144,73 @@ async function fetchAndInjectPrintStatus() {
     const cards = document.querySelectorAll('.order-card[data-order-num]');
     if (!cards.length) return;
 
-    // Collect unique trip IDs and orders without trip
-    const tripIds  = new Set();
-    const noTrip   = [];
+    const inst = (document.getElementById('fpInstance') || {}).value || 'PROD';
+
+    // Collect unique trip IDs; also note orders without tripId
+    const tripIds = new Set();
+    const noTrip  = [];
     cards.forEach(card => {
         const tid = card.dataset.tripId;
         if (tid) tripIds.add(tid);
         else noTrip.push(card.dataset.orderNum);
     });
 
-    // Fetch per unique trip via C# IPC (reads local C:\fusion\ files)
+    // One call per trip → printjobs/trip/:tripId returns summary rows per order_number
     const tripPromises = [...tripIds].map(async tripId => {
         try {
-            const result = await getPrintJobsViaIPC(tripId, null);
-            const jobs = result.jobs || result || [];
-            // Group by orderNumber
+            const data = await pvApexGet(`printjobs/trip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+            const rows = Array.isArray(data) ? data : (data.items || []);
+            // Build map: order_number → { print_total, print_printed, overall_status }
             const byOrder = {};
-            jobs.forEach(j => {
-                const on = j.orderNumber || j.OrderNumber || '';
-                if (on) { if (!byOrder[on]) byOrder[on] = []; byOrder[on].push(j); }
+            rows.forEach(r => {
+                const on = r.order_number || r.ORDER_NUMBER || '';
+                if (on) byOrder[on] = r;
             });
-            // Paint all cards for this trip
             document.querySelectorAll(`.order-card[data-trip-id="${tripId}"]`).forEach(card => {
                 const orderNum = card.dataset.orderNum;
-                const orderJobs = byOrder[orderNum] || [];
-                window._pvPrintCache[orderNum] = orderJobs;
-                paintPdfCard(orderNum, orderJobs);
+                const rec = byOrder[orderNum];
+                const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
+                if (!slot) return;
+                if (!rec) { slot.innerHTML = ''; return; } // no DB record
+                const total   = Number(rec.print_total   || rec.PRINT_TOTAL   || 0);
+                const printed = Number(rec.print_printed || rec.PRINT_PRINTED || 0);
+                const overall = (rec.overall_status || rec.OVERALL_STATUS || '').toString().toUpperCase();
+                let color, bg, icon, lbl;
+                if (total > 0 && printed >= total) {
+                    color = '#059669'; bg = '#d1fae5'; icon = 'fa-print'; lbl = `Printed (${total})`;
+                } else if (printed > 0) {
+                    color = '#d97706'; bg = '#fef3c7'; icon = 'fa-print'; lbl = `${printed}/${total} printed`;
+                } else if (overall.includes('DOWNLOAD') || overall.includes('COMPLETED')) {
+                    color = '#2563eb'; bg = '#dbeafe'; icon = 'fa-check-circle'; lbl = `PDF Downloaded`;
+                } else if (total > 0) {
+                    color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = `Not printed yet`;
+                } else {
+                    slot.innerHTML = ''; return;
+                }
+                slot.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.45rem;font-weight:600;font-size:0.65rem;">
+                    <i class="fas ${icon}" style="font-size:0.6rem;"></i>${lbl}
+                </span>`;
             });
         } catch(e) {
-            console.warn('[PrintStatus] trip IPC failed:', tripId, e);
+            console.warn('[PrintStatus] trip fetch failed:', tripId, e);
+            document.querySelectorAll(`.order-card[data-trip-id="${tripId}"] .card-pdf-status`).forEach(s => { s.innerHTML = ''; });
         }
     });
     await Promise.all(tripPromises);
 
-    // For orders with no tripId, also try IPC with no filter (gets all jobs then match)
-    if (noTrip.length) {
+    // Per-order calls for cards without a tripId
+    const orderPromises = noTrip.map(async orderNum => {
+        const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
         try {
-            const result = await getPrintJobsViaIPC(null, null);
-            const jobs = result.jobs || result || [];
-            const byOrder = {};
-            jobs.forEach(j => {
-                const on = j.orderNumber || j.OrderNumber || '';
-                if (on) { if (!byOrder[on]) byOrder[on] = []; byOrder[on].push(j); }
-            });
-            noTrip.forEach(orderNum => {
-                const orderJobs = byOrder[orderNum] || [];
-                window._pvPrintCache[orderNum] = orderJobs;
-                paintPdfCard(orderNum, orderJobs);
-            });
+            const data = await pvApexGet(`printjobs/order/${encodeURIComponent(orderNum)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+            const rows = Array.isArray(data) ? data : (data.items || []);
+            paintPdfCard(orderNum, rows);
         } catch(e) {
-            console.warn('[PrintStatus] no-trip IPC failed:', e);
-            noTrip.forEach(orderNum => {
-                const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
-                if (slot) slot.innerHTML = `<span style="color:var(--slate-300,#cbd5e1);font-size:0.65rem;"><i class="fas fa-exclamation-triangle" style="margin-right:0.2rem;"></i>Status unavailable</span>`;
-            });
+            console.warn('[PrintStatus] order fetch failed:', orderNum, e);
+            if (slot) slot.innerHTML = '';
         }
-    }
+    });
+    await Promise.all(orderPromises);
 }
 
 // ── Loading / Error helpers ───────────────────────────────────────────────────
@@ -2355,16 +2346,15 @@ function showError(msg) {
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function uniq(arr) { return [...new Set(arr)]; }
 
-// ── WebView2 message listener (receives claudeResponse / pickerAiSummaryResponse / printJobsResponse) ──
+// ── WebView2 message listener ──────────────────────────────────────────────────
 if (window.chrome && window.chrome.webview) {
     window.chrome.webview.addEventListener('message', function(evt) {
         try {
             const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
             if (msg.action === 'pickerAiSummaryResponse') {
                 handleAiSummaryResponse(msg);
-            } else if (msg.action === 'printJobsResponse') {
-                if (window.handlePrintJobsResponse) window.handlePrintJobsResponse(msg);
             }
+            // executeGet responses are routed via window.pendingRequests[requestId]
         } catch(e) { console.warn('[AiSummary] message parse error', e); }
     });
 }
