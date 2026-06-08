@@ -765,10 +765,8 @@
 
                     sc('status',    stBadge);
                     sc('staged',    stagedL > 0
-                        ? saBadge(`${stagedL}/${activeL}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
-                        : (ifcL > 0
-                            ? saBadge(`0/${activeL}`, '#f0fdf4', '#15803d', 'fa-check')
-                            : saBadge(`0/${activeL}`, '#f1f5f9', '#94a3b8', null)));
+                        ? saBadge(`${stagedL}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
+                        : saBadge('0', '#f1f5f9', '#94a3b8', null));
                     sc('picking',   activeL > 0 ? (pickedL === activeL ? saBadge(`${pickedL}/${activeL}`, '#dcfce7', '#15803d', 'fa-check') : saBadge(`${pickedL}/${activeL}`, '#fef9c3', '#a16207', 'fa-box')) : saBadge('N/A', '#f1f5f9', '#94a3b8', null));
                     sc('shipping',  activeL > 0 ? (shippedL === activeL ? saBadge(`${shippedL}/${activeL}`, '#dcfce7', '#15803d', 'fa-truck') : saBadge(`${shippedL}/${activeL}`, '#fef9c3', '#a16207', 'fa-truck')) : saBadge('N/A', '#f1f5f9', '#94a3b8', null));
                     sc('backorder', otherL > 0 ? saBadge(`${otherL}`, '#fef9c3', '#a16207', 'fa-exclamation-triangle') : saBadge('0', '#f0fdf4', '#15803d', null));
@@ -916,15 +914,10 @@
             else
                 orderStatusBadge = saBadge('Pending', '#f1f5f9', '#64748b', 'fa-clock');
 
-            // ── Staged column ──
-            // Show actual staged count; if 0 and order is interfaced/shipped show tick
+            // ── Staged column — count of lines currently in Staged state ──
             const stagedBadge = staged > 0
-                ? (staged === activeLines
-                    ? saBadge(`${staged}/${activeLines}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
-                    : saBadge(`${staged}/${activeLines}`, '#e0f2fe', '#0369a1', 'fa-layer-group'))
-                : (interfaced > 0 || cancelled === total
-                    ? saBadge(`0/${activeLines}`, '#f0fdf4', '#15803d', 'fa-check')
-                    : saBadge(`0/${activeLines}`, '#f1f5f9', '#94a3b8', null));
+                ? saBadge(`${staged}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
+                : saBadge('0', '#f1f5f9', '#94a3b8', null);
 
             // ── Picking: staged + interfaced = picked ──
             const pickedCount = staged + interfaced;
@@ -2366,11 +2359,7 @@
                     <div style="color:#94a3b8;font-size:9px;">${esc(o.ORDER_TYPE)} <span data-col="shipped-indicator"></span></div>
                 </td>
                 <td style="padding:6px 8px;text-align:center;" data-col="status">${spin}</td>
-                <td style="padding:6px 8px;text-align:center;" data-col="staged">${
-                    o.PICK_CONFIRM_ST
-                        ? saBadge(o.PICK_CONFIRM_ST, '#dbeafe', '#1d4ed8', 'fa-layer-group')
-                        : spin
-                }</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="staged">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="picking">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="shipping">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="backorder">${spin}</td>
