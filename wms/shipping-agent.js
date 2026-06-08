@@ -3072,13 +3072,17 @@
         const orderNumbers = [];
         if (container) {
             container.querySelectorAll('tr[id^="sa-order-row-"]').forEach(row => {
+                const st = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
+                // 'Cancelled' orders: all lines cancelled — exclude from every count
+                if (st === 'Cancelled' || st.toLowerCase() === 'cancelled') return;
                 total++;
-                const on  = row.id.replace(`sa-order-row-${tripId}-`, '');
+                const on = row.id.replace(`sa-order-row-${tripId}-`, '');
                 if (on) orderNumbers.push(on);
-                const st  = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
                 const ifc = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\d+/)?.[0] || 0);
                 const tl  = parseInt(row.querySelector('[data-col="shipping"]')?.textContent?.match(/\/(\d+)/)?.[1] || 0);
-                if ((st.includes('Interfaced') || st.includes('Shipped')) && !st.includes('/')) interfaced++;
+                // 'Order Status' = Oracle final state meaning fully interfaced; also count plain Interfaced/Shipped
+                const isInterfaced = st.includes('Interfaced') || st.includes('Shipped') || st === 'Order Status';
+                if (isInterfaced && !st.includes('/')) interfaced++;
                 ifcLines  += ifc;
                 totalLines += tl;
                 toCancel  += parseInt(row.querySelector('[data-col="backorder"]')?.textContent?.match(/\d+/)?.[0] || 0);
@@ -3168,13 +3172,17 @@
         saStopAgentLoop(agent.ID); // clear any existing
         const intervalMs = Math.max((overrideIntervalSeconds || agent.CHECK_INTERVAL_SECONDS || 300), 300) * 1000;
         agent.CHECK_INTERVAL_SECONDS = Math.round(intervalMs / 1000);
-        // Track start time and reset counters
+        // Track start time, reset counters and per-trip done flags
         if (!window._saAgentStats) window._saAgentStats = {};
         window._saAgentStats[agent.ID] = {
             startTime:  new Date(),
             tickCount:  0,
             retryCount: 0
         };
+        window._saTripDone = window._saTripDone || {};
+        // Clear done flags for this agent's trips so fresh run starts clean
+        const agentTrips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        agentTrips.forEach(t => { delete window._saTripDone[t.TRIP_ID]; });
         window._saLoops[agent.ID] = setInterval(() => {
             saAgentTick(agent); // saAgentTick calls saUpdateCpKpis internally
         }, intervalMs);
@@ -3213,9 +3221,39 @@
                 console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} is paused — skipping`);
                 continue;
             }
+            // Skip trips already marked fully complete — no point re-checking
+            if (window._saTripDone && window._saTripDone[trip.TRIP_ID]) {
+                console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} already done — skipping`);
+                continue;
+            }
             // Use trip's own instance name (PROD/TEST), fall back to agent's
             const instance = trip.INSTANCE_NAME || trip.instance_name || agent.INSTANCE_NAME || 'PROD';
             await saProcessTripTick(agent, trip, instance, cfg);
+
+            // After processing, check if all tasks for this trip are now complete
+            const kpi = saCpComputeKpi(trip.TRIP_ID);
+            const needPrint = cfg.task3 !== false;
+            const tripAllDone = kpi.total > 0
+                && kpi.interfaced >= kpi.total
+                && (!needPrint || kpi.printed >= kpi.total);
+            if (tripAllDone) {
+                window._saTripDone = window._saTripDone || {};
+                window._saTripDone[trip.TRIP_ID] = true;
+                console.log(`[ShippingAgent] ✅ Trip ${trip.TRIP_ID} fully complete — won't check again this session`);
+                // Show a visual indicator on the control panel trip header
+                const tripHeader = document.getElementById(`sa-cp-trip-${trip.TRIP_ID}`);
+                if (tripHeader) {
+                    const doneTag = tripHeader.querySelector('.sa-trip-done-tag');
+                    if (!doneTag) {
+                        const tag = document.createElement('span');
+                        tag.className = 'sa-trip-done-tag';
+                        tag.style.cssText = 'background:#059669;color:#fff;border-radius:4px;padding:1px 6px;font-size:9px;font-weight:700;margin-left:6px;';
+                        tag.textContent = '✓ Done';
+                        const nameEl = tripHeader.querySelector('span[style*="font-weight:700"]');
+                        if (nameEl) nameEl.appendChild(tag);
+                    }
+                }
+            }
         }
 
         await saUpdateCpKpis();
