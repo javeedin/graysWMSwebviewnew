@@ -3168,6 +3168,13 @@
         saStopAgentLoop(agent.ID); // clear any existing
         const intervalMs = Math.max((overrideIntervalSeconds || agent.CHECK_INTERVAL_SECONDS || 300), 300) * 1000;
         agent.CHECK_INTERVAL_SECONDS = Math.round(intervalMs / 1000);
+        // Track start time and reset counters
+        if (!window._saAgentStats) window._saAgentStats = {};
+        window._saAgentStats[agent.ID] = {
+            startTime:  new Date(),
+            tickCount:  0,
+            retryCount: 0
+        };
         window._saLoops[agent.ID] = setInterval(() => {
             saAgentTick(agent); // saAgentTick calls saUpdateCpKpis internally
         }, intervalMs);
@@ -3189,6 +3196,10 @@
         console.log(`[ShippingAgent] ⏱ Tick at ${tickTime} for agent ${agent.ID} (${agent.NAME})`);
         const el = document.getElementById('sa-cp-last-tick');
         if (el) el.textContent = `Last tick: ${tickTime}`;
+        // Count refreshes
+        if (window._saAgentStats && window._saAgentStats[agent.ID]) {
+            window._saAgentStats[agent.ID].tickCount++;
+        }
 
         const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
 
@@ -3274,6 +3285,10 @@
                     ${tripSummaryRows || '<div style="color:#64748b;font-size:11px;">No active trips.</div>'}
                 </div>
                 <div style="padding:0.75rem 1.2rem;border-top:1px solid #0f172a;display:flex;justify-content:flex-end;gap:0.5rem;background:#0f172a;">
+                    <button onclick="saGenerateAgentReport(window._saCurrentAgent)"
+                        style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#6366f1;cursor:pointer;font-size:12px;font-weight:700;color:#fff;">
+                        <i class="fas fa-file-pdf"></i> Generate Report
+                    </button>
                     <button onclick="document.getElementById('sa-completion-dlg').remove()"
                         style="padding:0.45rem 1.2rem;border:none;border-radius:8px;background:#4ade80;cursor:pointer;font-size:12px;font-weight:700;color:#0f172a;">
                         <i class="fas fa-check"></i> OK
@@ -3282,6 +3297,250 @@
             </div>`;
         document.body.appendChild(dlg);
     }
+
+    // ─── Agent PDF Report Generator ──────────────────────────────────────────────
+    window.saGenerateAgentReport = async function(agent) {
+        if (!agent) { alert('No agent data available.'); return; }
+
+        const trips      = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
+        const runCfg     = window._saAgentRunConfig || {};
+        const stats      = (window._saAgentStats && window._saAgentStats[agent.ID]) || {};
+        const endTime    = new Date();
+        const startTime  = stats.startTime ? new Date(stats.startTime) : null;
+        const tickCount  = stats.tickCount  || 0;
+
+        const fmtDt  = d => d ? d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit' }) : '—';
+        const fmtDur = (s, e) => {
+            if (!s || !e) return '—';
+            const ms = e - s;
+            const h  = Math.floor(ms / 3600000);
+            const m  = Math.floor((ms % 3600000) / 60000);
+            const sc = Math.floor((ms % 60000) / 1000);
+            return [h ? `${h}h` : '', m ? `${m}m` : '', `${sc}s`].filter(Boolean).join(' ');
+        };
+
+        // ── Collect per-trip data ───────────────────────────────────────────────
+        const reportTrips = [];
+        let grandOrders = 0, grandInterfaced = 0, grandPrinted = 0;
+        let grandIfcLines = 0, grandTotalLines = 0, grandToCancel = 0;
+        const customerSet = new Set();
+
+        for (const t of trips) {
+            const cfg  = runCfg[t.TRIP_ID] || { enabled:true };
+            if (!cfg.enabled) continue;
+            const kpi  = saCpComputeKpi(t.TRIP_ID);
+            grandOrders     += kpi.total;
+            grandInterfaced += kpi.interfaced;
+            grandPrinted    += kpi.printed;
+            grandIfcLines   += kpi.ifcLines;
+            grandTotalLines += kpi.totalLines;
+            grandToCancel   += kpi.toCancel;
+
+            // ── Collect order rows from DOM ────────────────────────────────────
+            const container = document.getElementById(`sa-trip-orders-${t.TRIP_ID}`);
+            const orderRows = container ? Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]')) : [];
+            const orders = orderRows.map(row => {
+                const cells   = row.querySelectorAll('td');
+                const getCell = (cls) => { const c = row.querySelector(`.sa-cell-${cls}`); return c ? c.textContent.trim() : ''; };
+                const orderNum  = (row.id.split(`sa-order-row-${t.TRIP_ID}-`)[1] || '').replace(/-/g,'');
+                const account   = getCell('account') || (cells[1] ? cells[1].textContent.trim() : '');
+                const status    = getCell('status')  || (cells[2] ? cells[2].textContent.trim() : '');
+                const staged    = getCell('staged')  || '';
+                const printing  = getCell('printing')|| '';
+                if (account) customerSet.add(account);
+                // PDF path from print cache
+                const printMap  = (window._saPrintCache && window._saPrintCache[t.TRIP_ID]) || {};
+                const printInfo = printMap[orderNum] || {};
+                return { orderNum, account, status, staged, printing, filePath: printInfo.filePath || printInfo.file_path || '' };
+            });
+
+            // Fetch PDF paths from DB if needed
+            let pdfRows = [];
+            try {
+                const inst = t.INSTANCE_NAME || agent.INSTANCE_NAME || 'PROD';
+                const res  = await apexGet(`printjobs/trip/${encodeURIComponent(t.TRIP_ID)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+                pdfRows    = (res.items || []);
+            } catch(e) { /* ignore */ }
+            const pdfMap = {};
+            pdfRows.forEach(r => {
+                const on = r.ORDER_NUMBER || r.order_number || '';
+                if (on) pdfMap[on] = r.FILE_PATH || r.file_path || '';
+            });
+            // Merge DB file paths into order records
+            orders.forEach(o => { if (!o.filePath && pdfMap[o.orderNum]) o.filePath = pdfMap[o.orderNum]; });
+
+            reportTrips.push({ trip: t, kpi, orders });
+        }
+
+        const totalCustomers = customerSet.size;
+        const instance       = agent.INSTANCE_NAME || 'PROD';
+
+        // ── Build HTML report ──────────────────────────────────────────────────
+        const tripSections = reportTrips.map(({ trip, kpi, orders }) => {
+            const orderRows = orders.map(o => {
+                const hasPath   = !!o.filePath;
+                const pathCell  = hasPath
+                    ? `<span style="font-family:monospace;font-size:9.5px;color:#1d4ed8;word-break:break-all;">${o.filePath}</span>`
+                    : `<span style="color:#94a3b8;font-style:italic;">Not downloaded</span>`;
+                const statusBg  = /interfac|ship/i.test(o.status) ? '#d1fae5' : /cancel|backorder/i.test(o.status) ? '#fee2e2' : '#f1f5f9';
+                const statusCol = /interfac|ship/i.test(o.status) ? '#065f46' : /cancel|backorder/i.test(o.status) ? '#991b1b' : '#475569';
+                return `<tr>
+                    <td style="padding:5px 8px;font-weight:600;font-size:10px;border-bottom:1px solid #f1f5f9;">${o.orderNum || '—'}</td>
+                    <td style="padding:5px 8px;font-size:10px;border-bottom:1px solid #f1f5f9;">${o.account || '—'}</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;">
+                        <span style="background:${statusBg};color:${statusCol};padding:2px 7px;border-radius:99px;font-size:9px;font-weight:700;">${o.status || '—'}</span>
+                    </td>
+                    <td style="padding:5px 8px;font-size:10px;border-bottom:1px solid #f1f5f9;text-align:center;">${o.staged || '—'}</td>
+                    <td style="padding:5px 8px;border-bottom:1px solid #f1f5f9;">${pathCell}</td>
+                    <td style="padding:5px 8px;text-align:center;border-bottom:1px solid #f1f5f9;">
+                        ${hasPath ? '<span style="color:#059669;font-size:13px;">&#10003;</span>' : '<span style="color:#cbd5e1;font-size:13px;">&#10007;</span>'}
+                    </td>
+                </tr>`;
+            }).join('');
+
+            const kpiBar = [
+                { lbl:'Orders',      val: kpi.total,       col:'#6366f1', bg:'#ede9fe' },
+                { lbl:'Interfaced',  val: kpi.interfaced,  col:'#059669', bg:'#d1fae5' },
+                { lbl:'PDFs',        val: kpi.printed,     col:'#2563eb', bg:'#dbeafe' },
+                { lbl:'Lines IFC',   val:`${kpi.ifcLines}/${kpi.totalLines}`, col:'#0891b2', bg:'#cffafe' },
+                { lbl:'To Cancel',   val: kpi.toCancel,    col: kpi.toCancel>0?'#dc2626':'#6b7280', bg: kpi.toCancel>0?'#fee2e2':'#f1f5f9' },
+            ].map(k => `<div style="background:${k.bg};border-radius:8px;padding:8px 14px;text-align:center;min-width:80px;">
+                <div style="font-size:18px;font-weight:800;color:${k.col};">${k.val}</div>
+                <div style="font-size:9px;color:#64748b;font-weight:600;margin-top:2px;">${k.lbl}</div>
+            </div>`).join('');
+
+            return `
+            <div style="margin-bottom:28px;page-break-inside:avoid;">
+                <div style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:white;padding:10px 16px;border-radius:10px 10px 0 0;display:flex;align-items:center;gap:10px;">
+                    <span style="font-size:16px;">🚚</span>
+                    <div>
+                        <div style="font-weight:800;font-size:13px;">Trip ${trip.TRIP_NAME || trip.TRIP_ID}</div>
+                        <div style="font-size:10px;opacity:0.8;">ID: ${trip.TRIP_ID} &nbsp;·&nbsp; Instance: ${trip.INSTANCE_NAME || instance}</div>
+                    </div>
+                </div>
+                <div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;padding:14px;">
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">${kpiBar}</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:10px;">
+                        <thead>
+                            <tr style="background:#f8fafc;">
+                                <th style="padding:6px 8px;text-align:left;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">ORDER #</th>
+                                <th style="padding:6px 8px;text-align:left;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">CUSTOMER</th>
+                                <th style="padding:6px 8px;text-align:left;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">STATUS</th>
+                                <th style="padding:6px 8px;text-align:center;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">STAGED</th>
+                                <th style="padding:6px 8px;text-align:left;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">PDF PATH</th>
+                                <th style="padding:6px 8px;text-align:center;font-size:9px;color:#64748b;font-weight:700;border-bottom:2px solid #e2e8f0;">PDF ✓</th>
+                            </tr>
+                        </thead>
+                        <tbody>${orderRows || '<tr><td colspan="6" style="padding:10px;color:#94a3b8;text-align:center;">No orders loaded</td></tr>'}</tbody>
+                    </table>
+                </div>
+            </div>`;
+        }).join('');
+
+        const summaryKpis = [
+            { icon:'🚚', lbl:'Trips',            val: reportTrips.length,  col:'#4f46e5', bg:'#ede9fe' },
+            { icon:'📦', lbl:'Total Orders',      val: grandOrders,         col:'#0891b2', bg:'#cffafe' },
+            { icon:'👥', lbl:'Customers',         val: totalCustomers,      col:'#7c3aed', bg:'#f3e8ff' },
+            { icon:'✅', lbl:'Interfaced Orders', val: grandInterfaced,     col:'#059669', bg:'#d1fae5' },
+            { icon:'🖨️', lbl:'PDFs Downloaded',   val: grandPrinted,        col:'#2563eb', bg:'#dbeafe' },
+            { icon:'📋', lbl:'Lines Interfaced',  val: `${grandIfcLines}/${grandTotalLines}`, col:'#0369a1', bg:'#e0f2fe' },
+            { icon:'❌', lbl:'Lines to Cancel',   val: grandToCancel,       col: grandToCancel>0?'#dc2626':'#6b7280', bg: grandToCancel>0?'#fee2e2':'#f1f5f9' },
+            { icon:'🔄', lbl:'Refreshes Done',    val: tickCount,           col:'#d97706', bg:'#fef3c7' },
+        ].map(k => `
+            <div style="background:${k.bg};border-radius:12px;padding:14px 16px;text-align:center;flex:1;min-width:100px;">
+                <div style="font-size:22px;margin-bottom:4px;">${k.icon}</div>
+                <div style="font-size:22px;font-weight:900;color:${k.col};line-height:1;">${k.val}</div>
+                <div style="font-size:9px;color:#64748b;font-weight:600;margin-top:4px;text-transform:uppercase;letter-spacing:0.5px;">${k.lbl}</div>
+            </div>`).join('');
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Agent Report — ${agent.NAME}</title>
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:'Segoe UI',Arial,sans-serif; background:#f8fafc; color:#1e293b; }
+  @page { size:A4; margin:15mm 12mm; }
+  @media print {
+    body { background:#fff; }
+    .no-print { display:none !important; }
+    .page-break { page-break-before:always; }
+  }
+</style>
+</head>
+<body style="padding:30px 36px;max-width:1000px;margin:0 auto;">
+
+  <!-- Print Button -->
+  <div class="no-print" style="text-align:right;margin-bottom:20px;">
+    <button onclick="window.print()" style="background:#4f46e5;color:#fff;border:none;padding:10px 22px;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">
+      🖨️ Print / Save as PDF
+    </button>
+  </div>
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);color:white;border-radius:16px;padding:24px 28px;margin-bottom:24px;position:relative;overflow:hidden;">
+    <div style="position:absolute;top:-20px;right:-20px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,0.04);"></div>
+    <div style="position:absolute;bottom:-30px;right:60px;width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,0.03);"></div>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;">
+      <div>
+        <div style="font-size:10px;color:#94a3b8;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:6px;">Gray's WMS — Shipping Agent Report</div>
+        <div style="font-size:26px;font-weight:900;color:#fff;margin-bottom:4px;">${agent.NAME}</div>
+        <div style="font-size:11px;color:#94a3b8;">Agent ID: ${agent.ID} &nbsp;·&nbsp; Instance: ${instance}</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="background:rgba(74,222,128,0.15);border:1px solid #4ade80;border-radius:8px;padding:6px 14px;display:inline-block;">
+          <div style="color:#4ade80;font-size:11px;font-weight:800;">✅ COMPLETED</div>
+        </div>
+        <div style="font-size:9px;color:#64748b;margin-top:8px;">Generated: ${fmtDt(endTime)}</div>
+      </div>
+    </div>
+    <!-- Timeline -->
+    <div style="display:flex;gap:24px;margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.08);">
+      <div>
+        <div style="font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;">▶ Started</div>
+        <div style="font-size:12px;color:#e2e8f0;font-weight:600;">${fmtDt(startTime)}</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;">⏹ Ended</div>
+        <div style="font-size:12px;color:#e2e8f0;font-weight:600;">${fmtDt(endTime)}</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;">⏱ Total Duration</div>
+        <div style="font-size:12px;color:#4ade80;font-weight:700;">${fmtDur(startTime, endTime)}</div>
+      </div>
+      <div>
+        <div style="font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;">🔄 Refresh Interval</div>
+        <div style="font-size:12px;color:#e2e8f0;font-weight:600;">${agent.CHECK_INTERVAL_SECONDS || '—'}s</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary KPIs -->
+  <div style="margin-bottom:24px;">
+    <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">📊 Summary</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">${summaryKpis}</div>
+  </div>
+
+  <!-- Trip Sections -->
+  <div style="font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">🚚 Trip Details</div>
+  ${tripSections || '<div style="color:#94a3b8;text-align:center;padding:20px;">No trip data available.</div>'}
+
+  <!-- Footer -->
+  <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-size:9px;color:#94a3b8;">Gray's WMS Warehouse Management System &nbsp;·&nbsp; Confidential</div>
+    <div style="font-size:9px;color:#94a3b8;">Report generated ${fmtDt(endTime)}</div>
+  </div>
+
+</body>
+</html>`;
+
+        const win = window.open('', '_blank', 'width=1050,height=800');
+        if (!win) { alert('Popup blocked — please allow popups for this page.'); return; }
+        win.document.write(html);
+        win.document.close();
+        win.focus();
+    };
 
     async function saProcessTripTick(agent, trip, instance, cfg) {
         cfg = cfg || { task1:true, task2:true, task3:true };
