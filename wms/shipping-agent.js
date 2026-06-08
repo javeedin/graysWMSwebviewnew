@@ -3462,13 +3462,15 @@
             const container = document.getElementById(`sa-trip-orders-${t.TRIP_ID}`);
             const orderRows = container ? Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]')) : [];
             const orders = orderRows.map(row => {
-                const cells   = row.querySelectorAll('td');
-                const getCell = (cls) => { const c = row.querySelector(`.sa-cell-${cls}`); return c ? c.textContent.trim() : ''; };
-                const orderNum  = (row.id.split(`sa-order-row-${t.TRIP_ID}-`)[1] || '').replace(/-/g,'');
-                const account   = getCell('account') || (cells[1] ? cells[1].textContent.trim() : '');
-                const status    = getCell('status')  || (cells[2] ? cells[2].textContent.trim() : '');
-                const staged    = getCell('staged')  || '';
-                const printing  = getCell('printing')|| '';
+                const dc = (col) => (row.querySelector(`[data-col="${col}"]`)?.textContent || '').trim();
+                const orderNum  = (row.id.split(`sa-order-row-${t.TRIP_ID}-`)[1] || '');
+                // Account name is in the second <div> inside the first <td>
+                const firstTd   = row.querySelector('td');
+                const acctDiv   = firstTd ? firstTd.querySelectorAll('div')[0] : null;
+                const account   = acctDiv ? acctDiv.textContent.trim() : '';
+                const status    = dc('status');
+                const staged    = dc('staged');
+                const printing  = dc('print');
                 if (account) customerSet.add(account);
                 // PDF path from print cache
                 const printMap  = (window._saPrintCache && window._saPrintCache[t.TRIP_ID]) || {};
