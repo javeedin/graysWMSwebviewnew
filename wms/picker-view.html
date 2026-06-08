@@ -2091,112 +2091,135 @@ function buildOrderCard(o, showAll) {
 // ── PDF print-status injection ────────────────────────────────────────────────
 window._pvPrintCache = {};
 
+// Promise wrapper: send getPrintJobs via C# IPC, resolve on printJobsResponse callback
+function getPrintJobsViaIPC(tripId, startDate) {
+    return new Promise((resolve, reject) => {
+        const reqId = 'pv-pj-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+        const timer = setTimeout(() => {
+            delete window._pvPrintCallbacks[reqId];
+            resolve({ jobs: [], stats: {} }); // timeout = treat as no jobs
+        }, 8000);
+        if (!window._pvPrintCallbacks) window._pvPrintCallbacks = {};
+        window._pvPrintCallbacks[reqId] = function(data) {
+            clearTimeout(timer);
+            delete window._pvPrintCallbacks[reqId];
+            resolve(data || { jobs: [], stats: {} });
+        };
+        window.chrome.webview.postMessage({
+            action:    'getPrintJobs',
+            requestId: reqId,
+            tripId:    tripId || null,
+            startDate: startDate || null
+        });
+    });
+}
+
+// Route printJobsResponse back to the right promise
+(function() {
+    const _orig = window.handlePrintJobsResponse;
+    window.handlePrintJobsResponse = function(data) {
+        if (_orig) _orig(data);
+        if (!window._pvPrintCallbacks) return;
+        const reqId = data && data.requestId;
+        if (reqId && window._pvPrintCallbacks[reqId]) {
+            window._pvPrintCallbacks[reqId](data.data || data);
+        }
+    };
+})();
+
+function paintPdfCard(orderNum, jobs) {
+    const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
+    if (!slot) return;
+    if (!jobs || !jobs.length) {
+        slot.innerHTML = `<span style="color:var(--slate-300,#cbd5e1);font-size:0.65rem;"><i class="fas fa-file-pdf" style="margin-right:0.2rem;"></i>No PDF jobs</span>`;
+        return;
+    }
+    // downloadStatus: 0=Pending, 1=Downloading, 2=Completed/Downloaded, 3=Failed
+    const total      = jobs.length;
+    const downloaded = jobs.filter(j => {
+        const ds = j.downloadStatus !== undefined ? j.downloadStatus : (j.DownloadStatus !== undefined ? j.DownloadStatus : -1);
+        return ds === 2 || ds === 'Completed' || ds === 'Downloaded';
+    }).length;
+    const failed = jobs.filter(j => {
+        const ds = j.downloadStatus !== undefined ? j.downloadStatus : (j.DownloadStatus !== undefined ? j.DownloadStatus : -1);
+        return ds === 3 || ds === 'Failed';
+    }).length;
+
+    let color, bg, icon, lbl;
+    if (downloaded >= total) {
+        color = '#059669'; bg = '#d1fae5'; icon = 'fa-check-circle'; lbl = `PDF Downloaded (${total})`;
+    } else if (downloaded > 0) {
+        color = '#d97706'; bg = '#fef3c7'; icon = 'fa-download'; lbl = `${downloaded}/${total} downloaded`;
+    } else if (failed > 0) {
+        color = '#dc2626'; bg = '#fee2e2'; icon = 'fa-times-circle'; lbl = `Download failed`;
+    } else {
+        color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = `${total} job${total>1?'s':''} – pending`;
+    }
+    slot.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.45rem;font-weight:600;font-size:0.65rem;">
+        <i class="fas ${icon}" style="font-size:0.6rem;"></i>${lbl}
+    </span>`;
+}
+
 async function fetchAndInjectPrintStatus() {
     const cards = document.querySelectorAll('.order-card[data-order-num]');
     if (!cards.length) return;
 
-    const APEX = getApiBase();
-    const inst = (document.getElementById('fpInstance') ? document.getElementById('fpInstance').value : 'PROD') || 'PROD';
-
-    // Group cards by tripId; collect orders with no tripId for per-order calls
-    const byTrip = {};
-    const noTrip = [];
+    // Collect unique trip IDs and orders without trip
+    const tripIds  = new Set();
+    const noTrip   = [];
     cards.forEach(card => {
-        const orderNum = card.dataset.orderNum;
-        const tripId   = card.dataset.tripId || null;
-        if (tripId) {
-            if (!byTrip[tripId]) byTrip[tripId] = [];
-            byTrip[tripId].push(orderNum);
-        } else {
-            noTrip.push(orderNum);
-        }
+        const tid = card.dataset.tripId;
+        if (tid) tripIds.add(tid);
+        else noTrip.push(card.dataset.orderNum);
     });
 
-    // Helper: render badge into a card's .card-pdf-status slot
-    function paintCard(orderNum, jobData) {
-        const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
-        if (!slot) return;
-        const total     = jobData ? (Number(jobData.total_jobs)    || jobData.length || 0) : 0;
-        const printed   = jobData ? (Number(jobData.printed_jobs)  || 0) : 0;
-        const downloaded= jobData ? (Number(jobData.downloaded_jobs|| jobData.downloaded || 0) || 0) : 0;
-        const pending   = jobData ? (Number(jobData.pending_jobs)  || 0) : 0;
-
-        // If jobData is an array of jobs (per-order endpoint)
-        let tJobs = 0, tDownloaded = 0, tPrinted = 0, tPending = 0;
-        if (Array.isArray(jobData)) {
-            tJobs       = jobData.length;
-            tDownloaded = jobData.filter(j => (j.PDF_STATUS || j.pdf_status || '').toString().toUpperCase().includes('DOWNLOAD')).length;
-            tPrinted    = jobData.filter(j => (j.STATUS || j.status || j.JOB_STATUS || j.job_status || '').toString().toUpperCase() === 'PRINTED').length;
-            tPending    = jobData.filter(j => {
-                const s = (j.STATUS || j.status || j.JOB_STATUS || j.job_status || '').toString().toUpperCase();
-                return s === 'PENDING' || s === 'QUEUED';
-            }).length;
-        } else if (jobData && typeof jobData === 'object') {
-            // Flat summary object
-            tJobs       = Number(jobData.total_jobs       || jobData.total    || 0);
-            tDownloaded = Number(jobData.downloaded_jobs  || jobData.downloaded|| 0);
-            tPrinted    = Number(jobData.printed_jobs     || jobData.printed  || 0);
-            tPending    = Number(jobData.pending_jobs     || jobData.pending  || 0);
-        }
-
-        if (tJobs === 0) {
-            slot.innerHTML = `<span style="color:var(--slate-300,#cbd5e1);"><i class="fas fa-file-pdf" style="margin-right:0.2rem;"></i>No print jobs</span>`;
-            return;
-        }
-        const allDone = tDownloaded >= tJobs;
-        const color   = allDone ? '#059669' : tDownloaded > 0 ? '#d97706' : '#6b7280';
-        const bg      = allDone ? '#d1fae5' : tDownloaded > 0 ? '#fef3c7' : '#f1f5f9';
-        const icon    = allDone ? 'fa-check-circle' : tDownloaded > 0 ? 'fa-download' : 'fa-hourglass';
-        const lbl     = allDone ? 'Downloaded' : tDownloaded > 0 ? `${tDownloaded}/${tJobs} downloaded` : `${tJobs} jobs – pending`;
-        slot.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.4rem;font-weight:600;">
-            <i class="fas ${icon}" style="font-size:0.65rem;"></i>${lbl}
-        </span>`;
-    }
-
-    // Fetch by tripId (one call per unique trip)
-    const tripFetches = Object.keys(byTrip).map(async tripId => {
+    // Fetch per unique trip via C# IPC (reads local C:\fusion\ files)
+    const tripPromises = [...tripIds].map(async tripId => {
         try {
-            const url = `${APEX}/printjobs/trip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error(resp.status);
-            const json = await resp.json();
-            const jobs = Array.isArray(json) ? json : (json.items || []);
-            // Build a map from order_number -> jobs
-            const orderMap = {};
+            const result = await getPrintJobsViaIPC(tripId, null);
+            const jobs = result.jobs || result || [];
+            // Group by orderNumber
+            const byOrder = {};
             jobs.forEach(j => {
-                const on = j.ORDER_NUMBER || j.order_number || j.SOURCE_ORDER_NUMBER || j.source_order_number || '';
-                if (on) { if (!orderMap[on]) orderMap[on] = []; orderMap[on].push(j); }
+                const on = j.orderNumber || j.OrderNumber || '';
+                if (on) { if (!byOrder[on]) byOrder[on] = []; byOrder[on].push(j); }
             });
-            byTrip[tripId].forEach(orderNum => {
-                const orderJobs = orderMap[orderNum] || [];
+            // Paint all cards for this trip
+            document.querySelectorAll(`.order-card[data-trip-id="${tripId}"]`).forEach(card => {
+                const orderNum = card.dataset.orderNum;
+                const orderJobs = byOrder[orderNum] || [];
                 window._pvPrintCache[orderNum] = orderJobs;
-                paintCard(orderNum, orderJobs.length ? orderJobs : null);
+                paintPdfCard(orderNum, orderJobs);
             });
         } catch(e) {
-            console.warn('[PrintStatus] trip fetch failed:', tripId, e);
-            // Fall through to per-order fetch for this trip's orders
-            byTrip[tripId].forEach(orderNum => noTrip.push(orderNum));
+            console.warn('[PrintStatus] trip IPC failed:', tripId, e);
         }
     });
-    await Promise.all(tripFetches);
+    await Promise.all(tripPromises);
 
-    // Per-order fetches for orders without a tripId
-    const orderFetches = noTrip.map(async orderNum => {
+    // For orders with no tripId, also try IPC with no filter (gets all jobs then match)
+    if (noTrip.length) {
         try {
-            const url = `${APEX}/printjobs/order/${encodeURIComponent(orderNum)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
-            const resp = await fetch(url);
-            if (!resp.ok) throw new Error(resp.status);
-            const json = await resp.json();
-            const jobs = Array.isArray(json) ? json : (json.items || []);
-            window._pvPrintCache[orderNum] = jobs;
-            paintCard(orderNum, jobs.length ? jobs : null);
+            const result = await getPrintJobsViaIPC(null, null);
+            const jobs = result.jobs || result || [];
+            const byOrder = {};
+            jobs.forEach(j => {
+                const on = j.orderNumber || j.OrderNumber || '';
+                if (on) { if (!byOrder[on]) byOrder[on] = []; byOrder[on].push(j); }
+            });
+            noTrip.forEach(orderNum => {
+                const orderJobs = byOrder[orderNum] || [];
+                window._pvPrintCache[orderNum] = orderJobs;
+                paintPdfCard(orderNum, orderJobs);
+            });
         } catch(e) {
-            console.warn('[PrintStatus] order fetch failed:', orderNum, e);
-            const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
-            if (slot) slot.innerHTML = `<span style="color:var(--slate-300,#cbd5e1);"><i class="fas fa-exclamation-triangle" style="margin-right:0.2rem;"></i>Status unavailable</span>`;
+            console.warn('[PrintStatus] no-trip IPC failed:', e);
+            noTrip.forEach(orderNum => {
+                const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
+                if (slot) slot.innerHTML = `<span style="color:var(--slate-300,#cbd5e1);font-size:0.65rem;"><i class="fas fa-exclamation-triangle" style="margin-right:0.2rem;"></i>Status unavailable</span>`;
+            });
         }
-    });
-    await Promise.all(orderFetches);
+    }
 }
 
 // ── Loading / Error helpers ───────────────────────────────────────────────────
@@ -2332,13 +2355,15 @@ function showError(msg) {
 // ── Utils ─────────────────────────────────────────────────────────────────────
 function uniq(arr) { return [...new Set(arr)]; }
 
-// ── WebView2 message listener (receives claudeResponse / pickerAiSummaryResponse) ──
+// ── WebView2 message listener (receives claudeResponse / pickerAiSummaryResponse / printJobsResponse) ──
 if (window.chrome && window.chrome.webview) {
     window.chrome.webview.addEventListener('message', function(evt) {
         try {
             const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
             if (msg.action === 'pickerAiSummaryResponse') {
                 handleAiSummaryResponse(msg);
+            } else if (msg.action === 'printJobsResponse') {
+                if (window.handlePrintJobsResponse) window.handlePrintJobsResponse(msg);
             }
         } catch(e) { console.warn('[AiSummary] message parse error', e); }
     });
