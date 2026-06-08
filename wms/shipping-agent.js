@@ -2985,6 +2985,7 @@
                 <span id="sa-cp-last-tick" style="color:#64748b;font-size:9px;"></span>
                 <span id="sa-cp-task" style="color:#38bdf8;font-size:9px;font-style:italic;"></span>
                 <div style="margin-left:auto;display:flex;gap:0.4rem;">
+                    <button id="sa-console-toggle-btn" onclick="saToggleConsole()" style="background:#1e3a5f;color:#93c5fd;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-terminal"></i> Console</button>
                     <button onclick="saPauseAgent()" style="background:#d97706;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-pause"></i> Pause All</button>
                     <button onclick="saStopAgent()" style="background:#dc2626;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-stop"></i> Stop</button>
                     <button onclick="document.getElementById('sa-control-panel').remove()" style="background:#334155;color:#94a3b8;border:none;padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;">▼ Hide</button>
@@ -2994,6 +2995,13 @@
                 ${trips.length === 0
                     ? '<div style="padding:0.75rem 1rem;color:#64748b;font-size:11px;">No trips assigned</div>'
                     : trips.map(t => saRenderCpTrip(t, agent.ID)).join('')}
+            </div>
+            <div id="sa-console-wrap" style="display:none;border-top:1px solid #1e293b;">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 10px;background:#0a0f1a;">
+                    <span style="font-size:9px;color:#475569;font-family:monospace;"><i class="fas fa-terminal" style="margin-right:4px;color:#7c3aed;"></i>AGENT CONSOLE</span>
+                    <button onclick="saClearConsole()" style="background:transparent;border:none;color:#475569;font-size:9px;cursor:pointer;padding:0;">clear</button>
+                </div>
+                <div id="sa-console-log" style="height:160px;overflow-y:auto;background:#0a0f1a;padding:4px 0;"></div>
             </div>`;
         document.body.appendChild(panel);
 
@@ -3151,7 +3159,72 @@
     function saCpSetTask(msg) {
         const el = document.getElementById('sa-cp-task');
         if (el) el.textContent = msg ? `▶ ${msg}` : '';
+        if (msg) saConsoleLog(msg, 'task');
     }
+
+    // ─── Live Agent Console ───────────────────────────────────────────────────────
+    window._saConsoleBuffer = [];
+
+    window.saConsoleLog = function(msg, level) {
+        level = level || 'info';
+        const now   = new Date();
+        const ts    = now.toTimeString().slice(0,8);
+        const entry = { ts, msg, level };
+        window._saConsoleBuffer.push(entry);
+        if (window._saConsoleBuffer.length > 300) window._saConsoleBuffer.shift();
+
+        const panel = document.getElementById('sa-console-log');
+        if (!panel) return;
+
+        const colors = {
+            tick:    { bg:'#1e293b', col:'#38bdf8', icon:'⏱' },
+            task:    { bg:'#0f2040', col:'#93c5fd', icon:'▶' },
+            success: { bg:'#052e16', col:'#4ade80', icon:'✓' },
+            warn:    { bg:'#2d1a00', col:'#fbbf24', icon:'⚠' },
+            error:   { bg:'#2d0a0a', col:'#f87171', icon:'✕' },
+            skip:    { bg:'#1e293b', col:'#64748b', icon:'↷' },
+            info:    { bg:'#0f172a', col:'#94a3b8', icon:'·' },
+        };
+        const c = colors[level] || colors.info;
+        const line = document.createElement('div');
+        line.style.cssText = `display:flex;gap:6px;padding:2px 8px;background:${c.bg};border-left:2px solid ${c.col};margin-bottom:1px;font-size:10px;font-family:monospace;align-items:baseline;`;
+        line.innerHTML = `<span style="color:#475569;flex-shrink:0;">${ts}</span><span style="color:${c.col};flex-shrink:0;">${c.icon}</span><span style="color:#e2e8f0;word-break:break-word;">${msg.replace(/</g,'&lt;')}</span>`;
+        panel.appendChild(line);
+        panel.scrollTop = panel.scrollHeight;
+    };
+
+    window.saToggleConsole = function() {
+        const wrap = document.getElementById('sa-console-wrap');
+        const btn  = document.getElementById('sa-console-toggle-btn');
+        if (!wrap) return;
+        const open = wrap.style.display !== 'none';
+        wrap.style.display = open ? 'none' : 'block';
+        if (btn) btn.innerHTML = open ? '<i class="fas fa-terminal"></i> Console' : '<i class="fas fa-terminal"></i> Console ▲';
+        if (!open) {
+            // Replay buffer into panel
+            const panel = document.getElementById('sa-console-log');
+            if (panel && !panel.dataset.filled) {
+                panel.dataset.filled = '1';
+                window._saConsoleBuffer.forEach(e => {
+                    const colors = { tick:'#38bdf8', task:'#93c5fd', success:'#4ade80', warn:'#fbbf24', error:'#f87171', skip:'#64748b', info:'#94a3b8' };
+                    const icons  = { tick:'⏱', task:'▶', success:'✓', warn:'⚠', error:'✕', skip:'↷', info:'·' };
+                    const bgs    = { tick:'#1e293b', task:'#0f2040', success:'#052e16', warn:'#2d1a00', error:'#2d0a0a', skip:'#1e293b', info:'#0f172a' };
+                    const col = colors[e.level]||colors.info, icon = icons[e.level]||'·', bg = bgs[e.level]||bgs.info;
+                    const line = document.createElement('div');
+                    line.style.cssText = `display:flex;gap:6px;padding:2px 8px;background:${bg};border-left:2px solid ${col};margin-bottom:1px;font-size:10px;font-family:monospace;align-items:baseline;`;
+                    line.innerHTML = `<span style="color:#475569;flex-shrink:0;">${e.ts}</span><span style="color:${col};flex-shrink:0;">${icon}</span><span style="color:#e2e8f0;word-break:break-word;">${e.msg.replace(/</g,'&lt;')}</span>`;
+                    panel.appendChild(line);
+                });
+                panel.scrollTop = panel.scrollHeight;
+            }
+        }
+    };
+
+    window.saClearConsole = function() {
+        window._saConsoleBuffer = [];
+        const panel = document.getElementById('sa-console-log');
+        if (panel) { panel.innerHTML = ''; panel.dataset.filled = '1'; }
+    };
 
     // Check if all trips are done (all orders Interfaced + all printed)
     function saCheckAllDone(agent) {
@@ -3202,6 +3275,7 @@
     async function saAgentTick(agent) {
         const tickTime = new Date().toLocaleTimeString();
         console.log(`[ShippingAgent] ⏱ Tick at ${tickTime} for agent ${agent.ID} (${agent.NAME})`);
+        saConsoleLog(`Tick #${((window._saAgentStats && window._saAgentStats[agent.ID] && window._saAgentStats[agent.ID].tickCount) || 0) + 1} — ${agent.NAME} @ ${tickTime}`, 'tick');
         const el = document.getElementById('sa-cp-last-tick');
         if (el) el.textContent = `Last tick: ${tickTime}`;
         // Count refreshes
@@ -3215,17 +3289,21 @@
             const cfg = (window._saAgentRunConfig && window._saAgentRunConfig[trip.TRIP_ID]) || { enabled:true, task1:true, task2:true, task3:true };
             if (!cfg.enabled) {
                 console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} not in run config — skipping`);
+                saConsoleLog(`Trip ${trip.TRIP_NAME || trip.TRIP_ID} — disabled in config, skipping`, 'skip');
                 continue;
             }
             if (window._saPausedTrips && window._saPausedTrips[trip.TRIP_ID]) {
                 console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} is paused — skipping`);
+                saConsoleLog(`Trip ${trip.TRIP_NAME || trip.TRIP_ID} — paused, skipping`, 'skip');
                 continue;
             }
             // Skip trips already marked fully complete — no point re-checking
             if (window._saTripDone && window._saTripDone[trip.TRIP_ID]) {
                 console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} already done — skipping`);
+                saConsoleLog(`Trip ${trip.TRIP_NAME || trip.TRIP_ID} — already complete ✓, skipping`, 'skip');
                 continue;
             }
+            saConsoleLog(`Processing trip ${trip.TRIP_NAME || trip.TRIP_ID} …`, 'info');
             // Use trip's own instance name (PROD/TEST), fall back to agent's
             const instance = trip.INSTANCE_NAME || trip.instance_name || agent.INSTANCE_NAME || 'PROD';
             await saProcessTripTick(agent, trip, instance, cfg);
@@ -3589,32 +3667,36 @@
         // Collect order rows from the rendered table
         const container = document.getElementById(`sa-trip-orders-${tripId}`);
         if (!container || container.dataset.loaded !== '1') {
-            console.log(`[ShippingAgent] Trip ${tripId} orders not loaded yet — skipping`);
+            saConsoleLog(`Trip ${tripId} — orders not loaded yet, skipping tick`, 'warn');
             return;
         }
         const orderRows = Array.from(container.querySelectorAll('tr[id^="sa-order-row-"]'));
-        if (orderRows.length === 0) return;
+        if (orderRows.length === 0) { saConsoleLog(`Trip ${tripId} — no order rows found`, 'warn'); return; }
+
+        saConsoleLog(`Trip ${tripId} — ${orderRows.length} order(s) to process`, 'info');
 
         // ── TASK 1: Check Shipment Lines (Fusion) ───────────
-        if (!cfg.task1) { console.log(`[ShippingAgent] Task 1 disabled for trip ${tripId}`); }
+        if (!cfg.task1) { saConsoleLog(`Trip ${tripId} — Task 1 disabled in config`, 'skip'); }
         else {
         saCpSetTask(`Task 1: Checking shipment lines — Trip ${tripId}`);
-        console.log(`[ShippingAgent] Task 1: Get Shipment Lines for trip ${tripId}`);
+        saConsoleLog(`Task 1 ▶ Checking Fusion shipment lines for trip ${tripId}`, 'task');
         try {
             await saGetAllShipmentLines(tripId, instance);
+            saConsoleLog(`Task 1 ✓ Shipment lines updated for ${orderRows.length} order(s)`, 'success');
             await saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'SUCCESS', orderRows.length,
                 `Shipment lines checked for ${orderRows.length} order(s)`, null, Date.now()-t0);
         } catch(e) {
+            saConsoleLog(`Task 1 ✗ Shipment line check failed: ${e.message}`, 'error');
             await saLogActivity(agent.ID, tripId, null, 'CHECK_STATUS', 'FAILED', 1, e.message, null, Date.now()-t0);
         }
 
         } // end task1
 
         // ── TASK 2: Check Order Lines for Scheduled / Manual Reservations ──
-        if (!cfg.task2) { console.log(`[ShippingAgent] Task 2 disabled for trip ${tripId}`); }
+        if (!cfg.task2) { saConsoleLog(`Trip ${tripId} — Task 2 disabled in config`, 'skip'); }
         else {
         saCpSetTask(`Task 2: Checking order lines for Scheduled/Manual Reservations — Trip ${tripId}`);
-        console.log(`[ShippingAgent] Task 2: Check order line statuses for trip ${tripId}`);
+        saConsoleLog(`Task 2 ▶ Scanning order lines for Scheduled/Manual Reservations — trip ${tripId}`, 'task');
 
         // Collect all lines needing cancellation grouped by order
         const cancelGroups = {}; // { orderNumber: [ line, ... ] }
@@ -3622,6 +3704,7 @@
             const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
             if (!orderNumber) continue;
             saCpSetTask(`Task 2: Fetching lines for ${orderNumber}`);
+            saConsoleLog(`Task 2   Checking order ${orderNumber} …`, 'info');
             try {
                 const olData = await apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instance}`);
                 const lines  = (olData.items || []);
@@ -3631,28 +3714,37 @@
                 });
                 if (toCancel.length > 0) {
                     cancelGroups[orderNumber] = toCancel;
+                    saConsoleLog(`Task 2 ⚠ Order ${orderNumber}: ${toCancel.length} line(s) need cancellation`, 'warn');
                     await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', toCancel.length,
                         `Order ${orderNumber}: ${toCancel.length} line(s) need cancellation (Scheduled/Manual Reservations)`, null, null);
+                } else {
+                    saConsoleLog(`Task 2 ✓ Order ${orderNumber}: ${lines.length} line(s) — OK`, 'success');
                 }
-            } catch(e) { console.warn(`[ShippingAgent] Task 2 error for ${orderNumber}:`, e.message); }
+            } catch(e) {
+                saConsoleLog(`Task 2 ✗ Error fetching lines for ${orderNumber}: ${e.message}`, 'error');
+                console.warn(`[ShippingAgent] Task 2 error for ${orderNumber}:`, e.message);
+            }
         }
 
         const totalToCancel = Object.values(cancelGroups).reduce((s, arr) => s + arr.length, 0);
         if (totalToCancel > 0) {
+            saConsoleLog(`Task 2 ⚠ ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) require cancellation — opening review dialog`, 'warn');
             await saLogNotification(agent.ID, tripId, null, 'ANOMALY',
                 `Trip ${tripId}: ${totalToCancel} line(s) across ${Object.keys(cancelGroups).length} order(s) need cancellation`, 'WARN');
             // Show review dialog — user confirms before cancellation runs
             saCpSetTask(`Task 2: ⚠ ${totalToCancel} line(s) need cancellation — review dialog open`);
             await saShowCancelReviewDialog(agent, tripId, instance, cancelGroups);
+        } else {
+            saConsoleLog(`Task 2 ✓ No lines requiring cancellation found`, 'success');
         }
 
         } // end task2
 
         // ── TASK 3: Auto-Print Interfaced Orders ─────────────
-        if (!cfg.task3) { console.log(`[ShippingAgent] Task 3 disabled for trip ${tripId}`); }
+        if (!cfg.task3) { saConsoleLog(`Trip ${tripId} — Task 3 disabled in config`, 'skip'); }
         else {
         saCpSetTask(`Task 3: Auto-printing interfaced orders — Trip ${tripId}`);
-        console.log(`[ShippingAgent] Task 3: Auto-print interfaced orders for trip ${tripId}`);
+        saConsoleLog(`Task 3 ▶ Auto-print scan for interfaced orders — trip ${tripId}`, 'task');
         let autoPrinted = 0;
         for (const row of orderRows) {
             const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
@@ -3667,29 +3759,36 @@
 
             // Skip if already downloaded (print_total > 0 means PDF exists in wms_print_jobs)
             if (printTotal > 0) {
-                console.log(`[ShippingAgent] Order ${orderNumber} already downloaded (${printPrinted}/${printTotal}) — skipping download`);
+                saConsoleLog(`Task 3   Order ${orderNumber} — PDF already downloaded (${printPrinted}/${printTotal}), skipping`, 'skip');
                 continue;
             }
 
             // Only print if fully Interfaced or Shipped and not yet downloaded/printed
             const readyToPrint = statusText === 'Interfaced' || statusText === 'Shipped' || statusText.includes('Shipped');
             if (readyToPrint) {
-                console.log(`[ShippingAgent] Auto-printing interfaced order ${orderNumber}`);
+                saConsoleLog(`Task 3   Order ${orderNumber} — status "${statusText}", sending to print …`, 'info');
                 saCpSetTask(`Task 3: Printing ${orderNumber} — Trip ${tripId}`);
                 try {
                     await saPrintOrder(orderNumber, tripId, '', instance, true); // silent=true
                     autoPrinted++;
+                    saConsoleLog(`Task 3 ✓ Order ${orderNumber} — PDF downloaded & queued for print`, 'success');
                     await saLogActivity(agent.ID, tripId, orderNumber, 'AUTO_PRINT', 'SUCCESS', 1,
                         `Auto-printed interfaced order ${orderNumber}`, null, null);
                 } catch(e) {
+                    saConsoleLog(`Task 3 ✗ Order ${orderNumber} — print failed: ${e.message}`, 'error');
                     await saLogActivity(agent.ID, tripId, orderNumber, 'AUTO_PRINT', 'FAILED', 1,
                         `Auto-print failed for ${orderNumber}: ${e.message}`, null, null);
                 }
+            } else {
+                saConsoleLog(`Task 3   Order ${orderNumber} — status "${statusText}", not ready to print`, 'info');
             }
         }
         if (autoPrinted > 0) {
+            saConsoleLog(`Task 3 ✓ Auto-printed ${autoPrinted} order(s) for trip ${tripId}`, 'success');
             await saGetPrintStatus(tripId, instance);  // refresh print column after batch print
             showNotification(`Auto-printed ${autoPrinted} order(s) for trip ${tripId}.`, 'success');
+        } else {
+            saConsoleLog(`Task 3 — No new orders to print this tick`, 'info');
         }
         } // end task3
     }
