@@ -526,19 +526,19 @@
                     </div>
                     <!-- Trip stats row -->
                     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-bottom:1px solid #f1f5f9;">
-                        ${saTripStatCell('Orders',    t.ORDERS_TOTAL,    '#667eea', 'fa-box')}
-                        ${saTripStatCell('Processed', t.ORDERS_PROCESSED,'#059669', 'fa-check')}
-                        ${saTripStatCell('Printed',   t.ORDERS_PRINTED,  '#7c3aed', 'fa-print')}
-                        ${saTripStatCell('Stuck',     t.ORDERS_STUCK,    '#d97706', 'fa-pause-circle')}
-                        ${saTripStatCell('Anomalies', t.ANOMALIES_FOUND, '#dc2626', 'fa-exclamation-triangle')}
+                        ${saTripStatCell('Orders',     t.ORDERS_TOTAL,    '#667eea', 'fa-box',                `sa-stat-orders-${t.TRIP_ID}`)}
+                        ${saTripStatCell('Processed',  t.ORDERS_PROCESSED,'#059669', 'fa-check',              `sa-stat-processed-${t.TRIP_ID}`)}
+                        ${saTripStatCell('Printed',    t.ORDERS_PRINTED,  '#7c3aed', 'fa-print',              `sa-stat-printed-${t.TRIP_ID}`)}
+                        ${saTripStatCell('To Cancel',  t.ORDERS_STUCK,    '#d97706', 'fa-pause-circle',       `sa-stat-stuck-${t.TRIP_ID}`)}
+                        ${saTripStatCell('Cancelled',  t.ANOMALIES_FOUND, '#dc2626', 'fa-ban',                `sa-stat-cancelled-${t.TRIP_ID}`)}
                     </div>
                     <!-- Progress bar -->
                     <div style="padding:0.5rem 1rem;background:#fafafa;">
                         <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;margin-bottom:3px;">
-                            <span>Processing progress</span><span style="font-weight:700;color:#7c3aed;">${pct}%</span>
+                            <span>Processing progress</span><span id="sa-progress-pct-${t.TRIP_ID}" style="font-weight:700;color:#7c3aed;">${pct}%</span>
                         </div>
                         <div style="background:#e2e8f0;border-radius:4px;height:5px;overflow:hidden;">
-                            <div style="background:linear-gradient(90deg,#7c3aed,#5b21b6);height:100%;width:${pct}%;transition:width 0.4s;border-radius:4px;"></div>
+                            <div id="sa-progress-bar-${t.TRIP_ID}" style="background:linear-gradient(90deg,#7c3aed,#5b21b6);height:100%;width:${pct}%;transition:width 0.4s;border-radius:4px;"></div>
                         </div>
                     </div>
                     <!-- Order details container (loaded on demand) -->
@@ -670,12 +670,35 @@
         document.body.appendChild(pop);
     };
 
-    function saTripStatCell(label, value, color, icon) {
-        return `<div style="padding:0.5rem 0.3rem;text-align:center;border-right:1px solid #f1f5f9;">
+    function saTripStatCell(label, value, color, icon, id) {
+        const idAttr = id ? `id="${id}"` : '';
+        return `<div ${idAttr} style="padding:0.5rem 0.3rem;text-align:center;border-right:1px solid #f1f5f9;">
             <i class="fas ${icon}" style="color:${color};font-size:0.75rem;display:block;margin-bottom:2px;"></i>
             <div style="font-size:13px;font-weight:800;color:${color};">${value || 0}</div>
             <div style="font-size:9px;color:#94a3b8;font-weight:600;">${label}</div>
         </div>`;
+    }
+
+    function saRefreshTripCardStats(tripId) {
+        const kpi = saCpComputeKpi(tripId);
+        const update = (id, val, color) => {
+            const el = document.getElementById(id);
+            if (el) {
+                const numEl = el.querySelector('div');
+                if (numEl) { numEl.textContent = val; numEl.style.color = color; }
+            }
+        };
+        update(`sa-stat-orders-${tripId}`,    kpi.total,        '#667eea');
+        update(`sa-stat-processed-${tripId}`, kpi.interfaced,   kpi.interfaced >= kpi.total && kpi.total > 0 ? '#059669' : '#d97706');
+        update(`sa-stat-printed-${tripId}`,   kpi.printed,      kpi.printed >= kpi.total && kpi.total > 0 ? '#059669' : '#7c3aed');
+        update(`sa-stat-stuck-${tripId}`,     kpi.toCancel,     kpi.toCancel > 0 ? '#dc2626' : '#94a3b8');
+        update(`sa-stat-cancelled-${tripId}`, kpi.autoCancelled || 0, (kpi.autoCancelled || 0) > 0 ? '#ea580c' : '#94a3b8');
+        // Update progress bar
+        const pct = kpi.total > 0 ? Math.round((kpi.interfaced / kpi.total) * 100) : 0;
+        const barEl = document.getElementById(`sa-progress-bar-${tripId}`);
+        if (barEl) barEl.style.width = pct + '%';
+        const pctEl = document.getElementById(`sa-progress-pct-${tripId}`);
+        if (pctEl) pctEl.textContent = pct + '%';
     }
 
     window.saLoadTripOrders = async function(tripId, instanceName, silent) {
@@ -780,8 +803,8 @@
             }
 
             // Auto-run print status + shipment lines after orders are loaded
-            setTimeout(() => saGetPrintStatus(tripId, inst), 200);
-            setTimeout(() => saGetAllShipmentLines(tripId, inst), 500);
+            setTimeout(() => saGetPrintStatus(tripId, inst).then(() => saRefreshTripCardStats(tripId)), 200);
+            setTimeout(() => saGetAllShipmentLines(tripId, inst).then(() => saRefreshTripCardStats(tripId)), 500);
 
         } catch(e) {
             container.innerHTML = `<div style="padding:0.75rem 1rem;color:#dc2626;font-size:11px;">${e.message}</div>`;
@@ -3884,6 +3907,9 @@
             saConsoleLog(`Task 3 — No new orders to print this tick`, 'info');
         }
         } // end task3
+
+        // Refresh trip card stats after all tasks complete
+        saRefreshTripCardStats(tripId);
     }
 
     // ─── Cancel Review Dialog ─────────────────────────────────
