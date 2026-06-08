@@ -1550,7 +1550,10 @@ function setDisplayMode(mode) {
     displayMode = mode;
     document.querySelectorAll('.disp-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('dbtn-' + mode).classList.add('active');
-    if (lastRenderedOrders.length) renderView(lastRenderedOrders);
+    if (lastRenderedOrders.length) {
+        renderView(lastRenderedOrders);
+        setTimeout(() => paintAllFromCache(), 20);
+    }
 }
 
 // ── Search ────────────────────────────────────────────────────────────────────
@@ -1573,6 +1576,7 @@ function applySearch() {
         (o.balance  + '').includes(q)
     );
     renderViewRaw(filtered);
+    setTimeout(() => paintAllFromCache(), 20);
 }
 
 // ── Render ────────────────────────────────────────────────────────────────────
