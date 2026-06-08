@@ -958,7 +958,7 @@
                 : 'Pending';
 
             setCell('status',    orderStatusBadge);
-            setCell('staged',    stagedBadge);
+            // staged is set from WMS getsalesorderlines below (LINE_STATUS='Staged')
             setCell('picking',   pickBadge);
             setCell('shipping',  shipBadge);
             setCell('backorder', backorderBadge);
@@ -1023,13 +1023,23 @@
                 : saBadge(`${pPrinted}/${pTotal}`, '#fef9c3', '#a16207', 'fa-print');
         setCell('print', printBadge);
 
-        // ── Order Lines count: GET getsalesorderlines ──
+        // ── Order Lines count + Staged count: GET getsalesorderlines ──
         let orderLinesCount = 0;
         try {
             setCell('order_lines', `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`);
             const olData = await apexGet(`trip/orders/getsalesorderlines/${encodeURIComponent(orderNumber)}?P_INSTANCE_NAME=${instanceName}`);
-            orderLinesCount = (olData.items || []).length || (olData.count) || 0;
+            const olItems = olData.items || [];
+            orderLinesCount = olItems.length || (olData.count) || 0;
             setCell('order_lines', `<span style="font-weight:700;color:#1e293b;font-size:11px;">${orderLinesCount}</span><div style="color:#94a3b8;font-size:8px;">lines</div>`);
+
+            // Count lines where LINE_STATUS = 'Staged' from WMS
+            const wmsStaged = olItems.filter(l => {
+                const s = (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().toUpperCase();
+                return s.includes('STAGED');
+            }).length;
+            setCell('staged', wmsStaged > 0
+                ? saBadge(`${wmsStaged}`, '#dbeafe', '#1d4ed8', 'fa-layer-group')
+                : saBadge('0', '#f1f5f9', '#94a3b8', null));
         } catch(e) {
             setCell('order_lines', `<span style="color:#94a3b8;font-size:9px;">—</span>`);
         }
