@@ -1626,6 +1626,7 @@ function renderGridView(area, orders) {
         { key: 'balance',    label: 'Balance' },
         { key: 'pickPct',    label: '% Done' },
         { key: 'pickStatus', label: 'Status' },
+        { key: 'pdf',        label: 'PDF', noSort: true },
     ];
 
     let sorted = [...orders];
@@ -1645,11 +1646,12 @@ function renderGridView(area, orders) {
     const headerHtml = cols.map(c => {
         const isSort = gridSortCol === c.key;
         const arrow  = isSort ? (gridSortAsc ? ' ▲' : ' ▼') : ' ↕';
-        return `<th onclick="sortGrid('${c.key}')">${c.label}<span class="sort-icon">${arrow}</span></th>`;
+        const click  = c.noSort ? '' : `onclick="sortGrid('${c.key}')"`;
+        return `<th ${click}>${c.label}${c.noSort ? '' : `<span class="sort-icon">${arrow}</span>`}</th>`;
     }).join('');
 
     const rowsHtml = sorted.map(o => `
-        <tr>
+        <tr data-order-num="${o.orderNum}"${o.tripId ? ` data-trip-id="${o.tripId}"` : ''}>
             <td><strong>${o.orderNum}</strong></td>
             <td>${o.picker}</td>
             <td>${o.lorry}</td>
@@ -1665,6 +1667,7 @@ function renderGridView(area, orders) {
                 </div>
             </td>
             <td><span class="gt-badge ${statusCls[o.pickStatus]||'gt-none'}">${statusLbl[o.pickStatus]||'Pending'}</span></td>
+            <td class="grid-pdf-cell" data-order="${o.orderNum}"></td>
         </tr>`).join('');
 
     area.innerHTML = `
@@ -2102,112 +2105,119 @@ function pvApexGet(path) {
         if (!window.pendingRequests) window.pendingRequests = {};
         window.pendingRequests[reqId] = function(err, dataStr) {
             clearTimeout(timer);
-            delete window.pendingRequests[reqId];
             if (err) return reject(new Error(String(err)));
-            try { resolve(typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr); }
-            catch(e) { reject(e); }
+            try {
+                // C# returns data as a JSON string inside msg.data — parse it
+                const parsed = typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
+                resolve(parsed);
+            } catch(e) { reject(e); }
         };
         window.chrome.webview.postMessage({ action: 'executeGet', requestId: reqId, fullUrl: url });
     });
 }
 
 function paintPdfCard(orderNum, rows) {
-    const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
-    if (!slot) return;
-    // rows = items from printjobs/order/:orderNumber or null if no record
+    // No record in DB — clear both card slot and grid cell
     if (!rows || !rows.length) {
-        slot.innerHTML = ''; // no record in DB — show nothing
+        const s = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
+        if (s) s.innerHTML = '';
+        const g = document.querySelector(`.grid-pdf-cell[data-order="${CSS.escape(orderNum)}"]`);
+        if (g) g.innerHTML = '';
         return;
     }
     const total   = rows.length;
-    // print_status column from DB: 'PRINTED', 'PENDING', etc.
     const printed = rows.filter(r => (r.print_status || r.PRINT_STATUS || '').toString().toUpperCase() === 'PRINTED').length;
-    // overall_status from DB
     const overall = (rows[0].overall_status || rows[0].OVERALL_STATUS || '').toString().toUpperCase();
 
-    let color, bg, icon, lbl;
+    let color, bg, icon, lbl, gridHtml;
     if (printed >= total) {
         color = '#059669'; bg = '#d1fae5'; icon = 'fa-print'; lbl = `Printed (${total})`;
+        gridHtml = `<span style="color:#059669;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
     } else if (printed > 0) {
         color = '#d97706'; bg = '#fef3c7'; icon = 'fa-print'; lbl = `${printed}/${total} printed`;
+        gridHtml = `<span style="color:#d97706;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
     } else if (overall.includes('DOWNLOAD') || overall.includes('COMPLETED')) {
         color = '#2563eb'; bg = '#dbeafe'; icon = 'fa-check-circle'; lbl = `PDF Downloaded`;
+        gridHtml = `<span style="color:#2563eb;font-weight:700;font-size:0.75rem;"><i class="fas fa-check-circle"></i> Yes</span>`;
     } else {
         color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = `Not printed yet`;
+        gridHtml = `<span style="color:#6b7280;font-size:0.75rem;"><i class="fas fa-hourglass"></i> —</span>`;
     }
-    slot.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.45rem;font-weight:600;font-size:0.65rem;">
-        <i class="fas ${icon}" style="font-size:0.6rem;"></i>${lbl}
-    </span>`;
+    const badge = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.45rem;font-weight:600;font-size:0.65rem;"><i class="fas ${icon}" style="font-size:0.6rem;"></i>${lbl}</span>`;
+    const cardSlot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
+    if (cardSlot) cardSlot.innerHTML = badge;
+    const gridCell = document.querySelector(`.grid-pdf-cell[data-order="${CSS.escape(orderNum)}"]`);
+    if (gridCell) gridCell.innerHTML = gridHtml;
 }
 
 async function fetchAndInjectPrintStatus() {
-    const cards = document.querySelectorAll('.order-card[data-order-num]');
-    if (!cards.length) return;
+    // Collect from both card view and grid view
+    const cardEls = document.querySelectorAll('.order-card[data-order-num]');
+    const gridEls = document.querySelectorAll('tr[data-order-num]');
+    if (!cardEls.length && !gridEls.length) return;
 
     const inst = (document.getElementById('fpInstance') || {}).value || 'PROD';
 
-    // Collect unique trip IDs; also note orders without tripId
+    // Merge unique orders from both views
     const tripIds = new Set();
     const noTrip  = [];
-    cards.forEach(card => {
-        const tid = card.dataset.tripId;
+    const seen    = new Set();
+    const allEls  = [...cardEls, ...gridEls];
+    allEls.forEach(el => {
+        const orderNum = el.dataset.orderNum;
+        if (!orderNum || seen.has(orderNum)) return;
+        seen.add(orderNum);
+        const tid = el.dataset.tripId;
         if (tid) tripIds.add(tid);
-        else noTrip.push(card.dataset.orderNum);
+        else noTrip.push(orderNum);
     });
 
-    // One call per trip → printjobs/trip/:tripId returns summary rows per order_number
+    // One call per trip → printjobs/trip/:tripId returns summary per order_number
+    // (columns: print_total, print_printed, overall_status)
+    // We synthesise fake "rows" so paintPdfCard can handle both sources uniformly
     const tripPromises = [...tripIds].map(async tripId => {
         try {
             const data = await pvApexGet(`printjobs/trip/${encodeURIComponent(tripId)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
             const rows = Array.isArray(data) ? data : (data.items || []);
-            // Build map: order_number → { print_total, print_printed, overall_status }
             const byOrder = {};
             rows.forEach(r => {
                 const on = r.order_number || r.ORDER_NUMBER || '';
-                if (on) byOrder[on] = r;
+                if (!on) return;
+                // Build synthetic rows array matching printjobs/order shape
+                const total   = Number(r.print_total   || r.PRINT_TOTAL   || 0);
+                const printed = Number(r.print_printed || r.PRINT_PRINTED || 0);
+                const overall = r.overall_status || r.OVERALL_STATUS || '';
+                byOrder[on] = Array.from({ length: total }, (_, i) => ({
+                    print_status:   i < printed ? 'PRINTED' : 'PENDING',
+                    overall_status: overall
+                }));
             });
-            document.querySelectorAll(`.order-card[data-trip-id="${tripId}"]`).forEach(card => {
-                const orderNum = card.dataset.orderNum;
-                const rec = byOrder[orderNum];
-                const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
-                if (!slot) return;
-                if (!rec) { slot.innerHTML = ''; return; } // no DB record
-                const total   = Number(rec.print_total   || rec.PRINT_TOTAL   || 0);
-                const printed = Number(rec.print_printed || rec.PRINT_PRINTED || 0);
-                const overall = (rec.overall_status || rec.OVERALL_STATUS || '').toString().toUpperCase();
-                let color, bg, icon, lbl;
-                if (total > 0 && printed >= total) {
-                    color = '#059669'; bg = '#d1fae5'; icon = 'fa-print'; lbl = `Printed (${total})`;
-                } else if (printed > 0) {
-                    color = '#d97706'; bg = '#fef3c7'; icon = 'fa-print'; lbl = `${printed}/${total} printed`;
-                } else if (overall.includes('DOWNLOAD') || overall.includes('COMPLETED')) {
-                    color = '#2563eb'; bg = '#dbeafe'; icon = 'fa-check-circle'; lbl = `PDF Downloaded`;
-                } else if (total > 0) {
-                    color = '#6b7280'; bg = '#f1f5f9'; icon = 'fa-hourglass'; lbl = `Not printed yet`;
-                } else {
-                    slot.innerHTML = ''; return;
-                }
-                slot.innerHTML = `<span style="display:inline-flex;align-items:center;gap:0.25rem;background:${bg};color:${color};border-radius:0.35rem;padding:0.15rem 0.45rem;font-weight:600;font-size:0.65rem;">
-                    <i class="fas ${icon}" style="font-size:0.6rem;"></i>${lbl}
-                </span>`;
+            // Paint all cards + grid rows for this trip
+            [...seen].filter(on => {
+                const el = document.querySelector(`.order-card[data-trip-id="${tripId}"][data-order-num="${on}"]`)
+                        || document.querySelector(`tr[data-trip-id="${tripId}"][data-order-num="${on}"]`);
+                return !!el;
+            }).forEach(on => paintPdfCard(on, byOrder[on] || null));
+            // Also catch orders in this trip that came via allEls scan
+            document.querySelectorAll(`[data-trip-id="${tripId}"][data-order-num]`).forEach(el => {
+                const on = el.dataset.orderNum;
+                paintPdfCard(on, byOrder[on] || null);
             });
         } catch(e) {
             console.warn('[PrintStatus] trip fetch failed:', tripId, e);
-            document.querySelectorAll(`.order-card[data-trip-id="${tripId}"] .card-pdf-status`).forEach(s => { s.innerHTML = ''; });
         }
     });
     await Promise.all(tripPromises);
 
-    // Per-order calls for cards without a tripId
+    // Per-order calls for orders without a tripId
     const orderPromises = noTrip.map(async orderNum => {
-        const slot = document.querySelector(`.card-pdf-status[data-order="${CSS.escape(orderNum)}"]`);
         try {
             const data = await pvApexGet(`printjobs/order/${encodeURIComponent(orderNum)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
             const rows = Array.isArray(data) ? data : (data.items || []);
             paintPdfCard(orderNum, rows);
         } catch(e) {
             console.warn('[PrintStatus] order fetch failed:', orderNum, e);
-            if (slot) slot.innerHTML = '';
+            paintPdfCard(orderNum, null);
         }
     });
     await Promise.all(orderPromises);
@@ -2353,9 +2363,19 @@ if (window.chrome && window.chrome.webview) {
             const msg = (typeof evt.data === 'string') ? JSON.parse(evt.data) : evt.data;
             if (msg.action === 'pickerAiSummaryResponse') {
                 handleAiSummaryResponse(msg);
+            } else if (msg.action === 'restResponse' || msg.action === 'error') {
+                // Route executeGet / executePost responses back to pvApexGet promises
+                const reqId = msg.requestId;
+                if (reqId && window.pendingRequests && window.pendingRequests[reqId]) {
+                    if (msg.action === 'error' || !msg.success) {
+                        window.pendingRequests[reqId](msg.data || 'error', null);
+                    } else {
+                        window.pendingRequests[reqId](null, msg.data);
+                    }
+                    delete window.pendingRequests[reqId];
+                }
             }
-            // executeGet responses are routed via window.pendingRequests[requestId]
-        } catch(e) { console.warn('[AiSummary] message parse error', e); }
+        } catch(e) { console.warn('[PickerView] message parse error', e); }
     });
 }
 
