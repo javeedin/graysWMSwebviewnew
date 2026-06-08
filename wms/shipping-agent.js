@@ -2983,25 +2983,30 @@
                 <span style="color:#64748b;font-size:10px;"><i class="fas fa-clock"></i> Every ${intervalLabel}</span>
                 <span id="sa-cp-countdown" style="color:#f59e0b;font-size:10px;font-weight:700;"></span>
                 <span id="sa-cp-last-tick" style="color:#64748b;font-size:9px;"></span>
-                <span id="sa-cp-task" style="color:#38bdf8;font-size:9px;font-style:italic;"></span>
                 <div style="margin-left:auto;display:flex;gap:0.4rem;">
-                    <button id="sa-console-toggle-btn" onclick="saToggleConsole()" style="background:#1e3a5f;color:#93c5fd;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-terminal"></i> Console</button>
                     <button onclick="saPauseAgent()" style="background:#d97706;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-pause"></i> Pause All</button>
                     <button onclick="saStopAgent()" style="background:#dc2626;color:white;border:none;padding:3px 10px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;"><i class="fas fa-stop"></i> Stop</button>
                     <button onclick="document.getElementById('sa-control-panel').remove()" style="background:#334155;color:#94a3b8;border:none;padding:3px 8px;border-radius:6px;font-size:10px;cursor:pointer;">▼ Hide</button>
                 </div>
             </div>
-            <div style="display:flex;gap:0;overflow-x:auto;" id="sa-cp-trips">
+            <div style="display:flex;gap:0;overflow-x:auto;border-bottom:1px solid #0f172a;" id="sa-cp-trips">
                 ${trips.length === 0
                     ? '<div style="padding:0.75rem 1rem;color:#64748b;font-size:11px;">No trips assigned</div>'
                     : trips.map(t => saRenderCpTrip(t, agent.ID)).join('')}
             </div>
-            <div id="sa-console-wrap" style="display:none;border-top:1px solid #1e293b;">
-                <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 10px;background:#0a0f1a;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:2px 10px;background:#0d1829;border-top:1px solid #1e293b;">
+                <button id="sa-console-toggle-btn" onclick="saToggleConsole()"
+                    style="background:#1e3a5f;color:#93c5fd;border:1px solid #1e40af;padding:2px 12px;border-radius:6px;font-size:10px;cursor:pointer;font-weight:700;display:flex;align-items:center;gap:5px;">
+                    <i class="fas fa-terminal"></i> Console ▼
+                </button>
+                <span id="sa-cp-task" style="color:#38bdf8;font-size:9px;font-style:italic;flex:1;text-align:center;padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+            </div>
+            <div id="sa-console-wrap" style="display:none;">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:3px 10px;background:#0a0f1a;border-top:1px solid #1e293b;">
                     <span style="font-size:9px;color:#475569;font-family:monospace;"><i class="fas fa-terminal" style="margin-right:4px;color:#7c3aed;"></i>AGENT CONSOLE</span>
                     <button onclick="saClearConsole()" style="background:transparent;border:none;color:#475569;font-size:9px;cursor:pointer;padding:0;">clear</button>
                 </div>
-                <div id="sa-console-log" style="height:160px;overflow-y:auto;background:#0a0f1a;padding:4px 0;"></div>
+                <div id="sa-console-log" style="height:200px;overflow-y:auto;background:#0a0f1a;padding:4px 0;"></div>
             </div>`;
         document.body.appendChild(panel);
 
@@ -3081,8 +3086,9 @@
         if (container) {
             container.querySelectorAll('tr[id^="sa-order-row-"]').forEach(row => {
                 const st = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
-                // 'Cancelled' orders: all lines cancelled — exclude from every count
-                if (st === 'Cancelled' || st.toLowerCase() === 'cancelled') return;
+                // 'Cancelled' and 'No Lines' orders — exclude from all counts
+                if (!st || st === 'Cancelled' || st.toLowerCase() === 'cancelled' ||
+                    st === 'No Lines' || st.toLowerCase() === 'no lines') return;
                 total++;
                 const on = row.id.replace(`sa-order-row-${tripId}-`, '');
                 if (on) orderNumbers.push(on);
