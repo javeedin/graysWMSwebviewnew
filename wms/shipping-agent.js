@@ -1841,7 +1841,7 @@
 
         const isCancellable = (status) => {
             const s = (status || '').toUpperCase();
-            return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION');
+            return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION') || s.includes('BACKORDERED');
         };
 
         // Build Fusion cancel URL and JSON body for an order's flagged lines
@@ -3778,7 +3778,7 @@
                 const lines  = (olData.items || []);
                 const toCancel = lines.filter(l => {
                     const s = (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().toUpperCase();
-                    return s.includes('SCHEDULED') || s.includes('MANUAL') || s.includes('RESERVATION');
+                    return s.includes('SCHEDULED') || s.includes('MANUAL') || s.includes('RESERVATION') || s.includes('BACKORDERED');
                 });
                 if (toCancel.length > 0) {
                     cancelGroups[orderNumber] = toCancel;
