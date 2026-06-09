@@ -1914,6 +1914,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await SendScriptAsync(wv, requestId, true, "Route cleared.");
                                     break;
 
+                                case "openNewInstance":
+                                    HandleOpenNewInstance(root);
+                                    break;
+
                                 default:
                                     System.Diagnostics.Debug.WriteLine($"[C#] Unknown action: {action}");
                                     break;
@@ -6279,6 +6283,31 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MobileListener] HandleClearPickerRoute error: {ex.Message}");
+            }
+        }
+
+        private void HandleOpenNewInstance(System.Text.Json.JsonElement root)
+        {
+            try
+            {
+                string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
+                if (!string.IsNullOrEmpty(exePath))
+                {
+                    string page = root.TryGetProperty("moduleCode", out var pageProp) ? pageProp.GetString() ?? "" : "";
+                    var startInfo = new System.Diagnostics.ProcessStartInfo(exePath)
+                    {
+                        UseShellExecute = true,
+                        WorkingDirectory = System.IO.Path.GetDirectoryName(exePath)
+                    };
+                    if (!string.IsNullOrEmpty(page))
+                        startInfo.Arguments = $"--page={page}";
+                    System.Diagnostics.Process.Start(startInfo);
+                    System.Diagnostics.Debug.WriteLine($"[OpenNewInstance] Launched new instance with page={page}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[OpenNewInstance] Failed: {ex.Message}");
             }
         }
 
