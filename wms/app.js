@@ -2668,8 +2668,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 col.cellTemplate = (container, options) => {
                     const orderNumber = options.value || '';
                     const rowData = options.data;
-                    const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                    $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                    const rowDataB64 = btoa(unescape(encodeURIComponent(JSON.stringify(rowData))));
+                    $(container).html(`<a href="javascript:void(0)" onclick="editTripOrder(JSON.parse(decodeURIComponent(escape(atob(this.dataset.row)))))" data-row="${rowDataB64}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
                 };
             }
             // Status column styling
@@ -2977,8 +2977,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 col.cellTemplate = (container, options) => {
                     const orderNumber = options.value || '';
                     const rowData = options.data;
-                    const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                    $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                    const rowDataB64 = btoa(unescape(encodeURIComponent(JSON.stringify(rowData))));
+                    $(container).html(`<a href="javascript:void(0)" onclick="editTripOrder(JSON.parse(decodeURIComponent(escape(atob(this.dataset.row)))))" data-row="${rowDataB64}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
                 };
             }
             // Status column styling
@@ -4885,8 +4885,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     col.cellTemplate = (container, options) => {
                         const orderNumber = options.value || '';
                         const rowData = options.data;
-                        const rowDataJson = JSON.stringify(rowData).replace(/'/g, "\\'").replace(/"/g, '&quot;');
-                        $(container).html(`<a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowDataJson}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
+                        const rowDataB64 = btoa(unescape(encodeURIComponent(JSON.stringify(rowData))));
+                        $(container).html(`<a href="javascript:void(0)" onclick="editTripOrder(JSON.parse(decodeURIComponent(escape(atob(this.dataset.row)))))" data-row="${rowDataB64}" style="color: #667eea; text-decoration: none; font-weight: 600; cursor: pointer;">${orderNumber}</a>`);
                     };
                 } else if (key === 'LINE_STATUS') {
                     col.cellTemplate = (container, options) => {
