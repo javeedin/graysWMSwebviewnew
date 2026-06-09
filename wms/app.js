@@ -10041,7 +10041,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <h2 style="margin: 0; font-size: 1.1rem; color: #1e293b; font-weight: 700;">
-                                    <i class="fas fa-file-invoice" style="color: #667eea;"></i> Order Transactions
+                                    <i class="fas fa-file-invoice" style="color: #667eea;"></i> Order Transactions <span style="color:#667eea;">(${orderNumber})</span>
                                 </h2>
                                 <button id="order-trans-header-toggle" onclick="toggleOrderTransHeader()" style="background: transparent; border: none; cursor: pointer; color: #667eea; padding: 0.2rem 0.4rem; transition: all 0.2s;" title="Toggle Details">
                                     <i class="fas fa-chevron-down" style="font-size: 0.9rem; transition: transform 0.3s;"></i>
