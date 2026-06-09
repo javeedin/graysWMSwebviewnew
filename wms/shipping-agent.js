@@ -2381,12 +2381,13 @@
     function saRenderOrdersTable(orders, tripId, inst) {
         const spin = `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`;
         const rows = orders.map(o => {
-            // Encode row data for editTripOrder (same structure as GETTRIPDETAILS row)
-            const rowJson = JSON.stringify(o).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+            // Encode row data safely using base64 to avoid JSON/HTML escaping issues
+            // (order names can contain apostrophes, %, backslashes etc.)
+            const rowB64 = btoa(unescape(encodeURIComponent(JSON.stringify(o))));
             return `
             <tr id="sa-order-row-${esc(tripId)}-${esc(o.ORDER_NUMBER)}" style="border-bottom:1px solid #f1f5f9;" onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">
                 <td style="padding:6px 8px;min-width:120px;">
-                    <a href="javascript:void(0)" onclick='editTripOrder(JSON.parse(this.getAttribute("data-row")))' data-row="${rowJson}"
+                    <a href="javascript:void(0)" onclick="editTripOrder(JSON.parse(decodeURIComponent(escape(atob(this.dataset.row)))))" data-row="${rowB64}"
                         style="font-weight:700;color:#6d28d9;font-size:11px;text-decoration:none;cursor:pointer;"
                         title="Open order transactions">${esc(o.ORDER_NUMBER)}</a>
                     <div style="color:#64748b;font-size:9px;">${esc(o.ACCOUNT_NAME)}</div>
