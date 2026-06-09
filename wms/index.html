@@ -151,78 +151,97 @@
             <div class="menu-item active" data-page="trip-management">
                 <i class="fas fa-truck"></i>
                 <span>Trip Management</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('trip-management')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="vehicles">
                 <i class="fas fa-car"></i>
                 <span>Vehicles Dashboard</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('vehicles')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="bi-dashboard">
                 <i class="fas fa-chart-line"></i>
                 <span>Analytics</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('bi-dashboard')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="vehicles-management">
                 <i class="fas fa-truck"></i>
                 <span>Vehicles</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('vehicles-management')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="pickers-management">
                 <i class="fas fa-users"></i>
                 <span>Pickers</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('pickers-management')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="picking-time-monitor">
                 <i class="fas fa-stopwatch"></i>
                 <span>Picking Time Monitor</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('picking-time-monitor')" title="Open in new window"></i>
             </div>
             <div class="menu-item" onclick="window.location.href='picker-view.html'">
                 <i class="fas fa-eye"></i>
                 <span>Picker View</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('picker-view')" title="Open in new window"></i>
             </div>
             <div class="menu-item" onclick="window.location.href='tracker.html'">
                 <i class="fas fa-route"></i>
                 <span>Route Tracker</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('tracker')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="monitor-printing">
                 <i class="fas fa-print"></i>
                 <span>Monitor Printing</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('monitor-printing')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="auto-inventory-processing">
                 <i class="fas fa-robot"></i>
                 <span>Auto Inventory Processing</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('auto-inventory-processing')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="auto-sales-order-processing">
                 <i class="fas fa-shopping-cart"></i>
                 <span>Auto Sales Order Processing</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('auto-sales-order-processing')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="pending-store-transactions">
                 <i class="fas fa-warehouse"></i>
                 <span>Pending Store Transactions</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('pending-store-transactions')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="pending-shipment-lines">
                 <i class="fas fa-shipping-fast"></i>
                 <span>Pending Shipment Lines</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('pending-shipment-lines')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="shipping-agents">
                 <i class="fas fa-user-cog"></i>
                 <span>Shipping Agents</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('shipping-agents')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="printer-setup-new">
                 <i class="fas fa-print"></i>
                 <span>Printer Setups</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('printer-setup-new')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="settings">
                 <i class="fas fa-cog"></i>
                 <span>Settings & Updates</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('settings')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="help-documentation">
                 <i class="fas fa-question-circle"></i>
                 <span>Help</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('help-documentation')" title="Open in new window"></i>
             </div>
             <div class="menu-item" data-page="training-center">
                 <i class="fas fa-graduation-cap"></i>
                 <span>Training</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('training-center')" title="Open in new window"></i>
             </div>
             <div class="menu-item" onclick="window.location.href='release-manager.html'" style="border-top: 1px solid #e0e0e0; margin-top: 10px; padding-top: 15px;">
                 <i class="fas fa-rocket"></i>
                 <span>Release Manager</span>
+                <i class="fas fa-external-link-alt menu-new-window" onclick="event.stopPropagation();openNewWmsInstance('release-manager')" title="Open in new window"></i>
             </div>
         </aside>
         
@@ -8611,6 +8630,15 @@
                 window.chrome.webview.postMessage({
                     action: 'logout'
                 });
+
+        // ── Open a new instance of WMSApp navigated to the given page ──────────
+        window.openNewWmsInstance = function(page) {
+            if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
+                window.chrome.webview.postMessage({ action: 'openNewInstance', moduleCode: page || '' });
+            } else {
+                alert('New window only available inside the WMS desktop application.');
+            }
+        };
                 console.log('[LOGOUT] Logout message sent to C#');
             }
 

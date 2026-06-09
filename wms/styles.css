@@ -200,6 +200,26 @@ body {
     font-size: 0.9rem;
 }
 
+.menu-new-window {
+    width: auto !important;
+    font-size: 0.65rem !important;
+    margin-left: auto;
+    opacity: 0;
+    transition: opacity 0.2s;
+    padding: 3px 5px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.menu-item:hover .menu-new-window {
+    opacity: 0.75;
+}
+
+.menu-new-window:hover {
+    opacity: 1 !important;
+    background: rgba(255,255,255,0.25);
+}
+
 .menu-item:hover {
     background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%);
     color: white;
