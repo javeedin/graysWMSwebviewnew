@@ -8630,15 +8630,6 @@
                 window.chrome.webview.postMessage({
                     action: 'logout'
                 });
-
-        // ── Open a new instance of WMSApp navigated to the given page ──────────
-        window.openNewWmsInstance = function(page) {
-            if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
-                window.chrome.webview.postMessage({ action: 'openNewInstance', moduleCode: page || '' });
-            } else {
-                alert('New window only available inside the WMS desktop application.');
-            }
-        };
                 console.log('[LOGOUT] Logout message sent to C#');
             }
 
@@ -8664,6 +8655,15 @@
             });
             console.log('[LOGIN] WebView2 message listener registered');
         }
+
+        // Open a new WMSApp instance, optionally navigating to a specific page
+        window.openNewWmsInstance = function(page) {
+            if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
+                window.chrome.webview.postMessage({ action: 'openNewInstance', moduleCode: page || '' });
+            } else {
+                alert('New window only available inside the WMS desktop application.');
+            }
+        };
 
         // On page load, restore from session storage or URL parameter
         document.addEventListener('DOMContentLoaded', function() {
