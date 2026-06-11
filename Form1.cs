@@ -1741,6 +1741,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandlePrintSalesOrder(wv, messageJson, requestId);
                                     break;
 
+                                case "checkOrderLineCount":
+                                    await HandleCheckOrderLineCount(wv, messageJson, requestId);
+                                    break;
+
                                 case "getPrintJobs":
                                     await HandleGetPrintJobs(wv, messageJson, requestId);
                                     break;
@@ -4350,6 +4354,58 @@ navPanel.Controls.Add(wmsDevButton);
                     message = $"Error: {ex.Message}"
                 };
                 wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorResponse));
+            }
+        }
+
+        private async Task HandleCheckOrderLineCount(WebView2 wv, string messageJson, string requestId)
+        {
+            const string LINE_COUNT_REPORT = "/Custom/OQ/GR_SalesOrder_Rep/GR_SO_LINE_COUNT_BIP.xdo";
+            try
+            {
+                var root = JsonSerializer.Deserialize<System.Text.Json.JsonElement>(messageJson);
+                string orderNumber = root.TryGetProperty("orderNumber", out var op) ? op.GetString() : "";
+                string instance    = root.TryGetProperty("instance",    out var ip) ? ip.GetString() : "PROD";
+
+                var credentials = _storageManager.GetFusionCredentials();
+                if (credentials == null || string.IsNullOrEmpty(credentials.Username))
+                {
+                    await SendScriptAsync(wv, requestId, false, "Fusion credentials not configured.");
+                    return;
+                }
+
+                var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                var dataResult = await downloader.DownloadGenericReportAsync(
+                    LINE_COUNT_REPORT, "Order_Number", orderNumber,
+                    instance, credentials.Username, credentials.Password, forPrint: false);
+
+                int lineCount = 0;
+                if (dataResult.Success && dataResult.DataRecords != null)
+                {
+                    foreach (var record in dataResult.DataRecords)
+                    {
+                        foreach (var key in record.Keys)
+                        {
+                            if (key.IndexOf("LINE_COUNT", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                key.IndexOf("LINECOUNT",  StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                key.IndexOf("COUNT",      StringComparison.OrdinalIgnoreCase) >= 0)
+                            {
+                                if (int.TryParse(record[key], out int n)) { lineCount = n; break; }
+                            }
+                        }
+                        if (lineCount > 0) break;
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[CheckLineCount] Order={orderNumber} LineCount={lineCount}");
+
+                var response = new { action = "checkOrderLineCountResponse", requestId, success = true, lineCount, orderNumber };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(response));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CheckLineCount] ERROR: {ex.Message}");
+                var errorResp = new { action = "checkOrderLineCountResponse", requestId, success = false, lineCount = -1, message = ex.Message };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(errorResp));
             }
         }
 

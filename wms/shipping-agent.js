@@ -1377,18 +1377,19 @@
 
     // Show API info popup for the print SOAP call
     window.saShowPrintApiInfo = function(orderNumber, instanceName) {
-        const soapUrl    = saSoapReportUrl(instanceName);
-        const reportPath = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
-        const inst       = (instanceName || 'PROD').toUpperCase();
+        const soapUrl       = saSoapReportUrl(instanceName);
+        const lineCountPath = '/Custom/OQ/GR_SalesOrder_Rep/GR_SO_LINE_COUNT_BIP.xdo';
+        const reportPath    = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
+        const inst          = (instanceName || 'PROD').toUpperCase();
         const existing = document.getElementById('sa-api-popup');
         if (existing) existing.remove();
 
-        const soapXml = `&lt;soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+        const makeSoapXml = (path) => `&lt;soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
   xmlns:v2="http://xmlns.oracle.com/oxp/service/v2"&gt;
   &lt;soapenv:Body&gt;
     &lt;v2:runReport&gt;
       &lt;v2:reportRequest&gt;
-        &lt;v2:reportAbsolutePath&gt;${reportPath}&lt;/v2:reportAbsolutePath&gt;
+        &lt;v2:reportAbsolutePath&gt;${path}&lt;/v2:reportAbsolutePath&gt;
         &lt;v2:parameterNameValues&gt;
           &lt;v2:listOfParamNameValues&gt;
             &lt;v2:item&gt;
@@ -1406,9 +1407,9 @@
 
         document.body.insertAdjacentHTML('beforeend', `
         <div id="sa-api-popup" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
-            <div style="background:#0f172a;border-radius:12px;padding:1.5rem;width:640px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
+            <div style="background:#0f172a;border-radius:12px;padding:1.5rem;width:660px;max-width:95vw;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.6);">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-                    <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-soap" style="color:#ef4444;margin-right:6px;"></i>SOAP — Invoice PDF Download</span>
+                    <span style="color:#e2e8f0;font-weight:700;font-size:13px;"><i class="fas fa-code" style="color:#ef4444;margin-right:6px;"></i>Print API Details — ${esc(orderNumber)}</span>
                     <button onclick="document.getElementById('sa-api-popup').remove()" style="background:none;border:none;color:#64748b;font-size:1.3rem;cursor:pointer;">&times;</button>
                 </div>
 
@@ -1416,33 +1417,53 @@
                 <div style="margin-bottom:0.75rem;">
                     <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">
                         <span style="background:#7c3aed;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">SOAP POST</span>
-                        Oracle Fusion BI Publisher — runReport
+                        Oracle Fusion BI Publisher — ${inst === 'PROD' ? '🟢 PROD' : '🟡 TRAIN/TEST'} <strong>${esc(inst)}</strong>
                     </div>
-                    <div style="background:#1e293b;border:1px solid #7c3aed;border-radius:6px;padding:0.5rem 0.8rem;">
-                        <div style="color:#a78bfa;font-size:9px;margin-bottom:4px;font-weight:700;">${inst === 'PROD' ? '🟢 PROD' : '🟡 TRAIN/TEST'} — Instance: <strong>${esc(inst)}</strong></div>
+                    <div style="background:#1e293b;border:1px solid #334155;border-radius:6px;padding:0.5rem 0.8rem;">
                         <div style="color:#38bdf8;font-size:11px;word-break:break-all;font-family:monospace;">${esc(soapUrl)}</div>
                     </div>
                 </div>
 
-                <!-- Report details -->
-                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.75rem;font-size:10px;line-height:1.8;color:#94a3b8;">
-                    <div><span style="color:#e2e8f0;font-weight:700;">Report Path:</span> <code style="color:#fbbf24;">${reportPath}</code></div>
-                    <div><span style="color:#e2e8f0;font-weight:700;">Parameter:</span> <code>Order_Number</code> = <strong style="color:#4ade80;">${esc(orderNumber)}</strong></div>
-                    <div><span style="color:#e2e8f0;font-weight:700;">SOAPAction:</span> <code>"runReport"</code></div>
-                    <div><span style="color:#e2e8f0;font-weight:700;">Auth:</span> Fusion credentials from C# local config (LocalStorageManager)</div>
-                    <div><span style="color:#e2e8f0;font-weight:700;">Dispatched via:</span> <code>sendMessageToCSharp({ action: 'printSalesOrder', ... })</code></div>
-                    <div><span style="color:#e2e8f0;font-weight:700;">C# Handler:</span> <code>HandlePrintSalesOrder()</code> → <code>FusionPdfDownloader.DownloadSalesOrderPdfAsync()</code></div>
-                    <div><span style="color:#e2e8f0;font-weight:700;">PDF saved to:</span> <code>C:\\fusion\\{tripDate}\\{tripId}\\${esc(orderNumber)}.pdf</code></div>
+                <!-- Step 1: Line Count Check -->
+                <div style="background:#1e293b;border:1px solid #f59e0b;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.75rem;font-size:10px;line-height:1.8;color:#94a3b8;">
+                    <div style="color:#fbbf24;font-weight:700;font-size:11px;margin-bottom:4px;"><i class="fas fa-search" style="margin-right:4px;"></i>Step 1 — Line Count Check</div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Report:</span> <code style="color:#fbbf24;">${lineCountPath}</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Returns:</span> <code>LINE_COUNT</code> — if 0, print is skipped with status <strong style="color:#94a3b8;">NoLines</strong></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">C# Action:</span> <code>checkOrderLineCount</code> → <code>HandleCheckOrderLineCount()</code></div>
+                    <pre style="background:#0f172a;border-radius:6px;padding:0.6rem;color:#fcd34d;font-size:9px;overflow-x:auto;white-space:pre-wrap;margin:4px 0 0 0;">${makeSoapXml(lineCountPath)}</pre>
                 </div>
 
-                <!-- SOAP XML -->
-                <div style="margin-bottom:0.5rem;">
-                    <div style="font-size:9px;color:#94a3b8;font-weight:700;text-transform:uppercase;margin-bottom:4px;">SOAP REQUEST BODY</div>
-                    <pre style="background:#1e293b;border-radius:6px;padding:0.75rem;color:#86efac;font-size:10px;overflow-x:auto;white-space:pre-wrap;margin:0;">${soapXml}</pre>
+                <!-- Step 2: PDF Download -->
+                <div style="background:#1e293b;border:1px solid #4ade80;border-radius:6px;padding:0.6rem 0.8rem;margin-bottom:0.5rem;font-size:10px;line-height:1.8;color:#94a3b8;">
+                    <div style="color:#4ade80;font-weight:700;font-size:11px;margin-bottom:4px;"><i class="fas fa-file-pdf" style="color:#ef4444;margin-right:4px;"></i>Step 2 — PDF Download (only when LINE_COUNT &gt; 0)</div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Report:</span> <code style="color:#4ade80;">${reportPath}</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">Parameter:</span> <code>Order_Number</code> = <strong style="color:#4ade80;">${esc(orderNumber)}</strong></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">C# Action:</span> <code>printSalesOrder</code> → <code>HandlePrintSalesOrder()</code> → <code>FusionPdfDownloader</code></div>
+                    <div><span style="color:#e2e8f0;font-weight:700;">PDF saved to:</span> <code>C:\\fusion\\{tripDate}\\{tripId}\\${esc(orderNumber)}.pdf</code></div>
+                    <pre style="background:#0f172a;border-radius:6px;padding:0.6rem;color:#86efac;font-size:9px;overflow-x:auto;white-space:pre-wrap;margin:4px 0 0 0;">${makeSoapXml(reportPath)}</pre>
                 </div>
             </div>
         </div>`);
     };
+
+    // Check LINE_COUNT via GR_SO_LINE_COUNT_BIP.xdo before printing
+    // Returns Promise<number> — lineCount, or -1 on error
+    function saCheckLineCount(orderNumber, instanceName) {
+        return new Promise((resolve) => {
+            if (typeof sendMessageToCSharp !== 'function') { resolve(-1); return; }
+            sendMessageToCSharp({
+                action:      'checkOrderLineCount',
+                orderNumber: orderNumber,
+                instance:    instanceName || 'PROD'
+            }, function(err, data) {
+                if (err) { console.warn(`[saCheckLineCount] error for ${orderNumber}:`, err); resolve(-1); return; }
+                try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
+                const count = (data && typeof data.lineCount === 'number') ? data.lineCount : -1;
+                console.log(`[saCheckLineCount] ${orderNumber} → lineCount=${count}`);
+                resolve(count);
+            });
+        });
+    }
 
     // Call C# printSalesOrder action → SOAP → C# saves PDF → returns actual filePath from C#
     function saDownloadOrderPdf(orderNumber, tripId, tripDate, instanceName) {
@@ -1610,7 +1631,22 @@
         console.log(`[ShippingAgent] saPrintOrder: order=${orderNumber} tripId=${tripId} tripDate=${actualTripDate} instance=${instanceName}`);
 
         try {
-            // 1. Download PDF via SOAP → C# saves to C:\fusion\{tripDate}\{tripId}\{order}.pdf
+            // 1. Check LINE_COUNT first — skip print if order has no lines
+            saConsoleLog(`Print ▶ Checking line count for ${orderNumber}...`, 'info');
+            const lineCount = await saCheckLineCount(orderNumber, instanceName);
+            if (lineCount === 0) {
+                saConsoleLog(`Print   ${orderNumber} — LINE_COUNT=0, no lines to print → NoLines`, 'skip');
+                if (rowEl) {
+                    const pc = rowEl.querySelector('[data-col="print"]');
+                    if (pc) pc.innerHTML = saBadge('NoLines', '#f1f5f9', '#64748b', 'fa-minus-circle');
+                }
+                setBtn('<i class="fas fa-print"></i>', false);
+                if (!silent) showNotification(`Order ${orderNumber} has no lines — nothing to print.`, 'warning');
+                return;
+            }
+            saConsoleLog(`Print   ${orderNumber} — LINE_COUNT=${lineCount > 0 ? lineCount : '(check failed, proceeding)'}, proceeding with PDF download`, 'info');
+
+            // 2. Download PDF via SOAP → C# saves to C:\fusion\{tripDate}\{tripId}\{order}.pdf
             //    C# now also returns base64 in the response so we don't need a second read call
             showNotification(`Downloading invoice PDF for ${orderNumber}...`, 'info');
             const dlResult = await saDownloadOrderPdf(orderNumber, tripId, actualTripDate, instanceName);
