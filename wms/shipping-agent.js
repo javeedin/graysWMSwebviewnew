@@ -1378,7 +1378,7 @@
     // Show API info popup for the print SOAP call
     window.saShowPrintApiInfo = function(orderNumber, instanceName) {
         const soapUrl       = saSoapReportUrl(instanceName);
-        const lineCountPath = '/Custom/OQ/GR_SalesOrder_Rep/GR_SO_LINE_COUNT_BIP.xdo';
+        const lineCountPath = '/Custom/OQ/GR_SO_LINE_COUNT_BIP.xdo';
         const reportPath    = '/Custom/OQ/GR_SalesOrder_Rep.xdo';
         const inst          = (instanceName || 'PROD').toUpperCase();
         const existing = document.getElementById('sa-api-popup');

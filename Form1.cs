@@ -4359,7 +4359,7 @@ navPanel.Controls.Add(wmsDevButton);
 
         private async Task HandleCheckOrderLineCount(WebView2 wv, string messageJson, string requestId)
         {
-            const string LINE_COUNT_REPORT = "/Custom/OQ/GR_SalesOrder_Rep/GR_SO_LINE_COUNT_BIP.xdo";
+            const string LINE_COUNT_REPORT = "/Custom/OQ/GR_SO_LINE_COUNT_BIP.xdo";
             try
             {
                 var root = JsonSerializer.Deserialize<System.Text.Json.JsonElement>(messageJson);
