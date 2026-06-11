@@ -1448,21 +1448,51 @@
 
     // Check LINE_COUNT via GR_SO_LINE_COUNT_BIP.xdo before printing
     // Returns Promise<number> — lineCount, or -1 on error
-    function saCheckLineCount(orderNumber, instanceName) {
+    // Also updates the PLines cell in the order row for the given tripId
+    function saCheckLineCount(orderNumber, instanceName, tripId) {
         return new Promise((resolve) => {
             if (typeof sendMessageToCSharp !== 'function') { resolve(-1); return; }
+
+            // Show spinner in PLines cell while checking
+            if (tripId) {
+                const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+                if (rowEl) {
+                    const pl = rowEl.querySelector('[data-col="plines"]');
+                    if (pl) pl.innerHTML = `<i class="fas fa-spinner fa-spin" style="color:#94a3b8;font-size:9px;"></i>`;
+                }
+            }
+
             sendMessageToCSharp({
                 action:      'checkOrderLineCount',
                 orderNumber: orderNumber,
                 instance:    instanceName || 'PROD'
             }, function(err, data) {
-                if (err) { console.warn(`[saCheckLineCount] error for ${orderNumber}:`, err); resolve(-1); return; }
+                if (err) {
+                    console.warn(`[saCheckLineCount] error for ${orderNumber}:`, err);
+                    if (tripId) saUpdatePlinesCell(tripId, orderNumber, -1);
+                    resolve(-1); return;
+                }
                 try { data = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) {}
                 const count = (data && typeof data.lineCount === 'number') ? data.lineCount : -1;
                 console.log(`[saCheckLineCount] ${orderNumber} → lineCount=${count}`);
+                if (tripId) saUpdatePlinesCell(tripId, orderNumber, count);
                 resolve(count);
             });
         });
+    }
+
+    function saUpdatePlinesCell(tripId, orderNumber, count) {
+        const rowEl = document.getElementById(`sa-order-row-${tripId}-${orderNumber}`);
+        if (!rowEl) return;
+        const pl = rowEl.querySelector('[data-col="plines"]');
+        if (!pl) return;
+        if (count < 0) {
+            pl.innerHTML = `<span style="color:#94a3b8;font-size:9px;">—</span>`;
+        } else if (count === 0) {
+            pl.innerHTML = `<span style="background:#fef2f2;color:#b91c1c;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;">0</span>`;
+        } else {
+            pl.innerHTML = `<span style="background:#dcfce7;color:#15803d;padding:2px 6px;border-radius:5px;font-size:9px;font-weight:700;">${count}</span>`;
+        }
     }
 
     // Call C# printSalesOrder action → SOAP → C# saves PDF → returns actual filePath from C#
@@ -1633,7 +1663,7 @@
         try {
             // 1. Check LINE_COUNT first — skip print if order has no lines
             saConsoleLog(`Print ▶ Checking line count for ${orderNumber}...`, 'info');
-            const lineCount = await saCheckLineCount(orderNumber, instanceName);
+            const lineCount = await saCheckLineCount(orderNumber, instanceName, tripId);
             if (lineCount === 0) {
                 saConsoleLog(`Print   ${orderNumber} — LINE_COUNT=0, no lines to print → NoLines`, 'skip');
                 if (rowEl) {
@@ -2437,6 +2467,7 @@
                 <td style="padding:6px 8px;text-align:center;" data-col="cancel">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="order_lines">${spin}</td>
                 <td style="padding:6px 8px;text-align:center;" data-col="print">${spin}</td>
+                <td style="padding:6px 8px;text-align:center;" data-col="plines"><span style="color:#94a3b8;font-size:9px;">—</span></td>
                 <td style="padding:6px 8px;text-align:center;" data-col="checked"><span style="color:#94a3b8;font-size:9px;">—</span></td>
                 <td style="padding:6px 8px;text-align:center;">
                     <div style="display:flex;gap:3px;justify-content:center;flex-wrap:wrap;">
@@ -2518,6 +2549,7 @@
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Cancelled</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Order Lines</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Printing</th>
+                        <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;" title="Line count from GR_SO_LINE_COUNT_BIP report">PLines</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Last Checked</th>
                         <th style="padding:5px 8px;text-align:center;font-size:10px;color:#64748b;font-weight:700;">Actions</th>
                     </tr>
