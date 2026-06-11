@@ -4832,9 +4832,6 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn" onclick="getTripProfitCenters('${tripId}', '${tabId}')" id="btn-profit-centers-${tabId}" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: linear-gradient(135deg, #0891b2, #0e7490); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
                                 <i class="fas fa-tags"></i> Get Profit Centers
                             </button>
-                            <button class="btn" id="btn-delete-orders-${tabId}" onclick="deleteTripOrdersSelected('${tripId}', '${tabId}', '${instanceName}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: linear-gradient(135deg, #ef4444, #dc2626); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
-                                <i class="fas fa-trash-alt"></i> Delete Orders
-                            </button>
                             <button class="btn btn-primary" onclick="openAddOrdersModalForTrip('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
                                 <i class="fas fa-plus"></i> Add Orders
                             </button>
@@ -9459,62 +9456,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         console.log('[Refresh Trip] Header KPIs updated - Orders:', totalOrders, 'Customers:', uniqueCustomers, 'Volume:', totalWeight.toFixed(2));
-    };
-
-    window.deleteTripOrdersSelected = function(tripId, tabId, instanceName) {
-        const gridInstance = $(`#grid-${tabId}`).dxDataGrid('instance');
-        if (!gridInstance) { alert('Grid not found.'); return; }
-
-        const selectedRows = gridInstance.getSelectedRowsData();
-        if (!selectedRows || selectedRows.length === 0) {
-            alert('Please select at least one order to delete.');
-            return;
-        }
-
-        const orderNumbers = selectedRows.map(r => r.ORDER_NUMBER || r.order_number).filter(Boolean);
-        if (orderNumbers.length === 0) { alert('Could not determine order numbers for selected rows.'); return; }
-
-        if (!confirm(`Delete ${orderNumbers.length} order(s) from this trip?\n\n${orderNumbers.join(', ')}\n\nThis action cannot be undone.`)) return;
-
-        let completed = 0;
-        let failed = [];
-
-        orderNumbers.forEach(orderNumber => {
-            const url = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/deletetripline?P_ORDER_NUMBER=${encodeURIComponent(orderNumber)}&P_INSTANCE_NAME=${encodeURIComponent(instanceName)}`;
-            sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function(error, data) {
-                if (error) {
-                    failed.push(orderNumber);
-                } else {
-                    try {
-                        const result = typeof data === 'string' ? JSON.parse(data) : data;
-                        if (result && result.status === 'error') failed.push(orderNumber);
-                    } catch (e) { /* non-JSON treated as success */ }
-                }
-
-                completed++;
-                if (completed === orderNumbers.length) {
-                    // Remove successfully deleted rows from grid
-                    const failedSet = new Set(failed);
-                    const currentData = gridInstance.option('dataSource');
-                    const newData = currentData.filter(r => {
-                        const on = r.ORDER_NUMBER || r.order_number || '';
-                        return failedSet.has(on) || !orderNumbers.includes(on);
-                    });
-                    gridInstance.option('dataSource', newData);
-                    gridInstance.clearSelection();
-
-                    const successCount = orderNumbers.length - failed.length;
-                    const toast = document.createElement('div');
-                    const isAllSuccess = failed.length === 0;
-                    toast.style.cssText = `position:fixed;bottom:24px;right:24px;background:${isAllSuccess ? '#10b981' : '#f59e0b'};color:white;padding:10px 18px;border-radius:8px;font-size:0.8rem;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);`;
-                    toast.textContent = isAllSuccess
-                        ? `${successCount} order(s) removed from trip successfully`
-                        : `${successCount} removed, ${failed.length} failed: ${failed.join(', ')}`;
-                    document.body.appendChild(toast);
-                    setTimeout(() => toast.remove(), 4000);
-                }
-            });
-        });
     };
 
     // Refresh Trip Details - calls GET endpoint to reload trip data
