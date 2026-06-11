@@ -1763,6 +1763,8 @@
             try {
                 await saPrintOrder(orderNumber, tripId, tripDate, instanceName, true); // silent=true: no popup
                 printed++;
+                // Small delay between orders to avoid rate-limiting on Fusion SOAP
+                await new Promise(r => setTimeout(r, 800));
             } catch(e) {
                 console.warn(`[ShippingAgent] Print failed for ${orderNumber}:`, e.message);
             }

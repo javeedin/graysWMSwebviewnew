@@ -4379,7 +4379,16 @@ navPanel.Controls.Add(wmsDevButton);
                     instance, credentials.Username, credentials.Password, forPrint: false);
 
                 int lineCount = 0;
-                if (dataResult.Success && dataResult.DataRecords != null)
+                if (!dataResult.Success)
+                {
+                    // SOAP call failed — return -1 so JS proceeds with printing rather than skipping
+                    System.Diagnostics.Debug.WriteLine($"[CheckLineCount] SOAP failed for {orderNumber}: {dataResult.ErrorMessage} — returning -1");
+                    var failResp = new { action = "checkOrderLineCountResponse", requestId, success = true, lineCount = -1, orderNumber };
+                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(failResp));
+                    return;
+                }
+
+                if (dataResult.DataRecords != null)
                 {
                     foreach (var record in dataResult.DataRecords)
                     {
