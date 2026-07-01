@@ -4811,9 +4811,16 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn" onclick="openEditTripHeaderModal('${tripId}', '${tabId}')" title="Edit Trip Header" style="font-size: 0.68rem; padding: 0.3rem 0.6rem; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,0.15);">
                                 <i class="fas fa-edit"></i> Edit Trip
                             </button>
-                            <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
-                                <i class="fas fa-user-check"></i> Assign Picker
-                            </button>
+                            <div style="display:inline-flex; flex-direction:column; gap:3px; vertical-align:top;">
+                                <button class="btn btn-secondary" onclick="assignPickerToTrip('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
+                                    <i class="fas fa-user-check"></i> Assign Picker
+                                </button>
+                                <div style="display:flex; align-items:center; gap:3px; background:#f0fdf4; border:1px solid #6ee7b7; border-radius:4px; padding:2px 5px;">
+                                    <i class="fas fa-calendar-alt" style="color:#059669; font-size:0.65rem;"></i>
+                                    <span style="font-size:0.65rem; color:#065f46; font-weight:600;">Date:</span>
+                                    <input type="date" id="assign-picker-default-date-${tabId}" style="border:none; outline:none; font-size:0.68rem; color:#1f2937; background:transparent; cursor:pointer; width:100px;" />
+                                </div>
+                            </div>
                             <button class="btn btn-success" onclick="allocateLotsForS2V('${tripId}')" style="font-size: 0.68rem; padding: 0.3rem 0.6rem;">
                                 <i class="fas fa-boxes"></i> Allocate Lots for S2V
                             </button>
@@ -5788,7 +5795,7 @@ document.addEventListener('DOMContentLoaded', function() {
                             <label for="assign-picker-date" style="display: block; margin-bottom: 0.5rem; font-weight: 600; color: #1f2937; font-size: 0.9rem;">
                                 <i class="fas fa-calendar-alt"></i> Assignment Date <span style="color: #ef4444;">*</span>
                             </label>
-                            <input type="date" id="assign-picker-date" value="${new Date().toISOString().split('T')[0]}" style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; color: #1f2937; box-sizing: border-box;">
+                            <input type="date" id="assign-picker-date" value="${(document.getElementById('assign-picker-default-date-trip-detail-' + tripId)?.value) || window._lastAssignPickerDate || new Date().toISOString().split('T')[0]}" style="width: 100%; padding: 0.75rem; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem; background: white; color: #1f2937; box-sizing: border-box;">
                         </div>
                     </div>
 
@@ -5823,7 +5830,21 @@ document.addEventListener('DOMContentLoaded', function() {
     window.closeAssignPickerDialog = function() {
         const modal = document.getElementById('assign-picker-modal');
         if (modal) {
+            // Save date back to toolbar field and memory
+            const dateVal = document.getElementById('assign-picker-date')?.value;
+            if (dateVal) {
+                window._lastAssignPickerDate = dateVal;
+                const tripId = window.pendingAssignPickerTripId;
+                const toolbarField = document.getElementById('assign-picker-default-date-trip-detail-' + tripId);
+                if (toolbarField) toolbarField.value = dateVal;
+            }
             modal.remove();
+        }
+        // Clear grid selection
+        const tripId = window.pendingAssignPickerTripId;
+        if (tripId) {
+            const gridEl = $(`#grid-trip-detail-${tripId}`);
+            if (gridEl.length) gridEl.dxDataGrid('instance').deselectAll();
         }
     };
 
