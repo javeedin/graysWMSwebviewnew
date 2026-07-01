@@ -1235,11 +1235,6 @@
                         <button onclick="tripDetailsAssignPickers()" class="btn btn-sm" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 0.5rem 0.9rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(16, 185, 129, 0.3);">
                             <i class="fas fa-user-plus"></i> Assign Pickers
                         </button>
-                        <div style="display: flex; align-items: center; gap: 0.4rem; background: white; border: 1px solid #cbd5e1; border-radius: 6px; padding: 0.3rem 0.6rem;">
-                            <i class="fas fa-calendar-alt" style="color: #10b981; font-size: 0.8rem;"></i>
-                            <label for="trip-default-assign-date" style="font-size: 0.75rem; color: #475569; font-weight: 600; white-space: nowrap; margin: 0;">Assignment Date:</label>
-                            <input type="date" id="trip-default-assign-date" style="border: none; outline: none; font-size: 0.8rem; color: #1f2937; background: transparent; cursor: pointer;" />
-                        </div>
                         <button onclick="tripDetailsPickRelease()" class="btn btn-sm" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; padding: 0.5rem 0.9rem; font-size: 0.8rem; border-radius: 6px; display: flex; align-items: center; gap: 0.4rem; border: none; cursor: pointer; box-shadow: 0 2px 4px rgba(245, 158, 11, 0.3);">
                             <i class="fas fa-box-open"></i> Pick Release
                         </button>
@@ -1260,6 +1255,14 @@
                         <span id="trip-orders-selected-count" style="color: #64748b; font-size: 0.8rem; font-weight: 600;">
                             <i class="fas fa-check-square"></i> <span id="selected-trip-orders-num">0</span> selected
                         </span>
+                    </div>
+
+                    <!-- Assignment Date bar -->
+                    <div style="display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 1rem; background: #f0fdf4; border-bottom: 2px solid #10b981;">
+                        <i class="fas fa-calendar-check" style="color: #059669; font-size: 0.85rem;"></i>
+                        <span style="font-size: 0.8rem; font-weight: 700; color: #065f46;">Assignment Date:</span>
+                        <input type="date" id="trip-default-assign-date" style="border: 1px solid #6ee7b7; border-radius: 5px; padding: 0.25rem 0.5rem; font-size: 0.82rem; color: #1f2937; background: white; cursor: pointer; outline: none;" />
+                        <span style="font-size: 0.72rem; color: #6b7280; font-style: italic;">— carried into Assign Picker dialog</span>
                     </div>
 
                     <div id="trip-orders-grid" style="height: 500px;"></div>
