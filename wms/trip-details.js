@@ -472,6 +472,19 @@ function initializeTripOrdersGrid() {
                     }
                 },
                 {
+                    dataField: 'assignment_date',
+                    caption: 'Assignment Date',
+                    width: 130,
+                    dataType: 'date',
+                    format: 'yyyy-MM-dd',
+                    cssClass: 'small-font-grid',
+                    allowEditing: true,
+                    cellTemplate: function(container, options) {
+                        const val = options.value ? new Date(options.value).toISOString().split('T')[0] : (tripDetailsData?.trip_date || '');
+                        $('<span>').text(val).css({ color: val ? '#1f2937' : '#94a3b8', fontStyle: val ? 'normal' : 'italic' }).appendTo(container);
+                    }
+                },
+                {
                     caption: 'Actions',
                     width: 120,
                     cellTemplate: function(container, options) {
@@ -518,6 +531,11 @@ function initializeTripOrdersGrid() {
                     allowSorting: false
                 }
             ],
+            editing: {
+                mode: 'cell',
+                allowUpdating: true,
+                selectTextOnEditStart: true
+            },
             onContentReady: function(e) {
                 console.log('[Trip Details] Orders grid ready, row count:', e.component.totalCount());
                 updateOrdersCount();
@@ -2016,8 +2034,12 @@ window.tripDetailsAssignPickers = function() {
     // Populate picker dropdown
     populateTripPickerDropdown();
 
-    // Set default date
-    document.getElementById('trip-assign-date').value = tripAssignPickerLastDate || new Date().toISOString().split('T')[0];
+    // Use assignment_date from the first selected row, then last used date, then trip date, then today
+    const rowDate = selectedRows[0]?.assignment_date
+        ? new Date(selectedRows[0].assignment_date).toISOString().split('T')[0]
+        : null;
+    document.getElementById('trip-assign-date').value =
+        rowDate || tripAssignPickerLastDate || tripDetailsData?.trip_date?.split('T')[0] || new Date().toISOString().split('T')[0];
 
     // Show modal
     document.getElementById('trip-assign-pickers-modal').style.display = 'flex';
