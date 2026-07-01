@@ -2240,8 +2240,12 @@
 
     // ── Backordered Lines Dialog ─────────────────────────────────────────────────
     window.saShowBackorderedLines = async function(tripId, instanceName) {
-        const inst = instanceName || 'PROD';
-        const agent = window._saCurrentAgent;
+        const inst      = instanceName || 'PROD';
+        const agent     = window._saCurrentAgent;
+        const APEX_TRIP = `${APEX_BASE}/trips/getorders/${tripId}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+        const APEX_LOT  = (orderNum) => `${APEX_BASE}/trips/orders/getlotdetails/${encodeURIComponent(orderNum)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`;
+        const fusionBase2 = inst.toUpperCase() === 'PROD' ? 'https://efmh.fa.em3.oraclecloud.com' : 'https://efmh-test.fa.em3.oraclecloud.com';
+        const FUSION_SL = (orderNum) => `${fusionBase2}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${encodeURIComponent(orderNum)}&limit=500`;
 
         // Remove any existing dialog
         const existing = document.getElementById('sa-backorder-dlg');
@@ -2252,14 +2256,37 @@
         dlg.id = 'sa-backorder-dlg';
         dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;';
         dlg.innerHTML = `
-            <div style="background:#fff;border-radius:14px;width:900px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
-                <div style="background:linear-gradient(135deg,#d97706,#b45309);padding:1rem 1.4rem;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+            <div style="background:#fff;border-radius:14px;width:960px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+                <div style="background:linear-gradient(135deg,#d97706,#b45309);padding:0.85rem 1.4rem;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
                     <i class="fas fa-exclamation-triangle" style="color:white;font-size:1.1rem;"></i>
                     <div>
                         <div style="font-weight:700;color:white;font-size:0.95rem;">Backordered Lines — Trip ${tripId}</div>
                         <div style="font-size:0.72rem;color:rgba(255,255,255,0.8);margin-top:2px;">Lines with BACKORDERED status · Shows picked qty from WMS lot details</div>
                     </div>
-                    <button onclick="document.getElementById('sa-backorder-dlg').remove()" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.8);font-size:1.3rem;cursor:pointer;line-height:1;">×</button>
+                    <button id="sa-bo-api-btn" onclick="document.getElementById('sa-bo-api-panel').classList.toggle('hidden')"
+                        style="margin-left:auto;background:rgba(255,255,255,0.2);border:1px solid rgba(255,255,255,0.4);color:white;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:0.72rem;font-weight:700;display:flex;align-items:center;gap:5px;">
+                        <i class="fas fa-plug"></i> API Info
+                    </button>
+                    <button onclick="document.getElementById('sa-backorder-dlg').remove()" style="background:none;border:none;color:rgba(255,255,255,0.8);font-size:1.3rem;cursor:pointer;line-height:1;">×</button>
+                </div>
+                <!-- API Info Panel -->
+                <div id="sa-bo-api-panel" class="hidden" style="background:#0f172a;color:#e2e8f0;font-family:monospace;font-size:0.7rem;padding:0.9rem 1.2rem;border-bottom:2px solid #1e293b;flex-shrink:0;max-height:260px;overflow-y:auto;">
+                    <div style="font-weight:800;color:#7c3aed;margin-bottom:0.6rem;font-size:0.75rem;"><i class="fas fa-plug"></i> Web Services Called</div>
+                    <div style="margin-bottom:0.5rem;">
+                        <span style="background:#1e3a5f;color:#60a5fa;padding:1px 6px;border-radius:3px;font-size:0.65rem;font-weight:700;margin-right:6px;">1 · GET</span>
+                        <span style="color:#94a3b8;margin-right:4px;">Trip Orders (APEX)</span><br>
+                        <span style="color:#a5f3fc;word-break:break-all;">${APEX_TRIP}</span>
+                    </div>
+                    <div style="margin-bottom:0.5rem;">
+                        <span style="background:#1e3a5f;color:#60a5fa;padding:1px 6px;border-radius:3px;font-size:0.65rem;font-weight:700;margin-right:6px;">2 · GET</span>
+                        <span style="color:#94a3b8;margin-right:4px;">Shipment Lines (Oracle Fusion)</span><br>
+                        <span style="color:#a5f3fc;word-break:break-all;">${FUSION_SL('{ORDER_NUMBER}')}</span>
+                    </div>
+                    <div>
+                        <span style="background:#1e3a5f;color:#60a5fa;padding:1px 6px;border-radius:3px;font-size:0.65rem;font-weight:700;margin-right:6px;">3 · GET</span>
+                        <span style="color:#94a3b8;margin-right:4px;">Lot Details / Picked Qty (APEX)</span><br>
+                        <span style="color:#a5f3fc;word-break:break-all;">${APEX_LOT('{ORDER_NUMBER}')}</span>
+                    </div>
                 </div>
                 <div id="sa-backorder-body" style="flex:1;overflow-y:auto;padding:1.2rem;">
                     <div style="text-align:center;padding:2rem;color:#94a3b8;">
@@ -2275,34 +2302,21 @@
                 </div>
             </div>`;
         document.body.appendChild(dlg);
+        // Inject .hidden utility if not already present
+        if (!document.getElementById('sa-bo-style')) {
+            const s = document.createElement('style'); s.id = 'sa-bo-style';
+            s.textContent = '.hidden { display: none !important; }';
+            document.head.appendChild(s);
+        }
 
         const body = document.getElementById('sa-backorder-body');
 
         try {
-            // 1. Get orders for this trip from cached data
-            const tripOrders = window._saOrderCache
-                ? Object.entries(window._saOrderCache)
-                      .filter(([k]) => k.startsWith(tripId + ':'))
-                      .map(([, v]) => v)
-                : [];
-
-            // Also pull from the trip table rows
-            const orderNums = [];
-            document.querySelectorAll(`#sa-trip-${tripId} tr[data-order]`).forEach(r => {
-                const o = r.dataset.order; if (o) orderNums.push(o);
-            });
-            // Fallback: get from _saAgentTrips
-            if (!orderNums.length && window._saAgentTrips && window._saAgentTrips[agent && agent.ID]) {
-                const t = (window._saAgentTrips[agent.ID] || []).find(t => String(t.TRIP_ID) === String(tripId));
-                if (t && t.orders) t.orders.forEach(o => orderNums.push(o.ORDER_NUMBER || o.order_number));
-            }
-            // Last resort: re-fetch trip orders from API
-            let orders = orderNums.length ? orderNums : [];
-            if (!orders.length) {
-                const tripData = await apexGet(`trips/getorders/${tripId}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
-                const rows = Array.isArray(tripData) ? tripData : (tripData && tripData.items ? tripData.items : []);
-                rows.forEach(r => { const o = r.ORDER_NUMBER || r.order_number; if (o) orders.push(String(o)); });
-            }
+            // 1. Fetch trip orders from APEX API
+            const tripData = await apexGet(`trips/getorders/${tripId}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+            const tripRows = Array.isArray(tripData) ? tripData : (tripData && tripData.items ? tripData.items : []);
+            const orders = [];
+            tripRows.forEach(r => { const o = r.ORDER_NUMBER || r.order_number; if (o && !orders.includes(String(o))) orders.push(String(o)); });
 
             if (!orders.length) {
                 body.innerHTML = `<div style="text-align:center;padding:2rem;color:#94a3b8;">No orders found for trip ${tripId}.</div>`;
@@ -2453,7 +2467,8 @@
         } catch(err) {
             body.innerHTML = `<div style="text-align:center;padding:2rem;color:#dc2626;">
                 <i class="fas fa-times-circle" style="font-size:1.5rem;margin-bottom:0.5rem;display:block;"></i>
-                Error loading backordered lines: ${err.message}
+                <div style="font-weight:700;margin-bottom:0.3rem;">Error loading backordered lines</div>
+                <div style="font-size:0.75rem;color:#64748b;word-break:break-all;">${String(err && err.message ? err.message : err)}</div>
             </div>`;
         }
     };
