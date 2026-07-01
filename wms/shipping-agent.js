@@ -2739,7 +2739,7 @@
                 <div style="display:flex;gap:0.4rem;align-items:center;">
                     <button onclick="saShowShipmentLinesApiInfo('${esc(orders[0] && orders[0].ORDER_NUMBER || '')}','${esc(inst)}')"
                         style="background:#1e293b;color:#94a3b8;border:none;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;"
-                        title="Show Fusion API info"><i class="fas fa-code"></i></button>
+                        title="${esc(fusionShipmentLinesUrl(orders[0] && orders[0].ORDER_NUMBER || '', inst))}"><i class="fas fa-plug"></i> API</button>
                     <button onclick="saShowDbSaveApiInfo()"
                         style="background:#1e293b;color:#f59e0b;border:1px solid #f59e0b;padding:4px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
                         title="Show DB save POST body (WMS_SHIPING_AGENTS_ORDERS_STATUS)"><i class="fas fa-database"></i></button>
