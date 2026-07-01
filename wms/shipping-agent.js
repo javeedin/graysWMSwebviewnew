@@ -2497,10 +2497,13 @@
                         Oracle Fusion — shipmentLines (called once per order)
                     </div>
                     <div style="background:#1e293b;border:1px solid #7c3aed;border-radius:6px;padding:0.6rem 0.8rem;">
-                        <div style="color:#a78bfa;font-size:9px;margin-bottom:4px;font-weight:700;">
+                        <div style="color:#a78bfa;font-size:9px;margin-bottom:6px;font-weight:700;">
                             ${isProd ? '🟢 PROD' : '🟡 TRAIN/TEST'} — Instance: <strong>${esc(inst)}</strong>
                         </div>
-                        <div style="color:#38bdf8;word-break:break-all;line-height:1.6;">${esc(fusionUrl)}</div>
+                        <div style="display:flex;gap:4px;align-items:flex-start;">
+                            <input readonly value="${esc(fusionUrl)}" onclick="this.select()" style="flex:1;background:#0f172a;color:#38bdf8;border:1px solid #334155;border-radius:4px;padding:5px 7px;font-family:monospace;font-size:10px;word-break:break-all;white-space:pre-wrap;width:100%;cursor:pointer;" title="Click to select all">
+                            <button onclick="navigator.clipboard.writeText('${esc(fusionUrl)}').then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='📋',1200)})" style="background:#7c3aed;color:white;border:none;border-radius:4px;padding:5px 8px;cursor:pointer;font-size:11px;flex-shrink:0;" title="Copy URL">📋</button>
+                        </div>
                     </div>
                     <div style="color:#64748b;font-size:9px;margin-top:0.4rem;line-height:1.7;">
                         <strong style="color:#94a3b8;">Host:</strong>
@@ -2528,8 +2531,11 @@
                         <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
                         APEX — Sales Order Lines count (per order)
                     </div>
-                    <div style="background:#1e293b;border:1px solid #0891b2;border-radius:6px;padding:0.5rem 0.8rem;color:#38bdf8;font-size:10px;word-break:break-all;">
-                        ${esc(APEX_BASE)}/trip/orders/getsalesorderlines/<strong>{ORDER_NUMBER}</strong>?P_INSTANCE_NAME=${esc(inst)}
+                    <div style="background:#1e293b;border:1px solid #0891b2;border-radius:6px;padding:0.5rem 0.8rem;">
+                        <div style="display:flex;gap:4px;align-items:flex-start;">
+                            <input readonly value="${esc(APEX_BASE)}/trip/orders/getsalesorderlines/${esc(sampleOrderNumber||'{ORDER_NUMBER}')}?P_INSTANCE_NAME=${esc(inst)}" onclick="this.select()" style="flex:1;background:#0f172a;color:#38bdf8;border:1px solid #334155;border-radius:4px;padding:5px 7px;font-family:monospace;font-size:10px;width:100%;cursor:pointer;" title="Click to select all">
+                            <button onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(()=>{this.textContent='✓';setTimeout(()=>this.textContent='📋',1200)})" style="background:#0891b2;color:white;border:none;border-radius:4px;padding:5px 8px;cursor:pointer;font-size:11px;flex-shrink:0;" title="Copy URL">📋</button>
+                        </div>
                     </div>
                 </div>
 
