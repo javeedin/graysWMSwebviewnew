@@ -1970,6 +1970,7 @@ function handleFetchedShipmentData(data, instance) {
 
 // Store selected orders for picker assignment
 let tripSelectedOrdersForPicker = [];
+let tripAssignPickerLastDate = null; // remember last used assignment date
 
 window.tripDetailsAssignPickers = function() {
     console.log('[Trip Details] Assign Pickers clicked');
@@ -2016,7 +2017,7 @@ window.tripDetailsAssignPickers = function() {
     populateTripPickerDropdown();
 
     // Set default date
-    document.getElementById('trip-assign-date').value = new Date().toISOString().split('T')[0];
+    document.getElementById('trip-assign-date').value = tripAssignPickerLastDate || new Date().toISOString().split('T')[0];
 
     // Show modal
     document.getElementById('trip-assign-pickers-modal').style.display = 'flex';
@@ -2060,6 +2061,10 @@ function populateTripPickerDropdown() {
 window.closeTripAssignPickersModal = function() {
     document.getElementById('trip-assign-pickers-modal').style.display = 'none';
     tripSelectedOrdersForPicker = [];
+    // Clear grid selection after dialog closes
+    if (tripOrdersGrid) {
+        tripOrdersGrid.deselectAll();
+    }
 };
 
 window.submitTripPickerAssignment = async function() {
@@ -2132,6 +2137,7 @@ window.submitTripPickerAssignment = async function() {
                         console.log('[Trip Details] Picker assignment response:', response);
 
                         if (response.success) {
+                            tripAssignPickerLastDate = assignDate; // remember for next open
                             alert(`✅ Successfully assigned ${pickerName} to ${tripSelectedOrdersForPicker.length} order(s)!`);
                             closeTripAssignPickersModal();
                             // Refresh grid data
@@ -2160,6 +2166,7 @@ window.submitTripPickerAssignment = async function() {
 
             const result = await response.json();
             if (result.success) {
+                tripAssignPickerLastDate = assignDate; // remember for next open
                 alert(`✅ Successfully assigned ${pickerName} to ${tripSelectedOrdersForPicker.length} order(s)!`);
                 closeTripAssignPickersModal();
             } else {
