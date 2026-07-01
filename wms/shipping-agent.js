@@ -1909,7 +1909,7 @@
 
         const isCancellable = (status) => {
             const s = (status || '').toUpperCase();
-            return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION') || s.includes('BACKORDERED');
+            return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION');
         };
 
         // Build Fusion cancel URL and JSON body for an order's flagged lines
@@ -2238,6 +2238,226 @@
         }
     }
 
+    // ── Backordered Lines Dialog ─────────────────────────────────────────────────
+    window.saShowBackorderedLines = async function(tripId, instanceName) {
+        const inst = instanceName || 'PROD';
+        const agent = window._saCurrentAgent;
+
+        // Remove any existing dialog
+        const existing = document.getElementById('sa-backorder-dlg');
+        if (existing) existing.remove();
+
+        // Show dialog with loading spinner immediately
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-backorder-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#fff;border-radius:14px;width:900px;max-width:95vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+                <div style="background:linear-gradient(135deg,#d97706,#b45309);padding:1rem 1.4rem;display:flex;align-items:center;gap:0.75rem;flex-shrink:0;">
+                    <i class="fas fa-exclamation-triangle" style="color:white;font-size:1.1rem;"></i>
+                    <div>
+                        <div style="font-weight:700;color:white;font-size:0.95rem;">Backordered Lines — Trip ${tripId}</div>
+                        <div style="font-size:0.72rem;color:rgba(255,255,255,0.8);margin-top:2px;">Lines with BACKORDERED status · Shows picked qty from WMS lot details</div>
+                    </div>
+                    <button onclick="document.getElementById('sa-backorder-dlg').remove()" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.8);font-size:1.3rem;cursor:pointer;line-height:1;">×</button>
+                </div>
+                <div id="sa-backorder-body" style="flex:1;overflow-y:auto;padding:1.2rem;">
+                    <div style="text-align:center;padding:2rem;color:#94a3b8;">
+                        <i class="fas fa-spinner fa-spin" style="font-size:1.5rem;margin-bottom:0.5rem;display:block;"></i>
+                        Loading backordered lines…
+                    </div>
+                </div>
+                <div style="padding:0.75rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;justify-content:flex-end;">
+                    <button onclick="document.getElementById('sa-backorder-dlg').remove()"
+                        style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#1e293b;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                        Close
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+
+        const body = document.getElementById('sa-backorder-body');
+
+        try {
+            // 1. Get orders for this trip from cached data
+            const tripOrders = window._saOrderCache
+                ? Object.entries(window._saOrderCache)
+                      .filter(([k]) => k.startsWith(tripId + ':'))
+                      .map(([, v]) => v)
+                : [];
+
+            // Also pull from the trip table rows
+            const orderNums = [];
+            document.querySelectorAll(`#sa-trip-${tripId} tr[data-order]`).forEach(r => {
+                const o = r.dataset.order; if (o) orderNums.push(o);
+            });
+            // Fallback: get from _saAgentTrips
+            if (!orderNums.length && window._saAgentTrips && window._saAgentTrips[agent && agent.ID]) {
+                const t = (window._saAgentTrips[agent.ID] || []).find(t => String(t.TRIP_ID) === String(tripId));
+                if (t && t.orders) t.orders.forEach(o => orderNums.push(o.ORDER_NUMBER || o.order_number));
+            }
+            // Last resort: re-fetch trip orders from API
+            let orders = orderNums.length ? orderNums : [];
+            if (!orders.length) {
+                const tripData = await apexGet(`trips/getorders/${tripId}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+                const rows = Array.isArray(tripData) ? tripData : (tripData && tripData.items ? tripData.items : []);
+                rows.forEach(r => { const o = r.ORDER_NUMBER || r.order_number; if (o) orders.push(String(o)); });
+            }
+
+            if (!orders.length) {
+                body.innerHTML = `<div style="text-align:center;padding:2rem;color:#94a3b8;">No orders found for trip ${tripId}.</div>`;
+                return;
+            }
+
+            // 2. Fetch Fusion shipment lines for each order and lot details in parallel
+            const results = await Promise.all(orders.map(async (orderNum) => {
+                let backorderedLines = [];
+                try {
+                    const fusionData = await fusionShipmentLinesGet(orderNum, inst);
+                    const lines = Array.isArray(fusionData) ? fusionData
+                                : (fusionData && fusionData.items) ? fusionData.items : [];
+                    backorderedLines = lines.filter(l => {
+                        const s = (l.LineStatus || l.lineStatus || l.STATUS || l.status || '').toUpperCase();
+                        return s.includes('BACKORDERED') || s.includes('BACK ORDER');
+                    });
+                } catch(e) {
+                    console.warn('[BackorderedLines] Fusion fetch failed for', orderNum, e.message);
+                }
+
+                if (!backorderedLines.length) return null;
+
+                // 3. Fetch WMS lot details for picked qty
+                let lotRows = [];
+                try {
+                    const lotData = await apexGet(`trips/orders/getlotdetails/${encodeURIComponent(orderNum)}?P_INSTANCE_NAME=${encodeURIComponent(inst)}`);
+                    lotRows = Array.isArray(lotData) ? lotData : (lotData && lotData.items ? lotData.items : []);
+                } catch(e) {
+                    console.warn('[BackorderedLines] Lot details fetch failed for', orderNum, e.message);
+                }
+
+                const totalPickedQty = lotRows.reduce((s, r) => s + (Number(r.picked_qty || r.PICKED_QTY || 0)), 0);
+
+                return { orderNum, backorderedLines, lotRows, totalPickedQty };
+            }));
+
+            const found = results.filter(Boolean);
+
+            if (!found.length) {
+                body.innerHTML = `
+                    <div style="text-align:center;padding:2rem;">
+                        <i class="fas fa-check-circle" style="color:#22c55e;font-size:2rem;margin-bottom:0.5rem;display:block;"></i>
+                        <div style="font-weight:700;color:#15803d;">No backordered lines found</div>
+                        <div style="color:#94a3b8;font-size:0.8rem;margin-top:0.3rem;">All ${orders.length} orders checked — none have BACKORDERED status lines.</div>
+                    </div>`;
+                return;
+            }
+
+            const totalBackordered = found.reduce((s, r) => s + r.backorderedLines.length, 0);
+            const withPicked = found.filter(r => r.totalPickedQty > 0);
+
+            let html = `
+                <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;">
+                    <div style="background:#fef3c7;color:#92400e;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;">
+                        <i class="fas fa-exclamation-triangle"></i> ${totalBackordered} backordered line(s) across ${found.length} order(s)
+                    </div>
+                    ${withPicked.length ? `<div style="background:#fee2e2;color:#b91c1c;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;">
+                        <i class="fas fa-hand-paper"></i> ${withPicked.length} order(s) have picked qty — DO NOT cancel
+                    </div>` : `<div style="background:#d1fae5;color:#065f46;padding:0.4rem 0.9rem;border-radius:8px;font-size:0.78rem;font-weight:700;">
+                        <i class="fas fa-check-circle"></i> No picked qty on any backordered orders — safe to review
+                    </div>`}
+                </div>`;
+
+            found.forEach(({ orderNum, backorderedLines, lotRows, totalPickedQty }) => {
+                const hasPickedQty = totalPickedQty > 0;
+                const borderColor  = hasPickedQty ? '#dc2626' : '#d97706';
+                const bgColor      = hasPickedQty ? '#fff5f5' : '#fffbeb';
+
+                html += `
+                <div style="border:1px solid ${borderColor};border-left:4px solid ${borderColor};border-radius:8px;margin-bottom:1rem;background:${bgColor};overflow:hidden;">
+                    <div style="padding:0.6rem 0.9rem;display:flex;align-items:center;gap:0.6rem;border-bottom:1px solid ${borderColor}30;background:${bgColor};">
+                        <strong style="font-size:0.88rem;color:#1e293b;">#${orderNum}</strong>
+                        <span style="background:${hasPickedQty?'#fee2e2':'#fef3c7'};color:${hasPickedQty?'#b91c1c':'#92400e'};padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">
+                            ${backorderedLines.length} backordered line(s)
+                        </span>
+                        ${hasPickedQty
+                            ? `<span style="background:#fee2e2;color:#b91c1c;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">
+                                <i class="fas fa-hand-paper"></i> Picked Qty: ${totalPickedQty} — DO NOT CANCEL
+                               </span>`
+                            : `<span style="background:#d1fae5;color:#065f46;padding:2px 8px;border-radius:10px;font-size:0.7rem;font-weight:700;">
+                                <i class="fas fa-check"></i> Picked Qty: 0
+                               </span>`}
+                    </div>
+                    <div style="padding:0.6rem 0.9rem;">
+                        <table style="width:100%;border-collapse:collapse;font-size:0.75rem;">
+                            <thead>
+                                <tr style="background:#f8fafc;">
+                                    <th style="padding:4px 8px;text-align:left;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Line #</th>
+                                    <th style="padding:4px 8px;text-align:left;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Item</th>
+                                    <th style="padding:4px 8px;text-align:left;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Status</th>
+                                    <th style="padding:4px 8px;text-align:right;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Ordered Qty</th>
+                                    <th style="padding:4px 8px;text-align:right;color:#64748b;font-weight:700;border-bottom:1px solid #e2e8f0;">Picked Qty (WMS)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${backorderedLines.map(l => {
+                                    const lineNum    = l.FulfillLineNumber || l.LineNumber || l.line_number || '—';
+                                    const item       = l.ProductNumber || l.ItemNumber || l.item_number || '—';
+                                    const status     = l.LineStatus || l.lineStatus || l.STATUS || 'Backordered';
+                                    const orderedQty = l.OrderedQuantity || l.ordered_qty || '—';
+                                    // Match lot row by item
+                                    const lotRow = lotRows.find(r =>
+                                        (r.item_code || r.ITEM_CODE || '').toUpperCase() === item.toUpperCase()
+                                    );
+                                    const pickedQty = lotRow ? (lotRow.picked_qty || lotRow.PICKED_QTY || 0) : 0;
+                                    const pickedStyle = pickedQty > 0
+                                        ? 'color:#dc2626;font-weight:700;'
+                                        : 'color:#94a3b8;';
+                                    return `<tr style="border-bottom:1px solid #f1f5f9;">
+                                        <td style="padding:4px 8px;">${lineNum}</td>
+                                        <td style="padding:4px 8px;font-weight:600;">${item}</td>
+                                        <td style="padding:4px 8px;">
+                                            <span style="background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:4px;font-size:0.68rem;font-weight:700;">${status}</span>
+                                        </td>
+                                        <td style="padding:4px 8px;text-align:right;">${orderedQty}</td>
+                                        <td style="padding:4px 8px;text-align:right;${pickedStyle}">${pickedQty > 0 ? '⚠ ' + pickedQty : pickedQty}</td>
+                                    </tr>`;
+                                }).join('')}
+                            </tbody>
+                        </table>
+                        ${lotRows.length ? `
+                        <details style="margin-top:0.5rem;">
+                            <summary style="font-size:0.7rem;color:#6366f1;cursor:pointer;font-weight:600;">View all WMS lot details (${lotRows.length} rows)</summary>
+                            <table style="width:100%;border-collapse:collapse;font-size:0.68rem;margin-top:0.4rem;">
+                                <thead><tr style="background:#eef2ff;">
+                                    <th style="padding:3px 6px;text-align:left;color:#4338ca;">Item</th>
+                                    <th style="padding:3px 6px;text-align:left;color:#4338ca;">Lot</th>
+                                    <th style="padding:3px 6px;text-align:right;color:#4338ca;">Picked Qty</th>
+                                    <th style="padding:3px 6px;text-align:right;color:#4338ca;">Requested Qty</th>
+                                </tr></thead>
+                                <tbody>${lotRows.map(r => `
+                                    <tr style="border-bottom:1px solid #f1f5f9;">
+                                        <td style="padding:3px 6px;">${r.item_code || r.ITEM_CODE || '—'}</td>
+                                        <td style="padding:3px 6px;">${r.lot_number || r.LOT_NUMBER || '—'}</td>
+                                        <td style="padding:3px 6px;text-align:right;${(r.picked_qty||r.PICKED_QTY)>0?'color:#dc2626;font-weight:700;':''}">${r.picked_qty || r.PICKED_QTY || 0}</td>
+                                        <td style="padding:3px 6px;text-align:right;">${r.requested_qty || r.REQUESTED_QTY || '—'}</td>
+                                    </tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </details>` : ''}
+                    </div>
+                </div>`;
+            });
+
+            body.innerHTML = html;
+
+        } catch(err) {
+            body.innerHTML = `<div style="text-align:center;padding:2rem;color:#dc2626;">
+                <i class="fas fa-times-circle" style="font-size:1.5rem;margin-bottom:0.5rem;display:block;"></i>
+                Error loading backordered lines: ${err.message}
+            </div>`;
+        }
+    };
+
     window.saShowShipmentLinesApiInfo = function(sampleOrderNumber, instanceName) {
         const inst     = instanceName || 'PROD';
         const fusionUrl = fusionShipmentLinesUrl(sampleOrderNumber, inst);
@@ -2536,6 +2756,11 @@
                         style="background:#dc2626;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
                         title="Cancel Sales Orders">
                         <i class="fas fa-ban"></i> Cancel Orders
+                    </button>
+                    <button onclick="saShowBackorderedLines('${esc(tripId)}','${esc(inst)}')"
+                        style="background:#d97706;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
+                        title="View backordered lines and picked quantities">
+                        <i class="fas fa-exclamation-triangle"></i> Backordered Lines
                     </button>
                 </div>
             </div>
