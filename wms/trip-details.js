@@ -2059,6 +2059,11 @@ function populateTripPickerDropdown() {
 }
 
 window.closeTripAssignPickersModal = function() {
+    // Always save whatever date is in the field before closing
+    const dateInput = document.getElementById('trip-assign-date');
+    if (dateInput && dateInput.value) {
+        tripAssignPickerLastDate = dateInput.value;
+    }
     document.getElementById('trip-assign-pickers-modal').style.display = 'none';
     tripSelectedOrdersForPicker = [];
     // Clear grid selection after dialog closes
