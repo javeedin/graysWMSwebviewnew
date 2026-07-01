@@ -1707,13 +1707,30 @@ function renderGridView(area, orders) {
         </tr>`).join('');
 
     area.innerHTML = `
-        <div class="grid-table-wrap">
-            <div style="padding:0 0 0.5rem 0;font-size:0.75rem;color:var(--slate-500);">${sorted.length} orders</div>
-            <table class="grid-table">
+        <div style="padding:0.75rem 1rem 0.25rem;font-size:0.75rem;color:var(--slate-500);">${sorted.length} orders</div>
+        <div id="grid-scroll-top" style="overflow-x:scroll;overflow-y:hidden;height:12px;margin:0 1rem 0;">
+            <div id="grid-scroll-top-inner" style="height:1px;"></div>
+        </div>
+        <div class="grid-table-wrap" id="grid-scroll-body">
+            <table class="grid-table" id="grid-main-table">
                 <thead><tr>${headerHtml}</tr></thead>
                 <tbody>${rowsHtml}</tbody>
             </table>
         </div>`;
+
+    // Sync top scrollbar width and scroll position
+    const topScroll  = area.querySelector('#grid-scroll-top');
+    const topInner   = area.querySelector('#grid-scroll-top-inner');
+    const bodyScroll = area.querySelector('#grid-scroll-body');
+    const table      = area.querySelector('#grid-main-table');
+    // Wait one frame for table to render and get its width
+    requestAnimationFrame(() => {
+        if (table && topInner) topInner.style.width = table.offsetWidth + 'px';
+        if (topScroll && bodyScroll) {
+            topScroll.addEventListener('scroll', () => { bodyScroll.scrollLeft = topScroll.scrollLeft; });
+            bodyScroll.addEventListener('scroll', () => { topScroll.scrollLeft  = bodyScroll.scrollLeft; });
+        }
+    });
 }
 
 function sortGrid(col) {
