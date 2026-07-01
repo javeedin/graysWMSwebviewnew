@@ -1455,26 +1455,24 @@ function clearFilters() {
 function buildOrderMap(rows) {
     const map = {};
     rows.forEach(r => {
-        const key          = r.source_order_number || 'UNKNOWN';
-        const totalLines   = Number(r.total_lines)   || 0;
-        const pickedLines  = Number(r.picked_lines)  || 0;
-        const shippedLines = Number(r.shipped_lines) || Number(r.shipped_qty) ||
-                             Number(r.SHIPPED_LINES)  || Number(r.SHIPPED_QTY) || 0;
+        const key         = r.source_order_number || 'UNKNOWN';
+        const totalLines  = Number(r.total_lines)  || 0;
+        const pickedLines = Number(r.picked_lines) || 0;
+        const shippedSt   = (r.SHIPPED_STATUS || r.shipped_status || '').toString().toUpperCase().trim();
 
         map[key] = {
-            orderNum:    key,
-            tripId:      r.trip_id || r.TRIP_ID || null,
-            account:     r.account_name   || '—',
-            picker:      r.picker_name    || 'Unassigned',
-            lorry:       r.lorry_number   || '—',
-            bay:         r.loading_bay    || '—',
-            priority:    r.order_priority || '',
-            date:        r.assignment_date || '',
-            totalQty:    totalLines,
-            pickedQty:   pickedLines,
-            shippedQty:  shippedLines,
-            balance:     Number(r.balance_lines) || 0,
-            items:       []
+            orderNum:  key,
+            tripId:    r.trip_id || r.TRIP_ID || null,
+            account:   r.account_name   || '—',
+            picker:    r.picker_name    || 'Unassigned',
+            lorry:     r.lorry_number   || '—',
+            bay:       r.loading_bay    || '—',
+            priority:  r.order_priority || '',
+            date:      r.assignment_date || '',
+            totalQty:  totalLines,
+            pickedQty: pickedLines,
+            balance:   Number(r.balance_lines) || 0,
+            items:     []
         };
 
         const o = map[key];
@@ -1483,8 +1481,8 @@ function buildOrderMap(rows) {
         else if (pickedLines > 0)           o.pickStatus = 'partial';
         else                                o.pickStatus = 'none';
         o.pickPct   = totalLines ? Math.round(pickedLines / totalLines * 100) : 0;
-        // Shipped: all lines picked AND shipped quantity covers all lines
-        o.isShipped = o.pickStatus === 'full' && shippedLines >= totalLines && totalLines > 0;
+        // Shipped: API SHIPPED_STATUS field equals 'SHIPPED'
+        o.isShipped = shippedSt === 'SHIPPED';
     });
 
     return map;
