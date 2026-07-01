@@ -472,19 +472,6 @@ function initializeTripOrdersGrid() {
                     }
                 },
                 {
-                    dataField: 'assignment_date',
-                    caption: 'Assignment Date',
-                    width: 130,
-                    dataType: 'date',
-                    format: 'yyyy-MM-dd',
-                    cssClass: 'small-font-grid',
-                    allowEditing: true,
-                    cellTemplate: function(container, options) {
-                        const val = options.value ? new Date(options.value).toISOString().split('T')[0] : (tripDetailsData?.trip_date || '');
-                        $('<span>').text(val).css({ color: val ? '#1f2937' : '#94a3b8', fontStyle: val ? 'normal' : 'italic' }).appendTo(container);
-                    }
-                },
-                {
                     caption: 'Actions',
                     width: 120,
                     cellTemplate: function(container, options) {
@@ -531,11 +518,6 @@ function initializeTripOrdersGrid() {
                     allowSorting: false
                 }
             ],
-            editing: {
-                mode: 'cell',
-                allowUpdating: true,
-                selectTextOnEditStart: true
-            },
             onContentReady: function(e) {
                 console.log('[Trip Details] Orders grid ready, row count:', e.component.totalCount());
                 updateOrdersCount();
@@ -2034,12 +2016,10 @@ window.tripDetailsAssignPickers = function() {
     // Populate picker dropdown
     populateTripPickerDropdown();
 
-    // Use assignment_date from the first selected row, then last used date, then trip date, then today
-    const rowDate = selectedRows[0]?.assignment_date
-        ? new Date(selectedRows[0].assignment_date).toISOString().split('T')[0]
-        : null;
+    // Read from toolbar date field, then last used date, then trip date, then today
+    const toolbarDate = document.getElementById('trip-default-assign-date')?.value;
     document.getElementById('trip-assign-date').value =
-        rowDate || tripAssignPickerLastDate || tripDetailsData?.trip_date?.split('T')[0] || new Date().toISOString().split('T')[0];
+        toolbarDate || tripAssignPickerLastDate || tripDetailsData?.trip_date?.split('T')[0] || new Date().toISOString().split('T')[0];
 
     // Show modal
     document.getElementById('trip-assign-pickers-modal').style.display = 'flex';
@@ -2081,10 +2061,12 @@ function populateTripPickerDropdown() {
 }
 
 window.closeTripAssignPickersModal = function() {
-    // Always save whatever date is in the field before closing
+    // Save the date back to the toolbar field and the memory variable
     const dateInput = document.getElementById('trip-assign-date');
     if (dateInput && dateInput.value) {
         tripAssignPickerLastDate = dateInput.value;
+        const toolbarField = document.getElementById('trip-default-assign-date');
+        if (toolbarField) toolbarField.value = dateInput.value;
     }
     document.getElementById('trip-assign-pickers-modal').style.display = 'none';
     tripSelectedOrdersForPicker = [];
