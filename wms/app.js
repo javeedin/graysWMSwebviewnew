@@ -10140,9 +10140,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
                         <!-- Tab: Shipment Lines (Oracle Fusion) -->
                         <div id="order-trans-fusion-shipment-lines" class="order-trans-tab-content" style="height: 100%; overflow: auto; padding: 1rem; display: none;">
-                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; align-items: center;">
+                            <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
                                 <button class="btn btn-secondary" onclick="refreshFusionShipmentLines('${orderNumber}')">
                                     <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                                <button class="btn btn-primary" onclick="fslPickReleaseBackorders('${orderNumber}')"
+                                    style="background:#7c3aed;color:white;border:none;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:5px;">
+                                    <i class="fas fa-box-open"></i> Pick Release BackOrders
+                                </button>
+                                <button onclick="fslShowPickReleaseApiInfo('${orderNumber}')"
+                                    style="background:#1e293b;color:#94a3b8;border:1px solid #334155;padding:5px 9px;border-radius:6px;cursor:pointer;font-size:11px;"
+                                    title="Show Pick Release API endpoint">
+                                    <i class="fas fa-plug"></i>
                                 </button>
                                 <span id="fusion-shipment-lines-status" style="font-size: 0.8rem; color: #64748b;"></span>
                             </div>
@@ -11528,7 +11537,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     { field: 'StagedQuantity', label: 'Staged Qty', width: '90px' },
                     { field: 'ShippedQuantity', label: 'Shipped Qty', width: '90px' },
                     { field: 'SubinventoryName', label: 'Subinventory', width: '120px' },
-                    { field: 'LineStatus', label: 'Line Status', width: '110px' },
+                    { field: 'LineStatus', label: 'Line Status', width: '140px' },
                     { field: 'ShipToCustomer', label: 'Ship To Customer', width: '180px' },
                     { field: 'OrganizationCode', label: 'Org', width: '70px' },
                     { field: 'PickWave', label: 'Pick Wave', width: '180px' },
@@ -11536,31 +11545,57 @@ document.addEventListener('DOMContentLoaded', function() {
                     { field: 'CreationDate', label: 'Created', width: '140px' }
                 ];
 
-                let headerHtml = columns.map(c => `<th style="padding: 0.5rem 0.75rem; background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left; white-space: nowrap; font-size: 0.75rem; color: #475569; font-weight: 600; position: sticky; top: 0; z-index: 1; min-width: ${c.width};">${c.label}</th>`).join('');
+                const chkTh = `<th style="padding:0.5rem 0.5rem;background:#f8fafc;border-bottom:2px solid #e2e8f0;position:sticky;top:0;z-index:1;width:32px;">
+                    <input type="checkbox" id="fsl-chk-all" title="Select all backordered" onchange="fslToggleAllBackordered(this.checked)" style="cursor:pointer;">
+                </th>`;
+                let headerHtml = chkTh + columns.map(c => `<th style="padding: 0.5rem 0.75rem; background: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left; white-space: nowrap; font-size: 0.75rem; color: #475569; font-weight: 600; position: sticky; top: 0; z-index: 1; min-width: ${c.width};">${c.label}</th>`).join('');
 
-                let rowsHtml = items.map(row => {
+                let rowsHtml = items.map((row, idx) => {
                     const statusCode = row.LineStatusCode || '';
+                    const lineStatus = (row.LineStatus || '').toUpperCase();
+                    const isBackordered = lineStatus.includes('BACKORDER') || lineStatus.includes('BACK ORDER');
                     let statusColor = '#64748b';
                     if (statusCode === 'Y') statusColor = '#10b981';
                     else if (statusCode === 'C') statusColor = '#3b82f6';
                     else if (statusCode === 'X') statusColor = '#ef4444';
+                    else if (isBackordered) statusColor = '#d97706';
+
+                    const rowBg = isBackordered ? '#fffbeb' : '';
+                    const chkTd = `<td style="padding:0.3rem 0.5rem;border-bottom:1px solid #f1f5f9;">
+                        <input type="checkbox" class="fsl-row-chk" data-idx="${idx}"
+                            data-order="${row.Order || orderNumber}"
+                            data-line="${row.ShipmentLine || ''}"
+                            data-item="${row.Item || ''}"
+                            data-status="${(row.LineStatus || '').replace(/"/g,'')}"
+                            ${isBackordered ? 'checked' : ''}
+                            style="cursor:pointer;">
+                    </td>`;
 
                     const cells = columns.map(c => {
                         let val = row[c.field] !== null && row[c.field] !== undefined ? row[c.field] : '';
                         if (c.field === 'LineStatus') {
-                            val = `<span style="color: ${statusColor}; font-weight: 600;">${val}</span>`;
+                            const boBadge = isBackordered ? `<span style="background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-size:10px;font-weight:700;margin-left:4px;">BO</span>` : '';
+                            val = `<span style="color:${statusColor};font-weight:600;">${val}</span>${boBadge}`;
                         } else if (c.field === 'CreationDate' && val) {
                             val = val.replace('T', ' ').substring(0, 19);
                         }
                         return `<td style="padding: 0.4rem 0.75rem; border-bottom: 1px solid #f1f5f9; font-size: 0.8rem; white-space: nowrap;">${val}</td>`;
                     }).join('');
-                    return `<tr onmouseover="this.style.background='#f8fafc'" onmouseout="this.style.background=''">${cells}</tr>`;
+
+                    const boAttr = isBackordered ? ' data-bo="1"' : '';
+                    return `<tr${boAttr} style="background:${rowBg};" onmouseover="this.style.background='#f1f5f9'" onmouseout="this.style.background='${rowBg}'">${chkTd}${cells}</tr>`;
                 }).join('');
+
+                const boCount = items.filter(r => {
+                    const s = (r.LineStatus || '').toUpperCase();
+                    return s.includes('BACKORDER') || s.includes('BACK ORDER');
+                }).length;
 
                 if (gridContainer) {
                     gridContainer.innerHTML = `
-                        <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.5rem;">
+                        <div style="display:flex; align-items:center; gap:0.75rem; margin-bottom:0.5rem; flex-wrap:wrap;">
                             <span id="fsl-count" style="font-size:0.8rem; color:#64748b;">${items.length} record(s)</span>
+                            ${boCount ? `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;"><i class="fas fa-exclamation-triangle"></i> ${boCount} backordered</span>` : ''}
                             <div style="position:relative; margin-left:auto;">
                                 <i class="fas fa-search" style="position:absolute;left:7px;top:50%;transform:translateY(-50%);color:#94a3b8;font-size:11px;pointer-events:none;"></i>
                                 <input type="text" id="fsl-search" placeholder="Search item, status, line..." oninput="fslFilterRows(this.value, ${items.length})"
@@ -11595,6 +11630,143 @@ document.addEventListener('DOMContentLoaded', function() {
         });
         const countEl = document.getElementById('fsl-count');
         if (countEl) countEl.textContent = q ? `${visible} / ${total} record(s)` : `${total} record(s)`;
+    };
+
+    window.fslToggleAllBackordered = function(checked) {
+        document.querySelectorAll('#fsl-tbody .fsl-row-chk').forEach(chk => {
+            if (checked || chk.closest('tr[data-bo]')) chk.checked = checked;
+        });
+    };
+
+    window.fslPickReleaseBackorders = function(orderNumber) {
+        const ctx = window.currentOrderTransContext || {};
+        const instance = ctx.instance || window.currentOrderTransactionsInstance || 'TEST';
+        const APEX_BASE_PR = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+        const apiUrl = `${APEX_BASE_PR}/trip/pickrelease/oneorder/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+
+        const selected = Array.from(document.querySelectorAll('#fsl-tbody .fsl-row-chk:checked'));
+        if (!selected.length) {
+            showNotification('Please select at least one line to pick release.', 'warning');
+            return;
+        }
+
+        const lines = selected.map(chk => ({
+            line: chk.dataset.line,
+            item: chk.dataset.item,
+            status: chk.dataset.status,
+            order: chk.dataset.order
+        }));
+
+        // Confirm dialog
+        const existing = document.getElementById('fsl-pr-confirm-dlg');
+        if (existing) existing.remove();
+        const dlg = document.createElement('div');
+        dlg.id = 'fsl-pr-confirm-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#fff;border-radius:12px;width:520px;max-width:95vw;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
+                <div style="background:linear-gradient(135deg,#7c3aed,#6d28d9);padding:0.85rem 1.2rem;display:flex;align-items:center;gap:0.6rem;">
+                    <i class="fas fa-box-open" style="color:white;font-size:1rem;"></i>
+                    <div style="font-weight:700;color:white;">Pick Release BackOrders</div>
+                    <button onclick="document.getElementById('fsl-pr-confirm-dlg').remove()" style="margin-left:auto;background:none;border:none;color:rgba(255,255,255,0.8);font-size:1.2rem;cursor:pointer;">×</button>
+                </div>
+                <div style="padding:1rem 1.2rem;">
+                    <div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px;padding:0.75rem;margin-bottom:0.75rem;font-size:12px;">
+                        <div style="font-weight:700;color:#6d28d9;margin-bottom:4px;">Order: ${orderNumber} &nbsp;·&nbsp; Instance: ${instance}</div>
+                        <div style="color:#64748b;word-break:break-all;">${apiUrl}</div>
+                    </div>
+                    <div style="font-size:12px;color:#475569;margin-bottom:0.5rem;font-weight:600;">${lines.length} selected line(s):</div>
+                    <div style="max-height:160px;overflow-y:auto;border:1px solid #e2e8f0;border-radius:6px;">
+                        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+                            <thead><tr style="background:#f8fafc;">
+                                <th style="padding:4px 8px;text-align:left;color:#64748b;">Shipment Line</th>
+                                <th style="padding:4px 8px;text-align:left;color:#64748b;">Item</th>
+                                <th style="padding:4px 8px;text-align:left;color:#64748b;">Status</th>
+                            </tr></thead>
+                            <tbody>${lines.map(l => `<tr style="border-bottom:1px solid #f1f5f9;">
+                                <td style="padding:4px 8px;">${l.line || '—'}</td>
+                                <td style="padding:4px 8px;font-weight:600;">${l.item || '—'}</td>
+                                <td style="padding:4px 8px;"><span style="background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:3px;font-size:10px;">${l.status || '—'}</span></td>
+                            </tr>`).join('')}</tbody>
+                        </table>
+                    </div>
+                </div>
+                <div style="padding:0.75rem 1.2rem;border-top:1px solid #e2e8f0;background:#f8fafc;display:flex;gap:0.5rem;justify-content:flex-end;">
+                    <button onclick="document.getElementById('fsl-pr-confirm-dlg').remove()"
+                        style="padding:6px 16px;border:1px solid #cbd5e1;border-radius:6px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:#475569;">Cancel</button>
+                    <button onclick="fslExecutePickRelease('${orderNumber}','${instance}')"
+                        style="padding:6px 16px;border:none;border-radius:6px;background:#7c3aed;color:white;cursor:pointer;font-size:12px;font-weight:700;">
+                        <i class="fas fa-box-open"></i> Run Pick Release
+                    </button>
+                </div>
+            </div>`;
+        document.body.appendChild(dlg);
+    };
+
+    window.fslExecutePickRelease = async function(orderNumber, instance) {
+        const APEX_BASE_PR = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+        const apiUrl = `${APEX_BASE_PR}/trip/pickrelease/oneorder/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+
+        const dlg = document.getElementById('fsl-pr-confirm-dlg');
+        const execBtn = dlg && dlg.querySelector('button[onclick*="fslExecutePickRelease"]');
+        if (execBtn) { execBtn.disabled = true; execBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running…'; }
+
+        try {
+            await new Promise((resolve, reject) => {
+                sendMessageToCSharp({ action: 'executeGet', fullUrl: apiUrl }, function(err, data) {
+                    if (err) reject(new Error(err));
+                    else resolve(data);
+                });
+            });
+            document.getElementById('fsl-pr-confirm-dlg')?.remove();
+            showNotification(`Pick Release submitted for order ${orderNumber}.`, 'success');
+            // Refresh shipment lines
+            setTimeout(() => refreshFusionShipmentLines(orderNumber), 1500);
+        } catch(e) {
+            if (execBtn) { execBtn.disabled = false; execBtn.innerHTML = '<i class="fas fa-box-open"></i> Run Pick Release'; }
+            showNotification('Pick Release failed: ' + e.message, 'error');
+        }
+    };
+
+    window.fslShowPickReleaseApiInfo = function(orderNumber) {
+        const ctx = window.currentOrderTransContext || {};
+        const instance = ctx.instance || window.currentOrderTransactionsInstance || 'TEST';
+        const APEX_BASE_PR = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT';
+        const apiUrl = `${APEX_BASE_PR}/trip/pickrelease/oneorder/${orderNumber}?P_INSTANCE_NAME=${instance}`;
+
+        const existing = document.getElementById('fsl-pr-api-popup');
+        if (existing) { existing.remove(); return; }
+
+        const pop = document.createElement('div');
+        pop.id = 'fsl-pr-api-popup';
+        pop.style.cssText = 'position:fixed;top:80px;right:20px;width:560px;max-width:95vw;background:#0f172a;color:#e2e8f0;border-radius:10px;box-shadow:0 16px 48px rgba(0,0,0,0.6);z-index:99999;font-family:monospace;font-size:11px;';
+        pop.innerHTML = `
+            <div style="padding:0.7rem 1rem;background:#1e293b;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #334155;">
+                <span style="font-weight:800;font-size:12px;color:#a78bfa;"><i class="fas fa-plug"></i> Pick Release BackOrders — API Endpoint</span>
+                <button onclick="document.getElementById('fsl-pr-api-popup').remove()" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;">×</button>
+            </div>
+            <div style="padding:0.9rem 1rem;display:flex;flex-direction:column;gap:0.75rem;">
+                <div>
+                    <div style="color:#94a3b8;font-size:9px;font-weight:700;text-transform:uppercase;margin-bottom:0.4rem;">
+                        <span style="background:#059669;color:white;padding:1px 6px;border-radius:4px;margin-right:4px;">GET</span>
+                        APEX — Pick Release (one order)
+                    </div>
+                    <div style="background:#1e293b;border:1px solid #7c3aed;border-radius:6px;padding:0.6rem 0.8rem;">
+                        <div style="color:#a78bfa;font-size:9px;margin-bottom:5px;font-weight:700;">Instance: <strong>${instance}</strong></div>
+                        <div style="color:#38bdf8;word-break:break-all;line-height:1.7;">${apiUrl}</div>
+                    </div>
+                    <div style="color:#64748b;font-size:9px;margin-top:0.4rem;line-height:1.7;">
+                        <strong style="color:#94a3b8;">Path param:</strong> <code>{ORDER_NUMBER}</code> — the order number<br>
+                        <strong style="color:#94a3b8;">Query param:</strong> <code>P_INSTANCE_NAME</code> — PROD or TEST<br>
+                        <strong style="color:#94a3b8;">Action:</strong> Triggers pick release wave for the order in Oracle WMS
+                    </div>
+                </div>
+                <div style="background:#1e293b;border-radius:6px;padding:0.6rem 0.8rem;font-size:9px;color:#94a3b8;line-height:1.8;">
+                    <div style="color:#e2e8f0;font-weight:700;margin-bottom:0.3rem;"><i class="fas fa-info-circle" style="color:#a78bfa;"></i> How selection works</div>
+                    <div>Backordered rows (highlighted in yellow) are pre-selected. Select/deselect lines as needed, then click <strong style="color:#a78bfa;">Pick Release BackOrders</strong>. The API is called once per order number.</div>
+                </div>
+            </div>`;
+        document.body.appendChild(pop);
     };
 
     window.refreshPickConfirmResponses = function(orderNumber) {
