@@ -3595,6 +3595,9 @@
         // Clear done flags for this agent's trips so fresh run starts clean
         const agentTrips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
         agentTrips.forEach(t => { delete window._saTripDone[t.TRIP_ID]; });
+        // Clear any previous abort flag so the new run can proceed
+        if (!window._saAgentAbort) window._saAgentAbort = {};
+        window._saAgentAbort[agent.ID] = false;
         window._saLoops[agent.ID] = setInterval(() => {
             saAgentTick(agent); // saAgentTick calls saUpdateCpKpis internally
         }, intervalMs);
@@ -3604,6 +3607,9 @@
     }
 
     function saStopAgentLoop(agentId) {
+        // Set abort flag first so any in-progress async tick sees it and exits early
+        if (!window._saAgentAbort) window._saAgentAbort = {};
+        window._saAgentAbort[agentId] = true;
         if (window._saLoops[agentId]) {
             clearInterval(window._saLoops[agentId]);
             delete window._saLoops[agentId];
@@ -3625,6 +3631,11 @@
         const trips = (window._saAgentTrips && window._saAgentTrips[agent.ID]) || [];
 
         for (const trip of trips) {
+            // Check abort flag — Stop was clicked while a previous trip was processing
+            if (window._saAgentAbort && window._saAgentAbort[agent.ID]) {
+                saConsoleLog('⛔ Agent stopped — aborting tick', 'warn');
+                return;
+            }
             const cfg = (window._saAgentRunConfig && window._saAgentRunConfig[trip.TRIP_ID]) || { enabled:true, task1:true, task2:true, task3:true };
             if (!cfg.enabled) {
                 console.log(`[ShippingAgent] Trip ${trip.TRIP_ID} not in run config — skipping`);
@@ -4075,6 +4086,9 @@
         // Collect all lines needing cancellation grouped by order
         const cancelGroups = {}; // { orderNumber: [ line, ... ] }
         for (const row of orderRows) {
+            if (window._saAgentAbort && window._saAgentAbort[agent.ID]) {
+                saConsoleLog('⛔ Agent stopped — aborting Task 2', 'warn'); return;
+            }
             const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
             if (!orderNumber) continue;
             saCpSetTask(`Task 2: Fetching lines for ${orderNumber}`);
@@ -4170,6 +4184,9 @@
         saConsoleLog(`Task 3 ▶ Auto-print scan for interfaced orders — trip ${tripId}`, 'task');
         let autoPrinted = 0;
         for (const row of orderRows) {
+            if (window._saAgentAbort && window._saAgentAbort[agent.ID]) {
+                saConsoleLog('⛔ Agent stopped — aborting Task 3', 'warn'); return;
+            }
             const orderNumber = row.id.replace(`sa-order-row-${tripId}-`, '');
             if (!orderNumber) continue;
             const statusText = (row.querySelector('[data-col="status"]')?.textContent || '').trim();
