@@ -590,10 +590,11 @@
                                         <th>UOM</th>
                                         <th title="Sales Order Number" style="cursor:help;">Source Ref <i class="fa-solid fa-circle-info" style="color:#059669;font-size:.62rem;"></i></th>
                                         <th>Reference</th>
+                                        <th>Lots</th>
                                     </tr>
                                 </thead>
                                 <tbody id="txn-tbody">
-                                    <tr><td colspan="16">
+                                    <tr><td colspan="17">
                                         <div class="empty-state">
                                             <i class="fa-solid fa-arrows-rotate"></i>
                                             <p>Set filters and click Search.</p>
@@ -1287,7 +1288,7 @@
                         bar.innerHTML = '<span style="color:#e53e3e;font-size:.82rem;"><i class="fa-solid fa-triangle-exclamation"></i> ' + err + '</span>';
                     } else {
                         document.getElementById('txn-tbody').innerHTML =
-                            '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
+                            '<tr><td colspan="17"><div class="empty-state"><i class="fa-solid fa-triangle-exclamation" style="color:#e53e3e;"></i><p>' + err + '</p></div></td></tr>';
                         document.getElementById('txn-count').textContent = 'Error';
                     }
                     return;
@@ -1447,7 +1448,7 @@
             if (on) {
                 document.getElementById('txn-next-bar').style.display = 'none';
                 document.getElementById('txn-tbody').innerHTML =
-                    '<tr><td colspan="16"><div class="loading-state"><div class="spinner"></div> Searching transactions…</div></td></tr>';
+                    '<tr><td colspan="17"><div class="loading-state"><div class="spinner"></div> Searching transactions…</div></td></tr>';
                 document.getElementById('txn-count').textContent = 'Loading…';
                 document.getElementById('txn-kpi').innerHTML = '';
             }
@@ -1486,7 +1487,62 @@
                 '<td>' + (r.PrimaryUOMCode||r.UOMName||'') + '</td>' +
                 '<td>' + srcRefHtml + '</td>' +
                 '<td style="font-size:.78rem;color:#718096;">' + (r.Reference||'—') + '</td>' +
+                (function() {
+                    var lotsLink = (r.links || []).find(function(l) { return l.name === 'lots'; });
+                    if (!lotsLink) return '<td style="color:#a0aec0;font-size:.75rem;">—</td>';
+                    var href = lotsLink.href.replace(/'/g, "\\'");
+                    return '<td><button onclick="showTxnLots(\'' + href + '\')" ' +
+                        'title="View Lots" style="background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;' +
+                        'border-radius:4px;padding:2px 8px;cursor:pointer;font-size:.75rem;">Lots</button></td>';
+                })() +
                 '</tr>';
+        }
+
+        function showTxnLots(href) {
+            var modal = document.getElementById('txn-lots-modal');
+            if (!modal) {
+                modal = document.createElement('div');
+                modal.id = 'txn-lots-modal';
+                modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+                modal.innerHTML =
+                    '<div style="background:#fff;border-radius:10px;width:90%;max-width:900px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);">' +
+                    '<div style="padding:16px 20px;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;justify-content:space-between;">' +
+                    '<span style="font-weight:700;font-size:1rem;color:#1a202c;">Lot Details</span>' +
+                    '<button onclick="document.getElementById(\'txn-lots-modal\').style.display=\'none\'" ' +
+                    'style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:#718096;">✕</button>' +
+                    '</div>' +
+                    '<div style="padding:10px 20px;font-size:.72rem;color:#718096;word-break:break-all;border-bottom:1px solid #e2e8f0;" id="txn-lots-url"></div>' +
+                    '<div style="overflow:auto;flex:1;padding:16px 20px;" id="txn-lots-body"><div style="text-align:center;padding:40px;color:#718096;"><i class="fa-solid fa-spinner fa-spin"></i> Loading lots…</div></div>' +
+                    '</div>';
+                document.body.appendChild(modal);
+            }
+            modal.style.display = 'flex';
+            document.getElementById('txn-lots-url').textContent = href;
+            document.getElementById('txn-lots-body').innerHTML = '<div style="text-align:center;padding:40px;color:#718096;"><i class="fa-solid fa-spinner fa-spin"></i> Loading lots…</div>';
+            _txnSendToCS({ action: 'executeOracleFusionGet', fullUrl: href }, function(err, data) {
+                var body = document.getElementById('txn-lots-body');
+                if (err || !data) {
+                    body.innerHTML = '<div style="color:#dc2626;padding:20px;">Error: ' + (err || 'No data') + '</div>';
+                    return;
+                }
+                var items = data.items || data.Items || (Array.isArray(data) ? data : []);
+                if (!items.length) {
+                    body.innerHTML = '<div style="color:#718096;padding:20px;text-align:center;">No lot records found.</div>';
+                    return;
+                }
+                var keys = Object.keys(items[0]).filter(function(k) { return k !== 'links'; });
+                var html = '<table style="width:100%;border-collapse:collapse;font-size:.8rem;">' +
+                    '<thead><tr>' + keys.map(function(k) {
+                        return '<th style="text-align:left;padding:6px 10px;background:#f7fafc;border-bottom:2px solid #e2e8f0;white-space:nowrap;color:#4a5568;">' + k + '</th>';
+                    }).join('') + '</tr></thead><tbody>' +
+                    items.map(function(row, i) {
+                        return '<tr style="background:' + (i%2===0?'#fff':'#f7fafc') + ';">' +
+                            keys.map(function(k) {
+                                return '<td style="padding:5px 10px;border-bottom:1px solid #e2e8f0;white-space:nowrap;">' + (row[k] != null ? row[k] : '—') + '</td>';
+                            }).join('') + '</tr>';
+                    }).join('') + '</tbody></table>';
+                body.innerHTML = html;
+            });
         }
 
         function _renderTxnRows(rows, resetSearch) {
@@ -1494,7 +1550,7 @@
             document.getElementById('txn-count').textContent = rows.length + ' record' + (rows.length !== 1 ? 's' : '');
             var tbody = document.getElementById('txn-tbody');
             if (!rows.length) {
-                tbody.innerHTML = '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No transactions found.</p></div></td></tr>';
+                tbody.innerHTML = '<tr><td colspan="17"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>No transactions found.</p></div></td></tr>';
             } else {
                 tbody.innerHTML = rows.map(_txnRow).join('');
             }
@@ -1678,7 +1734,7 @@
             _txnChartsBuilt = false;
             document.getElementById('txn-next-bar').style.display = 'none';
             document.getElementById('txn-analytics-filter-bar').style.display = 'none';
-            document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="16"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>Set filters and click Search.</p></div></td></tr>';
+            document.getElementById('txn-tbody').innerHTML = '<tr><td colspan="17"><div class="empty-state"><i class="fa-solid fa-arrows-rotate"></i><p>Set filters and click Search.</p></div></td></tr>';
             document.getElementById('txn-count').textContent = '0 records';
             document.getElementById('txn-kpi').innerHTML = '';
         }
