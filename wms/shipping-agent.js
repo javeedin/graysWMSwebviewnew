@@ -1658,9 +1658,33 @@
             if (dr) try { const rd = JSON.parse(dr.getAttribute('data-row')); accountName = rd.ACCOUNT_NAME || ''; accountNumber = rd.ACCOUNT_NUMBER || ''; } catch(e) {}
         }
 
-        console.log(`[ShippingAgent] saPrintOrder: order=${orderNumber} tripId=${tripId} tripDate=${actualTripDate} instance=${instanceName}`);
+        // Check "Direct Download" checkbox for this trip — skip all checks/logging, SOAP only
+        const directChk = document.getElementById(`sa-chk-direct-${tripId}`);
+        const directMode = directChk && directChk.checked;
+
+        console.log(`[ShippingAgent] saPrintOrder: order=${orderNumber} tripId=${tripId} tripDate=${actualTripDate} instance=${instanceName} directMode=${directMode}`);
 
         try {
+            if (directMode) {
+                // ── DIRECT MODE: straight to SOAP, no line count check, no DB insert ──
+                const dlResult = await saDownloadOrderPdf(orderNumber, tripId, actualTripDate, instanceName);
+                const filePath = dlResult.filePath || dlResult.pdfPath || '';
+                if (!filePath) throw new Error('PDF path not returned from C#');
+                const base64   = dlResult.base64 || '';
+                const fileSize = dlResult.fileSize || Math.round(base64.length * 0.75);
+                const hasLines = fileSize > 500;
+                if (rowEl) {
+                    const pc = rowEl.querySelector('[data-col="print"]');
+                    if (pc) pc.innerHTML = hasLines
+                        ? saBadge('Downloaded', '#dcfce7', '#15803d', 'fa-check')
+                        : saBadge('Empty PDF', '#fef9c3', '#a16207', 'fa-exclamation-triangle');
+                }
+                if (!silent) saShowPdfChoice(base64, orderNumber, filePath, fileSize, hasLines);
+                setBtn('<i class="fas fa-print"></i>', false);
+                if (!silent) showNotification(`PDF for ${orderNumber} downloaded.`, hasLines ? 'success' : 'warning');
+                return;
+            }
+
             // 1. Check LINE_COUNT first — skip print if order has no lines
             saConsoleLog(`Print ▶ Checking line count for ${orderNumber}...`, 'info');
             const lineCount = await saCheckLineCount(orderNumber, instanceName, tripId);
@@ -1763,8 +1787,9 @@
             try {
                 await saPrintOrder(orderNumber, tripId, tripDate, instanceName, true); // silent=true: no popup
                 printed++;
-                // Small delay between orders to avoid rate-limiting on Fusion SOAP
-                await new Promise(r => setTimeout(r, 800));
+                // Small delay between orders to avoid rate-limiting on Fusion SOAP (skipped in direct mode)
+                const isDirect = document.getElementById(`sa-chk-direct-${tripId}`)?.checked;
+                if (!isDirect) await new Promise(r => setTimeout(r, 800));
             } catch(e) {
                 console.warn(`[ShippingAgent] Print failed for ${orderNumber}:`, e.message);
             }
@@ -2727,6 +2752,11 @@
                         title="Check each order PDF exists and has lines">
                         <i class="fas fa-file-pdf"></i> Verify PDFs
                     </button>
+                    <label style="display:flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#475569;cursor:pointer;padding:4px 8px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:5px;"
+                        title="When checked: skip line count check and DB logging — call SOAP printSalesOrder directly for maximum speed">
+                        <input type="checkbox" id="sa-chk-direct-${esc(tripId)}" style="cursor:pointer;">
+                        Direct Download
+                    </label>
                     <button id="sa-btn-print-trip-${esc(tripId)}"
                         onclick="saPrintTrip('${esc(tripId)}','${esc(inst)}')"
                         style="background:#059669;color:white;border:none;padding:4px 12px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:700;"
