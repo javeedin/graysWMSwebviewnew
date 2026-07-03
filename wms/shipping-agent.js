@@ -2754,7 +2754,7 @@
                     </button>
                     <label style="display:flex;align-items:center;gap:4px;font-size:10px;font-weight:700;color:#475569;cursor:pointer;padding:4px 8px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:5px;"
                         title="When checked: skip line count check and DB logging — call SOAP printSalesOrder directly for maximum speed">
-                        <input type="checkbox" id="sa-chk-direct-${esc(tripId)}" style="cursor:pointer;">
+                        <input type="checkbox" id="sa-chk-direct-${esc(tripId)}" checked style="cursor:pointer;">
                         Direct Download
                     </label>
                     <button id="sa-btn-print-trip-${esc(tripId)}"
