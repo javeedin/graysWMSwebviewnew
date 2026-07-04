@@ -2836,8 +2836,8 @@
                                     <strong style="font-size: 0.8rem; color: #1e293b;">Fusion Cloud - Get Staged Transactions</strong>
                                     <span style="background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.6rem; font-weight: 600;">Authenticated</span>
                                 </div>
-                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">https://efmh{-test}.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer</code>
-                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches staged inventory transactions from Oracle Fusion Cloud. Uses Basic Auth. TEST: efmh-test.fa.em3.oraclecloud.com | PROD: efmh.fa.em3.oraclecloud.com</div>
+                                <code style="font-size: 0.7rem; color: #6366f1; word-break: break-all; display: block; background: #f1f5f9; padding: 0.5rem; border-radius: 4px;">[Fusion host]/fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer</code>
+                                <div style="font-size: 0.7rem; color: #64748b; margin-top: 0.3rem;">Fetches staged inventory transactions from Oracle Fusion Cloud. Uses Basic Auth. Environment configured server-side.</div>
                             </div>
 
                             <!-- API 6: Fusion Cloud - Delete Staged Transaction -->
@@ -5549,8 +5549,7 @@
                                         </div>
                                         <div style="margin-top: 0.5rem;"><strong>Environments:</strong></div>
                                         <div style="padding-left: 1rem; color: #475569;">
-                                            • PROD: efmh.fa.em3.oraclecloud.com<br>
-                                            • TEST: efmh-test.fa.em3.oraclecloud.com
+                                            • PROD and TEST environments configured server-side
                                         </div>
                                     </div>
                                 </div>
@@ -5802,15 +5801,15 @@
                                     <div class="api-base-urls">
                                         <div class="api-url-card">
                                             <span class="api-label">APEX Base URL</span>
-                                            <code>https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT</code>
+                                            <code>[configured in config.js]</code>
                                         </div>
                                         <div class="api-url-card">
                                             <span class="api-label">Fusion PROD</span>
-                                            <code>https://efmh.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/</code>
+                                            <code>[configured server-side]</code>
                                         </div>
                                         <div class="api-url-card">
                                             <span class="api-label">Fusion TEST</span>
-                                            <code>https://efmh-test.fa.em3.oraclecloud.com/fscmRestApi/resources/11.13.18.05/</code>
+                                            <code>[configured server-side]</code>
                                         </div>
                                     </div>
                                 </div>
