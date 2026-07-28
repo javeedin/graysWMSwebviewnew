@@ -45,15 +45,23 @@ namespace WMSApp.MRA
         public async Task<FusionReportResult> RunReportAsync(
             string reportPath,
             Dictionary<string, string> parameters,
-            string outputFormat = "xml")
+            string outputFormat = "xml",
+            Action<string> log = null)
         {
+            // Emit sends a line to both the debugger and (when provided) the on-screen log callback
+            void Emit(string m)
+            {
+                System.Diagnostics.Debug.WriteLine(m);
+                try { log?.Invoke(m); } catch { }
+            }
+
             try
             {
                 string serviceUrl = _instance.ToUpper() == "PROD" ? PROD_URL : TEST_URL;
 
-                System.Diagnostics.Debug.WriteLine($"[FusionReportRunner] Running report: {reportPath}");
-                System.Diagnostics.Debug.WriteLine($"[FusionReportRunner] Instance: {_instance} ({serviceUrl})");
-                System.Diagnostics.Debug.WriteLine($"[FusionReportRunner] Parameters: {string.Join(", ", parameters.Select(p => $"{p.Key}={p.Value}"))}");
+                Emit($"[Report] Running: {reportPath}");
+                Emit($"[Report] Instance: {_instance} ({serviceUrl})");
+                Emit($"[Report] Parameters: {string.Join(", ", parameters.Select(p => $"{p.Key}={p.Value}"))}");
 
                 // Build SOAP request
                 string soapRequest = BuildSoapRequest(reportPath, parameters, outputFormat);
@@ -71,9 +79,11 @@ namespace WMSApp.MRA
                 content.Headers.Add("SOAPAction", "\"runReport\"");
 
                 var response = await _httpClient.PostAsync(serviceUrl, content);
+                Emit($"[Report] HTTP status: {(int)response.StatusCode} {response.StatusCode}");
 
                 if (!response.IsSuccessStatusCode)
                 {
+                    Emit($"[Report] ⚠ HTTP error: {response.StatusCode} - {response.ReasonPhrase}");
                     return new FusionReportResult
                     {
                         Success = false,
@@ -83,7 +93,7 @@ namespace WMSApp.MRA
 
                 // Read response
                 string responseContent = await response.Content.ReadAsStringAsync();
-                System.Diagnostics.Debug.WriteLine($"[FusionReportRunner] Response received, length: {responseContent.Length}");
+                Emit($"[Report] SOAP response length: {responseContent.Length} chars");
 
                 // 🔍 DEBUG: Log full SOAP XML response
                 System.Diagnostics.Debug.WriteLine("====================================");
@@ -98,12 +108,16 @@ namespace WMSApp.MRA
 
                 if (string.IsNullOrEmpty(reportData))
                 {
+                    Emit("[Report] ⚠ No report data found in SOAP response (possible SOAP fault or empty result).");
+                    Emit($"[Report] Raw SOAP (first 1500 chars): {Truncate(TruncateBase64InXml(responseContent), 1500)}");
                     return new FusionReportResult
                     {
                         Success = false,
                         ErrorMessage = "No report data found in SOAP response"
                     };
                 }
+
+                Emit($"[Report] Extracted report data: {reportData.Length} chars");
 
                 // Parse XML data into DataSet
                 DataSet dataSet = new DataSet();
@@ -116,7 +130,13 @@ namespace WMSApp.MRA
                     }
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[FusionReportRunner] Report execution successful. Tables: {dataSet.Tables.Count}");
+                Emit($"[Report] Parsed dataset: {dataSet.Tables.Count} table(s)");
+                for (int i = 0; i < dataSet.Tables.Count; i++)
+                {
+                    var t = dataSet.Tables[i];
+                    Emit($"[Report]   Table[{i}] '{t.TableName}': rows={t.Rows.Count}, cols={t.Columns.Count}");
+                }
+                Emit($"[Report] Report XML (first 1500 chars): {Truncate(reportData, 1500)}");
 
                 return new FusionReportResult
                 {
@@ -127,7 +147,7 @@ namespace WMSApp.MRA
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[FusionReportRunner ERROR] {ex.Message}");
+                Emit($"[Report] ⚠ Exception: {ex.Message}");
                 return new FusionReportResult
                 {
                     Success = false,
@@ -178,6 +198,15 @@ namespace WMSApp.MRA
     </v2:runReport>
   </soapenv:Body>
 </soapenv:Envelope>";
+        }
+
+        /// <summary>
+        /// Truncates a string to maxLen characters for on-screen log display.
+        /// </summary>
+        private string Truncate(string s, int maxLen)
+        {
+            if (string.IsNullOrEmpty(s) || s.Length <= maxLen) return s;
+            return s.Substring(0, maxLen) + $"... [truncated {s.Length - maxLen} chars]";
         }
 
         /// <summary>

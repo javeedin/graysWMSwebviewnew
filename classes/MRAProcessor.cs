@@ -54,7 +54,8 @@ namespace WMSApp.MRA
             Action<string, MRAProcessingStep> progressCallback = null,
             Action<Dictionary<string, object>, List<Dictionary<string, object>>> orderDataCallback = null,
             Action<string, object> mraRequestCallback = null,
-            Action<bool, object> mraResponseCallback = null)
+            Action<bool, object> mraResponseCallback = null,
+            Action<string, string> logCallback = null)
         {
             var result = new MRAProcessingResult
             {
@@ -68,7 +69,7 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Checking if order is already interfaced to MRA...", MRAProcessingStep.CheckingMRAStatus);
                 result.CurrentStep = MRAProcessingStep.CheckingMRAStatus;
 
-                var mraCheck = await CheckMRAInterfaceStatusAsync(orderNumber);
+                var mraCheck = await CheckMRAInterfaceStatusAsync(orderNumber, logCallback);
                 if (mraCheck.IsInterfaced)
                 {
                     result.Success = false;
@@ -81,9 +82,12 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Fetching order summary from Fusion...", MRAProcessingStep.FetchingOrderSummary);
                 result.CurrentStep = MRAProcessingStep.FetchingOrderSummary;
 
-                var orderSummary = await FetchOrderSummaryAsync(orderNumber);
+                var orderSummary = await FetchOrderSummaryAsync(orderNumber, logCallback);
                 if (orderSummary == null || orderSummary.Tables.Count < 2 || orderSummary.Tables[1].Rows.Count == 0)
                 {
+                    logCallback?.Invoke(
+                        $"Order summary not found — report returned {(orderSummary?.Tables.Count ?? 0)} table(s); expected data rows in Table[1]. Review the report parameters and XML logged above.",
+                        "warning");
                     result.Success = false;
                     result.Message = "Order summary not found";
                     result.CurrentStep = MRAProcessingStep.Failed;
@@ -94,9 +98,15 @@ namespace WMSApp.MRA
                 progressCallback?.Invoke("Fetching order line details from Fusion...", MRAProcessingStep.FetchingOrderDetails);
                 result.CurrentStep = MRAProcessingStep.FetchingOrderDetails;
 
-                var orderDetails = await FetchOrderDetailsAsync(orderNumber);
+                var orderDetails = await FetchOrderDetailsAsync(orderNumber, logCallback);
                 if (orderDetails == null || orderDetails.Tables.Count < 2 || orderDetails.Tables[1].Rows.Count == 0)
                 {
+                    int tblCount = orderDetails?.Tables.Count ?? 0;
+                    int t1Rows = (orderDetails != null && orderDetails.Tables.Count > 1) ? orderDetails.Tables[1].Rows.Count : 0;
+                    logCallback?.Invoke(
+                        $"Order details not found — report returned {tblCount} table(s), Table[1] rows={t1Rows}. Expected order lines in Table[1]. " +
+                        $"Parameters used: ORG_ID={ORG_ID}, INVENTORY_ORG_ID={INVENTORY_ORG_ID}, SOURCE_ORDER_NUMBER={orderNumber}. Review the report XML logged above.",
+                        "warning");
                     result.Success = false;
                     result.Message = "Order details not found";
                     result.CurrentStep = MRAProcessingStep.Failed;
@@ -182,7 +192,7 @@ namespace WMSApp.MRA
         /// <summary>
         /// Step 1: Check if order is already interfaced to MRA
         /// </summary>
-        private async Task<MRACheckResult> CheckMRAInterfaceStatusAsync(string orderNumber)
+        private async Task<MRACheckResult> CheckMRAInterfaceStatusAsync(string orderNumber, Action<string, string> logCallback = null)
         {
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] CheckMRAInterfaceStatusAsync - Order: {orderNumber}, Instance: {_instance}");
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== MRA CHECK PARAMETERS ==========");
@@ -200,7 +210,7 @@ namespace WMSApp.MRA
 
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Running MRA check report: {MRA_CHECK_REPORT}");
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] Parameter: source_order_number = '{orderNumber}'");
-            var reportResult = await reportRunner.RunReportAsync(MRA_CHECK_REPORT, parameters);
+            var reportResult = await reportRunner.RunReportAsync(MRA_CHECK_REPORT, parameters, log: msg => logCallback?.Invoke(msg, "info"));
 
             if (!reportResult.Success)
             {
@@ -332,7 +342,7 @@ namespace WMSApp.MRA
         /// <summary>
         /// Step 2: Fetch order summary
         /// </summary>
-        private async Task<DataSet> FetchOrderSummaryAsync(string orderNumber)
+        private async Task<DataSet> FetchOrderSummaryAsync(string orderNumber, Action<string, string> logCallback = null)
         {
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== FETCH ORDER SUMMARY ==========");
             var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
@@ -344,7 +354,7 @@ namespace WMSApp.MRA
                 { "SOURCE_ORDER_NUMBER", orderNumber }
             };
 
-            var reportResult = await reportRunner.RunReportAsync(ORDER_SUMMARY_REPORT, parameters);
+            var reportResult = await reportRunner.RunReportAsync(ORDER_SUMMARY_REPORT, parameters, log: msg => logCallback?.Invoke(msg, "info"));
 
             if (!reportResult.Success)
             {
@@ -374,7 +384,7 @@ namespace WMSApp.MRA
         /// <summary>
         /// Step 3: Fetch order details
         /// </summary>
-        private async Task<DataSet> FetchOrderDetailsAsync(string orderNumber)
+        private async Task<DataSet> FetchOrderDetailsAsync(string orderNumber, Action<string, string> logCallback = null)
         {
             System.Diagnostics.Debug.WriteLine($"[MRAProcessor] ========== FETCH ORDER DETAILS ==========");
             var reportRunner = new FusionReportRunner(_fusionUsername, _fusionPassword, _instance);
@@ -386,7 +396,7 @@ namespace WMSApp.MRA
                 { "SOURCE_ORDER_NUMBER", orderNumber }
             };
 
-            var reportResult = await reportRunner.RunReportAsync(ORDER_DETAILS_REPORT, parameters);
+            var reportResult = await reportRunner.RunReportAsync(ORDER_DETAILS_REPORT, parameters, log: msg => logCallback?.Invoke(msg, "info"));
 
             if (!reportResult.Success)
             {

@@ -443,6 +443,9 @@ if (window.chrome?.webview) {
 
         if (data.action === 'mraProcessingProgress') {
             addMRALog(`[${data.step}] ${data.message}`, 'info');
+        } else if (data.action === 'mraLog') {
+            // Diagnostic log line from C# (XDO report request/response details)
+            addMRALog(data.message, data.type || 'info');
         } else if (data.action === 'mraOrderData') {
             // Receive order data from C#
             addMRALog('Received order data', 'info');

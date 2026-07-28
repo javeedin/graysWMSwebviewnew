@@ -3597,6 +3597,20 @@ navPanel.Controls.Add(wmsDevButton);
                             string responseDataJson = JsonSerializer.Serialize(responseDataMsg);
                             wv.CoreWebView2.PostWebMessageAsJson(responseDataJson);
                             System.Diagnostics.Debug.WriteLine($"[C#] MRA Response Data sent to JS");
+                        },
+                        // Diagnostic log callback (XDO report request/response -> Logging tab)
+                        (message, type) =>
+                        {
+                            var logMsg = new
+                            {
+                                action = "mraLog",
+                                requestId = requestId,
+                                message = message,
+                                type = type
+                            };
+
+                            string logJson = JsonSerializer.Serialize(logMsg);
+                            wv.CoreWebView2.PostWebMessageAsJson(logJson);
                         }
                     );
 
