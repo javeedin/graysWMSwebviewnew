@@ -366,6 +366,16 @@ function updateQRSection() {
 }
 
 /**
+ * Escape HTML so raw XML/SOAP payloads render literally (not parsed as tags)
+ */
+function mraEscapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+/**
  * Update logging tab
  */
 function updateLoggingTab() {
@@ -378,8 +388,9 @@ function updateLoggingTab() {
         if (log.type === 'success') color = '#4ade80';
         if (log.type === 'warning') color = '#fbbf24';
 
-        return `<div style="margin-bottom: 0.25rem; color: ${color};">
-            <span style="color: #64748b;">[${log.timestamp}]</span> ${log.message}
+        // white-space: pre-wrap preserves the SOAP payload's line breaks/indentation
+        return `<div style="margin-bottom: 0.25rem; color: ${color}; white-space: pre-wrap; word-break: break-word;">
+            <span style="color: #64748b;">[${log.timestamp}]</span> ${mraEscapeHtml(log.message)}
         </div>`;
     }).join('');
 

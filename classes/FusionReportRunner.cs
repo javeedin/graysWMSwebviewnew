@@ -66,13 +66,20 @@ namespace WMSApp.MRA
                 // Build SOAP request
                 string soapRequest = BuildSoapRequest(reportPath, parameters, outputFormat);
 
-                // 🔍 DEBUG: Log full SOAP XML request (with credentials masked)
-                string maskedXml = soapRequest.Replace(_password, "[PASSWORD_MASKED]");
-                System.Diagnostics.Debug.WriteLine("====================================");
-                System.Diagnostics.Debug.WriteLine("[FusionReportRunner] FULL SOAP XML REQUEST:");
-                System.Diagnostics.Debug.WriteLine("====================================");
-                System.Diagnostics.Debug.WriteLine(maskedXml);
-                System.Diagnostics.Debug.WriteLine("====================================");
+                // Mask the <v2:password> element content (robust against XML-escaping) so the
+                // full payload can be shown in the on-screen log / pasted into SoapUI safely.
+                string maskedXml = System.Text.RegularExpressions.Regex.Replace(
+                    soapRequest,
+                    @"(<v2:password>).*?(</v2:password>)",
+                    "$1[PASSWORD_MASKED]$2",
+                    System.Text.RegularExpressions.RegexOptions.Singleline);
+
+                // Log the FULL SOAP request payload so it can be reproduced in SoapUI.
+                Emit($"[Report] Endpoint (HTTP POST): {serviceUrl}");
+                Emit("[Report] Headers: Content-Type: text/xml; charset=utf-8  |  SOAPAction: \"runReport\"");
+                Emit("[Report] ===== FULL SOAP REQUEST (paste into SoapUI, then set the password in <v2:password>) =====");
+                Emit(maskedXml);
+                Emit("[Report] ===== END SOAP REQUEST =====");
 
                 // Make HTTP POST request
                 var content = new StringContent(soapRequest, Encoding.UTF8, "text/xml");
