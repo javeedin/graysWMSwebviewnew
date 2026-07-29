@@ -24,7 +24,7 @@ namespace WMSApp.MRA
         // Report paths
         private const string MRA_CHECK_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/MRA_TRX_NO_CHECK_BIP.xdo";
         private const string ORDER_SUMMARY_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/ORDER_SUMMARY_4_ORDER_NUMBER_BIP.xdo";
-        private const string ORDER_DETAILS_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/ORDER_DETAILS_BIP_BY_CUSTOMER.xdo";
+        private const string ORDER_DETAILS_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/ORDER_DETAILS_MRA_BIP.xdo";
 
         // Org IDs
         private const string INVENTORY_ORG_ID = "300000003277749";
