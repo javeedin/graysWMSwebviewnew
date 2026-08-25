@@ -8692,14 +8692,65 @@
             console.log('[LOGIN] WebView2 message listener registered');
         }
 
-        // Open a new WMSApp instance, optionally navigating to a specific page
+        // Open a new WMSApp instance, optionally navigating to a specific page.
+        // New exe builds acknowledge the openNewInstance message and launch a
+        // separate process; older exes don't know the action and stay silent,
+        // so after a short wait we fall back to opening the page in a new tab
+        // (window.open → C# NewWindowRequested → AddNewTab).
         window.openNewWmsInstance = function(page) {
-            if (typeof window.chrome !== 'undefined' && window.chrome.webview) {
-                window.chrome.webview.postMessage({ action: 'openNewInstance', moduleCode: page || '' });
-            } else {
+            if (typeof window.chrome === 'undefined' || !window.chrome.webview) {
                 alert('New window only available inside the WMS desktop application.');
+                return;
+            }
+
+            const fallbackUrl = 'index.html' + (page ? '?page=' + encodeURIComponent(page) : '');
+            let acknowledged = false;
+
+            const openFallbackTab = function() {
+                if (acknowledged) return;
+                acknowledged = true; // only fall back once
+                console.warn('[OpenNewInstance] No ack from C# (older exe) — opening in a new tab instead');
+                window.open(fallbackUrl, '_blank');
+            };
+
+            if (typeof sendMessageToCSharp === 'function') {
+                sendMessageToCSharp({ action: 'openNewInstance', moduleCode: page || '' }, function(error, data) {
+                    if (error) {
+                        openFallbackTab();
+                    } else {
+                        acknowledged = true;
+                        console.log('[OpenNewInstance] New instance launched by C#');
+                    }
+                }, 1500, false);
+            } else {
+                // sendMessageToCSharp not loaded — post raw message, no ack possible
+                window.chrome.webview.postMessage({ action: 'openNewInstance', moduleCode: page || '' });
             }
         };
+
+        // Navigate to the page requested via ?page= in the URL — set by the
+        // --page launch argument (new exe) or by the new-tab fallback above.
+        document.addEventListener('DOMContentLoaded', function() {
+            const requestedPage = new URLSearchParams(window.location.search).get('page');
+            if (!requestedPage) return;
+
+            // Pages that live in their own HTML file rather than the SPA
+            const filePages = ['picker-view', 'tracker', 'release-manager'];
+
+            // Small delay so app.js finishes its own init (menu handlers, hash restore)
+            setTimeout(function() {
+                if (document.querySelector('.menu-item[data-page="' + requestedPage + '"]')) {
+                    if (typeof navigateToPage === 'function') {
+                        navigateToPage(requestedPage, false);
+                        console.log('[STARTUP] Navigated to requested page:', requestedPage);
+                    }
+                } else if (filePages.indexOf(requestedPage) !== -1) {
+                    window.location.href = requestedPage + '.html';
+                } else {
+                    console.warn('[STARTUP] Unknown ?page= value:', requestedPage);
+                }
+            }, 300);
+        });
 
         // On page load, restore from session storage or URL parameter
         document.addEventListener('DOMContentLoaded', function() {

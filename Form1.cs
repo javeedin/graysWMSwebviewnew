@@ -1249,6 +1249,31 @@ navPanel.Controls.Add(wmsDevButton);
             // Show source mode in title bar so user knows where files are loading from
             this.Text += $" | [{wmsSource}]";
 
+            // --page=<pageId> argument (set by "Open in new window"): skip the Home
+            // dashboard and open the WMS module directly on the requested page
+            string requestedPage = null;
+            foreach (string arg in Environment.GetCommandLineArgs())
+            {
+                if (arg.StartsWith("--page=", StringComparison.OrdinalIgnoreCase))
+                {
+                    requestedPage = arg.Substring("--page=".Length).Trim();
+                    break;
+                }
+            }
+
+            if (!string.IsNullOrEmpty(requestedPage))
+            {
+                string wmsIndexPath = Path.Combine(Path.GetDirectoryName(homeFolder), "wms", "index.html");
+                if (File.Exists(wmsIndexPath))
+                {
+                    string wmsUrl = "file:///" + wmsIndexPath.Replace("\\", "/") + "?page=" + Uri.EscapeDataString(requestedPage);
+                    System.Diagnostics.Debug.WriteLine($"[STARTUP] --page argument detected, opening WMS module at page: {requestedPage}");
+                    AddNewTab(wmsUrl);
+                    return;
+                }
+                System.Diagnostics.Debug.WriteLine($"[STARTUP] --page requested but wms/index.html not found at {wmsIndexPath}, falling back to Home");
+            }
+
             if (File.Exists(homeIndexPath))
             {
                 string fileUrl = "file:///" + homeIndexPath.Replace("\\", "/");
@@ -1888,6 +1913,9 @@ navPanel.Controls.Add(wmsDevButton);
 
                                 case "openNewInstance":
                                     HandleOpenNewInstance(root);
+                                    // Acknowledge so the JS side knows this exe supports the
+                                    // feature; older exes stay silent and JS falls back to a tab
+                                    await SendScriptAsync(wv, requestId, true, "New instance launched");
                                     break;
 
                                 default:
