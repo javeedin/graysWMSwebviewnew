@@ -107,10 +107,12 @@ namespace WMSApp.PrintManagement
                 {
                     System.Diagnostics.Debug.WriteLine("[LocalStorageManager] Config file not found, returning defaults");
                     // Note: FusionInstance is now managed globally via instance_settings.json
+                    // Fusion credentials come from the ARMODULE/fusion webservice — never hardcoded
+                    var (svcUser, svcPass) = FusionCredentialsService.Get();
                     return new PrinterConfig
                     {
-                        FusionUsername = "shaik",
-                        FusionPassword = "fusion1234",
+                        FusionUsername = svcUser ?? string.Empty,
+                        FusionPassword = svcPass ?? string.Empty,
                         AutoDownload = true,
                         AutoPrint = true
                     };
@@ -118,6 +120,14 @@ namespace WMSApp.PrintManagement
 
                 string json = File.ReadAllText(configPath);
                 var config = JsonConvert.DeserializeObject<PrinterConfig>(json);
+
+                // Backfill missing credentials from the ARMODULE/fusion webservice
+                if (config != null && (string.IsNullOrEmpty(config.FusionUsername) || string.IsNullOrEmpty(config.FusionPassword)))
+                {
+                    var (svcUser, svcPass) = FusionCredentialsService.Get();
+                    if (string.IsNullOrEmpty(config.FusionUsername)) config.FusionUsername = svcUser ?? string.Empty;
+                    if (string.IsNullOrEmpty(config.FusionPassword)) config.FusionPassword = svcPass ?? string.Empty;
+                }
 
                 System.Diagnostics.Debug.WriteLine($"[LocalStorageManager] Config loaded successfully");
                 return config;

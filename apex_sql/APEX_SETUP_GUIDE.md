@@ -98,7 +98,7 @@ I'll show you how to create the first endpoint, then repeat for others.
       "config_id": 1,
       "printer_name": "Microsoft Print to PDF",
       "fusion_instance": "TEST",
-      "fusion_username": "shaik",
+      "fusion_username": "YOUR_FUSION_USERNAME",
       "auto_download": "Y",
       "auto_print": "Y",
       "is_active": "Y"

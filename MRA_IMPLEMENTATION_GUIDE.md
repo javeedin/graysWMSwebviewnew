@@ -71,8 +71,8 @@ var invoice = new Invoice
 **Usage**:
 ```csharp
 var runner = new FusionReportRunner(
-    username: "shaik",
-    password: "fusion1234",
+    username: "YOUR_FUSION_USERNAME",
+    password: "YOUR_FUSION_PASSWORD",
     instance: "TEST"
 );
 
@@ -112,8 +112,8 @@ if (result.Success)
 **Usage**:
 ```csharp
 var processor = new MRAProcessor(
-    fusionUsername: "shaik",
-    fusionPassword: "fusion1234",
+    fusionUsername: "YOUR_FUSION_USERNAME",
+    fusionPassword: "YOUR_FUSION_PASSWORD",
     instance: "TEST"
 );
 
@@ -143,8 +143,8 @@ if (result.Success)
     "action": "processMRAInterface",
     "requestId": "1234567890",
     "orderNumber": "VVBP251121184716AB",
-    "fusionUsername": "shaik",
-    "fusionPassword": "fusion1234",
+    "fusionUsername": "YOUR_FUSION_USERNAME",
+    "fusionPassword": "YOUR_FUSION_PASSWORD",
     "instance": "TEST"
 }
 ```
@@ -245,7 +245,7 @@ const mraBtn = $('<button>')
 - URL: `http://mra.busi.in/MRAInvoice.php`
 - Method: POST
 - Content-Type: `application/json`
-- Authentication: Basic Auth (username: shaik, password: fusion1234)
+- Authentication: Basic Auth (username and password come from the ARMODULE/fusion webservice)
 
 **Oracle Fusion REST API**:
 - Base URL (TEST): `https://efmh-test.fa.em3.oraclecloud.com`

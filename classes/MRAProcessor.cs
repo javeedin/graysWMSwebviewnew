@@ -18,8 +18,6 @@ namespace WMSApp.MRA
         private readonly string _fusionPassword;
         private readonly string _instance;
         private readonly string _mraApiUrl;
-        private readonly string _mraUsername;
-        private readonly string _mraPassword;
 
         // Report paths
         private const string MRA_CHECK_REPORT = "/Custom/DEXPRESS/ORDER MANAGEMENT/POS_RERPOTS/MRA_TRX_NO_CHECK_BIP.xdo";
@@ -34,16 +32,12 @@ namespace WMSApp.MRA
             string fusionUsername,
             string fusionPassword,
             string instance,
-            string mraApiUrl = "http://mra.busi.in/MRAInvoice.php",
-            string mraUsername = "shaik",
-            string mraPassword = "fusion1234")
+            string mraApiUrl = "http://mra.busi.in/MRAInvoice.php")
         {
             _fusionUsername = fusionUsername;
             _fusionPassword = fusionPassword;
             _instance = instance;
             _mraApiUrl = mraApiUrl;
-            _mraUsername = mraUsername;
-            _mraPassword = mraPassword;
         }
 
         /// <summary>

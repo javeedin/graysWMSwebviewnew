@@ -3513,7 +3513,7 @@ window.startSOTripMRAInterface = async function() {
  */
 function fetchFusionCredentialsForBatchMRA() {
     return new Promise((resolve, reject) => {
-        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
+        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/ARMODULE/fusion';
 
         if (typeof sendMessageToCSharp !== 'function') {
             reject(new Error('sendMessageToCSharp not available'));
@@ -3531,8 +3531,8 @@ function fetchFusionCredentialsForBatchMRA() {
             try {
                 const response = JSON.parse(data);
                 if (response.items && response.items.length > 0) {
-                    const username = response.items[0].user_name || '';
-                    const password = response.items[0].passwordd || '';
+                    const username = response.items[0].username || '';
+                    const password = response.items[0].password1 || '';
                     window.F_username = username;
                     window.F_password = password;
                     resolve({ username, password });

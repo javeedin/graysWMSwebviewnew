@@ -87,7 +87,7 @@ async function openMRAProcessingPopup(orderNumber, instance) {
                     <i class="fas fa-file-invoice-dollar"></i>
                     MRA Interface v2 - ${orderNumber}
                 </h2>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; opacity: 0.9;">Instance: ${instance || 'PROD'} | Using fusionuserdetails API</p>
+                <p style="margin: 0.25rem 0 0 0; font-size: 0.8rem; opacity: 0.9;">Instance: ${instance || 'PROD'} | Using ARMODULE/fusion API</p>
             </div>
             <button id="mra-close-btn" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1.25rem;">
                 <i class="fas fa-times"></i>
@@ -221,12 +221,12 @@ async function openMRAProcessingPopup(orderNumber, instance) {
 async function processMRAInterface(orderNumber, instance) {
     addMRALog(`Starting MRA processing for order: ${orderNumber}`, 'info');
 
-    // For Fusion SOAP calls, we MUST use the service account from fusionuserdetails API
+    // For Fusion SOAP calls, we MUST use the service account from the ARMODULE/fusion API
     // NOT the user's login credentials (localStorage username/password)
     let fusionUsername = window.F_username;
     let fusionPassword = window.F_password;
 
-    // If global credentials not set, fetch from fusionuserdetails API
+    // If global credentials not set, fetch from ARMODULE/fusion API
     if (!fusionUsername || !fusionPassword) {
         addMRALog('Fetching Fusion service account credentials from API...', 'info');
         try {
@@ -245,7 +245,7 @@ async function processMRAInterface(orderNumber, instance) {
     // Validate that credentials exist
     if (!fusionUsername || !fusionPassword) {
         addMRALog('Error: Could not retrieve Fusion service account credentials from API.', 'error');
-        updateMRAStatus(false, 'Could not retrieve Fusion credentials from fusionuserdetails API.');
+        updateMRAStatus(false, 'Could not retrieve Fusion credentials from ARMODULE/fusion API.');
         throw new Error('Could not retrieve Fusion credentials.');
     }
 
@@ -257,7 +257,7 @@ async function processMRAInterface(orderNumber, instance) {
 
     addMRALog(`Instance: ${resolvedInstance}`, 'info');
     addMRALog(`Fusion Service Account: ${fusionUsername}`, 'success');
-    addMRALog(`Credentials Source: fusionuserdetails API`, 'info');
+    addMRALog(`Credentials Source: ARMODULE/fusion API`, 'info');
 
     try {
         const requestId = Date.now().toString();
@@ -485,7 +485,7 @@ if (window.chrome?.webview) {
  */
 function fetchFusionCredentialsForMRA() {
     return new Promise((resolve, reject) => {
-        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails';
+        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/ARMODULE/fusion';
 
         addMRALog(`Fetching credentials from: ${credentialsUrl}`, 'info');
 
@@ -515,11 +515,11 @@ function fetchFusionCredentialsForMRA() {
                 if (response.items && response.items.length > 0) {
                     // Log all items for debugging
                     response.items.forEach((item, idx) => {
-                        addMRALog(`Item[${idx}]: user_name=${item.user_name}`, 'info');
+                        addMRALog(`Item[${idx}]: username=${item.username}`, 'info');
                     });
 
-                    const username = response.items[0].user_name || '';
-                    const password = response.items[0].passwordd || '';
+                    const username = response.items[0].username || '';
+                    const password = response.items[0].password1 || '';
 
                     // Also set global properties for future use
                     window.F_username = username;

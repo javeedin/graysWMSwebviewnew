@@ -149,57 +149,25 @@ try
 
         /// <summary>
         /// Fetches Oracle Fusion credentials from webservice on application startup
-        /// URL: /trip/fusionuserdetails returns { items: [{ user_name, passwordd }] }
+        /// URL: /ARMODULE/fusion returns { items: [{ username, password1 }] }
         /// </summary>
         private async Task FetchFusionCredentialsOnStartup()
         {
-            try
+            System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
+            System.Diagnostics.Debug.WriteLine($"[FUSION CRED] Fetching Oracle Fusion credentials on startup...");
+
+            var (username, password) = await FusionCredentialsService.GetAsync();
+
+            if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
             {
-                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
-                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] Fetching Oracle Fusion credentials on startup...");
-
-                // Use PROD endpoint for credentials
-                string credentialsUrl = "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails";
-
-                using (var client = new HttpClient())
-                {
-                    client.Timeout = TimeSpan.FromSeconds(30);
-                    var response = await client.GetAsync(credentialsUrl);
-
-                    if (response.IsSuccessStatusCode)
-                    {
-                        string jsonResponse = await response.Content.ReadAsStringAsync();
-                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] Response received: {jsonResponse.Length} chars");
-
-                        using (var doc = JsonDocument.Parse(jsonResponse))
-                        {
-                            var items = doc.RootElement.GetProperty("items");
-                            foreach (var item in items.EnumerateArray())
-                            {
-                                _fusionUsername = item.TryGetProperty("user_name", out var userProp) ? userProp.GetString() : null;
-                                _fusionPassword = item.TryGetProperty("passwordd", out var passProp) ? passProp.GetString() : null;
-
-                                if (!string.IsNullOrEmpty(_fusionUsername) && !string.IsNullOrEmpty(_fusionPassword))
-                                {
-                                    _fusionCredentialsLoaded = true;
-                                    System.Diagnostics.Debug.WriteLine($"[FUSION CRED] SUCCESS - Loaded credentials for user: {_fusionUsername}");
-                                    System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");
-                                    return;
-                                }
-                            }
-                        }
-
-                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] WARNING - No valid credentials found in response");
-                    }
-                    else
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ERROR - HTTP {response.StatusCode}");
-                    }
-                }
+                _fusionUsername = username;
+                _fusionPassword = password;
+                _fusionCredentialsLoaded = true;
+                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] SUCCESS - Loaded credentials for user: {_fusionUsername}");
             }
-            catch (Exception ex)
+            else
             {
-                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ERROR - {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[FUSION CRED] WARNING - No valid credentials found in response");
             }
 
             System.Diagnostics.Debug.WriteLine($"[FUSION CRED] ========================================");

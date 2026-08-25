@@ -110,10 +110,11 @@ function initializeAutoProcessing() {
     addLogEntry('System', 'Auto Inventory Processing initialized', 'success');
 }
 
-// Fetch Oracle Fusion Cloud credentials from API
+// Fetch Oracle Fusion Cloud credentials from API.
+// Runs when the user enters the Warehouse Management module — if no
+// credentials come back, the module is blocked with an error message.
 function fetchFusionCloudCredentials() {
-    const instance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
-    const credentialsUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails?p_instance_name=${instance}`;
+    const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/ARMODULE/fusion';
 
     console.log('[Auto Processing] Fetching Fusion Cloud credentials...');
     addLogEntry('System', 'Fetching Oracle Fusion Cloud credentials...', 'info');
@@ -125,14 +126,16 @@ function fetchFusionCloudCredentials() {
         if (error) {
             console.error('[Auto Processing] Failed to fetch credentials:', error);
             addLogEntry('Error', `Failed to fetch Fusion Cloud credentials: ${error}`, 'error');
+            showFusionUserNotSetError();
             return;
         }
 
         try {
             const response = JSON.parse(data);
-            if (response.items && response.items.length > 0) {
-                fusionCloudUsername = response.items[0].user_name || '';
-                fusionCloudPassword = response.items[0].passwordd || '';
+            if (response.items && response.items.length > 0 &&
+                response.items[0].username && response.items[0].password1) {
+                fusionCloudUsername = response.items[0].username;
+                fusionCloudPassword = response.items[0].password1;
 
                 // Set global properties for other modules (MRA, etc.) to access
                 window.F_username = fusionCloudUsername;
@@ -144,12 +147,43 @@ function fetchFusionCloudCredentials() {
             } else {
                 console.error('[Auto Processing] No credentials found in response');
                 addLogEntry('Error', 'No Fusion Cloud credentials found in API response', 'error');
+                showFusionUserNotSetError();
             }
         } catch (parseError) {
             console.error('[Auto Processing] Failed to parse credentials:', parseError);
             addLogEntry('Error', `Failed to parse Fusion Cloud credentials: ${parseError.message}`, 'error');
+            showFusionUserNotSetError();
         }
     });
+}
+
+// Blocking error shown when the ARMODULE/fusion webservice returns no
+// credentials — the Warehouse Management module cannot be used without them.
+function showFusionUserNotSetError() {
+    if (document.getElementById('fusion-user-error-overlay')) return;
+
+    const overlay = document.createElement('div');
+    overlay.id = 'fusion-user-error-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(4px);
+        display: flex; align-items: center; justify-content: center;
+        z-index: 99999;
+    `;
+    overlay.innerHTML = `
+        <div style="background: white; border-radius: 12px; padding: 2rem 2.5rem; max-width: 440px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,0.35);">
+            <i class="fas fa-user-slash" style="font-size: 3rem; color: #dc2626;"></i>
+            <h2 style="margin: 1rem 0 0.5rem 0; color: #1e293b; font-size: 1.25rem;">Fusion Integration user is not set</h2>
+            <p style="margin: 0 0 1.5rem 0; color: #64748b; font-size: 0.9rem;">
+                Could not retrieve the Oracle Fusion integration credentials.
+                Please configure the Fusion user and try again.
+            </p>
+            <button onclick="location.reload()" style="background: #667eea; color: white; border: none; padding: 0.6rem 1.5rem; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 0.9rem;">
+                <i class="fas fa-rotate-right"></i> Retry
+            </button>
+        </div>
+    `;
+    document.body.appendChild(overlay);
 }
 
 // Fetch auto inventory data from API using WebView REST handler
@@ -6209,8 +6243,7 @@ window.startTripMRAInterface = async function() {
 // Fetch Fusion credentials for batch MRA
 async function fetchFusionCredentialsForBatchMRA() {
     return new Promise((resolve, reject) => {
-        const instance = sessionStorage.getItem('loggedInInstance') || localStorage.getItem('fusionInstance') || 'TEST';
-        const credentialsUrl = `https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trip/fusionuserdetails?p_instance_name=${instance}`;
+        const credentialsUrl = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/ARMODULE/fusion';
 
         console.log('[MRA Batch] Fetching credentials from:', credentialsUrl);
 
@@ -6229,8 +6262,8 @@ async function fetchFusionCredentialsForBatchMRA() {
                 console.log('[MRA Batch] API response:', response);
 
                 if (response.items && response.items.length > 0) {
-                    const username = response.items[0].user_name || '';
-                    const password = response.items[0].passwordd || '';
+                    const username = response.items[0].username || '';
+                    const password = response.items[0].password1 || '';
 
                     // Set global properties
                     window.F_username = username;

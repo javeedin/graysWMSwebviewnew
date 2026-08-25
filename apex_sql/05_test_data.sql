@@ -26,7 +26,7 @@ INSERT INTO wms_printer_config (
     auto_download, auto_print, is_active
 ) VALUES (
     'Microsoft Print to PDF', 'A4', 'Portrait',
-    'TEST', 'shaik', 'fusion1234',
+    'TEST', 'YOUR_FUSION_USERNAME', 'YOUR_FUSION_PASSWORD',
     'Y', 'Y', 'Y'
 );
 
