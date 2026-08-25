@@ -1,15 +1,15 @@
 {
-    "version":  "9.0.0",
-    "build_date":  "2026-07-01",
-    "files":  {
-                  "index.html":  "2026-06-09",
-                  "app.js":  "2026-06-09",
-                  "monitor-printing.js":  "2026-06-09",
-                  "styles.css":  "2026-06-09",
-                  "wms/shipping-agent.js":  "2026-06-09",
-                  "wms/picker-view.html":  "2026-06-09",
-                  "printer-management-new.js":  "2026-06-09",
-                  "api-log.js":  "2026-06-09"
-              },
-    "changelog":  "v1.2.0 — Shipping Agent: auto-cancel Scheduled/Manual Reservation lines, live KPI cards, agent console panel, PDF report with Close button. Picker View: PDF download status badges, trip ID on cards, grid PDF column, persistent cache."
+    "version": "9.0.0",
+    "build_date": "2026-07-01",
+    "files": {
+        "index.html": "2026-06-09",
+        "app.js": "2026-06-09",
+        "monitor-printing.js": "2026-06-09",
+        "styles.css": "2026-06-09",
+        "wms/shipping-agent.js": "2026-06-09",
+        "wms/picker-view.html": "2026-06-09",
+        "printer-management-new.js": "2026-06-09",
+        "api-log.js": "2026-06-09"
+    },
+    "changelog": "v1.2.0 \u2014 Shipping Agent: auto-cancel Scheduled/Manual Reservation lines, live KPI cards, agent console panel, PDF report with Close button. Picker View: PDF download status badges, trip ID on cards, grid PDF column, persistent cache."
 }
