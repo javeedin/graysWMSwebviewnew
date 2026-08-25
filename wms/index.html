@@ -88,6 +88,10 @@
             <button onclick="window.location.reload()" title="Refresh Page" style="margin-left: 10px; background: none; border: 1px solid #dee2e6; border-radius: 5px; cursor: pointer; padding: 3px 8px; color: #667eea; font-size: 13px; transition: all 0.2s; display: inline-flex; align-items: center;" onmouseover="this.style.background='#f0f0ff';this.style.borderColor='#667eea'" onmouseout="this.style.background='none';this.style.borderColor='#dee2e6'">
                 <i class="fas fa-sync-alt"></i>
             </button>
+            <span id="integration-user-badge" title="Checking Fusion Integration user..." style="margin-left: 12px; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px; padding: 3px 10px; cursor: default;">
+                <i id="integration-user-icon" class="fas fa-circle-notch fa-spin" style="color: #94a3b8;"></i>
+                Integration User
+            </span>
             <span id="current-page-title" style="font-size: 14px; color: #2d3748; margin-left: 20px; font-weight: 700;"></span>
         </div>
         <div class="module-buttons">
@@ -8505,6 +8509,31 @@
 
     <!-- Login Session Handler -->
     <script>
+        // Updates the "Integration User" badge in the top toolbar.
+        // Called after the ARMODULE/fusion credentials fetch: green tick on
+        // success (username shown on mouse-over), red cross on failure.
+        window.updateIntegrationUserStatus = function(ok, username) {
+            const badge = document.getElementById('integration-user-badge');
+            const icon = document.getElementById('integration-user-icon');
+            if (!badge || !icon) return;
+
+            if (ok) {
+                icon.className = 'fas fa-check-circle';
+                icon.style.color = '#16a34a';
+                badge.style.color = '#166534';
+                badge.style.background = '#f0fdf4';
+                badge.style.borderColor = '#bbf7d0';
+                badge.title = 'Fusion Integration User: ' + username;
+            } else {
+                icon.className = 'fas fa-times-circle';
+                icon.style.color = '#dc2626';
+                badge.style.color = '#991b1b';
+                badge.style.background = '#fef2f2';
+                badge.style.borderColor = '#fecaca';
+                badge.title = 'Fusion Integration user is not set';
+            }
+        };
+
         // Function to set logged-in username
         window.setLoggedInUser = function(username, instance, loginDateTime) {
             console.log('[LOGIN] Setting logged-in user:', username, 'Instance:', instance, 'DateTime:', loginDateTime);

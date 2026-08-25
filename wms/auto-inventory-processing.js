@@ -126,6 +126,7 @@ function fetchFusionCloudCredentials() {
         if (error) {
             console.error('[Auto Processing] Failed to fetch credentials:', error);
             addLogEntry('Error', `Failed to fetch Fusion Cloud credentials: ${error}`, 'error');
+            reportIntegrationUserStatus(false);
             showFusionUserNotSetError();
             return;
         }
@@ -144,17 +145,27 @@ function fetchFusionCloudCredentials() {
                 console.log('[Auto Processing] Fusion Cloud credentials loaded:', fusionCloudUsername);
                 console.log('[Auto Processing] Global credentials set: window.F_username, window.F_password');
                 addLogEntry('System', `Fusion Cloud credentials loaded for user: ${fusionCloudUsername}`, 'success');
+                reportIntegrationUserStatus(true, fusionCloudUsername);
             } else {
                 console.error('[Auto Processing] No credentials found in response');
                 addLogEntry('Error', 'No Fusion Cloud credentials found in API response', 'error');
+                reportIntegrationUserStatus(false);
                 showFusionUserNotSetError();
             }
         } catch (parseError) {
             console.error('[Auto Processing] Failed to parse credentials:', parseError);
             addLogEntry('Error', `Failed to parse Fusion Cloud credentials: ${parseError.message}`, 'error');
+            reportIntegrationUserStatus(false);
             showFusionUserNotSetError();
         }
     });
+}
+
+// Update the toolbar "Integration User" badge (defined in index.html)
+function reportIntegrationUserStatus(ok, username) {
+    if (typeof window.updateIntegrationUserStatus === 'function') {
+        window.updateIntegrationUserStatus(ok, username);
+    }
 }
 
 // Blocking error shown when the ARMODULE/fusion webservice returns no

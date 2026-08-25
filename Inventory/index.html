@@ -292,6 +292,10 @@
                 </div>
                 <span class="module-badge">INV</span>
                 <span style="font-size: 9px; background: #4CAF50; color: white; padding: 2px 5px; border-radius: 3px; margin-left: 8px; font-weight: 600; vertical-align: middle;">v9.0.0</span>
+                <span id="integration-user-badge" title="Checking Fusion Integration user..." style="margin-left: 12px; display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 12px; padding: 3px 10px; cursor: default; vertical-align: middle;">
+                    <i id="integration-user-icon" class="fa-solid fa-circle-notch fa-spin" style="color: #94a3b8;"></i>
+                    Integration User
+                </span>
             </div>
         </div>
         <div class="header-right">
@@ -396,6 +400,76 @@
             const instance = localStorage.getItem('instanceName') || localStorage.getItem('fusionInstance') || '';
             document.getElementById('displayUsername').textContent = username;
             document.getElementById('displayInstance').textContent = instance ? 'Instance: ' + instance : '';
+        })();
+
+        // ── Fusion Integration User status badge ─────────────────────────
+        // Fetches credentials from the ARMODULE/fusion webservice through the
+        // C# bridge (avoids CORS). Green tick + username on mouse-over when
+        // loaded; red cross when the Integration user is not set.
+        (function () {
+            const CREDENTIALS_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/ARMODULE/fusion';
+            const pending = {};
+
+            function setBadge(ok, username) {
+                const badge = document.getElementById('integration-user-badge');
+                const icon = document.getElementById('integration-user-icon');
+                if (!badge || !icon) return;
+                if (ok) {
+                    icon.className = 'fa-solid fa-circle-check';
+                    icon.style.color = '#16a34a';
+                    badge.style.color = '#166534';
+                    badge.style.background = '#f0fdf4';
+                    badge.style.borderColor = '#bbf7d0';
+                    badge.title = 'Fusion Integration User: ' + username;
+                } else {
+                    icon.className = 'fa-solid fa-circle-xmark';
+                    icon.style.color = '#dc2626';
+                    badge.style.color = '#991b1b';
+                    badge.style.background = '#fef2f2';
+                    badge.style.borderColor = '#fecaca';
+                    badge.title = 'Fusion Integration user is not set';
+                }
+            }
+
+            if (!(window.chrome && window.chrome.webview)) {
+                setBadge(false);
+                return;
+            }
+
+            window.chrome.webview.addEventListener('message', function (event) {
+                try {
+                    const resp = typeof event.data === 'string' ? JSON.parse(event.data) : event.data;
+                    const reqId = resp.requestId;
+                    if (reqId && pending[reqId]) {
+                        const cb = pending[reqId];
+                        delete pending[reqId];
+                        if (resp.action === 'error') {
+                            cb(resp.message || 'Unknown error', null);
+                        } else {
+                            cb(null, resp.data);
+                        }
+                    }
+                } catch (e) { /* not our message */ }
+            });
+
+            const reqId = 'invhome_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+            pending[reqId] = function (error, data) {
+                if (error) { setBadge(false); return; }
+                try {
+                    const response = typeof data === 'string' ? JSON.parse(data) : data;
+                    if (response.items && response.items.length > 0 &&
+                        response.items[0].username && response.items[0].password1) {
+                        window.F_username = response.items[0].username;
+                        window.F_password = response.items[0].password1;
+                        setBadge(true, response.items[0].username);
+                    } else {
+                        setBadge(false);
+                    }
+                } catch (e) {
+                    setBadge(false);
+                }
+            };
+            window.chrome.webview.postMessage({ action: 'executeGet', fullUrl: CREDENTIALS_URL, requestId: reqId });
         })();
     </script>
 
