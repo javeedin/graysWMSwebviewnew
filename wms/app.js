@@ -8186,6 +8186,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <thead>
                                         <tr style="background:#f8fafc;position:sticky;top:0;z-index:1;">
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:center;width:36px;"></th>
+                                            <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Shipment</th>
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Shipment Line</th>
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Order</th>
                                             <th style="padding:8px 6px;border-bottom:2px solid #e2e8f0;text-align:left;white-space:nowrap;">Order Line</th>
@@ -8386,7 +8387,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (countEl) countEl.textContent = lines.length + ' line(s)';
 
         if (!lines.length) {
-            if (tbody) tbody.innerHTML = '<tr><td colspan="16" style="padding:2rem;text-align:center;color:#64748b;">No shipment lines found</td></tr>';
+            if (tbody) tbody.innerHTML = '<tr><td colspan="17" style="padding:2rem;text-align:center;color:#64748b;">No shipment lines found</td></tr>';
             return;
         }
 
@@ -8404,6 +8405,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         onchange="aslUpdateSelected()"
                         style="width:14px;height:14px;cursor:pointer;">
                 </td>
+                <td style="padding:6px;border-bottom:1px solid #f1f5f9;color:#0e7490;font-weight:600;">${line.Shipment || ''}</td>
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;color:#1e293b;font-weight:600;">${line.ShipmentLine || ''}</td>
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line._orderNumber}</td>
                 <td style="padding:6px;border-bottom:1px solid #f1f5f9;">${line.OrderLine || ''}</td>
