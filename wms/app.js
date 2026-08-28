@@ -8127,6 +8127,14 @@ document.addEventListener('DOMContentLoaded', function() {
         const existing = document.getElementById('all-shipment-lines-modal');
         if (existing) existing.remove();
 
+        // Context for the API Info popup
+        window._aslApiContext = {
+            tripId: tripId,
+            instance: instance,
+            fusionBase: fusionBase,
+            orders: orders.map(o => o.orderNumber)
+        };
+
         document.body.insertAdjacentHTML('beforeend', `
             <div id="all-shipment-lines-modal" style="display:flex;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:26000;justify-content:center;align-items:center;">
                 <div style="background:white;width:97%;max-width:1500px;height:92%;border-radius:12px;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
@@ -8136,6 +8144,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <h2 style="margin:0;font-size:1.05rem;color:#1e293b;font-weight:700;"><i class="fas fa-truck" style="color:#0891b2;"></i> All Shipment Lines — Trip ${tripId}</h2>
                             <span style="background:#e0f2fe;color:#0369a1;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;">Instance: ${instance}</span>
                             <span id="asl-record-count" style="background:#f1f5f9;color:#475569;padding:3px 8px;border-radius:4px;font-size:10px;font-weight:600;"></span>
+                            <button onclick="showAslApiInfo()" style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;border:none;padding:4px 10px;border-radius:6px;font-size:10px;cursor:pointer;display:flex;align-items:center;gap:4px;font-weight:600;" title="View API Information">
+                                <i class="fas fa-code"></i> API Info
+                            </button>
                         </div>
                         <button onclick="document.getElementById('all-shipment-lines-modal').remove()" style="background:none;border:none;font-size:1.4rem;cursor:pointer;color:#64748b;width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;" onmouseover="this.style.background='#fee2e2';this.style.color='#dc2626';" onmouseout="this.style.background='none';this.style.color='#64748b';"><i class="fas fa-times"></i></button>
                     </div>
@@ -8235,6 +8246,109 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             });
         });
+    };
+
+    // Show API Information for the All Shipment Lines dialog
+    window.showAslApiInfo = function() {
+        const ctx = window._aslApiContext || {};
+        const tripId = ctx.tripId || 'N/A';
+        const instance = ctx.instance || 'TEST';
+        const fusionBase = ctx.fusionBase || 'https://efmh-test.fa.em3.oraclecloud.com';
+        const orders = ctx.orders || [];
+        const sampleOrder = orders[0] || '{orderNumber}';
+
+        const getUrl = `${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order={orderNumber}&limit=500`;
+        const getUrlSample = `${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=${sampleOrder}&limit=500`;
+        const patchUrl = `${fusionBase}/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/{HeaderId}`;
+        const patchBody = { lines: [{ FulfillLineId: 123456789, OrderedQuantity: 0, CancelReason: 'OUT OF STOCK' }] };
+
+        const existingPopup = document.getElementById('asl-api-info-popup');
+        if (existingPopup) existingPopup.remove();
+
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="asl-api-info-popup" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30000; display: flex; justify-content: center; align-items: center;">
+                <div style="background: white; width: 90%; max-width: 750px; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); overflow: hidden;">
+                    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 1rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
+                        <h3 style="margin: 0; font-size: 1.1rem;">
+                            <i class="fas fa-code"></i> All Shipment Lines API Information
+                        </h3>
+                        <button onclick="document.getElementById('asl-api-info-popup').remove()" style="background: none; border: none; font-size: 1.5rem; color: white; cursor: pointer;">&times;</button>
+                    </div>
+                    <div style="padding: 1.5rem; max-height: 70vh; overflow-y: auto;">
+                        <!-- Current Context -->
+                        <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                            <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Current Context</div>
+                            <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Trip ID:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${tripId}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Instance:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; color: ${instance === 'PROD' ? '#dc2626' : '#16a34a'};">${instance}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Fusion Host:</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600;">${fusionBase}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe;">Orders (${orders.length}):</td>
+                                    <td style="padding: 4px 8px; border: 1px solid #bfdbfe; font-weight: 600; word-break: break-all;">${orders.join(', ') || '—'}</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <!-- API 1: Load shipment lines -->
+                        <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #667eea;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <span style="background: #bbf7d0; color: #166534; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">GET</span>
+                                <strong style="color: #1e293b; font-size: 12px;">Load Shipment Lines (Oracle Fusion REST — one call per order)</strong>
+                            </div>
+                            <div style="margin-bottom: 0.5rem;">
+                                <strong style="color: #4a5568; font-size: 11px;">URL Template:</strong>
+                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${getUrl}</code>
+                            </div>
+                            <div>
+                                <strong style="color: #4a5568; font-size: 11px;">Example (first order of this trip):</strong>
+                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${getUrlSample}</code>
+                            </div>
+                        </div>
+
+                        <!-- API 2: Cancel lines -->
+                        <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #ef4444;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">PATCH</span>
+                                <strong style="color: #1e293b; font-size: 12px;">Cancel Selected Lines (used by the Cancel button)</strong>
+                            </div>
+                            <div style="margin-bottom: 0.5rem;">
+                                <strong style="color: #4a5568; font-size: 11px;">URL Template:</strong>
+                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${patchUrl}</code>
+                                <div style="font-size: 10px; color: #64748b; margin-top: 4px;">Falls back to <code style="background:#edf2f7;padding:1px 4px;border-radius:3px;">.../salesOrdersForOrderHub/OPS:{orderNumber}</code> when HeaderId is not available.</div>
+                            </div>
+                            <div>
+                                <strong style="color: #4a5568; font-size: 11px;">Request Body:</strong>
+                                <pre style="background: #1e293b; color: #e2e8f0; padding: 0.75rem; border-radius: 6px; font-size: 10px; overflow-x: auto; margin: 4px 0 0 0;">${JSON.stringify(patchBody, null, 2)}</pre>
+                            </div>
+                        </div>
+
+                        <!-- Auth note -->
+                        <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
+                            <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Authentication:</strong>
+                            <span style="color: #78350f; font-size: 12px;">
+                                Both calls are executed by the C# host (<code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">executeOracleFusionGet</code> / <code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">executeOracleFusionPatch</code>)
+                                using Basic Auth with the Fusion Integration user fetched from the ARMODULE/fusion webservice.
+                                The host is chosen by instance: <strong>PROD</strong> → efmh.fa.em3, otherwise efmh-test.fa.em3.
+                            </span>
+                        </div>
+                    </div>
+                    <div style="padding: 1rem 1.5rem; border-top: 2px solid #f0f0f0; display: flex; justify-content: flex-end;">
+                        <button onclick="document.getElementById('asl-api-info-popup').remove()" class="btn btn-secondary" style="padding: 8px 20px;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `);
     };
 
     function aslRenderTable(instance) {
