@@ -84,6 +84,7 @@ function initializePslGrid() {
 
     pslGrid = $('#psl-grid-container').dxDataGrid({
         dataSource: [],
+        keyExpr: 'ShipmentLine',
         showBorders: true,
         showRowLines: true,
         showColumnLines: true,
@@ -352,6 +353,10 @@ function handlePslData(data, append) {
 
     // Update grid
     if (pslGrid) {
+        if (!append) {
+            pslGrid.clearSelection();
+            document.getElementById('psl-selected-count').textContent = '0';
+        }
         pslGrid.option('dataSource', pslData);
         pslGrid.refresh();
     }
