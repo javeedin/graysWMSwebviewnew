@@ -8160,6 +8160,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         <button id="asl-cancel-btn" onclick="aslCancelSelected('${instance}')" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:5px;" disabled>
                             <i class="fas fa-ban"></i> Cancel Selected Lines
                         </button>
+                        <button id="asl-shipdate-btn" onclick="aslShowUpdateShipDateDialog()" style="background:linear-gradient(135deg,#0ea5e9,#0369a1);color:white;border:none;padding:6px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:5px;">
+                            <i class="fas fa-calendar-check"></i> Update Actual Ship Date
+                        </button>
                         <div id="asl-cancel-status" style="font-size:11px;"></div>
                         <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
                             <select id="asl-order-filter" onchange="aslFilterRows()" style="padding:5px 8px;border:1px solid #e2e8f0;border-radius:6px;font-size:11px;outline:none;color:#374151;max-width:180px;" onfocus="this.style.borderColor='#0891b2'" onblur="this.style.borderColor='#e2e8f0'">
@@ -8249,6 +8252,176 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     };
 
+    // ============================================================================
+    // UPDATE ACTUAL SHIP DATE — POST shipmentTransactionRequests per shipment
+    // ============================================================================
+
+    // Normalize a trip date string ("DD-MM-YYYY", "YYYY-MM-DD", ISO, ...) to yyyy-MM-dd for <input type="date">
+    function aslNormalizeDate(raw) {
+        const s = String(raw || '').trim();
+        if (/^\d{2}-\d{2}-\d{4}$/.test(s)) {
+            const [d, m, y] = s.split('-');
+            return `${y}-${m}-${d}`;
+        }
+        if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.substring(0, 10);
+        const parsed = new Date(s);
+        if (!isNaN(parsed.getTime())) return parsed.toISOString().substring(0, 10);
+        return new Date().toISOString().substring(0, 10);
+    }
+
+    window.aslShowUpdateShipDateDialog = function() {
+        const ctx = window._aslApiContext || {};
+        const tripId = ctx.tripId || '';
+
+        // Distinct shipments from the loaded lines
+        const shipments = [...new Set((window._aslAllLines || [])
+            .map(l => l.Shipment)
+            .filter(s => s !== null && s !== undefined && String(s).trim() !== ''))]
+            .map(String).sort();
+
+        if (!shipments.length) {
+            showNotification('No shipments found in the loaded lines — nothing to update.', 'warning');
+            return;
+        }
+
+        const tripDateRaw = (window.tripHeaderData && window.tripHeaderData[tripId] && window.tripHeaderData[tripId].tripDate) || '';
+        const defaultDate = aslNormalizeDate(tripDateRaw);
+        const now = new Date();
+        const defaultTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+        const existing = document.getElementById('asl-shipdate-modal');
+        if (existing) existing.remove();
+
+        document.body.insertAdjacentHTML('beforeend', `
+            <div id="asl-shipdate-modal" style="position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:27000;display:flex;justify-content:center;align-items:center;">
+                <div style="background:white;width:90%;max-width:560px;border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;display:flex;flex-direction:column;max-height:85vh;">
+                    <div style="background:linear-gradient(135deg,#0ea5e9,#0369a1);color:white;padding:1rem 1.5rem;display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+                        <h3 style="margin:0;font-size:1.05rem;"><i class="fas fa-calendar-check"></i> Update Actual Ship Date — Trip ${tripId}</h3>
+                        <button onclick="document.getElementById('asl-shipdate-modal').remove()" style="background:none;border:none;font-size:1.4rem;color:white;cursor:pointer;">&times;</button>
+                    </div>
+                    <div style="padding:1.25rem 1.5rem;overflow-y:auto;">
+                        <div style="display:flex;gap:1rem;align-items:flex-end;margin-bottom:1rem;flex-wrap:wrap;">
+                            <div>
+                                <label style="display:block;font-size:11px;font-weight:600;color:#374151;margin-bottom:4px;">Actual Ship Date (default: Trip Date)</label>
+                                <input type="date" id="asl-shipdate-date" value="${defaultDate}" style="padding:7px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;outline:none;" onfocus="this.style.borderColor='#0ea5e9'" onblur="this.style.borderColor='#e2e8f0'">
+                            </div>
+                            <div>
+                                <label style="display:block;font-size:11px;font-weight:600;color:#374151;margin-bottom:4px;">Time</label>
+                                <input type="time" id="asl-shipdate-time" value="${defaultTime}" style="padding:7px 10px;border:1px solid #e2e8f0;border-radius:6px;font-size:13px;outline:none;" onfocus="this.style.borderColor='#0ea5e9'" onblur="this.style.borderColor='#e2e8f0'">
+                            </div>
+                            <button id="asl-shipdate-confirm-btn" onclick="aslConfirmUpdateShipDate()" style="background:linear-gradient(135deg,#10b981,#059669);color:white;border:none;padding:8px 18px;border-radius:6px;font-size:13px;cursor:pointer;font-weight:600;display:flex;align-items:center;gap:6px;">
+                                <i class="fas fa-check"></i> Confirm Update
+                            </button>
+                        </div>
+                        <div style="font-size:11px;color:#64748b;margin-bottom:0.5rem;">
+                            ${shipments.length} distinct shipment(s) will be updated via <code style="background:#f1f5f9;padding:1px 5px;border-radius:3px;">POST shipmentTransactionRequests</code> (ActionCode: ShipmentUpdate)
+                        </div>
+                        <div style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+                            <table style="width:100%;border-collapse:collapse;font-size:12px;">
+                                <thead>
+                                    <tr style="background:#f8fafc;">
+                                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;">Shipment</th>
+                                        <th style="padding:8px 10px;text-align:left;border-bottom:2px solid #e2e8f0;width:55%;">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${shipments.map((shp, i) => `
+                                        <tr>
+                                            <td style="padding:7px 10px;border-bottom:1px solid #f1f5f9;font-weight:600;color:#0e7490;">${shp}</td>
+                                            <td id="asl-shipdate-status-${i}" style="padding:7px 10px;border-bottom:1px solid #f1f5f9;color:#94a3b8;">Pending</td>
+                                        </tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        <div id="asl-shipdate-summary" style="margin-top:0.75rem;font-size:12px;font-weight:600;"></div>
+                    </div>
+                    <div style="padding:0.9rem 1.5rem;border-top:2px solid #f0f0f0;display:flex;justify-content:flex-end;flex-shrink:0;">
+                        <button onclick="document.getElementById('asl-shipdate-modal').remove()" class="btn btn-secondary" style="padding:7px 18px;">
+                            <i class="fas fa-times"></i> Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `);
+
+        window._aslShipDateShipments = shipments;
+    };
+
+    window.aslConfirmUpdateShipDate = async function() {
+        const ctx = window._aslApiContext || {};
+        const instance = ctx.instance || 'TEST';
+        const fusionBase = ctx.fusionBase || 'https://efmh-test.fa.em3.oraclecloud.com';
+        const shipments = window._aslShipDateShipments || [];
+        if (!shipments.length) return;
+
+        const dateVal = document.getElementById('asl-shipdate-date')?.value;
+        const timeVal = document.getElementById('asl-shipdate-time')?.value || '00:00';
+        if (!dateVal) {
+            showNotification('Please select an Actual Ship Date.', 'warning');
+            return;
+        }
+        const actualShipDate = `${dateVal}T${timeVal}:00+04:00`;
+
+        const btn = document.getElementById('asl-shipdate-confirm-btn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...'; }
+
+        const url = `${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentTransactionRequests`;
+        let successCount = 0, failCount = 0;
+
+        for (let i = 0; i < shipments.length; i++) {
+            const shp = shipments[i];
+            const statusEl = document.getElementById(`asl-shipdate-status-${i}`);
+            if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:#3b82f6;"></i> Updating...';
+
+            const body = {
+                ActionCode: 'ShipmentUpdate',
+                shipments: [{ Shipment: shp, ActualShipDate: actualShipDate }]
+            };
+
+            await new Promise(resolve => {
+                sendMessageToCSharp({
+                    action: 'executeOracleFusionPost',
+                    fullUrl: url,
+                    body: JSON.stringify(body),
+                    instance: instance
+                }, function(err, data) {
+                    let ok = false;
+                    let errMsg = '';
+                    if (!err) {
+                        try {
+                            const resp = typeof data === 'string' ? JSON.parse(data) : data;
+                            // Fusion returns error details on failure even with HTTP 200-ish payloads
+                            const respText = JSON.stringify(resp);
+                            ok = !(resp['o:errorDetails'] || resp.ErrorExplanation || /error/i.test(resp.title || ''));
+                            errMsg = resp.ErrorExplanation || resp.detail || resp.title ||
+                                     (resp['o:errorDetails'] ? respText.substring(0, 300) : '');
+                        } catch (e) { ok = true; } // non-JSON response with no bridge error = accepted
+                    } else {
+                        errMsg = String(err);
+                    }
+
+                    if (statusEl) {
+                        if (ok) {
+                            statusEl.innerHTML = `<span style="color:#10b981;"><i class="fas fa-check-circle"></i> Updated — ${actualShipDate}</span>`;
+                            successCount++;
+                        } else {
+                            statusEl.innerHTML = `<span style="color:#ef4444;" title="${(errMsg || '').replace(/"/g, '&quot;')}"><i class="fas fa-times-circle"></i> Failed${errMsg ? ' — ' + errMsg.substring(0, 120) : ''}</span>`;
+                            failCount++;
+                        }
+                    }
+                    resolve();
+                });
+            });
+        }
+
+        const summary = document.getElementById('asl-shipdate-summary');
+        if (summary) {
+            summary.innerHTML = `<span style="color:#10b981;">${successCount} updated</span>` +
+                (failCount ? ` &nbsp;•&nbsp; <span style="color:#ef4444;">${failCount} failed</span>` : '');
+        }
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Confirm Update'; }
+    };
+
     // Show API Information for the All Shipment Lines dialog
     window.showAslApiInfo = function() {
         const ctx = window._aslApiContext || {};
@@ -8332,11 +8505,27 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                         </div>
 
+                        <!-- API 3: Update Actual Ship Date -->
+                        <div style="background: #f8fafc; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 3px solid #0ea5e9;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600;">POST</span>
+                                <strong style="color: #1e293b; font-size: 12px;">Update Actual Ship Date (one call per distinct shipment)</strong>
+                            </div>
+                            <div style="margin-bottom: 0.5rem;">
+                                <strong style="color: #4a5568; font-size: 11px;">URL:</strong>
+                                <code style="background: #edf2f7; padding: 6px 10px; border-radius: 4px; font-size: 9px; word-break: break-all; display: block; margin-top: 4px;">${fusionBase}/fscmRestApi/resources/11.13.18.05/shipmentTransactionRequests</code>
+                            </div>
+                            <div>
+                                <strong style="color: #4a5568; font-size: 11px;">Request Body:</strong>
+                                <pre style="background: #1e293b; color: #e2e8f0; padding: 0.75rem; border-radius: 6px; font-size: 10px; overflow-x: auto; margin: 4px 0 0 0;">${JSON.stringify({ ActionCode: 'ShipmentUpdate', shipments: [{ Shipment: '22627927', ActualShipDate: '2026-08-29T14:30:00+04:00' }] }, null, 2)}</pre>
+                            </div>
+                        </div>
+
                         <!-- Auth note -->
                         <div style="background: #fef3c7; padding: 0.75rem; border-radius: 8px; border-left: 4px solid #f59e0b;">
                             <strong style="color: #92400e;"><i class="fas fa-info-circle"></i> Authentication:</strong>
                             <span style="color: #78350f; font-size: 12px;">
-                                Both calls are executed by the C# host (<code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">executeOracleFusionGet</code> / <code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">executeOracleFusionPatch</code>)
+                                All calls are executed by the C# host (<code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">executeOracleFusionGet</code> / <code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">executeOracleFusionPatch</code> / <code style="background: #fde68a; padding: 2px 4px; border-radius: 3px;">executeOracleFusionPost</code>)
                                 using Basic Auth with the Fusion Integration user fetched from the ARMODULE/fusion webservice.
                                 The host is chosen by instance: <strong>PROD</strong> → efmh.fa.em3, otherwise efmh-test.fa.em3.
                             </span>
