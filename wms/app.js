@@ -3301,17 +3301,45 @@ document.addEventListener('DOMContentLoaded', function() {
                 const workbook = new ExcelJS.Workbook();
                 const worksheet = workbook.addWorksheet('Volume Details');
 
+                const thinBorder = {
+                    top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+                };
+
                 DevExpress.excelExporter.exportDataGrid({
                     component: e.component,
                     worksheet: worksheet,
+                    topLeftCell: { row: 4, column: 1 },
                     autoFilterEnabled: true,
                     customizeCell: function(options) {
                         const { gridCell, excelCell } = options;
+                        excelCell.border = thinBorder;
+
                         if (gridCell.rowType === 'header') {
-                            excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+                            excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
                             excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6366F1' } };
+                            excelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                            return;
                         }
-                        if (gridCell.column && gridCell.column.dataField === 'fillPercent' && gridCell.rowType === 'data') {
+
+                        if (gridCell.rowType !== 'data' || !gridCell.column) return;
+
+                        const field = gridCell.column.dataField;
+                        const rowFill = gridCell.data && gridCell.data.fillPercent > 100 ? 'FFFEF2F2'
+                            : gridCell.data && gridCell.data.fillPercent >= 90 ? 'FFFFFBEB'
+                            : null;
+                        if (rowFill) {
+                            excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowFill } };
+                        }
+
+                        if (field === 'filledVolume' || field === 'capacity' || field === 'availableVolume') {
+                            excelCell.numFmt = '#,##0.00';
+                        } else if (field === 'totalOrders') {
+                            excelCell.numFmt = '#,##0';
+                        } else if (field === 'fillPercent') {
+                            excelCell.numFmt = '0.0"%"';
                             const value = gridCell.value || 0;
                             if (value > 100) {
                                 excelCell.font = { color: { argb: 'FFEF4444' }, bold: true };
@@ -3320,12 +3348,78 @@ document.addEventListener('DOMContentLoaded', function() {
                             } else {
                                 excelCell.font = { color: { argb: 'FF22C55E' }, bold: true };
                             }
+                        } else if (field === 'status') {
+                            const status = (gridCell.value || '').toString();
+                            excelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                            if (status === 'Overfilled') {
+                                excelCell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEF4444' } };
+                            } else if (status === 'Near Full') {
+                                excelCell.font = { color: { argb: 'FF92400E' }, bold: true };
+                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE68A' } };
+                            } else {
+                                excelCell.font = { color: { argb: 'FF166534' }, bold: true };
+                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+                            }
                         }
                     }
-                }).then(function() {
-                    workbook.xlsx.writeBuffer().then(function(buffer) {
-                        saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'VolumeDetails.xlsx');
+                }).then(function(cellRange) {
+                    const lastCol = cellRange.to.column;
+                    const lastRow = cellRange.to.row;
+
+                    // Title row
+                    worksheet.mergeCells(1, 1, 1, lastCol);
+                    const titleCell = worksheet.getCell(1, 1);
+                    titleCell.value = "Gray's WMS — Volume Details by Trip";
+                    titleCell.font = { bold: true, size: 14, color: { argb: 'FF312E81' } };
+                    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    worksheet.getRow(1).height = 24;
+
+                    // Subtitle row: generated timestamp + trip count
+                    worksheet.mergeCells(2, 1, 2, lastCol);
+                    const subtitleCell = worksheet.getCell(2, 1);
+                    const rowCount = lastRow - cellRange.from.row;
+                    subtitleCell.value = 'Generated: ' + new Date().toLocaleString() + '    |    Trips: ' + rowCount;
+                    subtitleCell.font = { size: 10, color: { argb: 'FF64748B' } };
+                    subtitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+                    // Totals row
+                    const data = e.component.getDataSource() ? (e.component.option('dataSource') || []) : [];
+                    const totalsRowIdx = lastRow + 1;
+                    const totalsRow = worksheet.getRow(totalsRowIdx);
+                    const sumBy = function(field) { return data.reduce(function(s, r) { return s + (parseFloat(r[field]) || 0); }, 0); };
+                    totalsRow.getCell(1).value = 'TOTALS';
+                    totalsRow.getCell(5).value = sumBy('totalOrders');
+                    totalsRow.getCell(5).numFmt = '#,##0';
+                    totalsRow.getCell(6).value = sumBy('filledVolume');
+                    totalsRow.getCell(6).numFmt = '#,##0.00';
+                    totalsRow.getCell(7).value = sumBy('capacity');
+                    totalsRow.getCell(7).numFmt = '#,##0.00';
+                    totalsRow.getCell(8).value = sumBy('availableVolume');
+                    totalsRow.getCell(8).numFmt = '#,##0.00';
+                    for (let c = 1; c <= lastCol; c++) {
+                        const cell = totalsRow.getCell(c);
+                        cell.font = { bold: true, color: { argb: 'FF312E81' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0E7FF' } };
+                        cell.border = {
+                            top: { style: 'double', color: { argb: 'FF6366F1' } },
+                            bottom: { style: 'thin', color: { argb: 'FF6366F1' } }
+                        };
+                    }
+
+                    // Column widths
+                    const widths = [12, 12, 16, 24, 10, 12, 14, 14, 10, 14];
+                    widths.forEach(function(w, i) {
+                        if (i < lastCol) worksheet.getColumn(i + 1).width = w;
                     });
+
+                    // Freeze title + header rows
+                    worksheet.views = [{ state: 'frozen', ySplit: 4 }];
+
+                    return workbook.xlsx.writeBuffer();
+                }).then(function(buffer) {
+                    const dateStr = new Date().toISOString().slice(0, 10);
+                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'VolumeDetails_' + dateStr + '.xlsx');
                 });
                 e.cancel = true;
             },
@@ -3410,6 +3504,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     width: 200,
                     allowFiltering: false,
                     allowSorting: false,
+                    allowExporting: false,
                     cellTemplate: function(container, options) {
                         const data = options.data;
                         const percent = Math.min(data.fillPercent || 0, 150); // Cap at 150% for display
