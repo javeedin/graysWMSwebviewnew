@@ -3437,7 +3437,26 @@ document.addEventListener('DOMContentLoaded', function() {
                     dataField: 'tripId',
                     caption: 'Trip ID',
                     width: 100,
-                    fixed: true
+                    fixed: true,
+                    cellTemplate: function(container, options) {
+                        const data = options.data;
+                        container.append(
+                            $('<a>')
+                                .text(options.value)
+                                .attr('href', 'javascript:void(0)')
+                                .attr('title', 'Open trip details')
+                                .css({ 'color': '#6366f1', 'font-weight': '600', 'text-decoration': 'underline', 'cursor': 'pointer' })
+                                .on('click', function(ev) {
+                                    ev.preventDefault();
+                                    // Same drill-down as the trip cards' View Details button.
+                                    // Instance is omitted so openTripDetails falls back to the
+                                    // currently selected instance in localStorage.
+                                    if (typeof window.openTripDetails === 'function') {
+                                        window.openTripDetails(String(data.tripId), data.tripDate || '', data.lorryNumber || '', '');
+                                    }
+                                })
+                        );
+                    }
                 },
                 {
                     dataField: 'tripDate',
