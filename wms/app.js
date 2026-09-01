@@ -3788,6 +3788,139 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let volumeSummaryGrid = null;
 
+    // Build the formatted Volume Summary workbook. Shared by the grid's export
+    // icon (onExporting) and the Export Excel button in the KPI bar.
+    function runVolumeSummaryExport(component) {
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Volume Summary');
+
+        const thinBorder = {
+            top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+
+        DevExpress.excelExporter.exportDataGrid({
+            component: component,
+            worksheet: worksheet,
+            topLeftCell: { row: 4, column: 1 },
+            autoFilterEnabled: true,
+            customizeCell: function(options) {
+                const { gridCell, excelCell } = options;
+                excelCell.border = thinBorder;
+
+                if (gridCell.rowType === 'header') {
+                    excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+                    excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0EA5E9' } };
+                    excelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    return;
+                }
+                if (gridCell.rowType !== 'data' || !gridCell.column) return;
+
+                const field = gridCell.column.dataField;
+                const rowFill = gridCell.data && gridCell.data.overfilledTrips > 0 ? 'FFFEF2F2'
+                    : gridCell.data && gridCell.data.avgFillPercent >= 90 ? 'FFFFFBEB'
+                    : null;
+                if (rowFill) {
+                    excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowFill } };
+                }
+
+                if (field === 'capacityPerTrip' || field === 'totalCapacity' || field === 'totalFilled' || field === 'availableVolume') {
+                    excelCell.numFmt = '#,##0.00';
+                } else if (field === 'tripCount' || field === 'totalOrders' || field === 'overfilledTrips') {
+                    excelCell.numFmt = '#,##0';
+                } else if (field === 'avgFillPercent') {
+                    excelCell.numFmt = '0.0"%"';
+                    const value = gridCell.value || 0;
+                    if (value > 100) {
+                        excelCell.font = { color: { argb: 'FFEF4444' }, bold: true };
+                    } else if (value >= 90) {
+                        excelCell.font = { color: { argb: 'FFF59E0B' }, bold: true };
+                    } else {
+                        excelCell.font = { color: { argb: 'FF22C55E' }, bold: true };
+                    }
+                } else if (field === 'status') {
+                    const status = (gridCell.value || '').toString();
+                    excelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    if (status === 'Overfilled') {
+                        excelCell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+                        excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEF4444' } };
+                    } else if (status === 'Near Full') {
+                        excelCell.font = { color: { argb: 'FF92400E' }, bold: true };
+                        excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE68A' } };
+                    } else {
+                        excelCell.font = { color: { argb: 'FF166534' }, bold: true };
+                        excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+                    }
+                }
+            }
+        }).then(function(cellRange) {
+            const lastCol = cellRange.to.column;
+            const lastRow = cellRange.to.row;
+
+            worksheet.mergeCells(1, 1, 1, lastCol);
+            const titleCell = worksheet.getCell(1, 1);
+            titleCell.value = "Gray's WMS — Volume Summary by Lorry";
+            titleCell.font = { bold: true, size: 14, color: { argb: 'FF0C4A6E' } };
+            titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+            worksheet.getRow(1).height = 24;
+
+            worksheet.mergeCells(2, 1, 2, lastCol);
+            const subtitleCell = worksheet.getCell(2, 1);
+            subtitleCell.value = 'Generated: ' + new Date().toLocaleString() + '    |    Lorries: ' + (lastRow - cellRange.from.row);
+            subtitleCell.font = { size: 10, color: { argb: 'FF64748B' } };
+            subtitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+            const data = component.option('dataSource') || [];
+            const sumBy = function(field) { return data.reduce(function(s, r) { return s + (parseFloat(r[field]) || 0); }, 0); };
+            const totalsRow = worksheet.getRow(lastRow + 1);
+            totalsRow.getCell(1).value = 'TOTALS';
+            totalsRow.getCell(3).value = sumBy('tripCount');
+            totalsRow.getCell(3).numFmt = '#,##0';
+            totalsRow.getCell(4).value = sumBy('totalOrders');
+            totalsRow.getCell(4).numFmt = '#,##0';
+            totalsRow.getCell(6).value = sumBy('totalCapacity');
+            totalsRow.getCell(6).numFmt = '#,##0.00';
+            totalsRow.getCell(7).value = sumBy('totalFilled');
+            totalsRow.getCell(7).numFmt = '#,##0.00';
+            totalsRow.getCell(8).value = sumBy('availableVolume');
+            totalsRow.getCell(8).numFmt = '#,##0.00';
+            totalsRow.getCell(10).value = sumBy('overfilledTrips');
+            totalsRow.getCell(10).numFmt = '#,##0';
+            for (let c = 1; c <= lastCol; c++) {
+                const cell = totalsRow.getCell(c);
+                cell.font = { bold: true, color: { argb: 'FF0C4A6E' } };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
+                cell.border = {
+                    top: { style: 'double', color: { argb: 'FF0EA5E9' } },
+                    bottom: { style: 'thin', color: { argb: 'FF0EA5E9' } }
+                };
+            }
+
+            const widths = [16, 24, 8, 10, 14, 14, 13, 14, 11, 14, 12];
+            widths.forEach(function(w, i) {
+                if (i < lastCol) worksheet.getColumn(i + 1).width = w;
+            });
+
+            worksheet.views = [{ state: 'frozen', ySplit: 4 }];
+
+            return workbook.xlsx.writeBuffer();
+        }).then(function(buffer) {
+            const dateStr = new Date().toISOString().slice(0, 10);
+            saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'VolumeSummary_' + dateStr + '.xlsx');
+        });
+    }
+
+    // Export Excel button in the Volume Summary KPI bar
+    window.exportVolumeSummaryToExcel = function() {
+        if (!volumeSummaryGrid) {
+            alert('Volume Summary is not loaded yet.');
+            return;
+        }
+        runVolumeSummaryExport(volumeSummaryGrid);
+    };
+
     window.initializeVolumeSummaryGrid = function() {
         if (volumeSummaryGrid) {
             console.log('[Volume Summary] Grid already initialized');
@@ -3817,125 +3950,7 @@ document.addEventListener('DOMContentLoaded', function() {
             searchPanel: { visible: true, width: 240, placeholder: 'Search lorries...' },
             export: { enabled: true, allowExportSelectedData: true },
             onExporting: function(e) {
-                const workbook = new ExcelJS.Workbook();
-                const worksheet = workbook.addWorksheet('Volume Summary');
-
-                const thinBorder = {
-                    top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-                    left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-                    bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
-                    right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
-                };
-
-                DevExpress.excelExporter.exportDataGrid({
-                    component: e.component,
-                    worksheet: worksheet,
-                    topLeftCell: { row: 4, column: 1 },
-                    autoFilterEnabled: true,
-                    customizeCell: function(options) {
-                        const { gridCell, excelCell } = options;
-                        excelCell.border = thinBorder;
-
-                        if (gridCell.rowType === 'header') {
-                            excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
-                            excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0EA5E9' } };
-                            excelCell.alignment = { horizontal: 'center', vertical: 'middle' };
-                            return;
-                        }
-                        if (gridCell.rowType !== 'data' || !gridCell.column) return;
-
-                        const field = gridCell.column.dataField;
-                        const rowFill = gridCell.data && gridCell.data.overfilledTrips > 0 ? 'FFFEF2F2'
-                            : gridCell.data && gridCell.data.avgFillPercent >= 90 ? 'FFFFFBEB'
-                            : null;
-                        if (rowFill) {
-                            excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowFill } };
-                        }
-
-                        if (field === 'capacityPerTrip' || field === 'totalCapacity' || field === 'totalFilled' || field === 'availableVolume') {
-                            excelCell.numFmt = '#,##0.00';
-                        } else if (field === 'tripCount' || field === 'totalOrders' || field === 'overfilledTrips') {
-                            excelCell.numFmt = '#,##0';
-                        } else if (field === 'avgFillPercent') {
-                            excelCell.numFmt = '0.0"%"';
-                            const value = gridCell.value || 0;
-                            if (value > 100) {
-                                excelCell.font = { color: { argb: 'FFEF4444' }, bold: true };
-                            } else if (value >= 90) {
-                                excelCell.font = { color: { argb: 'FFF59E0B' }, bold: true };
-                            } else {
-                                excelCell.font = { color: { argb: 'FF22C55E' }, bold: true };
-                            }
-                        } else if (field === 'status') {
-                            const status = (gridCell.value || '').toString();
-                            excelCell.alignment = { horizontal: 'center', vertical: 'middle' };
-                            if (status === 'Overfilled') {
-                                excelCell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
-                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEF4444' } };
-                            } else if (status === 'Near Full') {
-                                excelCell.font = { color: { argb: 'FF92400E' }, bold: true };
-                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE68A' } };
-                            } else {
-                                excelCell.font = { color: { argb: 'FF166534' }, bold: true };
-                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
-                            }
-                        }
-                    }
-                }).then(function(cellRange) {
-                    const lastCol = cellRange.to.column;
-                    const lastRow = cellRange.to.row;
-
-                    worksheet.mergeCells(1, 1, 1, lastCol);
-                    const titleCell = worksheet.getCell(1, 1);
-                    titleCell.value = "Gray's WMS — Volume Summary by Lorry";
-                    titleCell.font = { bold: true, size: 14, color: { argb: 'FF0C4A6E' } };
-                    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-                    worksheet.getRow(1).height = 24;
-
-                    worksheet.mergeCells(2, 1, 2, lastCol);
-                    const subtitleCell = worksheet.getCell(2, 1);
-                    subtitleCell.value = 'Generated: ' + new Date().toLocaleString() + '    |    Lorries: ' + (lastRow - cellRange.from.row);
-                    subtitleCell.font = { size: 10, color: { argb: 'FF64748B' } };
-                    subtitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
-
-                    const data = e.component.option('dataSource') || [];
-                    const sumBy = function(field) { return data.reduce(function(s, r) { return s + (parseFloat(r[field]) || 0); }, 0); };
-                    const totalsRow = worksheet.getRow(lastRow + 1);
-                    totalsRow.getCell(1).value = 'TOTALS';
-                    totalsRow.getCell(3).value = sumBy('tripCount');
-                    totalsRow.getCell(3).numFmt = '#,##0';
-                    totalsRow.getCell(4).value = sumBy('totalOrders');
-                    totalsRow.getCell(4).numFmt = '#,##0';
-                    totalsRow.getCell(6).value = sumBy('totalCapacity');
-                    totalsRow.getCell(6).numFmt = '#,##0.00';
-                    totalsRow.getCell(7).value = sumBy('totalFilled');
-                    totalsRow.getCell(7).numFmt = '#,##0.00';
-                    totalsRow.getCell(8).value = sumBy('availableVolume');
-                    totalsRow.getCell(8).numFmt = '#,##0.00';
-                    totalsRow.getCell(10).value = sumBy('overfilledTrips');
-                    totalsRow.getCell(10).numFmt = '#,##0';
-                    for (let c = 1; c <= lastCol; c++) {
-                        const cell = totalsRow.getCell(c);
-                        cell.font = { bold: true, color: { argb: 'FF0C4A6E' } };
-                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
-                        cell.border = {
-                            top: { style: 'double', color: { argb: 'FF0EA5E9' } },
-                            bottom: { style: 'thin', color: { argb: 'FF0EA5E9' } }
-                        };
-                    }
-
-                    const widths = [16, 24, 8, 10, 14, 14, 13, 14, 11, 14, 12];
-                    widths.forEach(function(w, i) {
-                        if (i < lastCol) worksheet.getColumn(i + 1).width = w;
-                    });
-
-                    worksheet.views = [{ state: 'frozen', ySplit: 4 }];
-
-                    return workbook.xlsx.writeBuffer();
-                }).then(function(buffer) {
-                    const dateStr = new Date().toISOString().slice(0, 10);
-                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'VolumeSummary_' + dateStr + '.xlsx');
-                });
+                runVolumeSummaryExport(e.component);
                 e.cancel = true;
             },
             paging: { pageSize: 20 },
@@ -3946,7 +3961,25 @@ document.addEventListener('DOMContentLoaded', function() {
                 showInfo: true
             },
             columns: [
-                { dataField: 'lorryNumber', caption: 'Lorry', width: 130, fixed: true },
+                {
+                    dataField: 'lorryNumber',
+                    caption: 'Lorry',
+                    width: 130,
+                    fixed: true,
+                    cellTemplate: function(container, options) {
+                        container.append(
+                            $('<a>')
+                                .text(options.value)
+                                .attr('href', 'javascript:void(0)')
+                                .attr('title', 'Show trips, orders and volumes for this lorry')
+                                .css({ 'color': '#0ea5e9', 'font-weight': '600', 'text-decoration': 'underline', 'cursor': 'pointer' })
+                                .on('click', function(ev) {
+                                    ev.preventDefault();
+                                    window.showLorryTripsDialog(options.value);
+                                })
+                        );
+                    }
+                },
                 { dataField: 'model', caption: 'Vehicle Model', width: 160 },
                 { dataField: 'tripCount', caption: 'Trips', dataType: 'number', width: 70 },
                 { dataField: 'totalOrders', caption: 'Orders', dataType: 'number', width: 80 },
@@ -4103,6 +4136,143 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             populateVolumeSummary();
         }
+    };
+
+    // Drill-down dialog: all trips for a lorry with their orders and volumes
+    window.showLorryTripsDialog = function(lorryNumber) {
+        const trips = (window.volumeDetailsData || []).filter(t => (t.lorryNumber || '(No Lorry)') === lorryNumber);
+        if (trips.length === 0) {
+            alert('No trip data available for lorry: ' + lorryNumber);
+            return;
+        }
+
+        const allRows = window.tripDetailsGridInstance ? (window.tripDetailsGridInstance.option('dataSource') || []) : [];
+
+        const getVolume = function(r) {
+            let v = r.order_volume1;
+            if (v === undefined || v === null) v = r.ORDER_VOLUME1;
+            if (v === undefined || v === null) v = r.order_volume;
+            if (v === undefined || v === null) v = r.ORDER_VOLUME;
+            return parseFloat(v) || 0;
+        };
+
+        // Sort trips by date then id for display
+        const sortedTrips = [...trips].sort((a, b) => String(a.tripDate).localeCompare(String(b.tripDate)) || String(a.tripId).localeCompare(String(b.tripId)));
+
+        const model = trips.find(t => t.model)?.model || '';
+        const totalFilled = trips.reduce((s, t) => s + (t.filledVolume || 0), 0);
+        const totalCapacity = trips.reduce((s, t) => s + (t.capacity || 0), 0);
+        const totalOrders = trips.reduce((s, t) => s + (t.totalOrders || 0), 0);
+
+        let tripsHtml = '';
+        sortedTrips.forEach(trip => {
+            // Collect this trip's orders, one row per distinct order
+            const tripRows = allRows.filter(r => String(r.TRIP_ID || r.trip_id || '') === String(trip.tripId));
+            const orders = {};
+            tripRows.forEach(r => {
+                const orderNum = (r.ORDER_NUMBER || r.order_number || '').toString();
+                if (!orderNum) return;
+                const vol = getVolume(r);
+                if (!orders[orderNum]) {
+                    orders[orderNum] = {
+                        orderNumber: orderNum,
+                        customer: r.CUSTOMER_NAME || r.customer_name || '',
+                        orderType: r.ORDER_TYPE || r.order_type || '',
+                        volume: vol,
+                        lines: 0
+                    };
+                } else if (orders[orderNum].volume === 0 && vol > 0) {
+                    orders[orderNum].volume = vol;
+                }
+                orders[orderNum].lines++;
+            });
+            const orderList = Object.values(orders).sort((a, b) => b.volume - a.volume);
+
+            const fillPercent = trip.fillPercent || 0;
+            const fillColor = fillPercent > 100 ? '#ef4444' : fillPercent >= 90 ? '#f59e0b' : '#22c55e';
+
+            let orderRowsHtml = '';
+            orderList.forEach((o, idx) => {
+                orderRowsHtml += `
+                    <tr style="border-bottom: 1px solid #f1f5f9; ${idx % 2 === 1 ? 'background: #f8fafc;' : ''}">
+                        <td style="padding: 0.35rem 0.6rem; color: #64748b;">${idx + 1}</td>
+                        <td style="padding: 0.35rem 0.6rem; font-weight: 600; color: #1e293b;">${o.orderNumber}</td>
+                        <td style="padding: 0.35rem 0.6rem; color: #475569;">${o.customer}</td>
+                        <td style="padding: 0.35rem 0.6rem; color: #475569;">${o.orderType}</td>
+                        <td style="padding: 0.35rem 0.6rem; text-align: center; color: #64748b;">${o.lines}</td>
+                        <td style="padding: 0.35rem 0.6rem; text-align: right; font-weight: 600; color: #7c3aed;">${o.volume.toFixed(3)}</td>
+                    </tr>`;
+            });
+            if (orderList.length === 0) {
+                orderRowsHtml = '<tr><td colspan="6" style="padding: 0.5rem; text-align: center; color: #94a3b8;">No order rows found for this trip</td></tr>';
+            }
+
+            tripsHtml += `
+                <div style="border: 1px solid #e2e8f0; border-radius: 10px; margin-bottom: 0.9rem; overflow: hidden;">
+                    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; padding: 0.6rem 0.9rem; background: linear-gradient(135deg, #f8fafc 0%, #eef2ff 100%); border-bottom: 1px solid #e2e8f0;">
+                        <a href="javascript:void(0)" onclick="document.getElementById('lorry-trips-dialog-overlay')?.remove(); window.openTripDetails('${trip.tripId}', '${trip.tripDate || ''}', '${(trip.lorryNumber || '').replace(/'/g, "\\'")}', '');"
+                           style="font-weight: 700; color: #6366f1; text-decoration: underline; cursor: pointer;" title="Open trip details">
+                            Trip ${trip.tripId}
+                        </a>
+                        <span style="font-size: 0.8rem; color: #64748b;"><i class="fas fa-calendar"></i> ${trip.tripDate || 'N/A'}</span>
+                        <span style="font-size: 0.8rem; color: #64748b;"><i class="fas fa-shopping-cart"></i> ${trip.totalOrders} orders</span>
+                        <span style="flex: 1;"></span>
+                        <span style="font-size: 0.8rem; font-weight: 600; color: #475569;">
+                            ${(trip.filledVolume || 0).toFixed(2)} / ${(trip.capacity || 0).toFixed(2)} m³
+                        </span>
+                        <span style="font-size: 0.8rem; font-weight: 700; color: ${fillColor};">${fillPercent.toFixed(1)}%</span>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem;">
+                        <thead>
+                            <tr style="background: #eef2ff; color: #3730a3;">
+                                <th style="padding: 0.4rem 0.6rem; text-align: left; width: 36px;">#</th>
+                                <th style="padding: 0.4rem 0.6rem; text-align: left;">Order Number</th>
+                                <th style="padding: 0.4rem 0.6rem; text-align: left;">Customer</th>
+                                <th style="padding: 0.4rem 0.6rem; text-align: left;">Type</th>
+                                <th style="padding: 0.4rem 0.6rem; text-align: center; width: 55px;">Lines</th>
+                                <th style="padding: 0.4rem 0.6rem; text-align: right; width: 95px;">Volume (m³)</th>
+                            </tr>
+                        </thead>
+                        <tbody>${orderRowsHtml}</tbody>
+                    </table>
+                </div>`;
+        });
+
+        // Remove any existing dialog
+        document.getElementById('lorry-trips-dialog-overlay')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'lorry-trips-dialog-overlay';
+        overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 10001; display: flex; align-items: center; justify-content: center; padding: 1.5rem;';
+        overlay.innerHTML = `
+            <div style="background: white; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.3); width: 100%; max-width: 950px; max-height: 88vh; display: flex; flex-direction: column; overflow: hidden;">
+                <div style="display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; background: linear-gradient(135deg, #0ea5e9 0%, #0369a1 100%); color: white;">
+                    <i class="fas fa-truck" style="font-size: 1.3rem;"></i>
+                    <div style="flex: 1;">
+                        <div style="font-size: 1.1rem; font-weight: 700;">${lorryNumber}</div>
+                        <div style="font-size: 0.8rem; opacity: 0.85;">${model || 'Unknown vehicle model'}</div>
+                    </div>
+                    <button onclick="document.getElementById('lorry-trips-dialog-overlay').remove()" style="background: rgba(255,255,255,0.2); border: none; color: white; width: 32px; height: 32px; border-radius: 8px; cursor: pointer; font-size: 1rem;">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div style="display: flex; gap: 0.6rem; padding: 0.75rem 1.25rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap;">
+                    <span style="font-size: 0.8rem; background: #eef2ff; color: #3730a3; padding: 0.3rem 0.7rem; border-radius: 6px; font-weight: 600;"><i class="fas fa-route"></i> ${trips.length} trip${trips.length !== 1 ? 's' : ''}</span>
+                    <span style="font-size: 0.8rem; background: #f0fdf4; color: #166534; padding: 0.3rem 0.7rem; border-radius: 6px; font-weight: 600;"><i class="fas fa-shopping-cart"></i> ${totalOrders} orders</span>
+                    <span style="font-size: 0.8rem; background: #faf5ff; color: #6b21a8; padding: 0.3rem 0.7rem; border-radius: 6px; font-weight: 600;"><i class="fas fa-cube"></i> Filled: ${totalFilled.toFixed(2)} m³</span>
+                    <span style="font-size: 0.8rem; background: #eff6ff; color: #1e40af; padding: 0.3rem 0.7rem; border-radius: 6px; font-weight: 600;"><i class="fas fa-warehouse"></i> Capacity: ${totalCapacity.toFixed(2)} m³</span>
+                </div>
+                <div style="flex: 1; overflow-y: auto; padding: 1rem 1.25rem;">
+                    ${tripsHtml}
+                </div>
+            </div>`;
+
+        // Close on backdrop click
+        overlay.addEventListener('click', function(ev) {
+            if (ev.target === overlay) overlay.remove();
+        });
+
+        document.body.appendChild(overlay);
     };
 
     // Global function: Assign Picker for Selected Orders in All Trip Details grid
