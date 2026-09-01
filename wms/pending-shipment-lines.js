@@ -5,15 +5,29 @@
 console.log('[PSL] Pending Shipment Lines module loading...');
 
 // API Endpoints
-const PSL_PENDING_ORDERS_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/trips/getpendingorders';
-const PSL_SHIPMENT_LINES_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/getpendingshipmentlines';
 const PSL_ORDER_VOLUME_API = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/TRIPMANAGEMENT/fetchordervolume';
+
+// Oracle Fusion shipmentLines REST API
+const PSL_FUSION_RESOURCE = '/fscmRestApi/resources/11.13.18.05/shipmentLines';
+const PSL_FUSION_FIELDS = 'OrganizationCode,OrderType,ShipmentLine,Order,OrderLine,Item,ItemDescription,LineStatus,RequestedDate,RequestedQuantity,RequestedQuantityUOM';
+const PSL_PAGE_SIZE = 50;
 
 // Global variables
 let pslGrid = null;
 let pslData = [];
 let pslInitialized = false;
 let pslVolumeCancelRequested = false;
+let pslOffset = 0;
+let pslHasMore = false;
+let pslFetchInProgress = false;
+
+function getPslFusionBaseUrl() {
+    const instanceDropdown = document.getElementById('psl-instance-name');
+    const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
+    return instance === 'PROD'
+        ? 'https://efmh.fa.em3.oraclecloud.com'
+        : 'https://efmh-test.fa.em3.oraclecloud.com';
+}
 
 // ============================================================================
 // INITIALIZATION
@@ -24,16 +38,14 @@ function initializePslPage() {
 
     console.log('[PSL] Initializing Pending Shipment Lines page...');
 
-    // Set default dates (current month)
-    const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+    // Set default creation date (2 days ago) with '>' operator
+    const defaultDate = new Date();
+    defaultDate.setDate(defaultDate.getDate() - 2);
+    document.getElementById('psl-creation-date').value = formatDateForInput(defaultDate);
 
-    document.getElementById('psl-from-date').value = formatDateForInput(firstDay);
-    document.getElementById('psl-to-date').value = formatDateForInput(lastDay);
-
-    // Set default organization
-    document.getElementById('psl-organization').value = 'GRAYS INC';
+    // Set default mandatory filters
+    document.getElementById('psl-organization').value = 'GIC';
+    document.getElementById('psl-order-type').value = 'Sales order';
 
     // Set instance name from top-level selector
     const topInstanceElement = document.getElementById('current-instance-display');
@@ -49,8 +61,8 @@ function initializePslPage() {
     // Initialize grid
     initializePslGrid();
 
-    // Load initial data (pending orders)
-    loadInitialPslData();
+    // Load initial data from Fusion using the default filters
+    fetchPendingShipmentLines();
 
     pslInitialized = true;
     console.log('[PSL] Page initialized');
@@ -72,6 +84,7 @@ function initializePslGrid() {
 
     pslGrid = $('#psl-grid-container').dxDataGrid({
         dataSource: [],
+        keyExpr: 'ShipmentLine',
         showBorders: true,
         showRowLines: true,
         showColumnLines: true,
@@ -138,9 +151,28 @@ function initializePslGrid() {
             e.cancel = true;
         },
         columns: [
-            { dataField: 'source_order_number', caption: 'Order Number', width: 180 },
+            { dataField: 'RequestedDate', caption: 'Requested Date', dataType: 'date', format: 'yyyy-MM-dd', width: 130 },
             {
-                dataField: 'order_volume',
+                dataField: 'LineStatus',
+                caption: 'Line Status',
+                width: 150,
+                cellTemplate: function(container, options) {
+                    $('<span>').text(options.value || '')
+                        .css({ background: '#eff6ff', color: '#1d4ed8', padding: '2px 10px', borderRadius: '10px', fontSize: '11px', fontWeight: '600' })
+                        .appendTo(container);
+                }
+            },
+            { dataField: 'OrganizationCode', caption: 'Org', width: 70 },
+            { dataField: 'ShipmentLine', caption: 'Shipment Line', width: 120 },
+            { dataField: 'OrderType', caption: 'Order Type', width: 110 },
+            { dataField: 'Order', caption: 'Order', width: 160 },
+            { dataField: 'OrderLine', caption: 'Line', width: 70 },
+            { dataField: 'Item', caption: 'Item', width: 150 },
+            { dataField: 'ItemDescription', caption: 'Description', width: 280 },
+            { dataField: 'RequestedQuantity', caption: 'Requested Qty', dataType: 'number', width: 110 },
+            { dataField: 'RequestedQuantityUOM', caption: 'UOM', width: 80 },
+            {
+                dataField: 'OrderVolume',
                 caption: 'Order Volume',
                 width: 120,
                 dataType: 'number',
@@ -151,15 +183,7 @@ function initializePslGrid() {
                         $('<span>').text('—').css({ color: '#94a3b8' }).appendTo(container);
                     }
                 }
-            },
-            { dataField: 'account_number', caption: 'Account #', width: 100 },
-            { dataField: 'account_name', caption: 'Customer Name', width: 220 },
-            { dataField: 'order_date', caption: 'Order Date', dataType: 'date', format: 'yyyy-MM-dd', width: 120 },
-            { dataField: 'line_status', caption: 'Status', width: 120 },
-            { dataField: 'order_type_code', caption: 'Order Type', width: 130 },
-            { dataField: 'salesrep_name', caption: 'Sales Rep', width: 150 },
-            { dataField: 'added_to_trip', caption: 'Added to Trip', width: 110 },
-            { dataField: 'instance', caption: 'Instance', width: 80 }
+            }
         ],
         onSelectionChanged: function(e) {
             const count = e.selectedRowsData.length;
@@ -175,187 +199,164 @@ function initializePslGrid() {
 }
 
 // ============================================================================
-// LOAD INITIAL DATA (Pending Orders)
+// BUILD FUSION shipmentLines URL (from filter parameters)
 // ============================================================================
 
-function loadInitialPslData() {
-    console.log('[PSL] ========== REFRESH BUTTON CLICKED ==========');
-    console.log('[PSL] Loading initial data...');
+function getPslFilterValues() {
+    // Organization: allow "GIC" or "GIC — GRAYS INC" style manual entries
+    let organization = (document.getElementById('psl-organization')?.value || '').trim();
+    if (organization.includes('—')) organization = organization.split('—')[0].trim();
+    if (organization.includes(' - ')) organization = organization.split(' - ')[0].trim();
 
-    // Get instance from the page's instance dropdown
+    return {
+        dateOperator: document.getElementById('psl-date-operator')?.value || '>',
+        creationDate: document.getElementById('psl-creation-date')?.value || '',
+        organization: organization,
+        orderType: (document.getElementById('psl-order-type')?.value || '').trim(),
+        order: (document.getElementById('psl-order')?.value || '').trim(),
+        item: (document.getElementById('psl-item')?.value || '').trim(),
+        lineStatus: document.getElementById('psl-line-status')?.value || ''
+    };
+}
+
+function buildPslFusionUrl(offset) {
+    const f = getPslFilterValues();
+
+    const qParts = [];
+    if (f.creationDate) qParts.push(`CreationDate${f.dateOperator}${f.creationDate}`);
+    qParts.push(`OrganizationCode='${f.organization}'`);
+    qParts.push(`OrderType='${f.orderType}'`);
+    if (f.order) qParts.push(`Order='${f.order}'`);
+    if (f.item) qParts.push(`Item='${f.item}'`);
+    if (f.lineStatus) qParts.push(`LineStatus='${f.lineStatus}'`);
+
+    const q = qParts.join(';');
+    return `${getPslFusionBaseUrl()}${PSL_FUSION_RESOURCE}`
+        + `?q=${encodeURIComponent(q)}`
+        + `&onlyData=true`
+        + `&fields=${PSL_FUSION_FIELDS}`
+        + `&limit=${PSL_PAGE_SIZE}`
+        + `&offset=${offset}`;
+}
+
+// ============================================================================
+// FETCH PENDING SHIPMENT LINES (Oracle Fusion shipmentLines REST API)
+// ============================================================================
+
+window.fetchPendingShipmentLines = function() {
+    fetchPslPage(false);
+};
+
+window.fetchNextPslPage = function() {
+    if (!pslHasMore) return;
+    fetchPslPage(true);
+};
+
+function fetchPslPage(append) {
+    if (pslFetchInProgress) return;
+
+    const f = getPslFilterValues();
+
+    // Organization and Order Type are mandatory
+    if (!f.organization) {
+        alert('Organization is mandatory. Please select or enter an organization code.');
+        return;
+    }
+    if (!f.orderType) {
+        alert('Order Type is mandatory. Please select or enter an order type.');
+        return;
+    }
+
+    const offset = append ? pslOffset : 0;
+    const apiUrl = buildPslFusionUrl(offset);
     const instanceDropdown = document.getElementById('psl-instance-name');
     const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
 
-    const apiUrl = `${PSL_PENDING_ORDERS_API}?instance=${instance}`;
-
-    console.log('[PSL] Instance Dropdown Found:', !!instanceDropdown);
-    console.log('[PSL] Instance Value:', instance);
-    console.log('[PSL] Full API URL:', apiUrl);
+    console.log('[PSL] Fetching shipment lines from Fusion. Offset:', offset);
+    console.log('[PSL] API URL:', apiUrl);
 
     // Show loading state
-    if (pslGrid) {
-        pslGrid.beginCustomLoading('Loading pending orders...');
-    }
+    pslFetchInProgress = true;
+    const fetchIcon = document.getElementById(append ? 'psl-fetch-next-icon' : 'psl-fetch-icon');
+    const fetchIconDefault = append ? 'fas fa-angle-double-down' : 'fas fa-search';
+    if (fetchIcon) fetchIcon.className = 'fas fa-spinner fa-spin';
+    if (pslGrid) pslGrid.beginCustomLoading('Loading shipment lines...');
 
-    // Call API via C# backend
-    if (window.chrome && window.chrome.webview) {
-        console.log('[PSL] Using WebView2 to call API...');
-        sendMessageToCSharp({
-            action: 'executeGet',
-            fullUrl: apiUrl
-        }, function(error, data) {
-            if (pslGrid) {
-                pslGrid.endCustomLoading();
+    const done = function() {
+        pslFetchInProgress = false;
+        if (fetchIcon) fetchIcon.className = fetchIconDefault;
+        if (pslGrid) pslGrid.endCustomLoading();
+    };
+
+    const onSuccess = function(data) {
+        done();
+        try {
+            const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
+            if (jsonData && (jsonData.ReturnStatus === 'Error' || jsonData['o:errorDetails'])) {
+                const errMsg = jsonData.ErrorExplanation || JSON.stringify(jsonData['o:errorDetails'] || jsonData);
+                showPslError('Fusion API error: ' + errMsg);
+                return;
             }
+            handlePslData(jsonData, append);
+        } catch (parseError) {
+            console.error('[PSL] Error parsing response:', parseError);
+            showPslError('Error parsing data: ' + parseError.message);
+        }
+    };
 
+    // Call Fusion via C# backend (credentials handled in C#)
+    if (window.chrome && window.chrome.webview) {
+        sendMessageToCSharp({
+            action: 'executeOracleFusionGet',
+            fullUrl: apiUrl,
+            instance: instance
+        }, function(error, data) {
             if (error) {
-                console.error('[PSL] API Error:', error);
-                showPslError('Failed to load initial data: ' + error);
+                done();
+                console.error('[PSL] Error fetching shipment lines:', error);
+                showPslError('Failed to fetch data: ' + error);
             } else {
-                console.log('[PSL] Raw Response:', data);
-                try {
-                    const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
-                    console.log('[PSL] Parsed JSON:', JSON.stringify(jsonData, null, 2));
-                    handlePslData(jsonData, 'initial');
-                } catch (parseError) {
-                    console.error('[PSL] Parse Error:', parseError);
-                    showPslError('Error parsing data: ' + parseError.message);
-                }
+                onSuccess(data);
             }
         });
     } else {
-        // Fallback for browser testing
-        console.log('[PSL] WebView not available, using fetch...');
+        // Fallback for browser testing (requires an authenticated session / CORS)
         fetch(apiUrl)
             .then(response => response.json())
-            .then(data => {
-                if (pslGrid) pslGrid.endCustomLoading();
-                console.log('[PSL] Fetch Response:', data);
-                handlePslData(data, 'initial');
-            })
+            .then(data => onSuccess(data))
             .catch(error => {
-                if (pslGrid) pslGrid.endCustomLoading();
+                done();
                 console.error('[PSL] Fetch error:', error);
-                showPslError('Failed to load data: ' + error.message);
+                showPslError('Failed to fetch data: ' + error.message);
             });
     }
 }
 
 // ============================================================================
-// FETCH PENDING SHIPMENT LINES (With Filters)
-// ============================================================================
-
-window.fetchPendingShipmentLines = function() {
-    console.log('[PSL] Fetching pending shipment lines...');
-
-    // Get filter values
-    const organization = document.getElementById('psl-organization').value || 'GRAYS INC';
-    const fromDate = document.getElementById('psl-from-date').value;
-    const toDate = document.getElementById('psl-to-date').value;
-
-    // Get instance from the page's instance dropdown
-    const instanceDropdown = document.getElementById('psl-instance-name');
-    const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
-
-    if (!fromDate || !toDate) {
-        alert('Please select both From Date and To Date');
-        return;
-    }
-
-    // Build request body for POST
-    const requestBody = {
-        p_instance_name: instance,
-        P2_ORG_D: organization,
-        P2_DATE_FROM_D: fromDate,
-        P2_DATE_TO_D: toDate
-    };
-
-    console.log('[PSL] API URL:', PSL_SHIPMENT_LINES_API);
-    console.log('[PSL] Request Body:', requestBody);
-
-    // Show loading state
-    const fetchIcon = document.getElementById('psl-fetch-icon');
-    if (fetchIcon) {
-        fetchIcon.className = 'fas fa-spinner fa-spin';
-    }
-
-    if (pslGrid) {
-        pslGrid.beginCustomLoading('Loading shipment lines...');
-    }
-
-    // Call API via C# backend using POST
-    if (window.chrome && window.chrome.webview) {
-        sendMessageToCSharp({
-            action: 'executePost',
-            fullUrl: PSL_SHIPMENT_LINES_API,
-            body: JSON.stringify(requestBody)
-        }, function(error, data) {
-            // Reset loading state
-            if (fetchIcon) {
-                fetchIcon.className = 'fas fa-search';
-            }
-            if (pslGrid) {
-                pslGrid.endCustomLoading();
-            }
-
-            if (error) {
-                console.error('[PSL] Error fetching shipment lines:', error);
-                showPslError('Failed to fetch data: ' + error);
-            } else {
-                try {
-                    const jsonData = typeof data === 'string' ? JSON.parse(data) : data;
-                    handlePslData(jsonData, 'shipment');
-                } catch (parseError) {
-                    console.error('[PSL] Error parsing response:', parseError);
-                    showPslError('Error parsing data: ' + parseError.message);
-                }
-            }
-        });
-    } else {
-        // Fallback for browser testing using POST
-        fetch(PSL_SHIPMENT_LINES_API, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(requestBody)
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (fetchIcon) fetchIcon.className = 'fas fa-search';
-                if (pslGrid) pslGrid.endCustomLoading();
-                handlePslData(data, 'shipment');
-            })
-            .catch(error => {
-                if (fetchIcon) fetchIcon.className = 'fas fa-search';
-                if (pslGrid) pslGrid.endCustomLoading();
-                console.error('[PSL] Fetch error:', error);
-                showPslError('Failed to fetch data: ' + error.message);
-            });
-    }
-};
-
-// ============================================================================
 // HANDLE DATA RESPONSE
 // ============================================================================
 
-function handlePslData(data, source) {
-    console.log('[PSL] Handling data from:', source, data);
+function handlePslData(data, append) {
+    console.log('[PSL] Handling data. Append:', !!append, data);
 
-    // Extract items array
+    // Extract items array (Fusion returns { items: [...], count, hasMore, ... })
     let items = [];
     if (Array.isArray(data)) {
         items = data;
     } else if (data && data.items) {
         items = data.items;
-    } else if (data && Array.isArray(data.data)) {
-        items = data.data;
     }
 
-    pslData = items;
+    pslData = append ? pslData.concat(items) : items;
+    pslHasMore = !!(data && data.hasMore);
+    pslOffset = (append ? pslOffset : 0) + items.length;
 
     // Update grid
     if (pslGrid) {
+        if (!append) {
+            pslGrid.clearSelection();
+            document.getElementById('psl-selected-count').textContent = '0';
+        }
         pslGrid.option('dataSource', pslData);
         pslGrid.refresh();
     }
@@ -363,18 +364,33 @@ function handlePslData(data, source) {
     // Update KPIs
     document.getElementById('psl-total-records').textContent = pslData.length;
 
-    // Calculate total quantity if available
     const totalQty = pslData.reduce((sum, item) => {
-        return sum + (parseFloat(item.ordered_quantity) || 0);
+        return sum + (parseFloat(item.RequestedQuantity) || 0);
     }, 0);
     document.getElementById('psl-total-qty').textContent = Math.round(totalQty);
+
+    // Update "Fetch Next 50" button state
+    const nextBtn = document.getElementById('psl-fetch-next-btn');
+    if (nextBtn) {
+        nextBtn.disabled = !pslHasMore;
+        nextBtn.style.opacity = pslHasMore ? '1' : '0.5';
+    }
+
+    // Update loaded info badge
+    const loadedInfo = document.getElementById('psl-loaded-info');
+    if (loadedInfo) {
+        loadedInfo.style.display = 'inline-block';
+        loadedInfo.textContent = pslHasMore
+            ? `${pslData.length} loaded · more available`
+            : `${pslData.length} loaded · all fetched`;
+    }
 
     // Update last fetch time
     const now = new Date();
     document.getElementById('psl-last-fetch').textContent =
         `Last fetched: ${now.toLocaleTimeString()}`;
 
-    console.log('[PSL] Loaded', pslData.length, 'records');
+    console.log('[PSL] Loaded', pslData.length, 'records. hasMore:', pslHasMore);
 }
 
 // ============================================================================
@@ -393,7 +409,9 @@ window.getPslOrderVolume = async function() {
         return;
     }
 
-    const total = selectedRows.length;
+    // Deduplicate order numbers (multiple shipment lines can belong to one order)
+    const orderNumbers = [...new Set(selectedRows.map(r => r.Order).filter(Boolean))];
+    const total = orderNumbers.length;
     const instanceDropdown = document.getElementById('psl-instance-name');
     const instance = instanceDropdown ? instanceDropdown.value : 'PROD';
 
@@ -424,25 +442,23 @@ window.getPslOrderVolume = async function() {
     let failCount = 0;
     let cancelled = false;
 
-    for (const row of selectedRows) {
+    for (const orderNumber of orderNumbers) {
         // Check cancel flag before each request
         if (pslVolumeCancelRequested) {
             cancelled = true;
             break;
         }
 
-        const orderNumber = row.source_order_number;
-        if (!orderNumber) { failCount++; continue; }
-
         const apiUrl = `${PSL_ORDER_VOLUME_API}?p_instance_name=${encodeURIComponent(instance)}&source_order_number=${encodeURIComponent(orderNumber)}&p_trip_id=`;
 
         try {
             const volumeData = await callOrderVolumeApi(apiUrl);
             if (volumeData) {
-                const dataRow = pslData.find(r => r.source_order_number === orderNumber);
-                if (dataRow) {
-                    dataRow.order_volume = volumeData.order_volume ?? null;
-                }
+                pslData.forEach(function(dataRow) {
+                    if (dataRow.Order === orderNumber) {
+                        dataRow.OrderVolume = volumeData.order_volume ?? null;
+                    }
+                });
                 successCount++;
             }
         } catch (err) {
@@ -629,7 +645,7 @@ function showPslError(message) {
 
 window.refreshPslGrid = function() {
     console.log('[PSL] Refreshing grid...');
-    loadInitialPslData();
+    fetchPendingShipmentLines();
 };
 
 window.exportPslToExcel = function() {
@@ -664,9 +680,11 @@ window.exportPslToExcel = function() {
 window.showPslApiInfo = function() {
     const instanceDropdown = document.getElementById('psl-instance-name');
     const currentInstance = instanceDropdown ? instanceDropdown.value : 'PROD';
-    const organization = document.getElementById('psl-organization')?.value || 'GRAYS INC';
-    const fromDate = document.getElementById('psl-from-date')?.value || '';
-    const toDate = document.getElementById('psl-to-date')?.value || '';
+    const f = getPslFilterValues();
+    const currentUrl = buildPslFusionUrl(0);
+
+    const optionalBadge = '<span style="background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Optional</span>';
+    const mandatoryBadge = '<span style="background: #fee2e2; color: #991b1b; padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700;">Mandatory</span>';
 
     const apiInfo = `
         <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
@@ -674,84 +692,77 @@ window.showPslApiInfo = function() {
                 <i class="fas fa-code" style="color: #667eea;"></i> API Information - Pending Shipment Lines
             </h4>
 
-            <!-- Initial Load API -->
-            <div style="background: #f0fdf4; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #22c55e;">
-                <div style="font-weight: 600; color: #166534; margin-bottom: 0.5rem;">1. Initial Load (On Page Open)</div>
-                <div style="margin-bottom: 0.5rem;">
-                    <strong style="color: #4a5568;">Endpoint:</strong>
-                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">
-                        trips/getpendingorders
-                    </code>
-                </div>
+            <!-- Fusion shipmentLines API -->
+            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
+                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">Oracle Fusion — shipmentLines</div>
                 <div style="margin-bottom: 0.5rem;">
                     <strong style="color: #4a5568;">Method:</strong>
                     <span style="background: #c6f6d5; color: #22543d; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">GET</span>
+                    <span style="margin-left: 0.5rem;"><strong style="color: #4a5568;">Auth:</strong> Fusion credentials via C# backend (<code style="font-size: 10px;">executeOracleFusionGet</code>)</span>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Resource:</strong>
+                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">${PSL_FUSION_RESOURCE}</code>
+                </div>
+                <div style="margin-bottom: 0.5rem;">
+                    <strong style="color: #4a5568;">Current URL (offset 0):</strong>
+                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
+                        ${currentUrl}
+                    </code>
                 </div>
                 <div>
-                    <strong style="color: #4a5568;">URL:</strong>
-                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
-                        ${PSL_PENDING_ORDERS_API}?instance=${currentInstance}
-                    </code>
+                    <strong style="color: #4a5568;">Paging:</strong>
+                    <span style="font-size: 11px; color: #4a5568;">limit=${PSL_PAGE_SIZE} per call; "Fetch Next 50" increments <code>offset</code> while the response has <code>hasMore=true</code>.</span>
                 </div>
             </div>
 
-            <!-- Fetch Data API -->
-            <div style="background: #eff6ff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; border-left: 4px solid #3b82f6;">
-                <div style="font-weight: 600; color: #1e40af; margin-bottom: 0.5rem;">2. Fetch Data (With Filters)</div>
-                <div style="margin-bottom: 0.5rem;">
-                    <strong style="color: #4a5568;">Endpoint:</strong>
-                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 11px;">
-                        getpendingshipmentlines
-                    </code>
-                </div>
-                <div style="margin-bottom: 0.5rem;">
-                    <strong style="color: #4a5568;">Method:</strong>
-                    <span style="background: #fed7aa; color: #9c4221; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;">POST</span>
-                </div>
-                <div style="margin-bottom: 0.5rem;">
-                    <strong style="color: #4a5568;">URL:</strong>
-                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
-                        ${PSL_SHIPMENT_LINES_API}
-                    </code>
-                </div>
-                <div style="margin-bottom: 0.5rem;">
-                    <strong style="color: #4a5568;">Request Body (JSON):</strong>
-                    <code style="background: #edf2f7; padding: 4px 8px; border-radius: 4px; font-size: 10px; word-break: break-all; display: block; margin-top: 4px;">
-                        { "p_instance_name": "${currentInstance}", "P2_ORG_D": "${organization}", "P2_DATE_FROM_D": "${fromDate}", "P2_DATE_TO_D": "${toDate}" }
-                    </code>
-                </div>
-            </div>
-
-            <!-- Parameters Table -->
+            <!-- Query Parameters Table -->
             <div style="background: #e6fffa; padding: 1rem; border-radius: 8px; border-left: 4px solid #38b2ac;">
-                <div style="font-weight: 600; color: #234e52; margin-bottom: 0.5rem;">Parameters:</div>
+                <div style="font-weight: 600; color: #234e52; margin-bottom: 0.5rem;">q Filter Parameters:</div>
                 <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
                     <tr style="background: #b2f5ea;">
-                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Parameter</th>
+                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Attribute</th>
                         <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Value</th>
-                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Source</th>
+                        <th style="padding: 6px 8px; text-align: left; border: 1px solid #81e6d9;">Required</th>
                     </tr>
                     <tr>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">p_instance_name</td>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${currentInstance}</td>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">From Dropdown</span></td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">CreationDate</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${f.creationDate ? f.dateOperator + ' ' + f.creationDate : '(not set)'}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;">${optionalBadge}</td>
                     </tr>
                     <tr>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">P2_ORG_D</td>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${organization}</td>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">Organization Field</span></td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">OrganizationCode</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${f.organization || '(not set)'}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;">${mandatoryBadge}</td>
                     </tr>
                     <tr>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">P2_DATE_FROM_D</td>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${fromDate}</td>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">From Date Field</span></td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">OrderType</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${f.orderType || '(not set)'}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;">${mandatoryBadge}</td>
                     </tr>
                     <tr>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">P2_DATE_TO_D</td>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${toDate}</td>
-                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;"><span style="background: #c6f6d5; color: #22543d; padding: 2px 6px; border-radius: 4px; font-size: 10px;">To Date Field</span></td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">Order</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${f.order || '(not set)'}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;">${optionalBadge}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">Item</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${f.item || '(not set)'}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;">${optionalBadge}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-family: monospace;">LineStatus</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9; font-weight: 600;">${f.lineStatus || '(All)'}</td>
+                        <td style="padding: 6px 8px; border: 1px solid #81e6d9;">${optionalBadge}</td>
                     </tr>
                 </table>
+                <div style="font-size: 11px; color: #4a5568; margin-top: 0.6rem;">
+                    <strong>Returned fields:</strong>
+                    <code style="background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 10px; word-break: break-all;">${PSL_FUSION_FIELDS}</code>
+                </div>
+                <div style="font-size: 11px; color: #4a5568; margin-top: 0.4rem;">
+                    <strong>Instance:</strong> ${currentInstance} → <code style="font-size: 10px;">${getPslFusionBaseUrl()}</code>
+                </div>
             </div>
         </div>
     `;

@@ -3397,7 +3397,7 @@
                     <!-- Filters Section -->
                     <div style="background: white; border-radius: 12px; padding: 1rem 1.5rem; margin-bottom: 1rem; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
                         <div style="display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-end;">
-                            <div style="flex: 0 0 120px;">
+                            <div style="flex: 0 0 110px;">
                                 <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Instance Name</label>
                                 <select id="psl-instance-name" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: white;">
                                     <option value="PROD">PROD</option>
@@ -3405,26 +3405,70 @@
                                     <option value="DEV">DEV</option>
                                 </select>
                             </div>
-                            <div style="flex: 1; min-width: 180px;">
-                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Organization</label>
-                                <input type="text" id="psl-organization" list="psl-org-list" placeholder="Type or select..." style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            <div style="flex: 0 0 200px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Creation Date</label>
+                                <div style="display: flex; gap: 4px;">
+                                    <select id="psl-date-operator" style="width: 60px; padding: 0.5rem 0.25rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: white;">
+                                        <option value=">" selected>&gt;</option>
+                                        <option value=">=">&gt;=</option>
+                                        <option value="=">=</option>
+                                        <option value="<=">&lt;=</option>
+                                        <option value="<">&lt;</option>
+                                    </select>
+                                    <input type="date" id="psl-creation-date" style="flex: 1; min-width: 0; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                                </div>
+                            </div>
+                            <div style="flex: 1; min-width: 170px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;"><span style="color: #dc2626;">*</span> Organization</label>
+                                <input type="text" id="psl-organization" list="psl-org-list" placeholder="Type or select org code..." style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
                                 <datalist id="psl-org-list">
-                                    <option value="GRAYS INC">
-                                    <option value="GRAYS LTD">
-                                    <option value="GRAYS MAURITIUS">
+                                    <option value="GIC" label="GIC — GRAYS INC">
+                                    <option value="GPC" label="GPC — GRAYS PRODUCTION">
+                                    <option value="GBC" label="GBC — GRAYS BOND">
+                                    <option value="GWS" label="GWS — GRAYS WEB STORE">
+                                    <option value="GIM" label="GIM — Grays Master Organization">
+                                    <option value="GPH" label="GPH — PHARMACY">
+                                    <option value="SHOPS" label="SHOPS — SHOPS">
+                                    <option value="SALESREPS" label="SALESREPS — SALESREPS">
                                 </datalist>
                             </div>
                             <div style="flex: 1; min-width: 150px;">
-                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">From Date</label>
-                                <input type="date" id="psl-from-date" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;"><span style="color: #dc2626;">*</span> Order Type</label>
+                                <input type="text" id="psl-order-type" list="psl-order-type-list" placeholder="Type or select..." style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                                <datalist id="psl-order-type-list">
+                                    <option value="Sales order">
+                                    <option value="Transfer order">
+                                    <option value="Return order">
+                                </datalist>
                             </div>
-                            <div style="flex: 1; min-width: 150px;">
-                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">To Date</label>
-                                <input type="date" id="psl-to-date" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            <div style="flex: 1; min-width: 130px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Order</label>
+                                <input type="text" id="psl-order" placeholder="Order #" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
                             </div>
-                            <div style="flex-shrink: 0;">
+                            <div style="flex: 1; min-width: 130px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Item</label>
+                                <input type="text" id="psl-item" placeholder="Item code" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px;">
+                            </div>
+                            <div style="flex: 1; min-width: 160px;">
+                                <label style="font-size: 11px; color: #64748b; display: block; margin-bottom: 4px; font-weight: 600;">Line Status</label>
+                                <select id="psl-line-status" style="width: 100%; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 12px; background: white;">
+                                    <option value="">All</option>
+                                    <option value="Ready to release" selected>Ready to release</option>
+                                    <option value="Released to warehouse">Released to warehouse</option>
+                                    <option value="Released">Released</option>
+                                    <option value="Staged">Staged</option>
+                                    <option value="Shipped">Shipped</option>
+                                    <option value="Backordered">Backordered</option>
+                                    <option value="Interfaced">Interfaced</option>
+                                    <option value="Awaiting shipping">Awaiting shipping</option>
+                                </select>
+                            </div>
+                            <div style="flex-shrink: 0; display: flex; gap: 0.5rem;">
                                 <button onclick="fetchPendingShipmentLines()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 0.5rem 1.25rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem;">
                                     <i class="fas fa-search" id="psl-fetch-icon"></i> Fetch Data
+                                </button>
+                                <button id="psl-fetch-next-btn" onclick="fetchNextPslPage()" disabled style="background: white; color: #667eea; border: 1px solid #667eea; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 0.4rem; opacity: 0.5;">
+                                    <i class="fas fa-angle-double-down" id="psl-fetch-next-icon"></i> Fetch Next 50
                                 </button>
                             </div>
                         </div>
@@ -3453,7 +3497,8 @@
                         <button id="psl-volume-cancel-btn" onclick="cancelPslOrderVolume()" style="display: none; background: #dc2626; color: white; border: none; padding: 0.35rem 0.75rem; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 600; align-items: center; gap: 0.4rem;">
                             <i class="fas fa-stop-circle"></i> Cancel
                         </button>
-                        <div style="margin-left: auto; font-size: 11px; color: #64748b;">
+                        <div style="margin-left: auto; display: flex; align-items: center; gap: 0.75rem; font-size: 11px; color: #64748b;">
+                            <span id="psl-loaded-info" style="display: none; background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; padding: 0.3rem 0.7rem; font-weight: 600; color: #475569;"></span>
                             <span id="psl-last-fetch">Last fetched: Never</span>
                         </div>
                     </div>
