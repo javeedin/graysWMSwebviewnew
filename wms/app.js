@@ -4173,16 +4173,22 @@ document.addEventListener('DOMContentLoaded', function() {
                 const orderNum = (r.ORDER_NUMBER || r.order_number || '').toString();
                 if (!orderNum) return;
                 const vol = getVolume(r);
+                const customer = r.ACCOUNT_NAME || r.account_name || r.CUSTOMER_NAME || r.customer_name || r.CUSTOMER || r.customer || '';
                 if (!orders[orderNum]) {
                     orders[orderNum] = {
                         orderNumber: orderNum,
-                        customer: r.CUSTOMER_NAME || r.customer_name || '',
+                        customer: customer,
                         orderType: r.ORDER_TYPE || r.order_type || '',
                         volume: vol,
                         lines: 0
                     };
-                } else if (orders[orderNum].volume === 0 && vol > 0) {
-                    orders[orderNum].volume = vol;
+                } else {
+                    if (orders[orderNum].volume === 0 && vol > 0) {
+                        orders[orderNum].volume = vol;
+                    }
+                    if (!orders[orderNum].customer && customer) {
+                        orders[orderNum].customer = customer;
+                    }
                 }
                 orders[orderNum].lines++;
             });
