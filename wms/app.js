@@ -2289,6 +2289,28 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
+    // Add click handler for Volume Summary (by Lorry) tab
+    const volumeSummaryTab = document.querySelector('.tab-item[data-tab="volume-summary"]');
+    if (volumeSummaryTab) {
+        volumeSummaryTab.addEventListener('click', function() {
+            activateTripTab('volume-summary');
+            initializeVolumeSummaryGrid();
+
+            // Ensure vehicles data is loaded for capacity lookup
+            if (!window.vehiclesData || window.vehiclesData.length === 0) {
+                console.log('[Volume Summary] Vehicles data not loaded, loading now...');
+                if (typeof window.loadVehicles === 'function') {
+                    window.loadVehicles();
+                    setTimeout(populateVolumeSummary, 1000);
+                } else {
+                    populateVolumeSummary();
+                }
+            } else {
+                populateVolumeSummary();
+            }
+        });
+    }
+
     // Add click handlers for Help Documentation tabs
     document.querySelectorAll('.help-tab').forEach(tab => {
         tab.addEventListener('click', function() {
@@ -3709,6 +3731,9 @@ document.addEventListener('DOMContentLoaded', function() {
         // Sort by fill percentage descending (show problematic trips first)
         volumeData.sort((a, b) => b.fillPercent - a.fillPercent);
 
+        // Expose trip-level volume data for the Volume Summary (by Lorry) tab
+        window.volumeDetailsData = volumeData;
+
         console.log('[Volume Details] Processed', volumeData.length, 'trips');
 
         // Update grid
@@ -3754,6 +3779,329 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } else {
             populateVolumeDetails();
+        }
+    };
+
+    // ============================================================================
+    // VOLUME SUMMARY (BY LORRY) TAB FUNCTIONS
+    // ============================================================================
+
+    let volumeSummaryGrid = null;
+
+    window.initializeVolumeSummaryGrid = function() {
+        if (volumeSummaryGrid) {
+            console.log('[Volume Summary] Grid already initialized');
+            return;
+        }
+
+        const gridContainer = document.getElementById('volume-summary-grid');
+        if (!gridContainer) {
+            console.error('[Volume Summary] Grid container not found');
+            return;
+        }
+
+        volumeSummaryGrid = $(gridContainer).dxDataGrid({
+            dataSource: [],
+            showBorders: true,
+            showRowLines: true,
+            showColumnLines: true,
+            rowAlternationEnabled: true,
+            columnAutoWidth: true,
+            allowColumnReordering: true,
+            allowColumnResizing: true,
+            wordWrapEnabled: true,
+            hoverStateEnabled: true,
+            height: 700,
+            filterRow: { visible: true, applyFilter: 'auto' },
+            headerFilter: { visible: true },
+            searchPanel: { visible: true, width: 240, placeholder: 'Search lorries...' },
+            export: { enabled: true, allowExportSelectedData: true },
+            onExporting: function(e) {
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('Volume Summary');
+
+                const thinBorder = {
+                    top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+                    right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+                };
+
+                DevExpress.excelExporter.exportDataGrid({
+                    component: e.component,
+                    worksheet: worksheet,
+                    topLeftCell: { row: 4, column: 1 },
+                    autoFilterEnabled: true,
+                    customizeCell: function(options) {
+                        const { gridCell, excelCell } = options;
+                        excelCell.border = thinBorder;
+
+                        if (gridCell.rowType === 'header') {
+                            excelCell.font = { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 };
+                            excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0EA5E9' } };
+                            excelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                            return;
+                        }
+                        if (gridCell.rowType !== 'data' || !gridCell.column) return;
+
+                        const field = gridCell.column.dataField;
+                        const rowFill = gridCell.data && gridCell.data.overfilledTrips > 0 ? 'FFFEF2F2'
+                            : gridCell.data && gridCell.data.avgFillPercent >= 90 ? 'FFFFFBEB'
+                            : null;
+                        if (rowFill) {
+                            excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: rowFill } };
+                        }
+
+                        if (field === 'capacityPerTrip' || field === 'totalCapacity' || field === 'totalFilled' || field === 'availableVolume') {
+                            excelCell.numFmt = '#,##0.00';
+                        } else if (field === 'tripCount' || field === 'totalOrders' || field === 'overfilledTrips') {
+                            excelCell.numFmt = '#,##0';
+                        } else if (field === 'avgFillPercent') {
+                            excelCell.numFmt = '0.0"%"';
+                            const value = gridCell.value || 0;
+                            if (value > 100) {
+                                excelCell.font = { color: { argb: 'FFEF4444' }, bold: true };
+                            } else if (value >= 90) {
+                                excelCell.font = { color: { argb: 'FFF59E0B' }, bold: true };
+                            } else {
+                                excelCell.font = { color: { argb: 'FF22C55E' }, bold: true };
+                            }
+                        } else if (field === 'status') {
+                            const status = (gridCell.value || '').toString();
+                            excelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                            if (status === 'Overfilled') {
+                                excelCell.font = { color: { argb: 'FFFFFFFF' }, bold: true };
+                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEF4444' } };
+                            } else if (status === 'Near Full') {
+                                excelCell.font = { color: { argb: 'FF92400E' }, bold: true };
+                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFDE68A' } };
+                            } else {
+                                excelCell.font = { color: { argb: 'FF166534' }, bold: true };
+                                excelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } };
+                            }
+                        }
+                    }
+                }).then(function(cellRange) {
+                    const lastCol = cellRange.to.column;
+                    const lastRow = cellRange.to.row;
+
+                    worksheet.mergeCells(1, 1, 1, lastCol);
+                    const titleCell = worksheet.getCell(1, 1);
+                    titleCell.value = "Gray's WMS — Volume Summary by Lorry";
+                    titleCell.font = { bold: true, size: 14, color: { argb: 'FF0C4A6E' } };
+                    titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+                    worksheet.getRow(1).height = 24;
+
+                    worksheet.mergeCells(2, 1, 2, lastCol);
+                    const subtitleCell = worksheet.getCell(2, 1);
+                    subtitleCell.value = 'Generated: ' + new Date().toLocaleString() + '    |    Lorries: ' + (lastRow - cellRange.from.row);
+                    subtitleCell.font = { size: 10, color: { argb: 'FF64748B' } };
+                    subtitleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+                    const data = e.component.option('dataSource') || [];
+                    const sumBy = function(field) { return data.reduce(function(s, r) { return s + (parseFloat(r[field]) || 0); }, 0); };
+                    const totalsRow = worksheet.getRow(lastRow + 1);
+                    totalsRow.getCell(1).value = 'TOTALS';
+                    totalsRow.getCell(3).value = sumBy('tripCount');
+                    totalsRow.getCell(3).numFmt = '#,##0';
+                    totalsRow.getCell(4).value = sumBy('totalOrders');
+                    totalsRow.getCell(4).numFmt = '#,##0';
+                    totalsRow.getCell(6).value = sumBy('totalCapacity');
+                    totalsRow.getCell(6).numFmt = '#,##0.00';
+                    totalsRow.getCell(7).value = sumBy('totalFilled');
+                    totalsRow.getCell(7).numFmt = '#,##0.00';
+                    totalsRow.getCell(8).value = sumBy('availableVolume');
+                    totalsRow.getCell(8).numFmt = '#,##0.00';
+                    totalsRow.getCell(10).value = sumBy('overfilledTrips');
+                    totalsRow.getCell(10).numFmt = '#,##0';
+                    for (let c = 1; c <= lastCol; c++) {
+                        const cell = totalsRow.getCell(c);
+                        cell.font = { bold: true, color: { argb: 'FF0C4A6E' } };
+                        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } };
+                        cell.border = {
+                            top: { style: 'double', color: { argb: 'FF0EA5E9' } },
+                            bottom: { style: 'thin', color: { argb: 'FF0EA5E9' } }
+                        };
+                    }
+
+                    const widths = [16, 24, 8, 10, 14, 14, 13, 14, 11, 14, 12];
+                    widths.forEach(function(w, i) {
+                        if (i < lastCol) worksheet.getColumn(i + 1).width = w;
+                    });
+
+                    worksheet.views = [{ state: 'frozen', ySplit: 4 }];
+
+                    return workbook.xlsx.writeBuffer();
+                }).then(function(buffer) {
+                    const dateStr = new Date().toISOString().slice(0, 10);
+                    saveAs(new Blob([buffer], { type: 'application/octet-stream' }), 'VolumeSummary_' + dateStr + '.xlsx');
+                });
+                e.cancel = true;
+            },
+            paging: { pageSize: 20 },
+            pager: {
+                visible: true,
+                showPageSizeSelector: true,
+                allowedPageSizes: [10, 20, 50, 100],
+                showInfo: true
+            },
+            columns: [
+                { dataField: 'lorryNumber', caption: 'Lorry', width: 130, fixed: true },
+                { dataField: 'model', caption: 'Vehicle Model', width: 160 },
+                { dataField: 'tripCount', caption: 'Trips', dataType: 'number', width: 70 },
+                { dataField: 'totalOrders', caption: 'Orders', dataType: 'number', width: 80 },
+                { dataField: 'capacityPerTrip', caption: 'Capacity/Trip (m³)', dataType: 'number', format: { type: 'fixedPoint', precision: 2 }, width: 125 },
+                { dataField: 'totalCapacity', caption: 'Total Capacity (m³)', dataType: 'number', format: { type: 'fixedPoint', precision: 2 }, width: 130 },
+                { dataField: 'totalFilled', caption: 'Filled (m³)', dataType: 'number', format: { type: 'fixedPoint', precision: 2 }, width: 100 },
+                { dataField: 'availableVolume', caption: 'Available (m³)', dataType: 'number', format: { type: 'fixedPoint', precision: 2 }, width: 110 },
+                {
+                    dataField: 'avgFillPercent',
+                    caption: 'Fill %',
+                    dataType: 'number',
+                    width: 80,
+                    cellTemplate: function(container, options) {
+                        const percent = options.value || 0;
+                        container.append(
+                            $('<span>')
+                                .text(percent.toFixed(1) + '%')
+                                .css('color', percent > 100 ? '#ef4444' : percent >= 90 ? '#f59e0b' : '#22c55e')
+                                .css('font-weight', '600')
+                        );
+                    }
+                },
+                {
+                    dataField: 'overfilledTrips',
+                    caption: 'Overfilled Trips',
+                    dataType: 'number',
+                    width: 115,
+                    cellTemplate: function(container, options) {
+                        const count = options.value || 0;
+                        container.append(
+                            $('<span>')
+                                .text(count)
+                                .css('color', count > 0 ? '#ef4444' : '#22c55e')
+                                .css('font-weight', '600')
+                        );
+                    }
+                },
+                {
+                    dataField: 'status',
+                    caption: 'Status',
+                    width: 110,
+                    cellTemplate: function(container, options) {
+                        const status = options.value || 'OK';
+                        let bg = '#f0fdf4', color = '#22c55e', icon = 'fa-check-circle';
+                        if (status === 'Overfilled') { bg = '#fef2f2'; color = '#ef4444'; icon = 'fa-exclamation-triangle'; }
+                        else if (status === 'Near Full') { bg = '#fffbeb'; color = '#f59e0b'; icon = 'fa-exclamation-circle'; }
+                        container.append($(`<span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: ${bg}; color: ${color}; border-radius: 12px; font-size: 0.75rem; font-weight: 600;">
+                            <i class="fas ${icon}"></i> ${status.toUpperCase()}
+                        </span>`));
+                    }
+                }
+            ],
+            onContentReady: function(e) {
+                console.log('[Volume Summary] Grid content ready, row count:', e.component.totalCount());
+            }
+        }).dxDataGrid('instance');
+
+        console.log('[Volume Summary] Grid initialized successfully');
+    };
+
+    // Populate Volume Summary by grouping trip-level volume data by lorry
+    window.populateVolumeSummary = function() {
+        console.log('[Volume Summary] Populating data...');
+
+        // Recompute trip-level data (also refreshes window.volumeDetailsData)
+        populateVolumeDetails();
+
+        const tripData = window.volumeDetailsData || [];
+        if (tripData.length === 0) {
+            console.log('[Volume Summary] No trip volume data available');
+            if (volumeSummaryGrid) volumeSummaryGrid.option('dataSource', []);
+            updateVolumeSummaryKPIs([]);
+            return;
+        }
+
+        // Group trips by lorry
+        const lorryGroups = {};
+        tripData.forEach(trip => {
+            const lorry = trip.lorryNumber || '(No Lorry)';
+            if (!lorryGroups[lorry]) {
+                lorryGroups[lorry] = {
+                    lorryNumber: lorry,
+                    model: trip.model || '',
+                    capacityPerTrip: trip.capacity || 0,
+                    tripCount: 0,
+                    totalOrders: 0,
+                    totalFilled: 0,
+                    totalCapacity: 0,
+                    overfilledTrips: 0
+                };
+            }
+            const g = lorryGroups[lorry];
+            if (!g.model && trip.model) g.model = trip.model;
+            if (!g.capacityPerTrip && trip.capacity) g.capacityPerTrip = trip.capacity;
+            g.tripCount++;
+            g.totalOrders += trip.totalOrders || 0;
+            g.totalFilled += trip.filledVolume || 0;
+            g.totalCapacity += trip.capacity || 0;
+            if (trip.fillPercent > 100) g.overfilledTrips++;
+        });
+
+        const summaryData = Object.values(lorryGroups).map(g => {
+            const avgFillPercent = g.totalCapacity > 0 ? (g.totalFilled / g.totalCapacity) * 100 : 0;
+            return {
+                ...g,
+                availableVolume: g.totalCapacity > 0 ? Math.max(g.totalCapacity - g.totalFilled, 0) : 0,
+                avgFillPercent: avgFillPercent,
+                status: g.overfilledTrips > 0 ? 'Overfilled' : avgFillPercent >= 90 ? 'Near Full' : 'OK'
+            };
+        });
+
+        // Show problem lorries first
+        summaryData.sort((a, b) => b.avgFillPercent - a.avgFillPercent);
+
+        console.log('[Volume Summary] Processed', summaryData.length, 'lorries');
+
+        if (volumeSummaryGrid) {
+            volumeSummaryGrid.option('dataSource', summaryData);
+        }
+
+        const countDisplay = document.getElementById('volume-summary-count');
+        if (countDisplay) {
+            countDisplay.textContent = `${summaryData.length} lorr${summaryData.length !== 1 ? 'ies' : 'y'}`;
+        }
+
+        updateVolumeSummaryKPIs(summaryData);
+    };
+
+    function updateVolumeSummaryKPIs(summaryData) {
+        const totalLorries = summaryData.length;
+        const totalTrips = summaryData.reduce((sum, v) => sum + v.tripCount, 0);
+        const totalVolume = summaryData.reduce((sum, v) => sum + v.totalFilled, 0);
+        const totalCapacity = summaryData.reduce((sum, v) => sum + v.totalCapacity, 0);
+        const overfilled = summaryData.reduce((sum, v) => sum + v.overfilledTrips, 0);
+
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        set('kpi-vsummary-lorries', totalLorries);
+        set('kpi-vsummary-trips', totalTrips);
+        set('kpi-vsummary-volume', totalVolume.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m³');
+        set('kpi-vsummary-capacity', totalCapacity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' m³');
+        set('kpi-vsummary-overfilled', overfilled);
+    }
+
+    // Refresh Volume Summary
+    window.refreshVolumeSummary = function() {
+        console.log('[Volume Summary] Refreshing...');
+        if (!window.vehiclesData || window.vehiclesData.length === 0) {
+            if (typeof window.loadVehicles === 'function') {
+                window.loadVehicles();
+                setTimeout(populateVolumeSummary, 1000);
+            } else {
+                populateVolumeSummary();
+            }
+        } else {
+            populateVolumeSummary();
         }
     };
 
