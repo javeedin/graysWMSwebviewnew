@@ -3217,10 +3217,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const uniquePickers = new Set(tripDetails.map(r => r.PICKER || r.picker).filter(Boolean)).size;
 
         // Calculate total order volume (treat null as 0)
-        // Use nullish coalescing to handle "0" string properly
-        const totalWeight = tripDetails.reduce((sum, r) => {
-            // Check for actual numeric values, not just truthy values
-            // order_volume1 is the new field name, also check order_volume for backwards compatibility
+        // order_volume1 is an order-level value repeated on every line row,
+        // so take it once per distinct order — not per row — to avoid inflating the total.
+        // order_volume1 is the new field name, also check order_volume for backwards compatibility
+        const kpiOrderVolumes = {};
+        tripDetails.forEach((r, idx) => {
+            const orderNum = r.ORDER_NUMBER || r.order_number || `__row_${idx}`;
             let volumeVal = r.order_volume1;
             if (volumeVal === undefined || volumeVal === null) {
                 volumeVal = r.ORDER_VOLUME1;
@@ -3232,8 +3234,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 volumeVal = r.ORDER_VOLUME;
             }
             const volume = parseFloat(volumeVal) || 0;
-            return sum + volume;
-        }, 0);
+            if (!(orderNum in kpiOrderVolumes) || kpiOrderVolumes[orderNum] === 0) {
+                kpiOrderVolumes[orderNum] = volume;
+            }
+        });
+        const totalWeight = Object.values(kpiOrderVolumes).reduce((sum, v) => sum + v, 0);
 
         document.getElementById('kpi-trip-orders').textContent = uniqueOrders;
         document.getElementById('kpi-trip-trips').textContent = uniqueTrips;
@@ -3517,8 +3522,12 @@ document.addEventListener('DOMContentLoaded', function() {
         // Process each trip group
         const volumeData = [];
         Object.values(tripGroups).forEach(trip => {
-            // Calculate total filled volume for the trip
-            const filledVolume = trip.records.reduce((sum, r) => {
+            // GETTRIPDETAILS/ALL returns one row per order LINE, and order_volume1 is an
+            // order-level value repeated on every line — so dedupe by order number before
+            // counting orders or summing volume, otherwise both are inflated.
+            const orderVolumes = {};
+            trip.records.forEach((r, idx) => {
+                const orderNum = r.ORDER_NUMBER || r.order_number || `__row_${idx}`;
                 let volumeVal = r.order_volume1;
                 if (volumeVal === undefined || volumeVal === null) {
                     volumeVal = r.ORDER_VOLUME1;
@@ -3529,8 +3538,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (volumeVal === undefined || volumeVal === null) {
                     volumeVal = r.ORDER_VOLUME;
                 }
-                return sum + (parseFloat(volumeVal) || 0);
-            }, 0);
+                const volume = parseFloat(volumeVal) || 0;
+                // Keep the first non-zero volume seen for the order (some lines may carry null/0)
+                if (!(orderNum in orderVolumes) || orderVolumes[orderNum] === 0) {
+                    orderVolumes[orderNum] = volume;
+                }
+            });
+            const uniqueOrderCount = Object.keys(orderVolumes).length;
+            const filledVolume = Object.values(orderVolumes).reduce((sum, v) => sum + v, 0);
 
             // Get lorry capacity from vehiclesData
             let capacity = 0;
@@ -3568,7 +3583,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 tripDate: trip.tripDate,
                 lorryNumber: matchedLorry || trip.lorryNumber,
                 model: vehicleModel,
-                totalOrders: trip.records.length,
+                totalOrders: uniqueOrderCount,
                 filledVolume: filledVolume,
                 capacity: capacity,
                 availableVolume: availableVolume,
