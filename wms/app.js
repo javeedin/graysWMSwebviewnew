@@ -5893,20 +5893,20 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div style="font-size: 0.9rem; font-weight: 700; color: var(--gray-900);">${tripId}</div>
                         </div>
                         <div class="form-group">
-                            <label for="edit-trip-lorry"><i class="fas fa-truck" style="font-size: 0.7rem; color: var(--primary);"></i> Lorry Number</label>
-                            <input type="text" id="edit-trip-lorry" class="form-control" value="${lorryNumber}" placeholder="Enter lorry number">
+                            <label for="edit-trip-header-lorry"><i class="fas fa-truck" style="font-size: 0.7rem; color: var(--primary);"></i> Lorry Number</label>
+                            <input type="text" id="edit-trip-header-lorry" class="form-control" value="${lorryNumber}" placeholder="Enter lorry number">
                         </div>
                         <div class="form-group">
-                            <label for="edit-trip-priority"><i class="fas fa-flag" style="font-size: 0.7rem; color: var(--primary);"></i> Priority Number</label>
-                            <input type="text" id="edit-trip-priority" class="form-control" value="${priority}" placeholder="Enter priority number">
+                            <label for="edit-trip-header-priority"><i class="fas fa-flag" style="font-size: 0.7rem; color: var(--primary);"></i> Priority Number</label>
+                            <input type="text" id="edit-trip-header-priority" class="form-control" value="${priority}" placeholder="Enter priority number">
                         </div>
                         <div class="form-group">
-                            <label for="edit-trip-loading-bay"><i class="fas fa-warehouse" style="font-size: 0.7rem; color: var(--primary);"></i> Loading Bay</label>
-                            <input type="text" id="edit-trip-loading-bay" class="form-control" value="${loadingBay}" placeholder="Enter loading bay">
+                            <label for="edit-trip-header-loading-bay"><i class="fas fa-warehouse" style="font-size: 0.7rem; color: var(--primary);"></i> Loading Bay</label>
+                            <input type="text" id="edit-trip-header-loading-bay" class="form-control" value="${loadingBay}" placeholder="Enter loading bay">
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
-                            <label for="edit-trip-date"><i class="fas fa-calendar-alt" style="font-size: 0.7rem; color: var(--primary);"></i> Trip Date</label>
-                            <input type="date" id="edit-trip-date" class="form-control" value="${dateValue}">
+                            <label for="edit-trip-header-date"><i class="fas fa-calendar-alt" style="font-size: 0.7rem; color: var(--primary);"></i> Trip Date</label>
+                            <input type="date" id="edit-trip-header-date" class="form-control" value="${dateValue}">
                         </div>
                     </div>
                     <div class="modal-footer" style="flex-wrap: wrap; gap: 0.5rem;">
@@ -5953,9 +5953,9 @@ document.addEventListener('DOMContentLoaded', function() {
     };
 
     window.saveTripHeader = function(tripId, tabId) {
-        const lorry = document.getElementById('edit-trip-lorry').value.trim();
-        const priority = document.getElementById('edit-trip-priority').value.trim();
-        const loadingBay = document.getElementById('edit-trip-loading-bay').value.trim();
+        const lorry = document.getElementById('edit-trip-header-lorry').value.trim();
+        const priority = document.getElementById('edit-trip-header-priority').value.trim();
+        const loadingBay = document.getElementById('edit-trip-header-loading-bay').value.trim();
 
         console.log('[JS] saveTripHeader - form values: lorry=', lorry, ', priority=', priority, ', loadingBay=', loadingBay);
 
@@ -6070,7 +6070,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Sync stored trip header data so next edit modal open has correct values
             if (window.tripHeaderData) {
                 window.tripHeaderData[tripId] = {
-                    tripDate: document.getElementById('edit-trip-date') ? document.getElementById('edit-trip-date').value : '',
+                    tripDate: document.getElementById('edit-trip-header-date') ? document.getElementById('edit-trip-header-date').value : '',
                     lorryNumber: lorry,
                     loadingBay: loadingBay,
                     priority: priority
