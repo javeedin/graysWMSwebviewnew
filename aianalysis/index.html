@@ -793,19 +793,37 @@ function exportCsv() {
 
 function exportPdf() {
     const d = currentData(); if (!d) return;
-    const w = window.open('', '_blank');
-    w.document.write(`<html><head><title>AI Analysis Result</title><style>
+    // window.open('') is intercepted by the WebView2 host and comes up blank,
+    // so print from a hidden same-page iframe instead.
+    const html = `<!DOCTYPE html><html><head><title>AI Analysis Result</title><style>
         body{font-family:Segoe UI,sans-serif;font-size:11px;margin:20px;}
-        h3{margin:0 0 4px;} .sql{font-family:Consolas,monospace;font-size:10px;color:#475569;background:#f8fafc;padding:6px;border-radius:4px;margin-bottom:10px;white-space:pre-wrap;}
+        h3{margin:0 0 4px;} .sql{font-family:Consolas,monospace;font-size:10px;color:#475569;background:#f8fafc;padding:6px;border-radius:4px;margin-bottom:10px;white-space:pre-wrap;word-break:break-all;}
         table{border-collapse:collapse;width:100%;} th,td{border:1px solid #cbd5e1;padding:3px 7px;text-align:left;font-size:10px;}
-        th{background:#f1f5f9;}</style></head><body>
+        th{background:#f1f5f9;} tr{page-break-inside:avoid;}</style></head><body>
         <h3>Gray's WMS — AI Analysis Result</h3>
         <div class="sql">${esc(d.sql)}</div>
         <table><thead><tr>${d.columns.map(c => '<th>' + esc(c) + '</th>').join('')}</tr></thead>
         <tbody>${d.rows.map(r => '<tr>' + r.map(v => '<td>' + (v === null ? '' : esc(v)) + '</td>').join('') + '</tr>').join('')}</tbody></table>
-        </body></html>`);
-    w.document.close();
-    setTimeout(() => w.print(), 300);
+        </body></html>`;
+
+    const old = document.getElementById('pdf-print-frame');
+    if (old) old.remove();
+    const frame = document.createElement('iframe');
+    frame.id = 'pdf-print-frame';
+    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
+    document.body.appendChild(frame);
+    frame.onload = function () {
+        setTimeout(function () {
+            try {
+                frame.contentWindow.focus();
+                frame.contentWindow.print();   // user picks "Save as PDF" or a printer
+            } catch (e) {
+                console.error('[AI] print failed:', e);
+                setStatus('Print failed: ' + e.message);
+            }
+        }, 150);
+    };
+    frame.srcdoc = html;
 }
 
 function copySql() {
