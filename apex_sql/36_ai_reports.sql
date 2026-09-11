@@ -459,89 +459,139 @@ END wms_ai_run_report;
 -- REST HANDLERS (create in APEX > RESTful Services,
 -- module WAREHOUSEMANAGEMENT, Source Type PL/SQL)
 -- ============================================================
---
--- POST  ai/reports/save     ->  BEGIN wms_ai_save_report(:body_text); END;
--- POST  ai/reports/run      ->  BEGIN wms_ai_run_report(:body_text); END;
--- POST  ai/reports/delete   ->  (block A below)
--- GET   ai/reports/list     ->  (block B below)
--- GET   ai/reports/get      ->  (block C below; add handler parameter:
---                                Name=id, Bind Variable=id, Source=URI, IN, STRING)
---
--- ── block A: POST ai/reports/delete  {"reportId": 1} ─────────
--- DECLARE
---     v_id NUMBER;
--- BEGIN
---     APEX_JSON.parse(:body_text);
---     v_id := APEX_JSON.get_number('reportId');
---     DELETE FROM wms_ai_report_params WHERE report_id = v_id;
---     DELETE FROM wms_ai_reports WHERE report_id = v_id;
---     COMMIT;
---     APEX_JSON.open_object;
---     APEX_JSON.write('success', TRUE);
---     APEX_JSON.close_object;
--- EXCEPTION WHEN OTHERS THEN
---     ROLLBACK;
---     APEX_JSON.open_object;
---     APEX_JSON.write('success', FALSE);
---     APEX_JSON.write('error', SQLERRM);
---     APEX_JSON.close_object;
--- END;
---
--- ── block B: GET ai/reports/list ─────────────────────────────
--- BEGIN
---     APEX_JSON.open_object;
---     APEX_JSON.open_array('reports');
---     FOR r IN (SELECT r.report_id, r.report_name, r.description, r.category,
---                      r.created_by, r.created_date, r.last_run_date, r.run_count,
---                      (SELECT COUNT(*) FROM wms_ai_report_params p
---                       WHERE p.report_id = r.report_id) AS param_count
---               FROM wms_ai_reports r
---               WHERE r.active_flag = 'Y'
---               ORDER BY r.category, r.report_name) LOOP
---         APEX_JSON.open_object;
---         APEX_JSON.write('reportId',    r.report_id);
---         APEX_JSON.write('name',        r.report_name);
---         APEX_JSON.write('description', r.description);
---         APEX_JSON.write('category',    r.category);
---         APEX_JSON.write('createdBy',   r.created_by);
---         APEX_JSON.write('createdDate', TO_CHAR(r.created_date, 'YYYY-MM-DD'));
---         APEX_JSON.write('lastRunDate', TO_CHAR(r.last_run_date, 'YYYY-MM-DD HH24:MI'));
---         APEX_JSON.write('runCount',    NVL(r.run_count, 0));
---         APEX_JSON.write('paramCount',  r.param_count);
---         APEX_JSON.close_object;
---     END LOOP;
---     APEX_JSON.close_array;
---     APEX_JSON.close_object;
--- END;
---
--- ── block C: GET ai/reports/get?id=1 ─────────────────────────
--- DECLARE
---     v_id NUMBER := TO_NUMBER(:id);
--- BEGIN
---     FOR r IN (SELECT * FROM wms_ai_reports WHERE report_id = v_id) LOOP
---         APEX_JSON.open_object;
---         APEX_JSON.write('reportId',    r.report_id);
---         APEX_JSON.write('name',        r.report_name);
---         APEX_JSON.write('description', r.description);
---         APEX_JSON.write('category',    r.category);
---         APEX_JSON.write('sql',         r.sql_text);
---         APEX_JSON.open_array('params');
---         FOR p IN (SELECT * FROM wms_ai_report_params
---                   WHERE report_id = v_id ORDER BY param_order) LOOP
---             APEX_JSON.open_object;
---             APEX_JSON.write('name',         p.param_name);
---             APEX_JSON.write('label',        NVL(p.label, p.param_name));
---             APEX_JSON.write('dataType',     p.data_type);
---             APEX_JSON.write('defaultValue', p.default_value);
---             APEX_JSON.write('required',     p.required_flag = 'Y');
---             APEX_JSON.close_object;
---         END LOOP;
---         APEX_JSON.close_array;
---         APEX_JSON.close_object;
---         RETURN;
---     END LOOP;
---     APEX_JSON.open_object;
---     APEX_JSON.write('success', FALSE);
---     APEX_JSON.write('error', 'Report not found');
---     APEX_JSON.close_object;
--- END;
+-- Each block below is the FULL handler source - paste it as-is
+-- into the Handler Source field in APEX. Do NOT run these in
+-- SQL Commands (:body_text / :id only exist inside ORDS).
+-- ============================================================
+
+
+-- ============================================================
+-- HANDLER 1: POST  ai/reports/save
+-- ============================================================
+-- Module:        WAREHOUSEMANAGEMENT
+-- URI Template:  ai/reports/save
+-- Method:        POST
+-- Source Type:   PL/SQL
+-- ============================================================
+BEGIN
+    wms_ai_save_report(:body_text);
+END;
+
+
+-- ============================================================
+-- HANDLER 2: POST  ai/reports/run
+-- ============================================================
+-- Module:        WAREHOUSEMANAGEMENT
+-- URI Template:  ai/reports/run
+-- Method:        POST
+-- Source Type:   PL/SQL
+-- ============================================================
+BEGIN
+    wms_ai_run_report(:body_text);
+END;
+
+
+-- ============================================================
+-- HANDLER 3: POST  ai/reports/delete      {"reportId": 1}
+-- ============================================================
+-- Module:        WAREHOUSEMANAGEMENT
+-- URI Template:  ai/reports/delete
+-- Method:        POST
+-- Source Type:   PL/SQL
+-- ============================================================
+DECLARE
+    v_id NUMBER;
+BEGIN
+    APEX_JSON.parse(:body_text);
+    v_id := APEX_JSON.get_number('reportId');
+    DELETE FROM wms_ai_report_params WHERE report_id = v_id;
+    DELETE FROM wms_ai_reports WHERE report_id = v_id;
+    COMMIT;
+    APEX_JSON.open_object;
+    APEX_JSON.write('success', TRUE);
+    APEX_JSON.close_object;
+EXCEPTION WHEN OTHERS THEN
+    ROLLBACK;
+    APEX_JSON.open_object;
+    APEX_JSON.write('success', FALSE);
+    APEX_JSON.write('error', SQLERRM);
+    APEX_JSON.close_object;
+END;
+
+
+-- ============================================================
+-- HANDLER 4: GET  ai/reports/list
+-- ============================================================
+-- Module:        WAREHOUSEMANAGEMENT
+-- URI Template:  ai/reports/list
+-- Method:        GET
+-- Source Type:   PL/SQL
+-- ============================================================
+BEGIN
+    APEX_JSON.open_object;
+    APEX_JSON.open_array('reports');
+    FOR r IN (SELECT r.report_id, r.report_name, r.description, r.category,
+                     r.created_by, r.created_date, r.last_run_date, r.run_count,
+                     (SELECT COUNT(*) FROM wms_ai_report_params p
+                      WHERE p.report_id = r.report_id) AS param_count
+              FROM wms_ai_reports r
+              WHERE r.active_flag = 'Y'
+              ORDER BY r.category, r.report_name) LOOP
+        APEX_JSON.open_object;
+        APEX_JSON.write('reportId',    r.report_id);
+        APEX_JSON.write('name',        r.report_name);
+        APEX_JSON.write('description', r.description);
+        APEX_JSON.write('category',    r.category);
+        APEX_JSON.write('createdBy',   r.created_by);
+        APEX_JSON.write('createdDate', TO_CHAR(r.created_date, 'YYYY-MM-DD'));
+        APEX_JSON.write('lastRunDate', TO_CHAR(r.last_run_date, 'YYYY-MM-DD HH24:MI'));
+        APEX_JSON.write('runCount',    NVL(r.run_count, 0));
+        APEX_JSON.write('paramCount',  r.param_count);
+        APEX_JSON.close_object;
+    END LOOP;
+    APEX_JSON.close_array;
+    APEX_JSON.close_object;
+END;
+
+
+-- ============================================================
+-- HANDLER 5: GET  ai/reports/get        (?id=1)
+-- ============================================================
+-- Module:        WAREHOUSEMANAGEMENT
+-- URI Template:  ai/reports/get
+-- Method:        GET
+-- Source Type:   PL/SQL
+-- IMPORTANT:     add a handler Parameter:
+--                Name=id, Bind Variable=id, Source Type=URI,
+--                Access Method=IN, Data Type=STRING
+-- ============================================================
+DECLARE
+    v_id NUMBER := TO_NUMBER(:id);
+BEGIN
+    FOR r IN (SELECT * FROM wms_ai_reports WHERE report_id = v_id) LOOP
+        APEX_JSON.open_object;
+        APEX_JSON.write('reportId',    r.report_id);
+        APEX_JSON.write('name',        r.report_name);
+        APEX_JSON.write('description', r.description);
+        APEX_JSON.write('category',    r.category);
+        APEX_JSON.write('sql',         r.sql_text);
+        APEX_JSON.open_array('params');
+        FOR p IN (SELECT * FROM wms_ai_report_params
+                  WHERE report_id = v_id ORDER BY param_order) LOOP
+            APEX_JSON.open_object;
+            APEX_JSON.write('name',         p.param_name);
+            APEX_JSON.write('label',        NVL(p.label, p.param_name));
+            APEX_JSON.write('dataType',     p.data_type);
+            APEX_JSON.write('defaultValue', p.default_value);
+            APEX_JSON.write('required',     p.required_flag = 'Y');
+            APEX_JSON.close_object;
+        END LOOP;
+        APEX_JSON.close_array;
+        APEX_JSON.close_object;
+        RETURN;
+    END LOOP;
+    APEX_JSON.open_object;
+    APEX_JSON.write('success', FALSE);
+    APEX_JSON.write('error', 'Report not found');
+    APEX_JSON.close_object;
+END;
