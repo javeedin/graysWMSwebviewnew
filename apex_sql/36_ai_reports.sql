@@ -433,6 +433,11 @@ BEGIN
                 EXIT;
             END;
         ELSIF prm.data_type = 'DATE' THEN
+            -- if the report SQL already wraps the bind in TO_DATE(:P,'fmt'),
+            -- unwrap it first so substitution doesn't produce TO_DATE(TO_DATE(...))
+            v_sql := REGEXP_REPLACE(v_sql,
+                'TO_DATE\(\s*:' || prm.param_name || '\s*,\s*''[^'']*''\s*\)',
+                ':' || prm.param_name, 1, 0, 'i');
             v_literal := 'TO_DATE(''' || REPLACE(SUBSTR(v_value, 1, 10), '''', '') || ''',''YYYY-MM-DD'')';
         ELSE
             v_literal := '''' || REPLACE(v_value, '''', '''''') || '''';
