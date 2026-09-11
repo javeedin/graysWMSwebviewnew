@@ -645,9 +645,80 @@ function appendAssistantBubble(markdown, rounds, ts, isError) {
         <div class="msg assistant">
             <div class="bubble" ${bubbleStyle}>${isError ? '<i class="fas fa-triangle-exclamation"></i> ' + esc(markdown) : renderMarkdown(markdown)}</div>
             ${roundsHtml}
+            ${isError ? '' : saveReportBtnHtml(rounds)}
             <div class="meta">${timeStr(ts)}</div>
         </div>`);
     box.scrollTop = box.scrollHeight;
+}
+
+// "Save as report" button - shown under answers that ran SQL
+function saveReportBtnHtml(rounds) {
+    const hasSql = (rounds || []).some(r => (r.kind || 'sql') === 'sql' && r.success);
+    if (!hasSql) return '';
+    return `<div style="margin-top:6px;">
+        <button onclick="openSaveReportModal()"
+            style="border:1px solid #ddd6fe;border-radius:8px;background:#f5f3ff;color:#6d28d9;
+                   padding:4px 12px;font-size:11px;font-weight:700;cursor:pointer;">
+            <i class="fas fa-floppy-disk"></i> Save as report
+        </button>
+    </div>`;
+}
+
+function openSaveReportModal() {
+    if (busy) { setStatus('Wait for the current turn to finish first'); return; }
+    document.getElementById('sr-modal')?.remove();
+    const dlg = document.createElement('div');
+    dlg.id = 'sr-modal';
+    dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    dlg.innerHTML = `
+        <div style="background:white;border-radius:14px;width:400px;box-shadow:0 24px 80px rgba(0,0,0,0.3);">
+            <div style="padding:0.8rem 1.1rem;background:linear-gradient(135deg,#7c3aed,#5b21b6);border-radius:14px 14px 0 0;">
+                <div style="font-weight:800;font-size:13px;color:white;"><i class="fas fa-floppy-disk"></i> Save as Report</div>
+                <div style="font-size:10.5px;color:rgba(255,255,255,0.85);margin-top:2px;">The SQL of this answer is stored and can be re-run any time with live data.</div>
+            </div>
+            <div style="padding:1rem 1.1rem;">
+                <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Report name <span style="color:#dc2626;">*</span></label>
+                <input id="sr-name" type="text" placeholder="e.g. Weekly WMS KPIs"
+                    style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;margin-bottom:0.7rem;">
+                <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Category</label>
+                <input id="sr-category" type="text" value="General" list="sr-cat-list"
+                    style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;margin-bottom:0.7rem;">
+                <datalist id="sr-cat-list">
+                    <option value="General"><option value="KPI"><option value="Trips">
+                    <option value="Orders"><option value="Printing"><option value="Agents">
+                </datalist>
+                <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Description <span style="font-weight:400;color:#94a3b8;">(optional)</span></label>
+                <input id="sr-desc" type="text" placeholder="What does this report show?"
+                    style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;">
+                <div id="sr-err" style="font-size:11px;color:#dc2626;margin-top:0.4rem;"></div>
+            </div>
+            <div style="padding:0.7rem 1.1rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:0.5rem;">
+                <button onclick="document.getElementById('sr-modal').remove()"
+                    style="padding:0.45rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:600;color:#64748b;">Cancel</button>
+                <button onclick="submitSaveReport()"
+                    style="padding:0.45rem 1.3rem;border:none;border-radius:8px;background:#7c3aed;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                    <i class="fas fa-floppy-disk"></i> Save</button>
+            </div>
+        </div>`;
+    document.body.appendChild(dlg);
+    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.remove(); });
+    const nameInp = document.getElementById('sr-name');
+    nameInp.focus();
+    nameInp.addEventListener('keydown', e => { if (e.key === 'Enter') submitSaveReport(); });
+}
+
+function submitSaveReport() {
+    const name = (document.getElementById('sr-name').value || '').trim();
+    const category = (document.getElementById('sr-category').value || 'General').trim();
+    const desc = (document.getElementById('sr-desc').value || '').trim();
+    if (!name) { document.getElementById('sr-err').textContent = 'Report name is required'; return; }
+    document.getElementById('sr-modal')?.remove();
+
+    let prompt = 'Save the SQL of your last answer as a report named "' + name + '" in category "' + category + '".';
+    if (desc) prompt += ' Description: "' + desc + '".';
+    prompt += ' Turn the literal filter values into :P_XXX parameters where a future user would want to choose them (dates, trip ids, order numbers), with sensible labels, data types and defaults.';
+
+    sendTurn(prompt, '💾 Save as report — ' + name + ' (' + category + ')');
 }
 
 // ============================================================
@@ -797,6 +868,7 @@ function appendGridBubble(grid, rounds, ts, chat) {
                 ${actions.length ? `<div class="gactions">${actionBtns}<span class="gselinfo" id="${gid}-selinfo">0 selected</span></div>` : ''}
             </div>
             ${roundsInspectorHtml(rounds)}
+            ${saveReportBtnHtml(rounds)}
             <div class="meta">${timeStr(ts)}</div>
         </div>`);
     box.scrollTop = box.scrollHeight;
