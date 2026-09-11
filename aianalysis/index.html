@@ -188,6 +188,50 @@
     table.result-grid td { border: 1px solid #f1f5f9; padding: 3px 8px; white-space: nowrap; }
     table.result-grid tr:nth-child(even) td { background: #fafafa; }
     .right-foot { padding: 5px 10px; font-size: 10px; color: var(--muted); border-top: 1px solid var(--border); flex-shrink: 0; }
+
+    /* Slash command palette */
+    .input-area { position: relative; }
+    .slash-menu {
+        display: none; position: absolute; bottom: calc(100% + 4px); left: 1.4rem; right: 1.4rem;
+        background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+        box-shadow: 0 -8px 30px rgba(0,0,0,0.12); max-height: 300px; overflow-y: auto; z-index: 50;
+    }
+    .slash-item {
+        padding: 8px 12px; display: flex; align-items: center; gap: 10px; cursor: pointer;
+        border-bottom: 1px solid #f8fafc;
+    }
+    .slash-item:hover, .slash-item.sel { background: #f5f3ff; }
+    .slash-item .scmd { font-family: Consolas, monospace; font-size: 12px; font-weight: 700; color: var(--primary); white-space: nowrap; }
+    .slash-item .sdesc { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .slash-item .scat {
+        margin-left: auto; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 8px; text-transform: uppercase;
+    }
+    .scat.fusion { background: #fee2e2; color: #b91c1c; }
+    .scat.apex   { background: #dbeafe; color: #1d4ed8; }
+    .scat.chat   { background: #f1f5f9; color: #475569; }
+    .slash-item .swrite { font-size: 9px; color: #d97706; font-weight: 700; }
+
+    /* Fusion approval card */
+    .approval-card {
+        max-width: 82%; margin-bottom: 1rem; border: 2px solid #fbbf24; border-radius: 12px;
+        background: #fffbeb; overflow: hidden;
+    }
+    .approval-card .ah {
+        padding: 8px 12px; background: #fef3c7; font-size: 12px; font-weight: 800; color: #92400e;
+        display: flex; align-items: center; gap: 8px;
+    }
+    .approval-card .ab { padding: 10px 12px; font-size: 11.5px; color: #78350f; }
+    .approval-card .ab code { background: #fef3c7; padding: 1px 6px; border-radius: 4px; font-size: 11px; word-break: break-all; }
+    .approval-card .ab pre {
+        background: #1e1e2e; color: #a6e3a1; padding: 8px; border-radius: 6px; font-size: 10.5px;
+        white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow-y: auto; margin: 6px 0 0;
+    }
+    .approval-card .af { padding: 8px 12px; display: flex; gap: 8px; justify-content: flex-end; background: #fef9ec; }
+    .approval-card .btn-approve { background: #16a34a; color: white; border: none; border-radius: 8px; padding: 6px 16px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .approval-card .btn-reject  { background: #fee2e2; color: #dc2626; border: none; border-radius: 8px; padding: 6px 16px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .approval-card.decided .af  { display: none; }
+    .approval-card .adecision   { font-size: 11px; font-weight: 800; padding: 6px 12px; display: none; }
+    .approval-card.decided .adecision { display: block; }
 </style>
 </head>
 <body>
@@ -221,9 +265,10 @@
             <div class="messages" id="messages"></div>
             <div class="status-bar" id="status-bar"></div>
             <div class="input-area">
+                <div class="slash-menu" id="slash-menu"></div>
                 <div class="input-row">
-                    <textarea id="prompt-input" rows="1" placeholder="Ask about your WMS data… e.g. list of trips for today"
-                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+                    <textarea id="prompt-input" rows="1" placeholder="Ask about your WMS data… type / for commands (/f Fusion, /a APEX)"
+                        onkeydown="handleInputKeydown(event)"></textarea>
                     <button class="btn btn-cancel" id="btn-cancel" onclick="cancelTurn()"><i class="fas fa-stop"></i></button>
                     <button class="btn btn-send" id="btn-send" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
                 </div>
@@ -466,16 +511,25 @@ function appendAssistantBubble(markdown, rounds, ts, isError) {
                 <i class="fas fa-magnifying-glass-chart"></i> SQL Inspector — ${rounds.length} round(s)
             </div>
             <div class="insp-body" id="${inspId}">
-                ${rounds.map((r, i) => `
+                ${rounds.map((r, i) => {
+                    const isFusion = r.kind === 'fusion';
+                    const label = isFusion ? (r.method + ' ' + r.path) : r.sql;
+                    const unit = isFusion ? 'item(s)' : 'rows';
+                    const canView = !isFusion && r.success;
+                    return `
                     <div class="insp-round">
                         <div class="rmeta">
                             <strong>Round ${i + 1}</strong>
-                            <span class="${r.success ? 'ok' : 'fail'}">${r.success ? '✓ ' + r.rowCount + ' rows' : '✗ ' + esc(r.error || 'failed')}</span>
+                            ${isFusion ? '<span style="background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:800;">FUSION</span>' : '<span style="background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:800;">SQL</span>'}
+                            <span class="${r.success ? 'ok' : 'fail'}">${r.success ? '✓ ' + r.rowCount + ' ' + unit : '✗ ' + esc(r.error || 'failed')}</span>
                             <span style="color:#94a3b8;">${r.elapsedMs || 0} ms</span>
-                            ${r.success ? `<span class="view-btn" onclick="previewRounds('${inspId}', ${i})">view rows</span>` : ''}
+                            ${canView ? `<span class="view-btn" onclick="previewRounds('${inspId}', ${i})">view rows</span>` : ''}
+                            ${isFusion ? `<span class="view-btn" onclick="const p=this.closest('.insp-round').querySelector('.fresp');p.style.display=p.style.display==='block'?'none':'block';">response</span>` : ''}
                         </div>
-                        <pre>${esc(r.sql)}</pre>
-                    </div>`).join('')}
+                        <pre>${esc(label)}${isFusion && r.reason ? '\n-- ' + esc(r.reason) : ''}</pre>
+                        ${isFusion ? `<pre class="fresp" style="display:none;color:#fbbf24;">${esc(fusionRespSnippet(r))}</pre>` : ''}
+                    </div>`;
+                }).join('')}
             </div>
         </div>` : '';
     const bubbleStyle = isError ? 'style="border-color:#fca5a5;background:#fff5f5;color:#b91c1c;"' : '';
@@ -505,8 +559,21 @@ function setStatus(text) {
 function handleChatEvent(evt) {
     if (evt.eventType === 'status') setStatus(evt.text);
     else if (evt.eventType === 'sqlRound') {
-        setStatus(`Round ${evt.round}: ` + (evt.success ? `${evt.rowCount} rows in ${evt.elapsedMs} ms` : 'error — model is retrying'));
+        const what = evt.kind === 'fusion'
+            ? `Fusion ${evt.method}: ` + (evt.success ? `${evt.rowCount} item(s) in ${evt.elapsedMs} ms` : 'error — model is retrying')
+            : `SQL round ${evt.round}: ` + (evt.success ? `${evt.rowCount} rows in ${evt.elapsedMs} ms` : 'error — model is retrying');
+        setStatus(what);
     }
+}
+
+function fusionRespSnippet(r) {
+    try {
+        const env = typeof r.resultJson === 'string' ? JSON.parse(r.resultJson) : r.resultJson;
+        let b = env && env.body != null ? env.body : env;
+        if (typeof b === 'string') { try { b = JSON.parse(b); } catch (e) { } }
+        const s = typeof b === 'string' ? b : JSON.stringify(b, null, 2);
+        return s.length > 4000 ? s.slice(0, 4000) + '\n…(truncated)' : s;
+    } catch (e) { return String(r.resultJson || '').slice(0, 4000); }
 }
 
 function sendMessage() {
@@ -530,30 +597,96 @@ function sendMessage() {
     setBusy(true);
     setStatus('Claude is thinking…');
 
-    sendMessageToCSharp({ action: 'aiChatSend', text: text, sessionId: chat.sessionId }, function (err, resp) {
+    window._turnRounds = [];
+    sendMessageToCSharp({ action: 'aiChatSend', text: text, sessionId: chat.sessionId },
+        function (err, resp) { handleTurnResponse(chat, err, resp); });
+}
+
+function normRound(r) {
+    return {
+        kind: r.kind || 'sql', sql: r.sql, method: r.method, path: r.path, reason: r.reason,
+        success: r.success, rowCount: r.rowCount, elapsedMs: r.elapsedMs, error: r.error, resultJson: r.resultJson
+    };
+}
+
+function handleTurnResponse(chat, err, resp) {
+    const ats = Date.now();
+    if (err) {
         setBusy(false);
-        const ats = Date.now();
-        if (err) {
-            chat.messages.push({ role: 'assistant', markdown: String(err), rounds: [], ts: ats, isError: true });
-            saveChats();
-            appendAssistantBubble(String(err), [], ats, true);
-            return;
-        }
-        if (resp.sessionId) chat.sessionId = resp.sessionId;
-        const rounds = (resp.rounds || []).map(r => ({
-            sql: r.sql, reason: r.reason, success: r.success, rowCount: r.rowCount,
-            elapsedMs: r.elapsedMs, error: r.error, resultJson: r.resultJson
-        }));
-        if (resp.success) {
-            chat.messages.push({ role: 'assistant', markdown: resp.markdown, rounds: rounds, ts: ats });
-            appendAssistantBubble(resp.markdown, rounds, ats, false);
-        } else {
-            chat.messages.push({ role: 'assistant', markdown: resp.error || 'Unknown error', rounds: rounds, ts: ats, isError: true });
-            appendAssistantBubble(resp.error || 'Unknown error', rounds, ats, true);
-        }
-        saveChats(); renderChatList();
-        setPreview(rounds);
-    });
+        chat.messages.push({ role: 'assistant', markdown: String(err), rounds: window._turnRounds || [], ts: ats, isError: true });
+        saveChats();
+        appendAssistantBubble(String(err), window._turnRounds || [], ats, true);
+        return;
+    }
+    if (resp.sessionId) chat.sessionId = resp.sessionId;
+    window._turnRounds = (window._turnRounds || []).concat((resp.rounds || []).map(normRound));
+
+    // Fusion write call waiting for the user's approval - keep the turn open
+    if (resp.requiresApproval && resp.pending) {
+        renderApprovalCard(chat, resp.pending);
+        return;
+    }
+
+    setBusy(false);
+    const rounds = window._turnRounds;
+    if (resp.success) {
+        chat.messages.push({ role: 'assistant', markdown: resp.markdown, rounds: rounds, ts: ats });
+        appendAssistantBubble(resp.markdown, rounds, ats, false);
+    } else {
+        chat.messages.push({ role: 'assistant', markdown: resp.error || 'Unknown error', rounds: rounds, ts: ats, isError: true });
+        appendAssistantBubble(resp.error || 'Unknown error', rounds, ats, true);
+    }
+    saveChats(); renderChatList();
+    setPreview(rounds);
+}
+
+// ── Fusion write approval card ─────────────────────────────
+function renderApprovalCard(chat, pending) {
+    setStatus('Waiting for your approval…');
+    const box = document.getElementById('messages');
+    const cardId = 'apv-' + Date.now();
+    let bodyPretty = '';
+    if (pending.body) {
+        try { bodyPretty = JSON.stringify(JSON.parse(pending.body), null, 2); }
+        catch (e) { bodyPretty = pending.body; }
+    }
+    window._pendingFusion = { chat: chat, pending: pending, cardId: cardId };
+    box.insertAdjacentHTML('beforeend', `
+        <div class="approval-card" id="${cardId}">
+            <div class="ah"><i class="fas fa-shield-halved"></i> Fusion write call — approval required</div>
+            <div class="ab">
+                ${pending.reason ? '<div style="margin-bottom:5px;">' + esc(pending.reason) + '</div>' : ''}
+                <div><strong>${esc(pending.method)}</strong> <code>${esc(pending.path)}</code>
+                     <span style="font-size:10px;color:#b45309;">(${esc(pending.instance || 'PROD')})</span></div>
+                ${bodyPretty ? '<pre>' + esc(bodyPretty) + '</pre>' : ''}
+            </div>
+            <div class="af">
+                <button class="btn-reject" onclick="decideFusion(false)"><i class="fas fa-times"></i> Reject</button>
+                <button class="btn-approve" onclick="decideFusion(true)"><i class="fas fa-check"></i> Approve &amp; Execute</button>
+            </div>
+            <div class="adecision"></div>
+        </div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+function decideFusion(approve) {
+    const ctx = window._pendingFusion;
+    if (!ctx) return;
+    window._pendingFusion = null;
+    const card = document.getElementById(ctx.cardId);
+    if (card) {
+        card.classList.add('decided');
+        const d = card.querySelector('.adecision');
+        d.textContent = approve ? '✓ Approved — executing…' : '✗ Rejected — Claude will continue without it';
+        d.style.color = approve ? '#16a34a' : '#dc2626';
+    }
+    setStatus(approve ? 'Executing approved Fusion call…' : 'Rejected — Claude is continuing…');
+    sendMessageToCSharp({
+        action: 'aiFusionDecision',
+        approve: approve,
+        sessionId: ctx.chat.sessionId,
+        pending: ctx.pending
+    }, function (err, resp) { handleTurnResponse(ctx.chat, err, resp); });
 }
 
 function cancelTurn() {
@@ -682,6 +815,108 @@ function copySql() {
 }
 
 // ============================================================
+// Slash command palette  ( /  = all, /f = fusion, /a = apex )
+// ============================================================
+const SLASH_COMMANDS = [
+    { cmd: '/fusion-order-status',  cat: 'fusion', desc: 'Shipment line statuses of an order (Fusion GET)',
+      template: 'Fusion: get the shipment lines for order ORDER_NUMBER and summarize the line statuses', ph: 'ORDER_NUMBER' },
+    { cmd: '/fusion-order-details', cat: 'fusion', desc: 'Sales order header & lines from Order Hub',
+      template: 'Fusion: get the sales order details for order ORDER_NUMBER', ph: 'ORDER_NUMBER' },
+    { cmd: '/fusion-staged-errors', cat: 'fusion', desc: 'Errored staged inventory transactions (org GIC)',
+      template: 'Fusion: list the staged inventory transaction errors (Direct Organization Transfer, organization GIC)' },
+    { cmd: '/fusion-cancel-lines',  cat: 'fusion', write: true, desc: 'Cancel Scheduled/Manual Reservation lines — approval required',
+      template: 'Fusion: cancel the Scheduled / Manual Reservation Required lines of order ORDER_NUMBER, including their child lines', ph: 'ORDER_NUMBER' },
+    { cmd: '/fusion-delete-staged', cat: 'fusion', write: true, desc: 'Delete an errored staged transaction — approval required',
+      template: 'Fusion: delete the staged inventory transaction with TransactionInterfaceId TRANSACTION_ID', ph: 'TRANSACTION_ID' },
+    { cmd: '/apex-objects',        cat: 'apex', desc: 'List queryable tables & views',
+      template: 'List the database tables and views I can query, grouped by functional area' },
+    { cmd: '/apex-sql',            cat: 'apex', desc: 'Run a SELECT you provide',
+      template: 'Run this SQL and show the results: SELECT ' },
+    { cmd: '/apex-trips-today',    cat: 'apex', desc: 'Trips scheduled for today',
+      template: 'Give me the list of trips for today' },
+    { cmd: '/apex-print-failures', cat: 'apex', desc: 'Failed print jobs this week, by day',
+      template: 'How many print jobs failed this week? Break it down by day' },
+    { cmd: '/apex-agent-activity', cat: 'apex', desc: 'Shipping agent activity, last 24h',
+      template: 'Show the shipping agent activity of the last 24 hours grouped by activity type' },
+    { cmd: '/help', cat: 'chat', desc: 'What can this assistant do?', local: 'help' },
+    { cmd: '/new',  cat: 'chat', desc: 'Start a new conversation',    local: 'new' }
+];
+let slashSel = 0, slashMatches = [];
+
+function updateSlashMenu() {
+    const inp = document.getElementById('prompt-input');
+    const menu = document.getElementById('slash-menu');
+    const v = inp.value;
+    if (!v.startsWith('/') || v.includes('\n') || v.includes(' ')) {
+        menu.style.display = 'none'; slashMatches = []; return;
+    }
+    const q = v.slice(1).toLowerCase();
+    slashMatches = SLASH_COMMANDS.filter(c =>
+        q === '' || c.cmd.slice(1).toLowerCase().startsWith(q) || c.cat.toLowerCase().startsWith(q));
+    if (slashMatches.length === 0) { menu.style.display = 'none'; return; }
+    if (slashSel >= slashMatches.length) slashSel = 0;
+    menu.innerHTML = slashMatches.map((c, i) => `
+        <div class="slash-item ${i === slashSel ? 'sel' : ''}" onmousedown="event.preventDefault();applySlash(${i});" onmousemove="slashSel=${i};highlightSlash();">
+            <span class="scmd">${esc(c.cmd)}</span>
+            <span class="sdesc">${esc(c.desc)}</span>
+            ${c.write ? '<span class="swrite"><i class="fas fa-shield-halved"></i> approval</span>' : ''}
+            <span class="scat ${c.cat}">${c.cat}</span>
+        </div>`).join('');
+    menu.style.display = 'block';
+}
+
+function highlightSlash() {
+    document.querySelectorAll('.slash-item').forEach((el, i) => el.classList.toggle('sel', i === slashSel));
+}
+
+function applySlash(i) {
+    const c = slashMatches[i];
+    if (!c) return;
+    const inp = document.getElementById('prompt-input');
+    document.getElementById('slash-menu').style.display = 'none';
+    slashMatches = [];
+    if (c.local === 'new') { inp.value = ''; newChat(); return; }
+    if (c.local === 'help') { inp.value = ''; showHelpBubble(); return; }
+    inp.value = c.template;
+    inp.focus();
+    if (c.ph) {
+        const p = inp.value.indexOf(c.ph);
+        if (p >= 0) inp.setSelectionRange(p, p + c.ph.length);
+    } else {
+        inp.setSelectionRange(inp.value.length, inp.value.length);
+    }
+    inp.dispatchEvent(new Event('input'));
+}
+
+function handleInputKeydown(event) {
+    const menuOpen = document.getElementById('slash-menu').style.display === 'block' && slashMatches.length > 0;
+    if (menuOpen) {
+        if (event.key === 'ArrowDown') { event.preventDefault(); slashSel = (slashSel + 1) % slashMatches.length; highlightSlash(); return; }
+        if (event.key === 'ArrowUp')   { event.preventDefault(); slashSel = (slashSel - 1 + slashMatches.length) % slashMatches.length; highlightSlash(); return; }
+        if (event.key === 'Enter' || event.key === 'Tab') { event.preventDefault(); applySlash(slashSel); return; }
+        if (event.key === 'Escape') { document.getElementById('slash-menu').style.display = 'none'; slashMatches = []; return; }
+    }
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); sendMessage(); }
+}
+
+function showHelpBubble() {
+    const md = [
+        '### What I can do',
+        '',
+        '**APEX / SQL** — I write and run read-only Oracle SQL against the WMS schema (trips, print jobs, shipment lines, agents…).',
+        '',
+        '**Oracle Fusion REST** — say the word *fusion* and I use the live Fusion APIs instead: shipment lines, sales orders, staged inventory transactions. Write calls (cancel lines, ship confirm, delete staged transactions) always show you an **approval card** first.',
+        '',
+        '### Slash commands',
+        '',
+        'Type `/` for all, `/f` for Fusion, `/a` for APEX:',
+        '',
+        SLASH_COMMANDS.map(c => '- `' + c.cmd + '` — ' + c.desc).join('\n')
+    ].join('\n');
+    appendAssistantBubble(md, [], Date.now(), false);
+}
+
+// ============================================================
 // Startup
 // ============================================================
 (function init() {
@@ -709,11 +944,15 @@ function copySql() {
         else console.log('[AI] workspace ready, objects:', resp.objectCount);
     });
 
-    // auto-grow textarea
+    // auto-grow textarea + slash palette
     const inp = document.getElementById('prompt-input');
     inp.addEventListener('input', function () {
         this.style.height = 'auto';
         this.style.height = Math.min(this.scrollHeight, 130) + 'px';
+        updateSlashMenu();
+    });
+    inp.addEventListener('blur', function () {
+        setTimeout(() => { document.getElementById('slash-menu').style.display = 'none'; }, 150);
     });
 })();
 </script>

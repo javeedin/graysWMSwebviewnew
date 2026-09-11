@@ -15,7 +15,10 @@ namespace WMSApp
     /// </summary>
     public class AiSqlRound
     {
+        public string Kind { get; set; } = "sql";  // "sql" | "fusion"
         public string Sql { get; set; }
+        public string Method { get; set; }         // fusion only
+        public string Path { get; set; }           // fusion only
         public string Reason { get; set; }
         public bool Success { get; set; }
         public int RowCount { get; set; }
@@ -25,7 +28,19 @@ namespace WMSApp
     }
 
     /// <summary>
-    /// Final outcome of one user message (after up to 5 SQL rounds).
+    /// A Fusion write call (POST/PATCH/DELETE) waiting for on-screen user approval.
+    /// </summary>
+    public class AiPendingFusion
+    {
+        public string Method { get; set; }
+        public string Path { get; set; }
+        public string Body { get; set; }
+        public string Instance { get; set; }
+        public string Reason { get; set; }
+    }
+
+    /// <summary>
+    /// Final outcome of one user message (after up to 5 SQL/Fusion rounds).
     /// </summary>
     public class AiChatResult
     {
@@ -33,6 +48,8 @@ namespace WMSApp
         public string Markdown { get; set; }
         public string Error { get; set; }
         public string SessionId { get; set; }
+        public bool RequiresApproval { get; set; }
+        public AiPendingFusion Pending { get; set; }
         public List<AiSqlRound> Rounds { get; set; } = new List<AiSqlRound>();
     }
 
@@ -52,6 +69,12 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V2";
+        private const int FUSION_RESULT_MAX_CHARS = 25000;   // fed back to the model
+        private const int FUSION_STORE_MAX_CHARS  = 100000;  // kept for the inspector
+
+        private const string FUSION_PROD_BASE = "https://efmh.fa.em3.oraclecloud.com";
+        private const string FUSION_TEST_BASE = "https://efmh-test.fa.em3.oraclecloud.com";
 
         private static readonly string BaseDir      = @"C:\fusion\ai_chat";
         private static readonly string WorkspaceDir = Path.Combine(BaseDir, "workspace");
@@ -110,8 +133,10 @@ namespace WMSApp
 
             if (File.Exists(claudeMdPath) && !forceRefresh)
             {
-                // refresh once a day
-                if ((DateTime.Now - File.GetLastWriteTime(claudeMdPath)).TotalHours < 24)
+                // refresh once a day, and always when the prompt template changed
+                string existing = await File.ReadAllTextAsync(claudeMdPath);
+                if ((DateTime.Now - File.GetLastWriteTime(claudeMdPath)).TotalHours < 24 &&
+                    existing.Contains(PROMPT_TEMPLATE_MARKER))
                     return -1;
             }
 
@@ -130,10 +155,34 @@ namespace WMSApp
             sb.AppendLine("To run a query:");
             sb.AppendLine("{ \"action\": \"sql\", \"sql\": \"SELECT ...\", \"reason\": \"one line\" }");
             sb.AppendLine();
+            sb.AppendLine("To call an Oracle Fusion REST service:");
+            sb.AppendLine("{ \"action\": \"fusion\", \"method\": \"GET\", \"path\": \"/fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order=418978&limit=200\", \"instance\": \"PROD\", \"reason\": \"one line\" }");
+            sb.AppendLine("{ \"action\": \"fusion\", \"method\": \"PATCH\", \"path\": \"/fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:418978\", \"body\": { }, \"instance\": \"PROD\", \"reason\": \"one line\" }");
+            sb.AppendLine();
             sb.AppendLine("To answer the user:");
             sb.AppendLine("{ \"action\": \"answer\", \"markdown\": \"### heading\\n| markdown table |\" }");
             sb.AppendLine();
-            sb.AppendLine("After each sql action you receive a user message starting with SQL_RESULT: containing columns, rows (max 200), rowCount, truncated, or error. You have at most 5 sql rounds per question; then you must answer.");
+            sb.AppendLine("After each sql action you receive a user message starting with SQL_RESULT: containing columns, rows (max 200), rowCount, truncated, or error. After each fusion action you receive FUSION_RESULT: with the HTTP status and response body (possibly truncated). You have at most 5 sql/fusion rounds per question; then you must answer.");
+            sb.AppendLine();
+            sb.AppendLine("<!-- " + PROMPT_TEMPLATE_MARKER + " -->");
+            sb.AppendLine("## Oracle Fusion REST catalog");
+            sb.AppendLine();
+            sb.AppendLine("Use action fusion for these. instance is PROD (default) or TEST. path must start with /fscmRestApi/. GET calls run immediately; POST/PATCH/DELETE are WRITE calls - the app shows the user an approval card first, and you may receive FUSION_RESULT: USER_REJECTED, in which case continue without it and tell the user.");
+            sb.AppendLine();
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/shipmentLines?q=Order={orderNumber}&limit=500");
+            sb.AppendLine("  Shipment lines of one sales order. Key fields: OrderNumber, LineStatus (Ready to Release / Released to Warehouse / Staged / Interfaced / Cancelled), LineStatusCode (Y=Interfaced/Shipped, C=Staged, X=Cancelled), Item, ShippedQuantity.");
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub?q=SourceTransactionNumber={orderNumber} (or /OPS:{orderNumber} for one order, add ?expand=lines for lines)");
+            sb.AppendLine("  Sales order header/lines from Order Management.");
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions?q=OrganizationName=GIC;TransactionTypeName=Direct Organization Transfer");
+            sb.AppendLine("  Errored/staged inventory transactions awaiting processing.");
+            sb.AppendLine("- PATCH /fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub/OPS:{orderNumber}   (WRITE)");
+            sb.AppendLine("  Cancel order lines. body: { \"lines\": [ { \"FulfillLineId\": 123, \"OrderedQuantity\": 0, \"CancelReason\": \"OUT OF STOCK\" } ] }. Get FulfillLineId from wms_order_shipment_lines or from a fusion GET first. Cancelling a main line must include its child lines (numbered sub-lines like 3.1, or BOGO promo items).");
+            sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/pickTransactions   (WRITE) - pick confirm.");
+            sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/shipmentTransactionRequests   (WRITE) - shipping transaction request / pick release.");
+            sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/shippingTransactions   (WRITE) - ship confirm.");
+            sb.AppendLine("- DELETE /fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/{TransactionInterfaceId}   (WRITE) - remove an errored staged transaction.");
+            sb.AppendLine();
+            sb.AppendLine("Routing rule: when the user's message mentions \"fusion\", prefer these Fusion REST services over SQL. Otherwise prefer SQL against the local WMS schema; combine both when useful (e.g. FULFILL_LINE_ID from SQL, then a Fusion PATCH).");
             sb.AppendLine();
             sb.AppendLine("## SQL rules");
             sb.AppendLine();
@@ -207,10 +256,49 @@ namespace WMSApp
         // ============================================================
         // Chat turn: user message -> action loop -> final answer
         // ============================================================
-        public async Task<AiChatResult> SendAsync(string userText, string sessionId, Func<object, Task> onEvent)
+        public Task<AiChatResult> SendAsync(string userText, string sessionId, Func<object, Task> onEvent)
+        {
+            return RunLoopAsync(userText, sessionId, onEvent);
+        }
+
+        /// <summary>
+        /// Continues a turn that stopped for a Fusion write approval.
+        /// Executes (or skips) the pending call, feeds FUSION_RESULT back and resumes the loop.
+        /// </summary>
+        public async Task<AiChatResult> ResumeWithFusionDecisionAsync(bool approve, AiPendingFusion pending,
+            string sessionId, Func<object, Task> onEvent)
+        {
+            string prompt;
+            var preRounds = new List<AiSqlRound>();
+
+            if (approve && pending != null)
+            {
+                await onEvent(new { action = "aiChatEvent", eventType = "status", text = $"Executing {pending.Method} (approved)..." });
+                var round = await ExecuteFusionAsync(pending.Method, pending.Path, pending.Body, pending.Instance, pending.Reason);
+                preRounds.Add(round);
+                await onEvent(new
+                {
+                    action = "aiChatEvent", eventType = "sqlRound", round = 1,
+                    kind = "fusion", method = round.Method, path = round.Path,
+                    sql = (string)null, success = round.Success,
+                    rowCount = round.RowCount, elapsedMs = round.ElapsedMs, error = round.Error
+                });
+                prompt = "FUSION_RESULT: " + TruncateForModel(round.ResultJson);
+            }
+            else
+            {
+                prompt = "FUSION_RESULT: USER_REJECTED - the user declined this write call. Continue without it and tell the user it was not executed.";
+            }
+
+            var result = await RunLoopAsync(prompt, sessionId, onEvent);
+            result.Rounds.InsertRange(0, preRounds);
+            return result;
+        }
+
+        private async Task<AiChatResult> RunLoopAsync(string initialPrompt, string sessionId, Func<object, Task> onEvent)
         {
             var result = new AiChatResult { SessionId = sessionId };
-            string prompt = userText;
+            string prompt = initialPrompt;
             bool retriedMalformed = false;
             int guard = 0;
 
@@ -277,7 +365,10 @@ namespace WMSApp
                             action = "aiChatEvent",
                             eventType = "sqlRound",
                             round = roundNo,
+                            kind = "sql",
                             sql = round.Sql,
+                            method = (string)null,
+                            path = (string)null,
                             success = round.Success,
                             rowCount = round.RowCount,
                             elapsedMs = round.ElapsedMs,
@@ -285,6 +376,71 @@ namespace WMSApp
                         });
 
                         prompt = "SQL_RESULT: " + round.ResultJson;
+                        continue;
+                    }
+
+                    if (string.Equals(action, "fusion", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (result.Rounds.Count >= MAX_SQL_ROUNDS)
+                        {
+                            prompt = "You have used all " + MAX_SQL_ROUNDS +
+                                     " rounds. Reply NOW with { \"action\": \"answer\", \"markdown\": \"...\" } summarizing what you found.";
+                            continue;
+                        }
+
+                        var root = modelJson.RootElement;
+                        string method   = root.TryGetProperty("method",   out var mtEl) ? (mtEl.GetString() ?? "GET").ToUpperInvariant() : "GET";
+                        string path     = root.TryGetProperty("path",     out var pEl)  ? pEl.GetString() : "";
+                        string instance = root.TryGetProperty("instance", out var iEl) && iEl.ValueKind == JsonValueKind.String
+                                          ? iEl.GetString() : "PROD";
+                        string reason   = root.TryGetProperty("reason",   out var rsEl) ? rsEl.GetString() : "";
+                        string body     = null;
+                        if (root.TryGetProperty("body", out var bEl) && bEl.ValueKind != JsonValueKind.Null &&
+                            bEl.ValueKind != JsonValueKind.Undefined)
+                            body = bEl.GetRawText();
+
+                        if (string.IsNullOrWhiteSpace(path) || !path.StartsWith("/fscmRestApi/", StringComparison.OrdinalIgnoreCase))
+                        {
+                            prompt = "FUSION_RESULT: {\"success\":false,\"error\":\"Invalid path - it must start with /fscmRestApi/\"}";
+                            continue;
+                        }
+
+                        bool isWrite = method != "GET";
+                        if (isWrite)
+                        {
+                            // stop here - the UI shows an approval card, then calls ResumeWithFusionDecisionAsync
+                            result.Success = true;
+                            result.RequiresApproval = true;
+                            result.Pending = new AiPendingFusion
+                            {
+                                Method = method, Path = path, Body = body,
+                                Instance = instance, Reason = reason
+                            };
+                            return result;
+                        }
+
+                        int fRoundNo = result.Rounds.Count + 1;
+                        await onEvent(new { action = "aiChatEvent", eventType = "status", text = $"Calling Fusion {method} (round {fRoundNo})..." });
+
+                        var fRound = await ExecuteFusionAsync(method, path, body, instance, reason);
+                        result.Rounds.Add(fRound);
+
+                        await onEvent(new
+                        {
+                            action = "aiChatEvent",
+                            eventType = "sqlRound",
+                            round = fRoundNo,
+                            kind = "fusion",
+                            sql = (string)null,
+                            method = fRound.Method,
+                            path = fRound.Path,
+                            success = fRound.Success,
+                            rowCount = fRound.RowCount,
+                            elapsedMs = fRound.ElapsedMs,
+                            error = fRound.Error
+                        });
+
+                        prompt = "FUSION_RESULT: " + TruncateForModel(fRound.ResultJson);
                         continue;
                     }
 
@@ -510,6 +666,92 @@ namespace WMSApp
                 round.ResultJson = JsonSerializer.Serialize(new { success = false, error = ex.Message });
             }
             return round;
+        }
+
+        // ============================================================
+        // Oracle Fusion REST call (Basic auth via FusionCredentialsService)
+        // ============================================================
+        private async Task<AiSqlRound> ExecuteFusionAsync(string method, string path, string body,
+            string instance, string reason)
+        {
+            var round = new AiSqlRound
+            {
+                Kind = "fusion",
+                Method = method,
+                Path = path,
+                Reason = reason
+            };
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                var (username, password) = await FusionCredentialsService.GetAsync();
+                if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                    throw new Exception("Fusion credentials are not configured in the app.");
+
+                string baseUrl = string.Equals(instance, "TEST", StringComparison.OrdinalIgnoreCase)
+                    ? FUSION_TEST_BASE : FUSION_PROD_BASE;
+                string url = baseUrl + path;
+
+                using var req = new HttpRequestMessage(new HttpMethod(method), url);
+                req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                    "Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(username + ":" + password)));
+                req.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                if (!string.IsNullOrEmpty(body) && method != "GET" && method != "DELETE")
+                    req.Content = new StringContent(body, Encoding.UTF8, "application/json");
+
+                var resp = await _http.SendAsync(req);
+                string respBody = await resp.Content.ReadAsStringAsync();
+                sw.Stop();
+
+                round.ElapsedMs = sw.ElapsedMilliseconds;
+                round.Success = resp.IsSuccessStatusCode;
+                round.RowCount = CountFusionItems(respBody);
+                if (!resp.IsSuccessStatusCode)
+                    round.Error = "HTTP " + (int)resp.StatusCode + " " + resp.ReasonPhrase;
+
+                // wrap so the model always sees a JSON envelope with the HTTP status
+                string stored = respBody != null && respBody.Length > FUSION_STORE_MAX_CHARS
+                    ? respBody.Substring(0, FUSION_STORE_MAX_CHARS) : respBody;
+                round.ResultJson = JsonSerializer.Serialize(new
+                {
+                    success = round.Success,
+                    httpStatus = (int)resp.StatusCode,
+                    method = method,
+                    path = path,
+                    body = stored
+                });
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                round.ElapsedMs = sw.ElapsedMilliseconds;
+                round.Success = false;
+                round.Error = ex.Message;
+                round.ResultJson = JsonSerializer.Serialize(new { success = false, error = ex.Message, method, path });
+            }
+            return round;
+        }
+
+        private static int CountFusionItems(string json)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                    doc.RootElement.TryGetProperty("items", out var items) &&
+                    items.ValueKind == JsonValueKind.Array)
+                    return items.GetArrayLength();
+            }
+            catch { }
+            return 0;
+        }
+
+        private static string TruncateForModel(string s)
+        {
+            if (s == null) return "";
+            return s.Length <= FUSION_RESULT_MAX_CHARS
+                ? s
+                : s.Substring(0, FUSION_RESULT_MAX_CHARS) + " ...(truncated - refine the query with q= filters or fields= to reduce the payload)";
         }
 
         // ============================================================

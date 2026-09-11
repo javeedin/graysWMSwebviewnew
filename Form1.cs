@@ -1847,6 +1847,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     HandleAiChatCancel(wv, requestId);
                                     break;
 
+                                case "aiFusionDecision":
+                                    await HandleAiFusionDecision(wv, messageJson, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3603,38 +3607,98 @@ navPanel.Controls.Add(wmsDevButton);
                 };
 
                 var result = await service.SendAsync(text, sessionId, onEvent);
-
-                var rounds = new List<object>();
-                foreach (var r in result.Rounds)
-                {
-                    rounds.Add(new
-                    {
-                        sql = r.Sql,
-                        reason = r.Reason,
-                        success = r.Success,
-                        rowCount = r.RowCount,
-                        elapsedMs = r.ElapsedMs,
-                        error = r.Error,
-                        resultJson = r.ResultJson
-                    });
-                }
-
-                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
-                {
-                    action = "aiChatAnswer",
-                    requestId = requestId,
-                    success = result.Success,
-                    markdown = result.Markdown,
-                    error = result.Error,
-                    sessionId = result.SessionId,
-                    rounds = rounds
-                }));
+                PostAiChatAnswer(wv, requestId, result);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("[C# ERROR] aiChatSend failed: " + ex.Message);
                 SendErrorResponse(wv, requestId, ex.Message);
             }
+        }
+
+        private async Task HandleAiFusionDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null;
+                AiPendingFusion pending = null;
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
+                    {
+                        pending = new AiPendingFusion
+                        {
+                            Method   = pEl.TryGetProperty("method",   out var m) ? m.GetString() : "POST",
+                            Path     = pEl.TryGetProperty("path",     out var p) ? p.GetString() : "",
+                            Instance = pEl.TryGetProperty("instance", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString() : "PROD",
+                            Reason   = pEl.TryGetProperty("reason",   out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : "",
+                            Body     = pEl.TryGetProperty("body",     out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null
+                        };
+                    }
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                var result = await GetClaudeCliService().ResumeWithFusionDecisionAsync(approve, pending, sessionId, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiFusionDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private void PostAiChatAnswer(WebView2 wv, string requestId, AiChatResult result)
+        {
+            var rounds = new List<object>();
+            foreach (var r in result.Rounds)
+            {
+                rounds.Add(new
+                {
+                    kind = r.Kind,
+                    sql = r.Sql,
+                    method = r.Method,
+                    path = r.Path,
+                    reason = r.Reason,
+                    success = r.Success,
+                    rowCount = r.RowCount,
+                    elapsedMs = r.ElapsedMs,
+                    error = r.Error,
+                    resultJson = r.ResultJson
+                });
+            }
+
+            wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+            {
+                action = "aiChatAnswer",
+                requestId = requestId,
+                success = result.Success,
+                markdown = result.Markdown,
+                error = result.Error,
+                sessionId = result.SessionId,
+                requiresApproval = result.RequiresApproval,
+                pending = result.Pending == null ? null : new
+                {
+                    method = result.Pending.Method,
+                    path = result.Pending.Path,
+                    body = result.Pending.Body,
+                    instance = result.Pending.Instance,
+                    reason = result.Pending.Reason
+                },
+                rounds = rounds
+            }));
         }
 
         private void HandleAiChatCancel(WebView2 wv, string requestId)
