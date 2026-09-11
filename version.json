@@ -1,5 +1,5 @@
 {
-    "version": "9.0.1",
+    "version": "9.0.2",
     "build_date": "2026-09-11",
     "files": {
         "index.html": "2026-09-11",
@@ -11,5 +11,5 @@
         "printer-management-new.js": "2026-06-09",
         "api-log.js": "2026-06-09"
     },
-    "changelog": "v9.0.2 \u2014 Shipping Agent: cancelling a main line now auto-cancels its child lines (numbered sub-lines 3.1/3.2 or BOGO promo items from ARMODULE/BOGO, cached per instance); children already Shipped/Interfaced/Cancelled are skipped with a warning. Per-trip cancellation log at C:\\fusion\\agent_logs with Log viewer button on the trip header. Start Agent dialog warns about child-line auto-cancellation. Trip Management: fixed Edit Trip Header sending empty loading bay and priority 0 (duplicate element IDs)."
+    "changelog": "v10.0.0 \u2014 Shipping Agent: cancelling a main line now auto-cancels its child lines (numbered sub-lines 3.1/3.2 or BOGO promo items from ARMODULE/BOGO, cached per instance); children already Shipped/Interfaced/Cancelled are skipped with a warning. Per-trip cancellation log at C:\\fusion\\agent_logs with Log viewer button on the trip header. Start Agent dialog warns about child-line auto-cancellation. Trip Management: fixed Edit Trip Header sending empty loading bay and priority 0 (duplicate element IDs)."
 }
