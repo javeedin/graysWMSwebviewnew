@@ -417,6 +417,7 @@
                 <button class="tool-btn" id="rp-btn-csv" onclick="exportCsvData(window._pageReportData)" disabled><i class="fas fa-file-csv" style="color:#0891b2;"></i> CSV</button>
                 <button class="tool-btn" id="rp-btn-pdf" onclick="exportPdfData(window._pageReportData)" disabled><i class="fas fa-file-pdf" style="color:#dc2626;"></i> PDF / Print</button>
                 <button class="tool-btn" id="rp-btn-sql" onclick="copySqlData(window._pageReportData)" disabled><i class="fas fa-code"></i> Copy SQL</button>
+                <button class="tool-btn" id="rp-btn-api" onclick="showLastRunApi()" disabled title="Exact request of the last run"><i class="fas fa-plug" style="color:#0e7490;"></i> API</button>
                 <span id="rp-status" style="font-size:11px;color:#0891b2;margin-left:auto;"></span>
             </div>
             <div class="rp-grid-wrap" id="rp-grid-wrap">
@@ -1258,6 +1259,7 @@ function loadReports() {
                         <span><i class="fas fa-user" style="font-size:8px;"></i> ${esc(r.createdBy || '')}</span>
                         <span><i class="fas fa-clock" style="font-size:8px;"></i> ${r.lastRunDate ? 'last run ' + esc(r.lastRunDate) : 'never run'}</span>
                         <span>${r.runCount || 0} run(s)</span>
+                        <button class="rdel" style="color:#0e7490;" onclick="showReportApi(${r.reportId}, event)" title="Show API calls for Postman"><i class="fas fa-plug"></i> api</button>
                         <button class="rdel" onclick="deleteReport(${r.reportId}, '${esc(String(r.name)).replace(/'/g, "\\'")}', event)" title="Delete"><i class="fas fa-trash"></i> delete</button>
                     </div>
                 </div>`;
@@ -1343,6 +1345,71 @@ function showParamModal(rep, target) {
     };
 }
 
+// ── API popup (dark panel with copyable request details) ──
+function showApiPopup(title, sections) {
+    document.getElementById('api-popup')?.remove();
+    const dlg = document.createElement('div');
+    dlg.id = 'api-popup';
+    dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    dlg.innerHTML = `
+        <div style="background:#0f172a;border:1px solid #0e7490;border-radius:12px;width:640px;max-height:82vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.5);">
+            <div style="padding:0.7rem 1rem;display:flex;align-items:center;gap:8px;border-bottom:1px solid #1e293b;">
+                <i class="fas fa-plug" style="color:#7dd3fc;"></i>
+                <span style="font-size:12px;font-weight:800;color:#7dd3fc;">${esc(title)}</span>
+                <button onclick="document.getElementById('api-popup').remove()"
+                    style="margin-left:auto;background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;">×</button>
+            </div>
+            <div style="padding:0.8rem 1rem;">
+                ${sections.map((s, i) => `
+                <div style="margin-bottom:0.9rem;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                        <span style="font-size:10px;font-weight:800;color:#38bdf8;text-transform:uppercase;">${esc(s.label)}</span>
+                        <button onclick="navigator.clipboard.writeText(document.getElementById('api-sec-${i}').textContent)"
+                            style="background:none;border:1px solid #1e293b;border-radius:5px;color:#94a3b8;font-size:9px;padding:1px 7px;cursor:pointer;">copy</button>
+                    </div>
+                    <pre id="api-sec-${i}" style="margin:0;background:#1e1e2e;color:#a6e3a1;padding:8px 10px;border-radius:7px;font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow-y:auto;">${esc(s.text)}</pre>
+                </div>`).join('')}
+            </div>
+        </div>`;
+    document.body.appendChild(dlg);
+    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.remove(); });
+}
+
+// API details for one report card (fetches the definition first)
+function showReportApi(id, ev) {
+    if (ev) ev.stopPropagation();
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: AI_BASE + '/reports/get?id=' + id }, function (err, data) {
+        if (err) { setStatus('Failed: ' + err); return; }
+        let rep = null;
+        try { rep = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (!rep || !rep.reportId) return;
+        const sampleParams = {};
+        (rep.params || []).forEach(p => {
+            sampleParams[p.name] = p.defaultValue ||
+                (p.dataType === 'DATE' ? new Date().toISOString().slice(0, 10)
+                    : p.dataType === 'NUMBER' ? 123 : 'VALUE');
+        });
+        const runBody = JSON.stringify({ reportId: rep.reportId, maxRows: 200, appUser: 'postman', params: sampleParams }, null, 2);
+        showApiPopup('Report API — ' + rep.name, [
+            { label: 'GET definition', text: 'GET ' + AI_BASE + '/reports/get?id=' + rep.reportId },
+            { label: 'POST run — URL', text: 'POST ' + AI_BASE + '/reports/run' },
+            { label: 'POST run — body (Content-Type: application/json)', text: runBody },
+            { label: 'Stored SQL', text: rep.sql || '' }
+        ]);
+    });
+}
+
+// exact request of the last run from the preview toolbar
+function showLastRunApi() {
+    const req = window._pageLastRunReq;
+    if (!req) return;
+    showApiPopup('Last run — ' + req.name, [
+        { label: 'POST run — URL', text: 'POST ' + AI_BASE + '/reports/run' },
+        { label: 'POST run — body (Content-Type: application/json)', text: req.body },
+        { label: 'Response summary', text: req.responseSummary || '(pending)' }
+    ]);
+}
+
 function executeReport(rep, params, onDone, target) {
     target = target || 'chat';
     const rpStatus = document.getElementById('rp-status');
@@ -1350,11 +1417,20 @@ function executeReport(rep, params, onDone, target) {
     else setStatus('Running report "' + rep.name + '"…');
 
     const body = JSON.stringify({ reportId: rep.reportId, maxRows: 500, appUser: 'wms-user', params: params });
+    window._pageLastRunReq = { name: rep.name, body: JSON.stringify(JSON.parse(body), null, 2), responseSummary: null };
+    const apiBtn = document.getElementById('rp-btn-api');
+    if (apiBtn) apiBtn.disabled = false;
+    console.log('[AI Reports] POST', AI_BASE + '/reports/run', body);
     sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/reports/run', body: body }, function (err, data) {
         if (onDone) onDone();
         let resp = null;
         if (!err) { try { resp = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { } }
         const errMsg = err ? String(err) : (!resp || resp.success !== true ? ((resp && resp.error) || 'unknown error') : null);
+        if (window._pageLastRunReq) {
+            window._pageLastRunReq.responseSummary = errMsg
+                ? 'ERROR: ' + errMsg
+                : 'success: ' + resp.rowCount + ' row(s) in ' + resp.elapsedMs + ' ms' + (resp.truncated ? ' (truncated)' : '');
+        }
 
         if (errMsg) {
             if (target === 'page' && rpStatus) rpStatus.innerHTML = '<span style="color:#dc2626;">✗ ' + esc(errMsg) + '</span>';
