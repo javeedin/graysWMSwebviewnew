@@ -3276,7 +3276,7 @@
                     <div id="sa-dlg-tasks-${tid}" style="padding:0.4rem 0.75rem 0.5rem 2.2rem;display:flex;flex-direction:column;gap:4px;background:white;">
                         ${[
                             ['task1','fa-search','Check Shipment Lines','Fetches latest shipment line statuses from Oracle Fusion'],
-                            ['task2','fa-exclamation-triangle','Check Scheduled / Manual Reservations','Detects order lines stuck in Scheduled or Manual Reservations'],
+                            ['task2','fa-exclamation-triangle','Check Scheduled / Manual Reservations','Detects order lines stuck in Scheduled or Manual Reservations and cancels them — related child lines (sub-lines / BOGO promo items) will be cancelled automatically as well'],
                             ['task3','fa-print','Auto-Print Interfaced Orders','Downloads and prints PDFs for orders with Interfaced status']
                         ].map(([key,icon,label,desc]) => `
                         <label style="display:flex;align-items:flex-start;gap:0.5rem;cursor:pointer;font-size:11px;color:#334155;">
@@ -3325,6 +3325,17 @@
                             <i class="fas fa-truck"></i> &nbsp;2 — Trips &amp; Tasks
                         </div>
                         ${tripRows}
+                    </div>
+
+                    <!-- Auto-cancellation notice -->
+                    <div style="margin-top:0.75rem;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:0.6rem 0.8rem;display:flex;gap:0.5rem;align-items:flex-start;">
+                        <i class="fas fa-exclamation-triangle" style="color:#d97706;margin-top:2px;flex-shrink:0;"></i>
+                        <div style="font-size:10.5px;color:#92400e;line-height:1.5;">
+                            <strong>Auto-cancellation:</strong> lines in <strong>Scheduled</strong> / <strong>Manual Reservation Required</strong> status
+                            will be cancelled automatically — and their related <strong>child lines will be cancelled automatically</strong> as well
+                            (numbered sub-lines such as 3.1, 3.2, or BOGO promo items). All cancellations are written to the trip's
+                            cancellation log (<i class="fas fa-file-alt"></i> Log button on the trip header).
+                        </div>
                     </div>
 
                 </div>
