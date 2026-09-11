@@ -3686,6 +3686,7 @@ navPanel.Controls.Add(wmsDevButton);
                 requestId = requestId,
                 success = result.Success,
                 markdown = result.Markdown,
+                grid = result.GridJson,
                 error = result.Error,
                 sessionId = result.SessionId,
                 requiresApproval = result.RequiresApproval,

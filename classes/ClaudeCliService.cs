@@ -46,6 +46,7 @@ namespace WMSApp
     {
         public bool Success { get; set; }
         public string Markdown { get; set; }
+        public string GridJson { get; set; }     // raw {"action":"grid",...} object for interactive answers
         public string Error { get; set; }
         public string SessionId { get; set; }
         public bool RequiresApproval { get; set; }
@@ -69,7 +70,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V2";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V3";
         private const int FUSION_RESULT_MAX_CHARS = 25000;   // fed back to the model
         private const int FUSION_STORE_MAX_CHARS  = 100000;  // kept for the inspector
 
@@ -183,6 +184,23 @@ namespace WMSApp
             sb.AppendLine("- DELETE /fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/{TransactionInterfaceId}   (WRITE) - remove an errored staged transaction.");
             sb.AppendLine();
             sb.AppendLine("Routing rule: when the user's message mentions \"fusion\", prefer these Fusion REST services over SQL. Otherwise prefer SQL against the local WMS schema; combine both when useful (e.g. FULFILL_LINE_ID from SQL, then a Fusion PATCH).");
+            sb.AppendLine();
+            sb.AppendLine("## Interactive grid answers (selectable lists with actions)");
+            sb.AppendLine();
+            sb.AppendLine("When the user asks for a list they may want to ACT ON (cancellable/Scheduled/Manual Reservation lines, staged transaction errors, orders to process) - or asks for a selectable/checkbox list - answer with action grid instead of a markdown table:");
+            sb.AppendLine();
+            sb.AppendLine("{ \"action\": \"grid\", \"title\": \"Manual Reservation lines - Trip 6720\", \"markdown\": \"one-line intro\",");
+            sb.AppendLine("  \"columns\": [\"Order\", \"Line\", \"Item\", \"Description\", \"Status\", \"Qty\"],");
+            sb.AppendLine("  \"rows\": [ { \"cells\": [\"418978\", \"3\", \"EFI218893001B\", \"Corned Beef 340g\", \"Manual Reservation Required\", \"5\"],");
+            sb.AppendLine("               \"data\": { \"ORDER_NUMBER\": \"418978\", \"LINE_NUMBER\": \"3\", \"FULFILL_LINE_ID\": 300001234, \"STATUS\": \"Manual Reservation Required\", \"ITEM\": \"EFI218893001B\" } } ],");
+            sb.AppendLine("  \"actions\": [ { \"id\": \"cancel_lines\", \"label\": \"Cancel selected lines\",");
+            sb.AppendLine("                  \"instruction\": \"Cancel the selected order lines in Fusion (PATCH salesOrdersForOrderHub, OrderedQuantity 0, CancelReason OUT OF STOCK), including their child lines (numbered sub-lines or BOGO promo items)\" } ] }");
+            sb.AppendLine();
+            sb.AppendLine("Grid rules:");
+            sb.AppendLine("- cells align 1:1 with columns; max 200 rows; 1-3 actions.");
+            sb.AppendLine("- data must carry EVERY identifier a follow-up action needs. For line-cancel grids FULFILL_LINE_ID and ORDER_NUMBER are mandatory (query wms_order_shipment_lines or a fusion GET to obtain them).");
+            sb.AppendLine("- When the user selects rows and clicks an action you receive: GRID_ACTION: {\"actionId\":\"...\",\"instruction\":\"...\",\"selectedRows\":[ <data objects> ]}");
+            sb.AppendLine("  Perform that action for exactly those rows - writes go through action fusion (the user then sees an approval card). Group lines of the same order into ONE PATCH. When done, reply with action answer summarizing what happened.");
             sb.AppendLine();
             sb.AppendLine("## SQL rules");
             sb.AppendLine();
@@ -339,6 +357,15 @@ namespace WMSApp
                         result.Success = true;
                         result.Markdown = modelJson.RootElement.TryGetProperty("markdown", out var mEl)
                             ? mEl.GetString() : "(empty answer)";
+                        return result;
+                    }
+
+                    if (string.Equals(action, "grid", StringComparison.OrdinalIgnoreCase))
+                    {
+                        result.Success = true;
+                        result.Markdown = modelJson.RootElement.TryGetProperty("markdown", out var gmEl) &&
+                                          gmEl.ValueKind == JsonValueKind.String ? gmEl.GetString() : "";
+                        result.GridJson = modelJson.RootElement.GetRawText();
                         return result;
                     }
 

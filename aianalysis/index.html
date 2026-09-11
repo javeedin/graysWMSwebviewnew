@@ -211,6 +211,37 @@
     .scat.chat   { background: #f1f5f9; color: #475569; }
     .slash-item .swrite { font-size: 9px; color: #d97706; font-weight: 700; }
 
+    /* Interactive grid answer */
+    .grid-card {
+        max-width: 92%; margin-bottom: 1rem; border: 1px solid var(--border); border-radius: 12px;
+        background: var(--panel); overflow: hidden;
+    }
+    .grid-card .gh {
+        padding: 8px 12px; background: #f5f3ff; border-bottom: 1px solid #ddd6fe;
+        font-size: 12.5px; font-weight: 800; color: var(--primary-dark); display: flex; align-items: center; gap: 8px;
+    }
+    .grid-card .gh .gcount { margin-left: auto; font-size: 10.5px; font-weight: 700; color: var(--muted); }
+    .grid-card .gintro { padding: 7px 12px 0; font-size: 12px; color: var(--text); }
+    .grid-card .gwrap { max-height: 320px; overflow: auto; margin: 8px 0 0; }
+    table.sel-grid { border-collapse: collapse; font-size: 11.5px; width: 100%; }
+    table.sel-grid th {
+        background: #f8fafc; border-bottom: 2px solid var(--border); padding: 5px 9px; text-align: left;
+        font-size: 10.5px; color: var(--muted); position: sticky; top: 0; white-space: nowrap;
+    }
+    table.sel-grid td { border-bottom: 1px solid #f1f5f9; padding: 4px 9px; white-space: nowrap; }
+    table.sel-grid tr.rowsel td { background: #f5f3ff; }
+    table.sel-grid input[type=checkbox] { accent-color: var(--primary); width: 14px; height: 14px; cursor: pointer; }
+    .grid-card .gactions {
+        padding: 8px 12px; border-top: 1px solid var(--border); display: flex; gap: 8px;
+        align-items: center; flex-wrap: wrap; background: #fafafa;
+    }
+    .grid-card .gaction-btn {
+        border: none; border-radius: 8px; padding: 6px 14px; font-size: 12px; font-weight: 700;
+        cursor: pointer; background: var(--primary); color: white;
+    }
+    .grid-card .gaction-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .grid-card .gselinfo { font-size: 11px; color: var(--muted); margin-left: auto; }
+
     /* Fusion approval card */
     .approval-card {
         max-width: 82%; margin-bottom: 1rem; border: 2px solid #fbbf24; border-radius: 12px;
@@ -385,6 +416,7 @@ function openChat(id) {
     box.innerHTML = '';
     c.messages.forEach(m => {
         if (m.role === 'user') appendUserBubble(m.text, m.ts);
+        else if (m.kind === 'grid' && m.grid) appendGridBubble(m.grid, m.rounds || [], m.ts, c);
         else appendAssistantBubble(m.markdown, m.rounds || [], m.ts, m.isError);
     });
     // preview last assistant rounds
@@ -503,35 +535,7 @@ window._inspRounds = {};   // inspId -> rounds of that message
 
 function appendAssistantBubble(markdown, rounds, ts, isError) {
     const box = document.getElementById('messages');
-    const inspId = 'insp-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
-    window._inspRounds[inspId] = rounds || [];
-    const roundsHtml = (rounds && rounds.length) ? `
-        <div class="inspector">
-            <div class="insp-head" onclick="const b=document.getElementById('${inspId}');b.style.display=b.style.display==='block'?'none':'block';">
-                <i class="fas fa-magnifying-glass-chart"></i> SQL Inspector — ${rounds.length} round(s)
-            </div>
-            <div class="insp-body" id="${inspId}">
-                ${rounds.map((r, i) => {
-                    const isFusion = r.kind === 'fusion';
-                    const label = isFusion ? (r.method + ' ' + r.path) : r.sql;
-                    const unit = isFusion ? 'item(s)' : 'rows';
-                    const canView = !isFusion && r.success;
-                    return `
-                    <div class="insp-round">
-                        <div class="rmeta">
-                            <strong>Round ${i + 1}</strong>
-                            ${isFusion ? '<span style="background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:800;">FUSION</span>' : '<span style="background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:800;">SQL</span>'}
-                            <span class="${r.success ? 'ok' : 'fail'}">${r.success ? '✓ ' + r.rowCount + ' ' + unit : '✗ ' + esc(r.error || 'failed')}</span>
-                            <span style="color:#94a3b8;">${r.elapsedMs || 0} ms</span>
-                            ${canView ? `<span class="view-btn" onclick="previewRounds('${inspId}', ${i})">view rows</span>` : ''}
-                            ${isFusion ? `<span class="view-btn" onclick="const p=this.closest('.insp-round').querySelector('.fresp');p.style.display=p.style.display==='block'?'none':'block';">response</span>` : ''}
-                        </div>
-                        <pre>${esc(label)}${isFusion && r.reason ? '\n-- ' + esc(r.reason) : ''}</pre>
-                        ${isFusion ? `<pre class="fresp" style="display:none;color:#fbbf24;">${esc(fusionRespSnippet(r))}</pre>` : ''}
-                    </div>`;
-                }).join('')}
-            </div>
-        </div>` : '';
+    const roundsHtml = roundsInspectorHtml(rounds || []);
     const bubbleStyle = isError ? 'style="border-color:#fca5a5;background:#fff5f5;color:#b91c1c;"' : '';
     box.insertAdjacentHTML('beforeend', `
         <div class="msg assistant">
@@ -577,28 +581,32 @@ function fusionRespSnippet(r) {
 }
 
 function sendMessage() {
-    if (busy) return;
     const inp = document.getElementById('prompt-input');
     const text = inp.value.trim();
     if (!text) return;
     inp.value = '';
+    inp.style.height = 'auto';
+    sendTurn(text, text);
+}
 
-    // ensure a chat exists
+// promptText goes to Claude; displayText is what appears in the chat bubble/history
+function sendTurn(promptText, displayText) {
+    if (busy) return;
     let chat = activeChat();
     if (!chat) {
-        chat = { id: 'c' + Date.now(), title: text.length > 42 ? text.slice(0, 42) + '…' : text, createdAt: Date.now(), sessionId: null, messages: [] };
+        chat = { id: 'c' + Date.now(), title: displayText.length > 42 ? displayText.slice(0, 42) + '…' : displayText, createdAt: Date.now(), sessionId: null, messages: [] };
         chats.push(chat);
         activeChatId = chat.id;
     }
     const ts = Date.now();
-    chat.messages.push({ role: 'user', text: text, ts: ts });
+    chat.messages.push({ role: 'user', text: displayText, ts: ts });
     saveChats(); renderChatList();
-    appendUserBubble(text, ts);
+    appendUserBubble(displayText, ts);
     setBusy(true);
     setStatus('Claude is thinking…');
 
     window._turnRounds = [];
-    sendMessageToCSharp({ action: 'aiChatSend', text: text, sessionId: chat.sessionId },
+    sendMessageToCSharp({ action: 'aiChatSend', text: promptText, sessionId: chat.sessionId },
         function (err, resp) { handleTurnResponse(chat, err, resp); });
 }
 
@@ -630,14 +638,153 @@ function handleTurnResponse(chat, err, resp) {
     setBusy(false);
     const rounds = window._turnRounds;
     if (resp.success) {
-        chat.messages.push({ role: 'assistant', markdown: resp.markdown, rounds: rounds, ts: ats });
-        appendAssistantBubble(resp.markdown, rounds, ats, false);
+        let gridObj = null;
+        if (resp.grid) {
+            try { gridObj = typeof resp.grid === 'string' ? JSON.parse(resp.grid) : resp.grid; } catch (e) { gridObj = null; }
+        }
+        if (gridObj && Array.isArray(gridObj.columns) && Array.isArray(gridObj.rows)) {
+            chat.messages.push({ role: 'assistant', kind: 'grid', grid: gridObj, rounds: rounds, ts: ats });
+            appendGridBubble(gridObj, rounds, ats, chat);
+        } else {
+            chat.messages.push({ role: 'assistant', markdown: resp.markdown, rounds: rounds, ts: ats });
+            appendAssistantBubble(resp.markdown, rounds, ats, false);
+        }
     } else {
         chat.messages.push({ role: 'assistant', markdown: resp.error || 'Unknown error', rounds: rounds, ts: ats, isError: true });
         appendAssistantBubble(resp.error || 'Unknown error', rounds, ats, true);
     }
     saveChats(); renderChatList();
     setPreview(rounds);
+}
+
+// ── Interactive grid answers ───────────────────────────────
+window._grids = {};   // gid -> { grid, chat }
+
+function appendGridBubble(grid, rounds, ts, chat) {
+    const box = document.getElementById('messages');
+    const empty = box.querySelector('.empty'); if (empty) empty.remove();
+    const gid = 'grid-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    window._grids[gid] = { grid: grid, chat: chat };
+
+    const cols = grid.columns || [];
+    const rows = (grid.rows || []).slice(0, 200);
+    const actions = (grid.actions || []).slice(0, 3);
+
+    const header = `<tr><th style="width:26px;"><input type="checkbox" onclick="gridToggleAll('${gid}', this.checked)"></th>`
+        + cols.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr>';
+    const body = rows.map((r, i) => `
+        <tr id="${gid}-row-${i}">
+            <td><input type="checkbox" onclick="gridRowToggled('${gid}', ${i}, this.checked)"></td>
+            ${(r.cells || []).map(v => '<td>' + (v === null ? '' : esc(v)) + '</td>').join('')}
+        </tr>`).join('');
+
+    const actionBtns = actions.map((a, ai) =>
+        `<button class="gaction-btn" id="${gid}-act-${ai}" disabled onclick="gridAction('${gid}', ${ai})">
+            <i class="fas fa-bolt"></i> ${esc(a.label || a.id)}</button>`).join('');
+
+    box.insertAdjacentHTML('beforeend', `
+        <div class="msg assistant">
+            <div class="grid-card" id="${gid}">
+                <div class="gh"><i class="fas fa-list-check"></i> ${esc(grid.title || 'Select rows')}
+                    <span class="gcount">${rows.length} row(s)</span></div>
+                ${grid.markdown ? `<div class="gintro">${renderMarkdown(grid.markdown)}</div>` : ''}
+                <div class="gwrap"><table class="sel-grid"><thead>${header}</thead><tbody>${body}</tbody></table></div>
+                ${actions.length ? `<div class="gactions">${actionBtns}<span class="gselinfo" id="${gid}-selinfo">0 selected</span></div>` : ''}
+            </div>
+            ${roundsInspectorHtml(rounds)}
+            <div class="meta">${timeStr(ts)}</div>
+        </div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+function gridChecked(gid) {
+    const card = document.getElementById(gid);
+    if (!card) return [];
+    const out = [];
+    card.querySelectorAll('tbody input[type=checkbox]').forEach((cb, i) => { if (cb.checked) out.push(i); });
+    return out;
+}
+
+function gridRowToggled(gid, i, checked) {
+    const row = document.getElementById(`${gid}-row-${i}`);
+    if (row) row.classList.toggle('rowsel', checked);
+    gridUpdateButtons(gid);
+}
+
+function gridToggleAll(gid, checked) {
+    const card = document.getElementById(gid);
+    if (!card) return;
+    card.querySelectorAll('tbody input[type=checkbox]').forEach((cb, i) => {
+        cb.checked = checked;
+        const row = document.getElementById(`${gid}-row-${i}`);
+        if (row) row.classList.toggle('rowsel', checked);
+    });
+    gridUpdateButtons(gid);
+}
+
+function gridUpdateButtons(gid) {
+    const n = gridChecked(gid).length;
+    const card = document.getElementById(gid);
+    if (!card) return;
+    card.querySelectorAll('.gaction-btn').forEach(b => b.disabled = n === 0 || busy);
+    const info = document.getElementById(`${gid}-selinfo`);
+    if (info) info.textContent = n + ' selected';
+}
+
+function gridAction(gid, ai) {
+    if (busy) return;
+    const ctx = window._grids[gid];
+    if (!ctx) return;
+    const action = (ctx.grid.actions || [])[ai];
+    if (!action) return;
+    const idxs = gridChecked(gid);
+    if (idxs.length === 0) return;
+
+    const selectedRows = idxs.map(i => (ctx.grid.rows[i] && ctx.grid.rows[i].data) || ctx.grid.rows[i] || {});
+    const payload = 'GRID_ACTION: ' + JSON.stringify({
+        actionId: action.id || action.label,
+        instruction: action.instruction || action.label,
+        selectedRows: selectedRows
+    });
+    const display = '▶ ' + (action.label || action.id) + ' — ' + idxs.length + ' row(s) selected';
+
+    // make sure the action lands in the grid's own conversation
+    if (activeChatId !== ctx.chat.id) activeChatId = ctx.chat.id;
+    sendTurn(payload, display);
+}
+
+// inspector HTML shared by markdown and grid bubbles
+function roundsInspectorHtml(rounds) {
+    if (!rounds || !rounds.length) return '';
+    const inspId = 'insp-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    window._inspRounds[inspId] = rounds;
+    return `
+        <div class="inspector">
+            <div class="insp-head" onclick="const b=document.getElementById('${inspId}');b.style.display=b.style.display==='block'?'none':'block';">
+                <i class="fas fa-magnifying-glass-chart"></i> SQL Inspector — ${rounds.length} round(s)
+            </div>
+            <div class="insp-body" id="${inspId}">
+                ${rounds.map((r, i) => {
+                    const isFusion = r.kind === 'fusion';
+                    const label = isFusion ? (r.method + ' ' + r.path) : r.sql;
+                    const unit = isFusion ? 'item(s)' : 'rows';
+                    const canView = !isFusion && r.success;
+                    return `
+                    <div class="insp-round">
+                        <div class="rmeta">
+                            <strong>Round ${i + 1}</strong>
+                            ${isFusion ? '<span style="background:#fee2e2;color:#b91c1c;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:800;">FUSION</span>' : '<span style="background:#dbeafe;color:#1d4ed8;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:800;">SQL</span>'}
+                            <span class="${r.success ? 'ok' : 'fail'}">${r.success ? '✓ ' + r.rowCount + ' ' + unit : '✗ ' + esc(r.error || 'failed')}</span>
+                            <span style="color:#94a3b8;">${r.elapsedMs || 0} ms</span>
+                            ${canView ? `<span class="view-btn" onclick="previewRounds('${inspId}', ${i})">view rows</span>` : ''}
+                            ${isFusion ? `<span class="view-btn" onclick="const p=this.closest('.insp-round').querySelector('.fresp');p.style.display=p.style.display==='block'?'none':'block';">response</span>` : ''}
+                        </div>
+                        <pre>${esc(label)}${isFusion && r.reason ? '\n-- ' + esc(r.reason) : ''}</pre>
+                        ${isFusion ? `<pre class="fresp" style="display:none;color:#fbbf24;">${esc(fusionRespSnippet(r))}</pre>` : ''}
+                    </div>`;
+                }).join('')}
+            </div>
+        </div>`;
 }
 
 // ── Fusion write approval card ─────────────────────────────
@@ -856,6 +1003,10 @@ const SLASH_COMMANDS = [
       template: 'How many print jobs failed this week? Break it down by day' },
     { cmd: '/apex-agent-activity', cat: 'apex', desc: 'Shipping agent activity, last 24h',
       template: 'Show the shipping agent activity of the last 24 hours grouped by activity type' },
+    { cmd: '/trip-manual-lines',   cat: 'apex', write: true, desc: 'Selectable grid of Scheduled/Manual Reservation lines of a trip',
+      template: 'Show the Scheduled / Manual Reservation Required lines of trip TRIP_ID in a selectable grid (include ORDER_NUMBER, LINE_NUMBER, ITEM, STATUS and FULFILL_LINE_ID) so I can cancel specific lines', ph: 'TRIP_ID' },
+    { cmd: '/order-lines-grid',    cat: 'apex', write: true, desc: 'Selectable grid of one order\'s lines for cancelling',
+      template: 'Show all lines of order ORDER_NUMBER in a selectable grid with their statuses and FULFILL_LINE_ID so I can cancel specific lines', ph: 'ORDER_NUMBER' },
     { cmd: '/help', cat: 'chat', desc: 'What can this assistant do?', local: 'help' },
     { cmd: '/new',  cat: 'chat', desc: 'Start a new conversation',    local: 'new' }
 ];
@@ -924,6 +1075,8 @@ function showHelpBubble() {
         '**APEX / SQL** — I write and run read-only Oracle SQL against the WMS schema (trips, print jobs, shipment lines, agents…).',
         '',
         '**Oracle Fusion REST** — say the word *fusion* and I use the live Fusion APIs instead: shipment lines, sales orders, staged inventory transactions. Write calls (cancel lines, ship confirm, delete staged transactions) always show you an **approval card** first.',
+        '',
+        '**Interactive grids** — ask for a list "in a selectable grid" (or use `/trip-manual-lines`) and I return checkbox rows with action buttons: tick the lines you want, click e.g. *Cancel selected lines*, approve the Fusion call, done.',
         '',
         '### Slash commands',
         '',
