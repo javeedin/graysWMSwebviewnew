@@ -318,6 +318,9 @@
     <div class="topbar">
         <a class="back" href="../Home/index.html"><i class="fas fa-arrow-left"></i> Home</a>
         <div class="title">🤖 AI Analysis <span class="ver-badge">v10.0.0</span></div>
+        <button onclick="openEmailSettings(false)" title="Email settings (Office 365 sender account)"
+            style="background:rgba(255,255,255,0.15);border:none;border-radius:8px;color:white;padding:4px 11px;font-size:12px;cursor:pointer;">
+            <i class="fas fa-envelope"></i></button>
         <div class="cli-chip" id="cli-chip"><span class="dot"></span><span id="cli-chip-text">Checking Claude CLI…</span></div>
     </div>
 
@@ -811,6 +814,11 @@ function handleTurnResponse(chat, err, resp) {
         renderApprovalCard(chat, resp.pending);
         return;
     }
+    // outgoing email waiting for approval
+    if (resp.requiresApproval && resp.pendingEmail) {
+        renderEmailApprovalCard(chat, resp.pendingEmail);
+        return;
+    }
 
     setBusy(false);
     const rounds = window._turnRounds;
@@ -963,6 +971,163 @@ function roundsInspectorHtml(rounds) {
                 }).join('')}
             </div>
         </div>`;
+}
+
+// ── Email (Office 365 SMTP via C#) ─────────────────────────
+const EMAIL_LS_KEY = 'aiEmailSettings';
+
+function getEmailSettings() {
+    try {
+        const s = JSON.parse(localStorage.getItem(EMAIL_LS_KEY) || 'null');
+        if (!s || !s.username || !s.p) return null;
+        return { server: s.server || 'smtp.office365.com', port: s.port || 587, username: s.username, password: atob(s.p) };
+    } catch (e) { return null; }
+}
+
+function openEmailSettings(resumeSendAfterSave) {
+    document.getElementById('em-modal')?.remove();
+    const cur = getEmailSettings() || {};
+    const dlg = document.createElement('div');
+    dlg.id = 'em-modal';
+    dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100001;display:flex;align-items:center;justify-content:center;';
+    dlg.innerHTML = `
+        <div style="background:white;border-radius:14px;width:420px;box-shadow:0 24px 80px rgba(0,0,0,0.3);">
+            <div style="padding:0.8rem 1.1rem;background:linear-gradient(135deg,#0f6cbd,#0a4f8f);border-radius:14px 14px 0 0;">
+                <div style="font-weight:800;font-size:13px;color:white;"><i class="fas fa-envelope"></i> Email Settings — Office 365</div>
+                <div style="font-size:10.5px;color:rgba(255,255,255,0.85);margin-top:2px;">Emails are sent FROM this account. With MFA enabled, use an App Password.</div>
+            </div>
+            <div style="padding:1rem 1.1rem;">
+                <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Email address (username) <span style="color:#dc2626;">*</span></label>
+                <input id="em-user" type="email" value="${esc(cur.username || '')}" placeholder="name@yourcompany.com"
+                    style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;margin-bottom:0.7rem;">
+                <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Password / App Password <span style="color:#dc2626;">*</span></label>
+                <input id="em-pass" type="password" value="${esc(cur.password || '')}"
+                    style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;margin-bottom:0.7rem;">
+                <div style="display:flex;gap:0.6rem;">
+                    <div style="flex:2;">
+                        <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">SMTP server</label>
+                        <input id="em-server" type="text" value="${esc(cur.server || 'smtp.office365.com')}"
+                            style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;">
+                    </div>
+                    <div style="flex:1;">
+                        <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">Port</label>
+                        <input id="em-port" type="number" value="${cur.port || 587}"
+                            style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;">
+                    </div>
+                </div>
+                <div id="em-status" style="font-size:11px;margin-top:0.6rem;min-height:16px;"></div>
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:0.3rem;">Stored only on this PC (browser storage of this app). Never sent to the AI model.</div>
+            </div>
+            <div style="padding:0.7rem 1.1rem;border-top:1px solid #f1f5f9;display:flex;gap:0.5rem;">
+                <button onclick="testEmailSettings()"
+                    style="padding:0.45rem 1rem;border:1px solid #0f6cbd;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:600;color:#0f6cbd;">
+                    <i class="fas fa-vial"></i> Test</button>
+                <button onclick="document.getElementById('em-modal').remove()"
+                    style="margin-left:auto;padding:0.45rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:600;color:#64748b;">Cancel</button>
+                <button onclick="saveEmailSettings(${resumeSendAfterSave ? 'true' : 'false'})"
+                    style="padding:0.45rem 1.3rem;border:none;border-radius:8px;background:#0f6cbd;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                    <i class="fas fa-floppy-disk"></i> Save${resumeSendAfterSave ? ' & Send' : ''}</button>
+            </div>
+        </div>`;
+    document.body.appendChild(dlg);
+}
+
+function readEmailForm() {
+    return {
+        username: (document.getElementById('em-user').value || '').trim(),
+        password: document.getElementById('em-pass').value || '',
+        server: (document.getElementById('em-server').value || 'smtp.office365.com').trim(),
+        port: parseInt(document.getElementById('em-port').value) || 587
+    };
+}
+
+// existing C# test/send handlers report back through this global
+window.handleEmailSendResult = function (success, message) {
+    const el = document.getElementById('em-status');
+    if (el) el.innerHTML = success
+        ? '<span style="color:#16a34a;">✓ ' + esc(message) + '</span>'
+        : '<span style="color:#dc2626;">✗ ' + esc(message) + '</span>';
+};
+
+function testEmailSettings() {
+    const f = readEmailForm();
+    if (!f.username || !f.password) { window.handleEmailSendResult(false, 'Enter email and password first'); return; }
+    document.getElementById('em-status').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing connection…';
+    sendMessageToCSharp({
+        action: 'testSmtpConnection',
+        smtpServer: f.server, smtpPort: f.port,
+        username: f.username, password: f.password, useSsl: true
+    }, function () { });
+}
+
+function saveEmailSettings(resumeSend) {
+    const f = readEmailForm();
+    if (!f.username || !f.password) { window.handleEmailSendResult(false, 'Email and password are required'); return; }
+    try {
+        localStorage.setItem(EMAIL_LS_KEY, JSON.stringify({
+            username: f.username, p: btoa(f.password), server: f.server, port: f.port
+        }));
+    } catch (e) { }
+    document.getElementById('em-modal')?.remove();
+    setStatus('Email settings saved (' + f.username + ')');
+    setTimeout(() => setStatus(''), 2000);
+    if (resumeSend && window._pendingEmailCtx) decideEmail(true);
+}
+
+// ── Email approval card ────────────────────────────────────
+function renderEmailApprovalCard(chat, pending) {
+    setStatus('Waiting for your approval to send the email…');
+    const box = document.getElementById('messages');
+    const cardId = 'eml-' + Date.now();
+    window._pendingEmailCtx = { chat: chat, pending: pending, cardId: cardId };
+    box.insertAdjacentHTML('beforeend', `
+        <div class="approval-card" id="${cardId}" style="border-color:#60a5fa;background:#eff6ff;">
+            <div class="ah" style="background:#dbeafe;color:#1e40af;"><i class="fas fa-envelope"></i> Email — approval required</div>
+            <div class="ab" style="color:#1e3a8a;">
+                ${pending.reason ? '<div style="margin-bottom:5px;">' + esc(pending.reason) + '</div>' : ''}
+                <div><strong>To:</strong> ${esc(pending.to)}</div>
+                ${pending.cc ? '<div><strong>Cc:</strong> ' + esc(pending.cc) + '</div>' : ''}
+                <div><strong>Subject:</strong> ${esc(pending.subject)}</div>
+                <div style="margin-top:6px;border:1px solid #bfdbfe;border-radius:6px;background:white;max-height:220px;overflow:auto;padding:8px;font-size:11px;">
+                    ${DOMPurify.sanitize(pending.bodyHtml || '')}
+                </div>
+            </div>
+            <div class="af" style="background:#eff6ff;">
+                <button class="btn-reject" onclick="decideEmail(false)"><i class="fas fa-times"></i> Reject</button>
+                <button class="btn-approve" style="background:#0f6cbd;" onclick="decideEmail(true)"><i class="fas fa-paper-plane"></i> Approve &amp; Send</button>
+            </div>
+            <div class="adecision"></div>
+        </div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+function decideEmail(approve) {
+    const ctx = window._pendingEmailCtx;
+    if (!ctx) return;
+
+    let smtp = null;
+    if (approve) {
+        const s = getEmailSettings();
+        if (!s) { openEmailSettings(true); return; }   // save & send resumes here
+        smtp = { server: s.server, port: s.port, username: s.username, password: s.password };
+    }
+
+    window._pendingEmailCtx = null;
+    const card = document.getElementById(ctx.cardId);
+    if (card) {
+        card.classList.add('decided');
+        const d = card.querySelector('.adecision');
+        d.textContent = approve ? '✓ Approved — sending…' : '✗ Rejected — email not sent';
+        d.style.color = approve ? '#0f6cbd' : '#dc2626';
+    }
+    setStatus(approve ? 'Sending email…' : 'Rejected — Claude is continuing…');
+    sendMessageToCSharp({
+        action: 'aiEmailDecision',
+        approve: approve,
+        sessionId: ctx.chat.sessionId,
+        pending: ctx.pending,
+        smtp: smtp
+    }, function (err, resp) { handleTurnResponse(ctx.chat, err, resp); });
 }
 
 // ── Fusion write approval card ─────────────────────────────
@@ -1522,6 +1687,9 @@ const SLASH_COMMANDS = [
       template: 'Show the Scheduled / Manual Reservation Required lines of trip TRIP_ID in a selectable grid (include ORDER_NUMBER, LINE_NUMBER, ITEM, STATUS and FULFILL_LINE_ID) so I can cancel specific lines', ph: 'TRIP_ID' },
     { cmd: '/order-lines-grid',    cat: 'apex', write: true, desc: 'Selectable grid of one order\'s lines for cancelling',
       template: 'Show all lines of order ORDER_NUMBER in a selectable grid with their statuses and FULFILL_LINE_ID so I can cancel specific lines', ph: 'ORDER_NUMBER' },
+    { cmd: '/email', cat: 'chat', write: true, desc: 'Email the last result (approval required)',
+      template: 'Email the last result to EMAIL_ADDRESS with a short summary and the data as a table', ph: 'EMAIL_ADDRESS' },
+    { cmd: '/email-settings', cat: 'chat', desc: 'Configure the Office 365 sender account', local: 'emailSettings' },
     { cmd: '/save-report', cat: 'chat', desc: 'Save the last answer as a re-runnable report',
       template: 'Save this as a report. Name it REPORT_NAME and turn the filters into parameters where useful.', ph: 'REPORT_NAME' },
     { cmd: '/reports', cat: 'chat', desc: 'Open the saved Reports tab', local: 'reports' },
@@ -1565,6 +1733,7 @@ function applySlash(i) {
     if (c.local === 'new') { inp.value = ''; newChat(); return; }
     if (c.local === 'help') { inp.value = ''; showHelpBubble(); return; }
     if (c.local === 'reports') { inp.value = ''; switchPage('reports'); return; }
+    if (c.local === 'emailSettings') { inp.value = ''; openEmailSettings(false); return; }
     inp.value = c.template;
     inp.focus();
     if (c.ph) {
@@ -1598,6 +1767,8 @@ function showHelpBubble() {
         '**Interactive grids** — ask for a list "in a selectable grid" (or use `/trip-manual-lines`) and I return checkbox rows with action buttons: tick the lines you want, click e.g. *Cancel selected lines*, approve the Fusion call, done.',
         '',
         '**Saved reports** — after any answer say *"save this as a report"* (or `/save-report`): the SQL is stored in the database with prompt-able parameters (trip, order, date range). Re-run it any time from the **Reports** tab — it always fetches live data.',
+        '',
+        '**Email** — say *"email this to name@company.com"* (or `/email`): I compose the mail with the data as a table, you review it in an **approval card**, and it\'s sent from your Office 365 account (configure once via the ✉ button or `/email-settings`).',
         '',
         '### Slash commands',
         '',

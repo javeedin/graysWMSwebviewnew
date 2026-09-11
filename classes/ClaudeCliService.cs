@@ -40,6 +40,18 @@ namespace WMSApp
     }
 
     /// <summary>
+    /// An outgoing email waiting for on-screen user approval.
+    /// </summary>
+    public class AiPendingEmail
+    {
+        public string To { get; set; }
+        public string Cc { get; set; }
+        public string Subject { get; set; }
+        public string BodyHtml { get; set; }
+        public string Reason { get; set; }
+    }
+
+    /// <summary>
     /// Final outcome of one user message (after up to 5 SQL/Fusion rounds).
     /// </summary>
     public class AiChatResult
@@ -51,6 +63,7 @@ namespace WMSApp
         public string SessionId { get; set; }
         public bool RequiresApproval { get; set; }
         public AiPendingFusion Pending { get; set; }
+        public AiPendingEmail PendingEmail { get; set; }
         public List<AiSqlRound> Rounds { get; set; } = new List<AiSqlRound>();
     }
 
@@ -70,7 +83,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V4";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V5";
         private const string REPORT_SAVE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/reports/save";
         private const int FUSION_RESULT_MAX_CHARS = 25000;   // fed back to the model
@@ -214,6 +227,15 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine("Rules: single SELECT; turn the literal filters of the SQL you last ran into :P_XXX bind parameters where a future user would want to choose the value (trip id, order number, date range); dataType is TEXT, NUMBER or DATE (DATE values are exchanged as YYYY-MM-DD); params may be empty for a fixed report. You then receive REPORT_SAVE_RESULT: {success, reportId} - confirm to the user with action answer, mentioning the report name and its parameters. Saved reports appear in the Reports tab where the user re-runs them live with prompted parameters.");
             sb.AppendLine();
+            sb.AppendLine("## Sending emails");
+            sb.AppendLine();
+            sb.AppendLine("When the user asks to EMAIL something (a result, a summary, an alert), reply with:");
+            sb.AppendLine();
+            sb.AppendLine("{ \"action\": \"email\", \"to\": \"a@company.com;b@company.com\", \"cc\": \"\", \"subject\": \"...\",");
+            sb.AppendLine("  \"bodyHtml\": \"<p>...</p><table>...</table>\", \"reason\": \"one line\" }");
+            sb.AppendLine();
+            sb.AppendLine("Rules: bodyHtml is a complete simple HTML fragment - short intro paragraph, then data as an HTML table with inline styles (border-collapse, 1px solid #ccc cells, bold header row); include the rows from your last result yourself (max 100 rows, note if truncated). The app shows the user an approval card with the recipients and body before sending, using the sender account configured in the app - you never see or need credentials. You then receive EMAIL_RESULT: {success, message} (or USER_REJECTED) - confirm to the user with action answer. If the user did not say who to send to, ask via action answer instead of guessing.");
+            sb.AppendLine();
             sb.AppendLine("## SQL rules");
             sb.AppendLine();
             sb.AppendLine("- Oracle dialect. Single SELECT (or WITH) statement only - no INSERT/UPDATE/DELETE/DDL, no semicolons, no PL/SQL.");
@@ -323,6 +345,15 @@ namespace WMSApp
             var result = await RunLoopAsync(prompt, sessionId, onEvent);
             result.Rounds.InsertRange(0, preRounds);
             return result;
+        }
+
+        /// <summary>
+        /// Resumes a paused turn with an arbitrary result prompt
+        /// (e.g. EMAIL_RESULT after the user approved/rejected sending).
+        /// </summary>
+        public Task<AiChatResult> ResumeWithPromptAsync(string prompt, string sessionId, Func<object, Task> onEvent)
+        {
+            return RunLoopAsync(prompt, sessionId, onEvent);
         }
 
         private async Task<AiChatResult> RunLoopAsync(string initialPrompt, string sessionId, Func<object, Task> onEvent)
@@ -481,6 +512,22 @@ namespace WMSApp
 
                         prompt = "FUSION_RESULT: " + TruncateForModel(fRound.ResultJson);
                         continue;
+                    }
+
+                    if (string.Equals(action, "email", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var root = modelJson.RootElement;
+                        result.Success = true;
+                        result.RequiresApproval = true;
+                        result.PendingEmail = new AiPendingEmail
+                        {
+                            To       = root.TryGetProperty("to",       out var toEl) ? toEl.GetString() : "",
+                            Cc       = root.TryGetProperty("cc",       out var ccEl) && ccEl.ValueKind == JsonValueKind.String ? ccEl.GetString() : "",
+                            Subject  = root.TryGetProperty("subject",  out var suEl) ? suEl.GetString() : "",
+                            BodyHtml = root.TryGetProperty("bodyHtml", out var bhEl) ? bhEl.GetString() : "",
+                            Reason   = root.TryGetProperty("reason",   out var reEl) && reEl.ValueKind == JsonValueKind.String ? reEl.GetString() : ""
+                        };
+                        return result;
                     }
 
                     if (string.Equals(action, "save_report", StringComparison.OrdinalIgnoreCase))

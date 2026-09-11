@@ -1851,6 +1851,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiFusionDecision(wv, messageJson, requestId);
                                     break;
 
+                                case "aiEmailDecision":
+                                    await HandleAiEmailDecision(wv, messageJson, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3698,8 +3702,118 @@ navPanel.Controls.Add(wmsDevButton);
                     instance = result.Pending.Instance,
                     reason = result.Pending.Reason
                 },
+                pendingEmail = result.PendingEmail == null ? null : new
+                {
+                    to = result.PendingEmail.To,
+                    cc = result.PendingEmail.Cc,
+                    subject = result.PendingEmail.Subject,
+                    bodyHtml = result.PendingEmail.BodyHtml,
+                    reason = result.PendingEmail.Reason
+                },
                 rounds = rounds
             }));
+        }
+
+        /// <summary>
+        /// User approved/rejected an AI-composed email. On approve, sends it
+        /// via SMTP (Office 365 by default) with the settings supplied by the
+        /// page, then resumes the CLI conversation with EMAIL_RESULT.
+        /// </summary>
+        private async Task HandleAiEmailDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null;
+                string to = "", cc = "", subject = "", bodyHtml = "";
+                string smtpServer = "smtp.office365.com";
+                int smtpPort = 587;
+                string username = "", password = "";
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
+                    {
+                        to       = pEl.TryGetProperty("to",       out var t) ? t.GetString() ?? "" : "";
+                        cc       = pEl.TryGetProperty("cc",       out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : "";
+                        subject  = pEl.TryGetProperty("subject",  out var su) ? su.GetString() ?? "" : "";
+                        bodyHtml = pEl.TryGetProperty("bodyHtml", out var bh) ? bh.GetString() ?? "" : "";
+                    }
+                    if (root.TryGetProperty("smtp", out var smEl) && smEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (smEl.TryGetProperty("server",   out var sv) && sv.ValueKind == JsonValueKind.String) smtpServer = sv.GetString();
+                        if (smEl.TryGetProperty("port",     out var pt) && pt.ValueKind == JsonValueKind.Number) smtpPort = pt.GetInt32();
+                        if (smEl.TryGetProperty("username", out var un) && un.ValueKind == JsonValueKind.String) username = un.GetString();
+                        if (smEl.TryGetProperty("password", out var pw) && pw.ValueKind == JsonValueKind.String) password = pw.GetString();
+                    }
+                }
+
+                string emailResult;
+                if (!approve)
+                {
+                    emailResult = "USER_REJECTED - the user declined to send this email. Continue and tell them it was not sent.";
+                }
+                else if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                {
+                    emailResult = "{\"success\":false,\"message\":\"Email settings are not configured in the app (username/password missing)\"}";
+                }
+                else
+                {
+                    try
+                    {
+                        using var client = new System.Net.Mail.SmtpClient(smtpServer, smtpPort);
+                        client.EnableSsl = true;
+                        client.Credentials = new System.Net.NetworkCredential(username, password);
+                        client.Timeout = 30000;
+
+                        var mail = new System.Net.Mail.MailMessage();
+                        mail.From = new System.Net.Mail.MailAddress(username);
+                        foreach (var r in to.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                            mail.To.Add(r.Trim());
+                        if (!string.IsNullOrWhiteSpace(cc))
+                            foreach (var r in cc.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                                mail.CC.Add(r.Trim());
+                        mail.Subject = subject;
+                        mail.Body = bodyHtml;
+                        mail.IsBodyHtml = true;
+
+                        await Task.Run(() => client.Send(mail));
+                        emailResult = "{\"success\":true,\"message\":\"Email sent to " +
+                                      JsonEncodedText.Encode(to).ToString() + "\"}";
+                    }
+                    catch (System.Net.Mail.SmtpException smtpEx)
+                    {
+                        string msg = smtpEx.Message;
+                        if (msg.Contains("5.7.57") || msg.ToLower().Contains("authentication"))
+                            msg = "Authentication failed. Check email/password. For Office 365 with MFA use an App Password; if the tenant has disabled SMTP AUTH, ask IT to enable it for this mailbox.";
+                        emailResult = JsonSerializer.Serialize(new { success = false, message = msg });
+                    }
+                    catch (Exception ex)
+                    {
+                        emailResult = JsonSerializer.Serialize(new { success = false, message = ex.Message });
+                    }
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "EMAIL_RESULT: " + emailResult, sessionId, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiEmailDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
         }
 
         private void HandleAiChatCancel(WebView2 wv, string requestId)
