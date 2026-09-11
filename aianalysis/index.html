@@ -1176,20 +1176,39 @@ function switchPage(which) {
 
 function loadReports() {
     window._reportsLoaded = true;
-    sendMessageToCSharp({ action: 'executeGet', fullUrl: AI_BASE + '/reports/list' }, function (err, data) {
-        const el = document.getElementById('report-list');       // chatbot left tab (compact)
-        const pel = document.getElementById('rp-page-list');     // Saved Reports page (rich)
+    const el = document.getElementById('report-list');       // chatbot left tab (compact)
+    const pel = document.getElementById('rp-page-list');     // Saved Reports page (rich)
+    const loading = '<div style="font-size:11px;color:#94a3b8;"><i class="fas fa-spinner fa-spin"></i> Loading reports…</div>';
+    if (pel) pel.innerHTML = loading;
+
+    // cache-buster so a refresh always hits ORDS, never any cache layer
+    const url = AI_BASE + '/reports/list?t=' + Date.now();
+    console.log('[AI Reports] GET', url);
+
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function (err, data) {
         if (err) {
-            const msg = '<div style="font-size:11px;color:#dc2626;">Failed: ' + esc(err) + '</div>';
+            const msg = '<div style="font-size:11px;color:#dc2626;"><i class="fas fa-triangle-exclamation"></i> Failed to load reports: '
+                + esc(String(err)) + '<br><span style="color:#94a3b8;">Check that the GET ai/reports/list handler exists in APEX.</span></div>';
             if (el) el.innerHTML = msg;
             if (pel) pel.innerHTML = msg;
+            console.error('[AI Reports] list failed:', err);
             return;
         }
         let reports = [];
+        let parseErr = null;
         try {
             const parsed = typeof data === 'string' ? JSON.parse(data) : data;
             reports = (parsed && parsed.reports) || [];
-        } catch (e) { }
+            if (!parsed || parsed.reports === undefined) parseErr = 'Unexpected response shape: ' + JSON.stringify(parsed).slice(0, 200);
+        } catch (e) { parseErr = e.message + ' — raw: ' + String(data).slice(0, 200); }
+        if (parseErr) {
+            const msg = '<div style="font-size:11px;color:#dc2626;">Bad response from reports/list: ' + esc(parseErr) + '</div>';
+            if (el) el.innerHTML = msg;
+            if (pel) pel.innerHTML = msg;
+            console.error('[AI Reports] parse failed:', parseErr, data);
+            return;
+        }
+        console.log('[AI Reports] loaded', reports.length, 'report(s)');
         window._allReports = reports;
 
         if (reports.length === 0) {
