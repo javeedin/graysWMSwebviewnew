@@ -280,6 +280,7 @@
             <div class="left-tabs">
                 <div class="left-tab active" id="tab-chats" onclick="switchTab('chats')"><i class="fas fa-comments"></i> Chats</div>
                 <div class="left-tab" id="tab-objects" onclick="switchTab('objects')"><i class="fas fa-table"></i> Objects</div>
+                <div class="left-tab" id="tab-reports" onclick="switchTab('reports')"><i class="fas fa-chart-line"></i> Reports</div>
             </div>
             <div class="left-body" id="pane-chats">
                 <button class="new-chat-btn" onclick="newChat()"><i class="fas fa-plus"></i> New Chat</button>
@@ -288,6 +289,13 @@
             <div class="left-body" id="pane-objects" style="display:none;">
                 <input class="obj-search" id="obj-search" placeholder="Search tables / views…" oninput="renderObjects()">
                 <div id="obj-list"><div style="font-size:11px;color:#94a3b8;">Loading metadata…</div></div>
+            </div>
+            <div class="left-body" id="pane-reports" style="display:none;">
+                <button class="new-chat-btn" onclick="loadReports()"><i class="fas fa-sync-alt"></i> Refresh Reports</button>
+                <div id="report-list"><div style="font-size:11px;color:#94a3b8;">Loading reports…</div></div>
+                <div style="font-size:10px;color:#94a3b8;margin-top:0.6rem;line-height:1.5;">
+                    Tip: after any answer, type <em>"save this as a report"</em> — Claude stores the SQL with prompt-able parameters.
+                </div>
             </div>
         </div>
 
@@ -447,10 +455,11 @@ const METADATA_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oracl
 let allObjects = [];
 
 function switchTab(which) {
-    document.getElementById('tab-chats').classList.toggle('active', which === 'chats');
-    document.getElementById('tab-objects').classList.toggle('active', which === 'objects');
-    document.getElementById('pane-chats').style.display = which === 'chats' ? '' : 'none';
-    document.getElementById('pane-objects').style.display = which === 'objects' ? '' : 'none';
+    ['chats', 'objects', 'reports'].forEach(t => {
+        document.getElementById('tab-' + t).classList.toggle('active', which === t);
+        document.getElementById('pane-' + t).style.display = which === t ? '' : 'none';
+    });
+    if (which === 'reports' && !window._reportsLoaded) loadReports();
 }
 
 function loadObjects() {
@@ -561,6 +570,7 @@ function setStatus(text) {
 }
 
 function handleChatEvent(evt) {
+    if (evt.eventType === 'reportSaved') { window._reportsLoaded = false; loadReports(); return; }
     if (evt.eventType === 'status') setStatus(evt.text);
     else if (evt.eventType === 'sqlRound') {
         const what = evt.kind === 'fusion'
@@ -980,6 +990,146 @@ function copySql() {
 }
 
 // ============================================================
+// Saved reports (DB-backed: wms_ai_reports / wms_ai_report_params)
+// ============================================================
+const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
+
+function loadReports() {
+    window._reportsLoaded = true;
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: AI_BASE + '/reports/list' }, function (err, data) {
+        const el = document.getElementById('report-list');
+        if (err) { el.innerHTML = '<div style="font-size:11px;color:#dc2626;">Failed: ' + esc(err) + '</div>'; return; }
+        let reports = [];
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            reports = (parsed && parsed.reports) || [];
+        } catch (e) { }
+        if (reports.length === 0) {
+            el.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:0.3rem;">No saved reports yet.</div>';
+            return;
+        }
+        let html = '', lastCat = null;
+        for (const r of reports) {
+            if (r.category !== lastCat) {
+                lastCat = r.category;
+                html += `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin:0.5rem 0 0.2rem;">${esc(lastCat || 'General')}</div>`;
+            }
+            html += `
+            <div class="chat-item" onclick="openReport(${r.reportId})" title="${esc(r.description || '')}">
+                <i class="fas fa-chart-line" style="font-size:10px;color:#0891b2;"></i>
+                <span class="ctitle">${esc(r.name)}</span>
+                <span style="font-size:9px;color:#94a3b8;">${r.paramCount > 0 ? '<i class="fas fa-sliders"></i> ' + r.paramCount : ''}</span>
+                <span class="cdel" onclick="deleteReport(${r.reportId}, '${esc(String(r.name)).replace(/'/g, "\\'")}', event)" title="Delete report"><i class="fas fa-trash"></i></span>
+            </div>`;
+        }
+        el.innerHTML = html;
+    });
+}
+
+function deleteReport(id, name, ev) {
+    ev.stopPropagation();
+    if (!confirm('Delete report "' + name + '"?')) return;
+    sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/reports/delete', body: JSON.stringify({ reportId: id }) },
+        function () { loadReports(); });
+}
+
+function openReport(id) {
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: AI_BASE + '/reports/get?id=' + id }, function (err, data) {
+        if (err) { setStatus('Failed to load report: ' + err); return; }
+        let rep = null;
+        try { rep = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (!rep || !rep.reportId) { setStatus('Report not found'); return; }
+        if ((rep.params || []).length === 0) { executeReport(rep, {}); return; }
+        showParamModal(rep);
+    });
+}
+
+function showParamModal(rep) {
+    document.getElementById('rp-modal')?.remove();
+    const inputs = (rep.params || []).map((p, i) => {
+        const type = p.dataType === 'DATE' ? 'date' : (p.dataType === 'NUMBER' ? 'number' : 'text');
+        const def = p.defaultValue ? ` value="${esc(p.defaultValue)}"` : '';
+        return `
+        <div style="margin-bottom:0.7rem;">
+            <label style="font-size:11px;font-weight:700;color:#334155;display:block;margin-bottom:3px;">
+                ${esc(p.label || p.name)} ${p.required ? '<span style="color:#dc2626;">*</span>' : ''}
+                <span style="font-weight:400;color:#94a3b8;">(${esc(p.dataType)})</span>
+            </label>
+            <input id="rp-param-${i}" data-name="${esc(p.name)}" data-required="${p.required ? '1' : '0'}" type="${type}"${def}
+                style="width:100%;box-sizing:border-box;padding:7px 10px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:12.5px;outline:none;">
+        </div>`;
+    }).join('');
+
+    const dlg = document.createElement('div');
+    dlg.id = 'rp-modal';
+    dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:99999;display:flex;align-items:center;justify-content:center;';
+    dlg.innerHTML = `
+        <div style="background:white;border-radius:14px;width:420px;max-height:80vh;overflow-y:auto;box-shadow:0 24px 80px rgba(0,0,0,0.3);">
+            <div style="padding:0.8rem 1.1rem;background:linear-gradient(135deg,#0891b2,#0e7490);border-radius:14px 14px 0 0;">
+                <div style="font-weight:800;font-size:13px;color:white;"><i class="fas fa-chart-line"></i> ${esc(rep.name)}</div>
+                ${rep.description ? `<div style="font-size:10.5px;color:rgba(255,255,255,0.85);margin-top:2px;">${esc(rep.description)}</div>` : ''}
+            </div>
+            <div style="padding:1rem 1.1rem;">
+                ${inputs}
+                <div id="rp-modal-err" style="font-size:11px;color:#dc2626;margin-bottom:0.4rem;"></div>
+            </div>
+            <div style="padding:0.7rem 1.1rem;border-top:1px solid #f1f5f9;display:flex;justify-content:flex-end;gap:0.5rem;">
+                <button onclick="document.getElementById('rp-modal').remove()"
+                    style="padding:0.45rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:white;cursor:pointer;font-size:12px;font-weight:600;color:#64748b;">Cancel</button>
+                <button id="rp-run-btn"
+                    style="padding:0.45rem 1.3rem;border:none;border-radius:8px;background:#0891b2;cursor:pointer;font-size:12px;font-weight:700;color:white;">
+                    <i class="fas fa-play"></i> Run Report</button>
+            </div>
+        </div>`;
+    document.body.appendChild(dlg);
+    dlg.addEventListener('click', e => { if (e.target === dlg) dlg.remove(); });
+
+    document.getElementById('rp-run-btn').onclick = function () {
+        const params = {};
+        let missing = null;
+        (rep.params || []).forEach((p, i) => {
+            const inp = document.getElementById('rp-param-' + i);
+            const v = (inp.value || '').trim();
+            if (!v && inp.dataset.required === '1') missing = p.label || p.name;
+            if (v) params[p.name] = v;
+        });
+        if (missing) { document.getElementById('rp-modal-err').textContent = 'Required: ' + missing; return; }
+        this.disabled = true;
+        this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running…';
+        executeReport(rep, params, () => document.getElementById('rp-modal')?.remove());
+    };
+}
+
+function executeReport(rep, params, onDone) {
+    setStatus('Running report "' + rep.name + '"…');
+    const body = JSON.stringify({ reportId: rep.reportId, maxRows: 500, appUser: 'wms-user', params: params });
+    sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/reports/run', body: body }, function (err, data) {
+        if (onDone) onDone();
+        if (err) { setStatus('Report failed: ' + err); return; }
+        let resp = null;
+        try { resp = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (!resp || resp.success !== true) {
+            setStatus('Report error: ' + esc((resp && resp.error) || 'unknown'));
+            return;
+        }
+        // show in the right panel as a pseudo SQL round
+        const paramDesc = Object.keys(params).length
+            ? ' (' + Object.entries(params).map(([k, v]) => k + '=' + v).join(', ') + ')' : '';
+        const round = {
+            kind: 'sql',
+            sql: '-- Report: ' + rep.name + paramDesc + '\n' + (rep.sql || ''),
+            success: true, rowCount: resp.rowCount, elapsedMs: resp.elapsedMs,
+            resultJson: JSON.stringify(resp)
+        };
+        setPreview([round]);
+        const p = document.getElementById('right-panel');
+        if (p.classList.contains('collapsed')) toggleRight();
+        setStatus('');
+        loadReports(); // refresh run counters
+    });
+}
+
+// ============================================================
 // Slash command palette  ( /  = all, /f = fusion, /a = apex )
 // ============================================================
 const SLASH_COMMANDS = [
@@ -1007,6 +1157,9 @@ const SLASH_COMMANDS = [
       template: 'Show the Scheduled / Manual Reservation Required lines of trip TRIP_ID in a selectable grid (include ORDER_NUMBER, LINE_NUMBER, ITEM, STATUS and FULFILL_LINE_ID) so I can cancel specific lines', ph: 'TRIP_ID' },
     { cmd: '/order-lines-grid',    cat: 'apex', write: true, desc: 'Selectable grid of one order\'s lines for cancelling',
       template: 'Show all lines of order ORDER_NUMBER in a selectable grid with their statuses and FULFILL_LINE_ID so I can cancel specific lines', ph: 'ORDER_NUMBER' },
+    { cmd: '/save-report', cat: 'chat', desc: 'Save the last answer as a re-runnable report',
+      template: 'Save this as a report. Name it REPORT_NAME and turn the filters into parameters where useful.', ph: 'REPORT_NAME' },
+    { cmd: '/reports', cat: 'chat', desc: 'Open the saved Reports tab', local: 'reports' },
     { cmd: '/help', cat: 'chat', desc: 'What can this assistant do?', local: 'help' },
     { cmd: '/new',  cat: 'chat', desc: 'Start a new conversation',    local: 'new' }
 ];
@@ -1046,6 +1199,7 @@ function applySlash(i) {
     slashMatches = [];
     if (c.local === 'new') { inp.value = ''; newChat(); return; }
     if (c.local === 'help') { inp.value = ''; showHelpBubble(); return; }
+    if (c.local === 'reports') { inp.value = ''; switchTab('reports'); return; }
     inp.value = c.template;
     inp.focus();
     if (c.ph) {
@@ -1077,6 +1231,8 @@ function showHelpBubble() {
         '**Oracle Fusion REST** — say the word *fusion* and I use the live Fusion APIs instead: shipment lines, sales orders, staged inventory transactions. Write calls (cancel lines, ship confirm, delete staged transactions) always show you an **approval card** first.',
         '',
         '**Interactive grids** — ask for a list "in a selectable grid" (or use `/trip-manual-lines`) and I return checkbox rows with action buttons: tick the lines you want, click e.g. *Cancel selected lines*, approve the Fusion call, done.',
+        '',
+        '**Saved reports** — after any answer say *"save this as a report"* (or `/save-report`): the SQL is stored in the database with prompt-able parameters (trip, order, date range). Re-run it any time from the **Reports** tab — it always fetches live data.',
         '',
         '### Slash commands',
         '',

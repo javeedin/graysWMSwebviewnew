@@ -70,7 +70,9 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V3";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V4";
+        private const string REPORT_SAVE_URL =
+            "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/reports/save";
         private const int FUSION_RESULT_MAX_CHARS = 25000;   // fed back to the model
         private const int FUSION_STORE_MAX_CHARS  = 100000;  // kept for the inspector
 
@@ -201,6 +203,16 @@ namespace WMSApp
             sb.AppendLine("- data must carry EVERY identifier a follow-up action needs. For line-cancel grids FULFILL_LINE_ID and ORDER_NUMBER are mandatory (query wms_order_shipment_lines or a fusion GET to obtain them).");
             sb.AppendLine("- When the user selects rows and clicks an action you receive: GRID_ACTION: {\"actionId\":\"...\",\"instruction\":\"...\",\"selectedRows\":[ <data objects> ]}");
             sb.AppendLine("  Perform that action for exactly those rows - writes go through action fusion (the user then sees an approval card). Group lines of the same order into ONE PATCH. When done, reply with action answer summarizing what happened.");
+            sb.AppendLine();
+            sb.AppendLine("## Saving reports");
+            sb.AppendLine();
+            sb.AppendLine("When the user asks to SAVE something as a report (\"save this as a report\", \"save this KPI\"), reply with:");
+            sb.AppendLine();
+            sb.AppendLine("{ \"action\": \"save_report\", \"name\": \"Weekly WMS KPIs\", \"description\": \"one line\", \"category\": \"KPI\",");
+            sb.AppendLine("  \"sql\": \"SELECT ... WHERE trip_date >= :P_START_DATE\",");
+            sb.AppendLine("  \"params\": [ { \"name\": \"P_START_DATE\", \"label\": \"Start date\", \"dataType\": \"DATE\", \"defaultValue\": null, \"required\": true } ] }");
+            sb.AppendLine();
+            sb.AppendLine("Rules: single SELECT; turn the literal filters of the SQL you last ran into :P_XXX bind parameters where a future user would want to choose the value (trip id, order number, date range); dataType is TEXT, NUMBER or DATE (DATE values are exchanged as YYYY-MM-DD); params may be empty for a fixed report. You then receive REPORT_SAVE_RESULT: {success, reportId} - confirm to the user with action answer, mentioning the report name and its parameters. Saved reports appear in the Reports tab where the user re-runs them live with prompted parameters.");
             sb.AppendLine();
             sb.AppendLine("## SQL rules");
             sb.AppendLine();
@@ -468,6 +480,39 @@ namespace WMSApp
                         });
 
                         prompt = "FUSION_RESULT: " + TruncateForModel(fRound.ResultJson);
+                        continue;
+                    }
+
+                    if (string.Equals(action, "save_report", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Saving report..." });
+                        string saveResult;
+                        try
+                        {
+                            // pass the model's object through, adding the app user
+                            var root = modelJson.RootElement;
+                            using var ms = new MemoryStream();
+                            using (var w = new Utf8JsonWriter(ms))
+                            {
+                                w.WriteStartObject();
+                                foreach (var prop in root.EnumerateObject())
+                                {
+                                    if (prop.NameEquals("action")) continue;
+                                    prop.WriteTo(w);
+                                }
+                                w.WriteString("appUser", Environment.UserName);
+                                w.WriteEndObject();
+                            }
+                            var resp = await _http.PostAsync(REPORT_SAVE_URL,
+                                new StringContent(Encoding.UTF8.GetString(ms.ToArray()), Encoding.UTF8, "application/json"));
+                            saveResult = await resp.Content.ReadAsStringAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            saveResult = JsonSerializer.Serialize(new { success = false, error = ex.Message });
+                        }
+                        await onEvent(new { action = "aiChatEvent", eventType = "reportSaved", result = saveResult });
+                        prompt = "REPORT_SAVE_RESULT: " + saveResult;
                         continue;
                     }
 
