@@ -72,6 +72,7 @@ namespace WMSApp
 
         // RAG Service Process
         private System.Diagnostics.Process _ragServiceProcess;
+        private ClaudeCliService _claudeCliService;
 
         // Mobile Notification Listener
         private MobileNotificationListener _mobileListener;
@@ -1830,6 +1831,22 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleReadAgentLog(wv, messageJson, requestId);
                                     break;
 
+                                case "aiCliStatus":
+                                    await HandleAiCliStatus(wv, requestId);
+                                    break;
+
+                                case "aiChatPrepare":
+                                    await HandleAiChatPrepare(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiChatSend":
+                                    await HandleAiChatSend(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiChatCancel":
+                                    HandleAiChatCancel(wv, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3496,6 +3513,144 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] readAgentLog failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // ========== AI ANALYSIS CHAT (Claude CLI + guarded SQL gateway) ==========
+
+        private ClaudeCliService GetClaudeCliService()
+        {
+            if (_claudeCliService == null)
+                _claudeCliService = new ClaudeCliService();
+            return _claudeCliService;
+        }
+
+        private async Task HandleAiCliStatus(WebView2 wv, string requestId)
+        {
+            try
+            {
+                var (installed, version) = await GetClaudeCliService().CheckCliAsync();
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiCliStatusResponse",
+                    requestId = requestId,
+                    success = true,
+                    installed = installed,
+                    version = version
+                }));
+            }
+            catch (Exception ex)
+            {
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleAiChatPrepare(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool force = false;
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    if (doc.RootElement.TryGetProperty("forceRefresh", out var fEl))
+                        force = fEl.ValueKind == JsonValueKind.True;
+                }
+                int objectCount = await GetClaudeCliService().PrepareWorkspaceAsync(force);
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiChatPrepareResponse",
+                    requestId = requestId,
+                    success = true,
+                    objectCount = objectCount   // -1 means catalog was still fresh (cached)
+                }));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiChatPrepare failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleAiChatSend(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                string text = "";
+                string sessionId = null;
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    text = root.TryGetProperty("text", out var tEl) ? tEl.GetString() : "";
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                }
+
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    SendErrorResponse(wv, requestId, "Empty message");
+                    return;
+                }
+
+                var service = GetClaudeCliService();
+
+                // stream status / sqlRound events to the page as they happen
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                var result = await service.SendAsync(text, sessionId, onEvent);
+
+                var rounds = new List<object>();
+                foreach (var r in result.Rounds)
+                {
+                    rounds.Add(new
+                    {
+                        sql = r.Sql,
+                        reason = r.Reason,
+                        success = r.Success,
+                        rowCount = r.RowCount,
+                        elapsedMs = r.ElapsedMs,
+                        error = r.Error,
+                        resultJson = r.ResultJson
+                    });
+                }
+
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiChatAnswer",
+                    requestId = requestId,
+                    success = result.Success,
+                    markdown = result.Markdown,
+                    error = result.Error,
+                    sessionId = result.SessionId,
+                    rounds = rounds
+                }));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiChatSend failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private void HandleAiChatCancel(WebView2 wv, string requestId)
+        {
+            try
+            {
+                GetClaudeCliService().Cancel();
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiChatCancelResponse",
+                    requestId = requestId,
+                    success = true
+                }));
+            }
+            catch (Exception ex)
+            {
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }

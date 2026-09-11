@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Analysis - Gray's WMS</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+<style>
+    :root {
+        --primary: #7c3aed;
+        --primary-dark: #5b21b6;
+        --bg: #f4f5fa;
+        --panel: #ffffff;
+        --border: #e2e8f0;
+        --text: #1e293b;
+        --muted: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+        font-family: 'Segoe UI', system-ui, sans-serif;
+        background: var(--bg); color: var(--text);
+        height: 100vh; display: flex; flex-direction: column; overflow: hidden;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .topbar {
+        background: linear-gradient(135deg, #7c3aed, #5b21b6);
+        color: white; padding: 0.55rem 1rem;
+        display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0;
+    }
+    .topbar a.back { color: rgba(255,255,255,0.85); text-decoration: none; font-size: 13px; }
+    .topbar a.back:hover { color: white; }
+    .topbar .title { font-weight: 800; font-size: 15px; display: flex; align-items: center; gap: 0.5rem; }
+    .ver-badge { font-size: 9px; background: #4CAF50; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
+    .cli-chip {
+        margin-left: auto; font-size: 11px; padding: 3px 10px; border-radius: 10px;
+        background: rgba(255,255,255,0.15); display: flex; align-items: center; gap: 5px;
+    }
+    .cli-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
+    .cli-chip.ok .dot { background: #4ade80; }
+    .cli-chip.bad .dot { background: #f87171; }
+
+    /* ── Layout ─────────────────────────────────────────── */
+    .layout { flex: 1; display: flex; overflow: hidden; }
+
+    /* Left panel */
+    .left {
+        width: 265px; min-width: 265px; background: var(--panel);
+        border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    }
+    .left-tabs { display: flex; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .left-tab {
+        flex: 1; padding: 0.55rem; text-align: center; font-size: 12px; font-weight: 700;
+        color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+    }
+    .left-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .left-body { flex: 1; overflow-y: auto; padding: 0.6rem; }
+    .new-chat-btn {
+        width: 100%; padding: 0.5rem; border: 1px dashed var(--primary); border-radius: 8px;
+        background: #f5f3ff; color: var(--primary); font-weight: 700; font-size: 12px;
+        cursor: pointer; margin-bottom: 0.6rem;
+    }
+    .chat-item {
+        padding: 0.5rem 0.6rem; border-radius: 8px; cursor: pointer; font-size: 12px;
+        display: flex; align-items: center; gap: 6px; margin-bottom: 2px; color: var(--text);
+    }
+    .chat-item:hover { background: #f1f5f9; }
+    .chat-item.active { background: #ede9fe; color: var(--primary-dark); font-weight: 600; }
+    .chat-item .cdel { margin-left: auto; color: #cbd5e1; font-size: 11px; padding: 2px 4px; }
+    .chat-item .cdel:hover { color: #dc2626; }
+    .chat-item .ctitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .obj-search {
+        width: 100%; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px;
+        font-size: 12px; margin-bottom: 0.5rem; outline: none;
+    }
+    .obj-item { margin-bottom: 2px; }
+    .obj-head {
+        padding: 5px 7px; font-size: 11.5px; font-weight: 600; cursor: pointer;
+        display: flex; align-items: center; gap: 6px; border-radius: 6px; color: var(--text);
+    }
+    .obj-head:hover { background: #f1f5f9; }
+    .obj-head i.kind { color: var(--primary); font-size: 10px; width: 12px; }
+    .obj-head .add { margin-left: auto; color: #cbd5e1; font-size: 10px; }
+    .obj-head .add:hover { color: var(--primary); }
+    .obj-cols { display: none; padding: 2px 0 6px 24px; }
+    .obj-cols div { font-size: 10.5px; color: var(--muted); padding: 1px 0; font-family: Consolas, monospace; }
+    .obj-cols .t { color: #a78bfa; }
+
+    /* Middle panel */
+    .middle { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+    .messages { flex: 1; overflow-y: auto; padding: 1.2rem 1.4rem; }
+    .msg { max-width: 82%; margin-bottom: 1rem; }
+    .msg.user { margin-left: auto; }
+    .bubble {
+        padding: 0.65rem 0.9rem; border-radius: 14px; font-size: 13px; line-height: 1.55;
+        word-wrap: break-word;
+    }
+    .msg.user .bubble { background: var(--primary); color: white; border-bottom-right-radius: 4px; }
+    .msg.assistant .bubble {
+        background: var(--panel); border: 1px solid var(--border); border-bottom-left-radius: 4px;
+    }
+    .msg.assistant .bubble h1, .msg.assistant .bubble h2, .msg.assistant .bubble h3 { margin: 0.4rem 0; font-size: 14px; }
+    .msg.assistant .bubble p { margin: 0.35rem 0; }
+    .msg.assistant .bubble table { border-collapse: collapse; margin: 0.5rem 0; font-size: 12px; display: block; overflow-x: auto; max-width: 100%; }
+    .msg.assistant .bubble th, .msg.assistant .bubble td { border: 1px solid var(--border); padding: 4px 9px; text-align: left; white-space: nowrap; }
+    .msg.assistant .bubble th { background: #f8fafc; }
+    .msg.assistant .bubble code { background: #f1f5f9; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+    .msg.assistant .bubble pre { background: #0f172a; color: #a6e3a1; padding: 0.6rem; border-radius: 8px; overflow-x: auto; font-size: 11px; margin: 0.4rem 0; }
+    .msg .meta { font-size: 10px; color: #94a3b8; margin-top: 3px; padding: 0 4px; }
+    .msg.user .meta { text-align: right; }
+
+    /* SQL inspector */
+    .inspector { margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--panel); }
+    .insp-head {
+        padding: 5px 10px; font-size: 10.5px; font-weight: 700; color: var(--muted);
+        background: #f8fafc; cursor: pointer; display: flex; align-items: center; gap: 6px;
+    }
+    .insp-body { display: none; padding: 8px 10px; }
+    .insp-round { margin-bottom: 8px; }
+    .insp-round .rmeta { font-size: 10.5px; margin-bottom: 3px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .insp-round .rmeta .ok { color: #16a34a; font-weight: 700; }
+    .insp-round .rmeta .fail { color: #dc2626; font-weight: 700; }
+    .insp-round pre {
+        background: #0f172a; color: #a5f3fc; padding: 6px 8px; border-radius: 6px;
+        font-size: 10.5px; white-space: pre-wrap; word-break: break-all; margin: 0; max-height: 130px; overflow-y: auto;
+    }
+    .insp-round .view-btn {
+        font-size: 10px; color: var(--primary); cursor: pointer; border: 1px solid #ddd6fe;
+        border-radius: 5px; padding: 1px 7px; background: #f5f3ff;
+    }
+
+    /* Status + input */
+    .status-bar { padding: 0 1.4rem 6px; font-size: 11.5px; color: var(--primary); min-height: 20px; display: flex; align-items: center; gap: 6px; }
+    .input-area { padding: 0.7rem 1.4rem 0.9rem; background: var(--panel); border-top: 1px solid var(--border); flex-shrink: 0; }
+    .input-row { display: flex; gap: 0.5rem; align-items: flex-end; }
+    #prompt-input {
+        flex: 1; border: 1.5px solid var(--border); border-radius: 12px; padding: 0.6rem 0.85rem;
+        font-size: 13px; font-family: inherit; resize: none; outline: none; max-height: 130px; min-height: 42px;
+    }
+    #prompt-input:focus { border-color: var(--primary); }
+    .btn { border: none; border-radius: 10px; padding: 0.6rem 1rem; font-size: 13px; font-weight: 700; cursor: pointer; }
+    .btn-send { background: var(--primary); color: white; }
+    .btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-cancel { background: #fee2e2; color: #dc2626; display: none; }
+
+    /* Empty state */
+    .empty { text-align: center; color: var(--muted); margin-top: 12vh; }
+    .empty .big { font-size: 40px; margin-bottom: 0.6rem; }
+    .examples { display: flex; flex-direction: column; gap: 8px; max-width: 440px; margin: 1rem auto 0; }
+    .example {
+        padding: 9px 14px; background: var(--panel); border: 1px solid var(--border);
+        border-radius: 10px; font-size: 12.5px; cursor: pointer; text-align: left; color: var(--text);
+    }
+    .example:hover { border-color: var(--primary); color: var(--primary); }
+
+    /* Right panel */
+    .right {
+        width: 400px; min-width: 400px; background: var(--panel); border-left: 1px solid var(--border);
+        display: flex; flex-direction: column;
+    }
+    .right.collapsed { width: 36px; min-width: 36px; }
+    .right-head {
+        padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--border); display: flex;
+        align-items: center; gap: 0.5rem; flex-shrink: 0;
+    }
+    .right-head .rtitle { font-size: 12px; font-weight: 800; color: var(--text); }
+    .right.collapsed .right-head .rtitle, .right.collapsed .right-tools, .right.collapsed .right-body, .right.collapsed #round-select { display: none; }
+    .collapse-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; margin-left: auto; }
+    .right-tools { padding: 0.45rem 0.8rem; border-bottom: 1px solid var(--border); display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+    .tool-btn {
+        font-size: 10.5px; font-weight: 700; padding: 4px 9px; border-radius: 6px; cursor: pointer;
+        border: 1px solid var(--border); background: white; color: var(--text);
+    }
+    .tool-btn:hover { border-color: var(--primary); color: var(--primary); }
+    .tool-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    #round-select { font-size: 11px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; max-width: 150px; }
+    .right-body { flex: 1; overflow: auto; }
+    .right-body .placeholder { text-align: center; color: #94a3b8; font-size: 12px; margin-top: 4rem; padding: 0 1.5rem; }
+    table.result-grid { border-collapse: collapse; font-size: 11px; width: max-content; min-width: 100%; }
+    table.result-grid th {
+        background: #f8fafc; border: 1px solid var(--border); padding: 4px 8px; text-align: left;
+        position: sticky; top: 0; font-size: 10.5px; color: var(--muted); white-space: nowrap;
+    }
+    table.result-grid td { border: 1px solid #f1f5f9; padding: 3px 8px; white-space: nowrap; }
+    table.result-grid tr:nth-child(even) td { background: #fafafa; }
+    .right-foot { padding: 5px 10px; font-size: 10px; color: var(--muted); border-top: 1px solid var(--border); flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+    <div class="topbar">
+        <a class="back" href="../Home/index.html"><i class="fas fa-arrow-left"></i> Home</a>
+        <div class="title">🤖 AI Analysis <span class="ver-badge">v10.0.0</span></div>
+        <div class="cli-chip" id="cli-chip"><span class="dot"></span><span id="cli-chip-text">Checking Claude CLI…</span></div>
+    </div>
+
+    <div class="layout">
+
+        <!-- LEFT: history + objects -->
+        <div class="left">
+            <div class="left-tabs">
+                <div class="left-tab active" id="tab-chats" onclick="switchTab('chats')"><i class="fas fa-comments"></i> Chats</div>
+                <div class="left-tab" id="tab-objects" onclick="switchTab('objects')"><i class="fas fa-table"></i> Objects</div>
+            </div>
+            <div class="left-body" id="pane-chats">
+                <button class="new-chat-btn" onclick="newChat()"><i class="fas fa-plus"></i> New Chat</button>
+                <div id="chat-list"></div>
+            </div>
+            <div class="left-body" id="pane-objects" style="display:none;">
+                <input class="obj-search" id="obj-search" placeholder="Search tables / views…" oninput="renderObjects()">
+                <div id="obj-list"><div style="font-size:11px;color:#94a3b8;">Loading metadata…</div></div>
+            </div>
+        </div>
+
+        <!-- MIDDLE: chat -->
+        <div class="middle">
+            <div class="messages" id="messages"></div>
+            <div class="status-bar" id="status-bar"></div>
+            <div class="input-area">
+                <div class="input-row">
+                    <textarea id="prompt-input" rows="1" placeholder="Ask about your WMS data… e.g. list of trips for today"
+                        onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+                    <button class="btn btn-cancel" id="btn-cancel" onclick="cancelTurn()"><i class="fas fa-stop"></i></button>
+                    <button class="btn btn-send" id="btn-send" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT: results preview -->
+        <div class="right" id="right-panel">
+            <div class="right-head">
+                <span class="rtitle"><i class="fas fa-table-cells"></i> Results</span>
+                <select id="round-select" onchange="showRound(parseInt(this.value))" style="display:none;"></select>
+                <button class="collapse-btn" onclick="toggleRight()" title="Collapse/expand"><i class="fas fa-angles-right" id="collapse-icon"></i></button>
+            </div>
+            <div class="right-tools">
+                <button class="tool-btn" id="btn-excel" onclick="exportExcel()" disabled><i class="fas fa-file-excel" style="color:#16a34a;"></i> Excel</button>
+                <button class="tool-btn" id="btn-csv" onclick="exportCsv()" disabled><i class="fas fa-file-csv" style="color:#0891b2;"></i> CSV</button>
+                <button class="tool-btn" id="btn-pdf" onclick="exportPdf()" disabled><i class="fas fa-file-pdf" style="color:#dc2626;"></i> PDF / Print</button>
+                <button class="tool-btn" id="btn-copy-sql" onclick="copySql()" disabled><i class="fas fa-code"></i> Copy SQL</button>
+            </div>
+            <div class="right-body" id="right-body">
+                <div class="placeholder"><i class="fas fa-table" style="font-size:26px;display:block;margin-bottom:8px;"></i>
+                    Query results appear here.<br>Export to Excel, CSV or PDF.</div>
+            </div>
+            <div class="right-foot" id="right-foot"></div>
+        </div>
+    </div>
+
+<script>
+// ============================================================
+// IPC bootstrap (WebView2 <-> C#)
+// ============================================================
+window.pendingRequests = {};
+let _reqSeq = 0;
+function generateRequestId() { return 'ai-' + Date.now() + '-' + (++_reqSeq); }
+
+function sendMessageToCSharp(message, callback) {
+    if (!(window.chrome && window.chrome.webview)) {
+        if (callback) callback('WebView2 bridge not available (open this page inside the WMS app)', null);
+        return;
+    }
+    const requestId = generateRequestId();
+    message.requestId = requestId;
+    if (callback) window.pendingRequests[requestId] = callback;
+    window.chrome.webview.postMessage(message);
+}
+
+if (window.chrome && window.chrome.webview) {
+    window.chrome.webview.addEventListener('message', function (event) {
+        const r = event.data;
+        if (!r) return;
+        if (r.action === 'aiChatEvent') { handleChatEvent(r); return; }
+        const cb = window.pendingRequests[r.requestId];
+        if (!cb) return;
+        delete window.pendingRequests[r.requestId];
+        if (r.action === 'error') { cb(r.message || 'Unknown error', null); }
+        else if (r.action === 'restResponse') {
+            if (r.success === false) cb('HTTP ' + r.statusCode, null);
+            else cb(null, r.data);
+        }
+        else cb(null, r);
+    });
+}
+
+function esc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ============================================================
+// State + history (localStorage)
+// ============================================================
+const LS_KEY = 'aiAnalysisChats';
+let chats = [];            // [{id, title, createdAt, sessionId, messages:[{role, text, rounds, ts}]}]
+let activeChatId = null;
+let busy = false;
+let currentRounds = [];    // rounds of the answer currently shown in the right panel
+let shownRoundIdx = -1;
+
+function loadChats() {
+    try { chats = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch (e) { chats = []; }
+}
+function saveChats() {
+    try {
+        // keep last 30 conversations
+        if (chats.length > 30) chats = chats.slice(-30);
+        localStorage.setItem(LS_KEY, JSON.stringify(chats));
+    } catch (e) { console.warn('saveChats failed', e); }
+}
+function activeChat() { return chats.find(c => c.id === activeChatId) || null; }
+
+function newChat() {
+    if (busy) return;
+    activeChatId = null;
+    document.getElementById('messages').innerHTML = '';
+    renderEmptyState();
+    renderChatList();
+    setPreview(null);
+}
+
+function deleteChat(id, ev) {
+    ev.stopPropagation();
+    chats = chats.filter(c => c.id !== id);
+    saveChats();
+    if (activeChatId === id) newChat(); else renderChatList();
+}
+
+function openChat(id) {
+    if (busy) return;
+    const c = chats.find(x => x.id === id);
+    if (!c) return;
+    activeChatId = id;
+    const box = document.getElementById('messages');
+    box.innerHTML = '';
+    c.messages.forEach(m => {
+        if (m.role === 'user') appendUserBubble(m.text, m.ts);
+        else appendAssistantBubble(m.markdown, m.rounds || [], m.ts, m.isError);
+    });
+    // preview last assistant rounds
+    const lastA = [...c.messages].reverse().find(m => m.role === 'assistant' && (m.rounds || []).length);
+    setPreview(lastA ? lastA.rounds : null);
+    renderChatList();
+    box.scrollTop = box.scrollHeight;
+}
+
+function renderChatList() {
+    const el = document.getElementById('chat-list');
+    if (chats.length === 0) {
+        el.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:0.4rem;">No conversations yet.</div>';
+        return;
+    }
+    el.innerHTML = [...chats].reverse().map(c => `
+        <div class="chat-item ${c.id === activeChatId ? 'active' : ''}" onclick="openChat('${c.id}')">
+            <i class="fas fa-message" style="font-size:10px;color:#a78bfa;"></i>
+            <span class="ctitle" title="${esc(c.title)}">${esc(c.title)}</span>
+            <span class="cdel" onclick="deleteChat('${c.id}', event)" title="Delete"><i class="fas fa-trash"></i></span>
+        </div>`).join('');
+}
+
+// ============================================================
+// Left panel: objects
+// ============================================================
+const METADATA_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/getobjectslist';
+let allObjects = [];
+
+function switchTab(which) {
+    document.getElementById('tab-chats').classList.toggle('active', which === 'chats');
+    document.getElementById('tab-objects').classList.toggle('active', which === 'objects');
+    document.getElementById('pane-chats').style.display = which === 'chats' ? '' : 'none';
+    document.getElementById('pane-objects').style.display = which === 'objects' ? '' : 'none';
+}
+
+function loadObjects() {
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: METADATA_URL }, function (err, data) {
+        const el = document.getElementById('obj-list');
+        if (err) { el.innerHTML = '<div style="font-size:11px;color:#dc2626;">Failed to load metadata: ' + esc(err) + '</div>'; return; }
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            allObjects = (parsed && parsed.objects) || [];
+        } catch (e) { allObjects = []; }
+        renderObjects();
+    });
+}
+
+function renderObjects() {
+    const q = (document.getElementById('obj-search').value || '').toLowerCase();
+    const el = document.getElementById('obj-list');
+    const list = allObjects.filter(o => !q || o.name.toLowerCase().includes(q));
+    if (list.length === 0) { el.innerHTML = '<div style="font-size:11px;color:#94a3b8;">No objects.</div>'; return; }
+    el.innerHTML = list.map((o, i) => `
+        <div class="obj-item">
+            <div class="obj-head" onclick="toggleObj(${i})" title="${esc(o.comment || '')}">
+                <i class="fas ${o.type === 'VIEW' ? 'fa-eye' : 'fa-table'} kind"></i>
+                <span>${esc(o.name)}</span>
+                <span class="add" title="Insert into prompt" onclick="event.stopPropagation();insertObj('${esc(o.name)}')"><i class="fas fa-arrow-right-to-bracket"></i></span>
+            </div>
+            <div class="obj-cols" id="objcols-${i}">
+                ${(o.columns || []).map(c => `<div>${esc(c.name)} <span class="t">${esc(c.dataType)}</span>${c.comment ? ' — ' + esc(c.comment) : ''}</div>`).join('')}
+            </div>
+        </div>`).join('');
+    el.dataset.filtered = JSON.stringify(list.map(o => o.name));
+}
+
+function toggleObj(i) {
+    const el = document.getElementById('objcols-' + i);
+    if (el) el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
+function insertObj(name) {
+    const inp = document.getElementById('prompt-input');
+    inp.value = (inp.value ? inp.value + ' ' : '') + name;
+    inp.focus();
+}
+
+// ============================================================
+// Chat rendering
+// ============================================================
+function renderEmptyState() {
+    document.getElementById('messages').innerHTML = `
+        <div class="empty">
+            <div class="big">🤖</div>
+            <div style="font-weight:800;font-size:16px;color:var(--text);">WMS AI Analysis</div>
+            <div style="font-size:12px;margin-top:4px;">Ask in plain English — Claude writes and runs the SQL for you.</div>
+            <div class="examples">
+                <div class="example" onclick="useExample(this)">Give me the list of trips for today</div>
+                <div class="example" onclick="useExample(this)">How many print jobs failed this week?</div>
+                <div class="example" onclick="useExample(this)">Which orders have cancelled shipment lines?</div>
+                <div class="example" onclick="useExample(this)">Show shipping agent activity for the last 24 hours</div>
+            </div>
+        </div>`;
+}
+function useExample(el) {
+    document.getElementById('prompt-input').value = el.textContent.trim();
+    sendMessage();
+}
+
+function timeStr(ts) { return new Date(ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+
+function appendUserBubble(text, ts) {
+    const box = document.getElementById('messages');
+    const empty = box.querySelector('.empty'); if (empty) empty.remove();
+    box.insertAdjacentHTML('beforeend', `
+        <div class="msg user"><div class="bubble">${esc(text)}</div><div class="meta">${timeStr(ts)}</div></div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+function renderMarkdown(md) {
+    try { return DOMPurify.sanitize(marked.parse(md || '')); }
+    catch (e) { return esc(md); }
+}
+
+window._inspRounds = {};   // inspId -> rounds of that message
+
+function appendAssistantBubble(markdown, rounds, ts, isError) {
+    const box = document.getElementById('messages');
+    const inspId = 'insp-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+    window._inspRounds[inspId] = rounds || [];
+    const roundsHtml = (rounds && rounds.length) ? `
+        <div class="inspector">
+            <div class="insp-head" onclick="const b=document.getElementById('${inspId}');b.style.display=b.style.display==='block'?'none':'block';">
+                <i class="fas fa-magnifying-glass-chart"></i> SQL Inspector — ${rounds.length} round(s)
+            </div>
+            <div class="insp-body" id="${inspId}">
+                ${rounds.map((r, i) => `
+                    <div class="insp-round">
+                        <div class="rmeta">
+                            <strong>Round ${i + 1}</strong>
+                            <span class="${r.success ? 'ok' : 'fail'}">${r.success ? '✓ ' + r.rowCount + ' rows' : '✗ ' + esc(r.error || 'failed')}</span>
+                            <span style="color:#94a3b8;">${r.elapsedMs || 0} ms</span>
+                            ${r.success ? `<span class="view-btn" onclick="previewRounds('${inspId}', ${i})">view rows</span>` : ''}
+                        </div>
+                        <pre>${esc(r.sql)}</pre>
+                    </div>`).join('')}
+            </div>
+        </div>` : '';
+    const bubbleStyle = isError ? 'style="border-color:#fca5a5;background:#fff5f5;color:#b91c1c;"' : '';
+    box.insertAdjacentHTML('beforeend', `
+        <div class="msg assistant">
+            <div class="bubble" ${bubbleStyle}>${isError ? '<i class="fas fa-triangle-exclamation"></i> ' + esc(markdown) : renderMarkdown(markdown)}</div>
+            ${roundsHtml}
+            <div class="meta">${timeStr(ts)}</div>
+        </div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+// ============================================================
+// Send / cancel / events
+// ============================================================
+function setBusy(b) {
+    busy = b;
+    document.getElementById('btn-send').disabled = b;
+    document.getElementById('btn-cancel').style.display = b ? '' : 'none';
+    if (!b) setStatus('');
+}
+function setStatus(text) {
+    document.getElementById('status-bar').innerHTML = text
+        ? '<i class="fas fa-spinner fa-spin"></i> ' + esc(text) : '';
+}
+
+function handleChatEvent(evt) {
+    if (evt.eventType === 'status') setStatus(evt.text);
+    else if (evt.eventType === 'sqlRound') {
+        setStatus(`Round ${evt.round}: ` + (evt.success ? `${evt.rowCount} rows in ${evt.elapsedMs} ms` : 'error — model is retrying'));
+    }
+}
+
+function sendMessage() {
+    if (busy) return;
+    const inp = document.getElementById('prompt-input');
+    const text = inp.value.trim();
+    if (!text) return;
+    inp.value = '';
+
+    // ensure a chat exists
+    let chat = activeChat();
+    if (!chat) {
+        chat = { id: 'c' + Date.now(), title: text.length > 42 ? text.slice(0, 42) + '…' : text, createdAt: Date.now(), sessionId: null, messages: [] };
+        chats.push(chat);
+        activeChatId = chat.id;
+    }
+    const ts = Date.now();
+    chat.messages.push({ role: 'user', text: text, ts: ts });
+    saveChats(); renderChatList();
+    appendUserBubble(text, ts);
+    setBusy(true);
+    setStatus('Claude is thinking…');
+
+    sendMessageToCSharp({ action: 'aiChatSend', text: text, sessionId: chat.sessionId }, function (err, resp) {
+        setBusy(false);
+        const ats = Date.now();
+        if (err) {
+            chat.messages.push({ role: 'assistant', markdown: String(err), rounds: [], ts: ats, isError: true });
+            saveChats();
+            appendAssistantBubble(String(err), [], ats, true);
+            return;
+        }
+        if (resp.sessionId) chat.sessionId = resp.sessionId;
+        const rounds = (resp.rounds || []).map(r => ({
+            sql: r.sql, reason: r.reason, success: r.success, rowCount: r.rowCount,
+            elapsedMs: r.elapsedMs, error: r.error, resultJson: r.resultJson
+        }));
+        if (resp.success) {
+            chat.messages.push({ role: 'assistant', markdown: resp.markdown, rounds: rounds, ts: ats });
+            appendAssistantBubble(resp.markdown, rounds, ats, false);
+        } else {
+            chat.messages.push({ role: 'assistant', markdown: resp.error || 'Unknown error', rounds: rounds, ts: ats, isError: true });
+            appendAssistantBubble(resp.error || 'Unknown error', rounds, ats, true);
+        }
+        saveChats(); renderChatList();
+        setPreview(rounds);
+    });
+}
+
+function cancelTurn() {
+    sendMessageToCSharp({ action: 'aiChatCancel' }, function () { });
+    setStatus('Cancelling…');
+}
+
+// ============================================================
+// Right panel: results preview + export
+// ============================================================
+function toggleRight() {
+    const p = document.getElementById('right-panel');
+    p.classList.toggle('collapsed');
+    document.getElementById('collapse-icon').className =
+        p.classList.contains('collapsed') ? 'fas fa-angles-left' : 'fas fa-angles-right';
+}
+
+function parseRound(r) {
+    if (!r || !r.resultJson) return null;
+    try {
+        const d = typeof r.resultJson === 'string' ? JSON.parse(r.resultJson) : r.resultJson;
+        if (!d || d.success !== true || !Array.isArray(d.columns)) return null;
+        return { columns: d.columns, rows: d.rows || [], rowCount: d.rowCount, truncated: d.truncated, elapsedMs: d.elapsedMs, sql: r.sql };
+    } catch (e) { return null; }
+}
+
+function setPreview(rounds) {
+    currentRounds = rounds || [];
+    const sel = document.getElementById('round-select');
+    const okRounds = currentRounds.map((r, i) => ({ r, i })).filter(x => parseRound(x.r));
+    if (okRounds.length === 0) {
+        sel.style.display = 'none';
+        shownRoundIdx = -1;
+        document.getElementById('right-body').innerHTML =
+            '<div class="placeholder"><i class="fas fa-table" style="font-size:26px;display:block;margin-bottom:8px;"></i>Query results appear here.<br>Export to Excel, CSV or PDF.</div>';
+        document.getElementById('right-foot').textContent = '';
+        ['btn-excel', 'btn-csv', 'btn-pdf', 'btn-copy-sql'].forEach(id => document.getElementById(id).disabled = true);
+        return;
+    }
+    if (okRounds.length > 1) {
+        sel.style.display = '';
+        sel.innerHTML = okRounds.map(x => `<option value="${x.i}">Round ${x.i + 1} (${parseRound(x.r).rowCount} rows)</option>`).join('');
+        sel.value = okRounds[okRounds.length - 1].i;
+    } else sel.style.display = 'none';
+    showRound(okRounds[okRounds.length - 1].i);
+}
+
+function previewRounds(inspId, i) {
+    // "view rows" on any message's inspector: that message's rounds become the preview set
+    const rounds = window._inspRounds[inspId];
+    if (!rounds || !rounds[i]) return;
+    currentRounds = rounds;
+    const sel = document.getElementById('round-select');
+    const okRounds = rounds.map((r, idx) => ({ r, idx })).filter(x => parseRound(x.r));
+    if (okRounds.length > 1) {
+        sel.style.display = '';
+        sel.innerHTML = okRounds.map(x => `<option value="${x.idx}">Round ${x.idx + 1} (${parseRound(x.r).rowCount} rows)</option>`).join('');
+        sel.value = i;
+    } else sel.style.display = 'none';
+    showRound(i);
+    const p = document.getElementById('right-panel');
+    if (p.classList.contains('collapsed')) toggleRight();
+}
+
+function showRound(i) {
+    const data = parseRound(currentRounds[i]);
+    shownRoundIdx = i;
+    const body = document.getElementById('right-body');
+    if (!data) { body.innerHTML = '<div class="placeholder">No rows for this round.</div>'; return; }
+    let html = '<table class="result-grid"><thead><tr>' +
+        data.columns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead><tbody>';
+    for (const row of data.rows) {
+        html += '<tr>' + row.map(v => '<td>' + (v === null ? '<span style="color:#cbd5e1;">null</span>' : esc(v)) + '</td>').join('') + '</tr>';
+    }
+    html += '</tbody></table>';
+    body.innerHTML = html;
+    document.getElementById('right-foot').textContent =
+        `${data.rowCount} row(s)${data.truncated ? ' (truncated)' : ''} · ${data.columns.length} column(s) · ${data.elapsedMs} ms`;
+    ['btn-excel', 'btn-csv', 'btn-pdf', 'btn-copy-sql'].forEach(id => document.getElementById(id).disabled = false);
+}
+
+function currentData() { return shownRoundIdx >= 0 ? parseRound(currentRounds[shownRoundIdx]) : null; }
+
+async function exportExcel() {
+    const d = currentData(); if (!d) return;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('AI Result');
+    ws.addRow(d.columns);
+    ws.getRow(1).font = { bold: true };
+    d.rows.forEach(r => ws.addRow(r));
+    ws.columns.forEach(col => { col.width = Math.min(40, Math.max(12, String(col.values[1] || '').length + 4)); });
+    const buf = await wb.xlsx.writeBuffer();
+    saveAs(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+        'ai-analysis-' + new Date().toISOString().slice(0, 10) + '.xlsx');
+}
+
+function exportCsv() {
+    const d = currentData(); if (!d) return;
+    const q = (v) => v === null ? '' : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+    const csv = [d.columns.map(q).join(',')].concat(d.rows.map(r => r.map(q).join(','))).join('\r\n');
+    saveAs(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }),
+        'ai-analysis-' + new Date().toISOString().slice(0, 10) + '.csv');
+}
+
+function exportPdf() {
+    const d = currentData(); if (!d) return;
+    const w = window.open('', '_blank');
+    w.document.write(`<html><head><title>AI Analysis Result</title><style>
+        body{font-family:Segoe UI,sans-serif;font-size:11px;margin:20px;}
+        h3{margin:0 0 4px;} .sql{font-family:Consolas,monospace;font-size:10px;color:#475569;background:#f8fafc;padding:6px;border-radius:4px;margin-bottom:10px;white-space:pre-wrap;}
+        table{border-collapse:collapse;width:100%;} th,td{border:1px solid #cbd5e1;padding:3px 7px;text-align:left;font-size:10px;}
+        th{background:#f1f5f9;}</style></head><body>
+        <h3>Gray's WMS — AI Analysis Result</h3>
+        <div class="sql">${esc(d.sql)}</div>
+        <table><thead><tr>${d.columns.map(c => '<th>' + esc(c) + '</th>').join('')}</tr></thead>
+        <tbody>${d.rows.map(r => '<tr>' + r.map(v => '<td>' + (v === null ? '' : esc(v)) + '</td>').join('') + '</tr>').join('')}</tbody></table>
+        </body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 300);
+}
+
+function copySql() {
+    const d = currentData(); if (!d) return;
+    navigator.clipboard.writeText(d.sql || '').then(() => setStatus('SQL copied to clipboard'));
+    setTimeout(() => setStatus(''), 1500);
+}
+
+// ============================================================
+// Startup
+// ============================================================
+(function init() {
+    loadChats();
+    renderChatList();
+    renderEmptyState();
+    loadObjects();
+
+    // CLI status chip
+    sendMessageToCSharp({ action: 'aiCliStatus' }, function (err, resp) {
+        const chip = document.getElementById('cli-chip');
+        const txt = document.getElementById('cli-chip-text');
+        if (err || !resp || !resp.installed) {
+            chip.classList.add('bad');
+            txt.textContent = 'Claude CLI not found — install & run "claude login"';
+        } else {
+            chip.classList.add('ok');
+            txt.textContent = 'Claude CLI ' + (resp.version || 'ready');
+        }
+    });
+
+    // Build/refresh CLAUDE.md workspace in background
+    sendMessageToCSharp({ action: 'aiChatPrepare', forceRefresh: false }, function (err, resp) {
+        if (err) console.warn('[AI] prepare failed:', err);
+        else console.log('[AI] workspace ready, objects:', resp.objectCount);
+    });
+
+    // auto-grow textarea
+    const inp = document.getElementById('prompt-input');
+    inp.addEventListener('input', function () {
+        this.style.height = 'auto';
+        this.style.height = Math.min(this.scrollHeight, 130) + 'px';
+    });
+})();
+</script>
+</body>
+</html>
