@@ -44,6 +44,54 @@
     .cli-chip.ok .dot { background: #4ade80; }
     .cli-chip.bad .dot { background: #f87171; }
 
+    /* ── Page tabs (Chatbot / Saved Reports) ───────────── */
+    .main-tabs {
+        display: flex; gap: 0; background: var(--panel); border-bottom: 1px solid var(--border);
+        padding: 0 1rem; flex-shrink: 0;
+    }
+    .main-tab {
+        padding: 0.6rem 1.3rem; font-size: 13px; font-weight: 700; color: var(--muted);
+        cursor: pointer; border-bottom: 3px solid transparent; display: flex; align-items: center; gap: 7px;
+    }
+    .main-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+    .main-tab:hover:not(.active) { color: var(--text); }
+    .page { flex: 1; display: flex; overflow: hidden; }
+
+    /* ── Saved Reports page ─────────────────────────────── */
+    .rp-left {
+        width: 320px; min-width: 320px; background: var(--panel); border-right: 1px solid var(--border);
+        display: flex; flex-direction: column;
+    }
+    .rp-left-head { padding: 0.7rem 0.9rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+    .rp-left-head .t { font-size: 13px; font-weight: 800; }
+    .rp-left-head button { margin-left: auto; background: none; border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px; cursor: pointer; color: var(--primary); font-size: 11px; }
+    .rp-list { flex: 1; overflow-y: auto; padding: 0.6rem; }
+    .rp-item {
+        border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem 0.75rem; margin-bottom: 0.5rem;
+        cursor: pointer; transition: border-color 0.15s;
+    }
+    .rp-item:hover { border-color: #a5f3fc; }
+    .rp-item.active { border-color: #0891b2; background: #f0fdff; }
+    .rp-item .rname { font-size: 12.5px; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 6px; }
+    .rp-item .rdesc { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+    .rp-item .rmeta2 { font-size: 9.5px; color: #94a3b8; margin-top: 4px; display: flex; gap: 10px; align-items: center; }
+    .rp-item .rrun {
+        margin-left: auto; background: #0891b2; color: white; border: none; border-radius: 6px;
+        padding: 3px 12px; font-size: 10.5px; font-weight: 700; cursor: pointer;
+    }
+    .rp-item .rdel { background: none; border: none; color: #cbd5e1; cursor: pointer; font-size: 10px; }
+    .rp-item .rdel:hover { color: #dc2626; }
+    .rp-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+    .rp-main-head {
+        padding: 0.7rem 1.1rem; background: var(--panel); border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    }
+    .rp-main-head .rtitle2 { font-size: 14px; font-weight: 800; }
+    .rp-main-head .rparams { font-size: 10.5px; color: var(--muted); }
+    .rp-toolbar { padding: 0.5rem 1.1rem; background: var(--panel); border-bottom: 1px solid var(--border); display: flex; gap: 7px; flex-shrink: 0; align-items: center; }
+    .rp-grid-wrap { flex: 1; overflow: auto; background: var(--panel); margin: 0.8rem 1.1rem; border: 1px solid var(--border); border-radius: 10px; }
+    .rp-foot { padding: 0 1.1rem 0.7rem; font-size: 10.5px; color: var(--muted); flex-shrink: 0; }
+
     /* ── Layout ─────────────────────────────────────────── */
     .layout { flex: 1; display: flex; overflow: hidden; }
 
@@ -273,6 +321,14 @@
         <div class="cli-chip" id="cli-chip"><span class="dot"></span><span id="cli-chip-text">Checking Claude CLI…</span></div>
     </div>
 
+    <!-- Page tabs -->
+    <div class="main-tabs">
+        <div class="main-tab active" id="ptab-chatbot" onclick="switchPage('chatbot')"><i class="fas fa-robot"></i> Chatbot</div>
+        <div class="main-tab" id="ptab-reports" onclick="switchPage('reports')"><i class="fas fa-chart-line"></i> Saved Reports</div>
+    </div>
+
+    <!-- ══════════ PAGE 1: CHATBOT ══════════ -->
+    <div class="page" id="page-chatbot">
     <div class="layout">
 
         <!-- LEFT: history + objects -->
@@ -334,6 +390,45 @@
             <div class="right-foot" id="right-foot"></div>
         </div>
     </div>
+    </div><!-- /page-chatbot -->
+
+    <!-- ══════════ PAGE 2: SAVED REPORTS ══════════ -->
+    <div class="page" id="page-reports" style="display:none;">
+        <!-- Left: report list -->
+        <div class="rp-left">
+            <div class="rp-left-head">
+                <i class="fas fa-chart-line" style="color:#0891b2;"></i>
+                <span class="t">Saved Reports</span>
+                <button onclick="loadReports()" title="Refresh"><i class="fas fa-sync-alt"></i></button>
+            </div>
+            <div class="rp-list" id="rp-page-list">
+                <div style="font-size:11px;color:#94a3b8;">Loading reports…</div>
+            </div>
+        </div>
+        <!-- Main: preview -->
+        <div class="rp-main">
+            <div class="rp-main-head">
+                <span class="rtitle2" id="rp-main-title"><i class="fas fa-table-cells" style="color:#0891b2;"></i> Select a report</span>
+                <span class="rparams" id="rp-main-params"></span>
+                <button class="tool-btn" id="rp-rerun-btn" style="margin-left:auto;display:none;" onclick="rerunPageReport()"><i class="fas fa-rotate-right"></i> Run again</button>
+            </div>
+            <div class="rp-toolbar">
+                <button class="tool-btn" id="rp-btn-excel" onclick="exportExcelData(window._pageReportData)" disabled><i class="fas fa-file-excel" style="color:#16a34a;"></i> Excel</button>
+                <button class="tool-btn" id="rp-btn-csv" onclick="exportCsvData(window._pageReportData)" disabled><i class="fas fa-file-csv" style="color:#0891b2;"></i> CSV</button>
+                <button class="tool-btn" id="rp-btn-pdf" onclick="exportPdfData(window._pageReportData)" disabled><i class="fas fa-file-pdf" style="color:#dc2626;"></i> PDF / Print</button>
+                <button class="tool-btn" id="rp-btn-sql" onclick="copySqlData(window._pageReportData)" disabled><i class="fas fa-code"></i> Copy SQL</button>
+                <span id="rp-status" style="font-size:11px;color:#0891b2;margin-left:auto;"></span>
+            </div>
+            <div class="rp-grid-wrap" id="rp-grid-wrap">
+                <div style="text-align:center;color:#94a3b8;font-size:12px;padding:4rem 2rem;">
+                    <i class="fas fa-chart-line" style="font-size:30px;display:block;margin-bottom:10px;"></i>
+                    Pick a report on the left and click <strong>Run</strong>.<br>
+                    Results always come from a live query — export to Excel, CSV or PDF.
+                </div>
+            </div>
+            <div class="rp-foot" id="rp-foot"></div>
+        </div>
+    </div><!-- /page-reports -->
 
 <script>
 // ============================================================
@@ -927,8 +1022,13 @@ function showRound(i) {
 
 function currentData() { return shownRoundIdx >= 0 ? parseRound(currentRounds[shownRoundIdx]) : null; }
 
-async function exportExcel() {
-    const d = currentData(); if (!d) return;
+async function exportExcel() { exportExcelData(currentData()); }
+function exportCsv() { exportCsvData(currentData()); }
+function exportPdf() { exportPdfData(currentData()); }
+function copySql() { copySqlData(currentData()); }
+
+async function exportExcelData(d) {
+    if (!d) return;
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('AI Result');
     ws.addRow(d.columns);
@@ -940,16 +1040,16 @@ async function exportExcel() {
         'ai-analysis-' + new Date().toISOString().slice(0, 10) + '.xlsx');
 }
 
-function exportCsv() {
-    const d = currentData(); if (!d) return;
+function exportCsvData(d) {
+    if (!d) return;
     const q = (v) => v === null ? '' : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
     const csv = [d.columns.map(q).join(',')].concat(d.rows.map(r => r.map(q).join(','))).join('\r\n');
     saveAs(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }),
         'ai-analysis-' + new Date().toISOString().slice(0, 10) + '.csv');
 }
 
-function exportPdf() {
-    const d = currentData(); if (!d) return;
+function exportPdfData(d) {
+    if (!d) return;
     // window.open('') is intercepted by the WebView2 host and comes up blank,
     // so print from a hidden same-page iframe instead.
     const html = `<!DOCTYPE html><html><head><title>AI Analysis Result</title><style>
@@ -983,8 +1083,8 @@ function exportPdf() {
     frame.srcdoc = html;
 }
 
-function copySql() {
-    const d = currentData(); if (!d) return;
+function copySqlData(d) {
+    if (!d) return;
     navigator.clipboard.writeText(d.sql || '').then(() => setStatus('SQL copied to clipboard'));
     setTimeout(() => setStatus(''), 1500);
 }
@@ -994,35 +1094,85 @@ function copySql() {
 // ============================================================
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
+function switchPage(which) {
+    document.getElementById('ptab-chatbot').classList.toggle('active', which === 'chatbot');
+    document.getElementById('ptab-reports').classList.toggle('active', which === 'reports');
+    document.getElementById('page-chatbot').style.display = which === 'chatbot' ? '' : 'none';
+    document.getElementById('page-reports').style.display = which === 'reports' ? '' : 'none';
+    if (which === 'reports' && !window._reportsLoaded) loadReports();
+}
+
 function loadReports() {
     window._reportsLoaded = true;
     sendMessageToCSharp({ action: 'executeGet', fullUrl: AI_BASE + '/reports/list' }, function (err, data) {
-        const el = document.getElementById('report-list');
-        if (err) { el.innerHTML = '<div style="font-size:11px;color:#dc2626;">Failed: ' + esc(err) + '</div>'; return; }
+        const el = document.getElementById('report-list');       // chatbot left tab (compact)
+        const pel = document.getElementById('rp-page-list');     // Saved Reports page (rich)
+        if (err) {
+            const msg = '<div style="font-size:11px;color:#dc2626;">Failed: ' + esc(err) + '</div>';
+            if (el) el.innerHTML = msg;
+            if (pel) pel.innerHTML = msg;
+            return;
+        }
         let reports = [];
         try {
             const parsed = typeof data === 'string' ? JSON.parse(data) : data;
             reports = (parsed && parsed.reports) || [];
         } catch (e) { }
+        window._allReports = reports;
+
         if (reports.length === 0) {
-            el.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:0.3rem;">No saved reports yet.</div>';
+            const none = '<div style="font-size:11px;color:#94a3b8;padding:0.3rem;">No saved reports yet — ask the chatbot to "save this as a report".</div>';
+            if (el) el.innerHTML = none;
+            if (pel) pel.innerHTML = none;
             return;
         }
-        let html = '', lastCat = null;
-        for (const r of reports) {
-            if (r.category !== lastCat) {
-                lastCat = r.category;
-                html += `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin:0.5rem 0 0.2rem;">${esc(lastCat || 'General')}</div>`;
+
+        // compact list (chatbot sidebar tab)
+        if (el) {
+            let html = '', lastCat = null;
+            for (const r of reports) {
+                if (r.category !== lastCat) {
+                    lastCat = r.category;
+                    html += `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin:0.5rem 0 0.2rem;">${esc(lastCat || 'General')}</div>`;
+                }
+                html += `
+                <div class="chat-item" onclick="runReportById(${r.reportId}, 'chat')" title="${esc(r.description || '')}">
+                    <i class="fas fa-chart-line" style="font-size:10px;color:#0891b2;"></i>
+                    <span class="ctitle">${esc(r.name)}</span>
+                    <span style="font-size:9px;color:#94a3b8;">${r.paramCount > 0 ? '<i class="fas fa-sliders"></i> ' + r.paramCount : ''}</span>
+                    <span class="cdel" onclick="deleteReport(${r.reportId}, '${esc(String(r.name)).replace(/'/g, "\\'")}', event)" title="Delete report"><i class="fas fa-trash"></i></span>
+                </div>`;
             }
-            html += `
-            <div class="chat-item" onclick="openReport(${r.reportId})" title="${esc(r.description || '')}">
-                <i class="fas fa-chart-line" style="font-size:10px;color:#0891b2;"></i>
-                <span class="ctitle">${esc(r.name)}</span>
-                <span style="font-size:9px;color:#94a3b8;">${r.paramCount > 0 ? '<i class="fas fa-sliders"></i> ' + r.paramCount : ''}</span>
-                <span class="cdel" onclick="deleteReport(${r.reportId}, '${esc(String(r.name)).replace(/'/g, "\\'")}', event)" title="Delete report"><i class="fas fa-trash"></i></span>
-            </div>`;
+            el.innerHTML = html;
         }
-        el.innerHTML = html;
+
+        // rich list (Saved Reports page)
+        if (pel) {
+            let html = '', lastCat = null;
+            for (const r of reports) {
+                if (r.category !== lastCat) {
+                    lastCat = r.category;
+                    html += `<div style="font-size:9.5px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:0.05em;margin:0.6rem 0 0.3rem;">${esc(lastCat || 'General')}</div>`;
+                }
+                html += `
+                <div class="rp-item" id="rp-item-${r.reportId}">
+                    <div class="rname">
+                        <i class="fas fa-chart-line" style="color:#0891b2;font-size:11px;"></i>
+                        <span>${esc(r.name)}</span>
+                        ${r.paramCount > 0 ? `<span style="font-size:9px;color:#94a3b8;font-weight:400;"><i class="fas fa-sliders"></i> ${r.paramCount} param(s)</span>` : ''}
+                        <button class="rrun" onclick="event.stopPropagation();runReportById(${r.reportId}, 'page')"><i class="fas fa-play"></i> Run</button>
+                    </div>
+                    ${r.description ? `<div class="rdesc">${esc(r.description)}</div>` : ''}
+                    <div class="rmeta2">
+                        <span><i class="fas fa-user" style="font-size:8px;"></i> ${esc(r.createdBy || '')}</span>
+                        <span><i class="fas fa-clock" style="font-size:8px;"></i> ${r.lastRunDate ? 'last run ' + esc(r.lastRunDate) : 'never run'}</span>
+                        <span>${r.runCount || 0} run(s)</span>
+                        <button class="rdel" onclick="deleteReport(${r.reportId}, '${esc(String(r.name)).replace(/'/g, "\\'")}', event)" title="Delete"><i class="fas fa-trash"></i> delete</button>
+                    </div>
+                </div>`;
+            }
+            pel.innerHTML = html;
+        }
     });
 }
 
@@ -1033,18 +1183,20 @@ function deleteReport(id, name, ev) {
         function () { loadReports(); });
 }
 
-function openReport(id) {
+function runReportById(id, target) {
     sendMessageToCSharp({ action: 'executeGet', fullUrl: AI_BASE + '/reports/get?id=' + id }, function (err, data) {
         if (err) { setStatus('Failed to load report: ' + err); return; }
         let rep = null;
         try { rep = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
         if (!rep || !rep.reportId) { setStatus('Report not found'); return; }
-        if ((rep.params || []).length === 0) { executeReport(rep, {}); return; }
-        showParamModal(rep);
+        document.querySelectorAll('.rp-item').forEach(x => x.classList.remove('active'));
+        document.getElementById('rp-item-' + id)?.classList.add('active');
+        if ((rep.params || []).length === 0) { executeReport(rep, {}, null, target); return; }
+        showParamModal(rep, target);
     });
 }
 
-function showParamModal(rep) {
+function showParamModal(rep, target) {
     document.getElementById('rp-modal')?.remove();
     const inputs = (rep.params || []).map((p, i) => {
         const type = p.dataType === 'DATE' ? 'date' : (p.dataType === 'NUMBER' ? 'number' : 'text');
@@ -1096,37 +1248,83 @@ function showParamModal(rep) {
         if (missing) { document.getElementById('rp-modal-err').textContent = 'Required: ' + missing; return; }
         this.disabled = true;
         this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running…';
-        executeReport(rep, params, () => document.getElementById('rp-modal')?.remove());
+        executeReport(rep, params, () => document.getElementById('rp-modal')?.remove(), target);
     };
 }
 
-function executeReport(rep, params, onDone) {
-    setStatus('Running report "' + rep.name + '"…');
+function executeReport(rep, params, onDone, target) {
+    target = target || 'chat';
+    const rpStatus = document.getElementById('rp-status');
+    if (target === 'page' && rpStatus) rpStatus.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Running "' + esc(rep.name) + '"…';
+    else setStatus('Running report "' + rep.name + '"…');
+
     const body = JSON.stringify({ reportId: rep.reportId, maxRows: 500, appUser: 'wms-user', params: params });
     sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/reports/run', body: body }, function (err, data) {
         if (onDone) onDone();
-        if (err) { setStatus('Report failed: ' + err); return; }
         let resp = null;
-        try { resp = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
-        if (!resp || resp.success !== true) {
-            setStatus('Report error: ' + esc((resp && resp.error) || 'unknown'));
+        if (!err) { try { resp = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { } }
+        const errMsg = err ? String(err) : (!resp || resp.success !== true ? ((resp && resp.error) || 'unknown error') : null);
+
+        if (errMsg) {
+            if (target === 'page' && rpStatus) rpStatus.innerHTML = '<span style="color:#dc2626;">✗ ' + esc(errMsg) + '</span>';
+            else setStatus('Report error: ' + errMsg);
             return;
         }
-        // show in the right panel as a pseudo SQL round
+
         const paramDesc = Object.keys(params).length
-            ? ' (' + Object.entries(params).map(([k, v]) => k + '=' + v).join(', ') + ')' : '';
-        const round = {
-            kind: 'sql',
-            sql: '-- Report: ' + rep.name + paramDesc + '\n' + (rep.sql || ''),
-            success: true, rowCount: resp.rowCount, elapsedMs: resp.elapsedMs,
-            resultJson: JSON.stringify(resp)
-        };
-        setPreview([round]);
-        const p = document.getElementById('right-panel');
-        if (p.classList.contains('collapsed')) toggleRight();
-        setStatus('');
+            ? Object.entries(params).map(([k, v]) => k + '=' + v).join(', ') : '';
+
+        if (target === 'page') {
+            renderPageReport(rep, params, paramDesc, resp);
+        } else {
+            const round = {
+                kind: 'sql',
+                sql: '-- Report: ' + rep.name + (paramDesc ? ' (' + paramDesc + ')' : '') + '\n' + (rep.sql || ''),
+                success: true, rowCount: resp.rowCount, elapsedMs: resp.elapsedMs,
+                resultJson: JSON.stringify(resp)
+            };
+            setPreview([round]);
+            const p = document.getElementById('right-panel');
+            if (p.classList.contains('collapsed')) toggleRight();
+            setStatus('');
+        }
         loadReports(); // refresh run counters
     });
+}
+
+// ── Saved Reports page preview ─────────────────────────────
+function renderPageReport(rep, params, paramDesc, resp) {
+    window._pageLastRun = { rep: rep, params: params };
+    window._pageReportData = {
+        columns: resp.columns || [], rows: resp.rows || [],
+        rowCount: resp.rowCount, truncated: resp.truncated, elapsedMs: resp.elapsedMs,
+        sql: '-- Report: ' + rep.name + (paramDesc ? ' (' + paramDesc + ')' : '') + '\n' + (rep.sql || ''),
+        name: rep.name
+    };
+    document.getElementById('rp-main-title').innerHTML =
+        '<i class="fas fa-table-cells" style="color:#0891b2;"></i> ' + esc(rep.name);
+    document.getElementById('rp-main-params').textContent = paramDesc ? '· ' + paramDesc : '';
+    document.getElementById('rp-rerun-btn').style.display = '';
+    document.getElementById('rp-status').innerHTML = '';
+
+    const d = window._pageReportData;
+    let html = '<table class="result-grid"><thead><tr>' +
+        d.columns.map(c => '<th>' + esc(c) + '</th>').join('') + '</tr></thead><tbody>';
+    for (const row of d.rows) {
+        html += '<tr>' + row.map(v => '<td>' + (v === null ? '<span style="color:#cbd5e1;">null</span>' : esc(v)) + '</td>').join('') + '</tr>';
+    }
+    html += '</tbody></table>';
+    document.getElementById('rp-grid-wrap').innerHTML = html;
+    document.getElementById('rp-foot').textContent =
+        `${d.rowCount} row(s)${d.truncated ? ' (truncated)' : ''} · ${d.columns.length} column(s) · ${d.elapsedMs} ms · live data`;
+    ['rp-btn-excel', 'rp-btn-csv', 'rp-btn-pdf', 'rp-btn-sql'].forEach(id => document.getElementById(id).disabled = false);
+}
+
+function rerunPageReport() {
+    const ctx = window._pageLastRun;
+    if (!ctx) return;
+    if ((ctx.rep.params || []).length === 0) executeReport(ctx.rep, {}, null, 'page');
+    else showParamModal(ctx.rep, 'page');
 }
 
 // ============================================================
@@ -1199,7 +1397,7 @@ function applySlash(i) {
     slashMatches = [];
     if (c.local === 'new') { inp.value = ''; newChat(); return; }
     if (c.local === 'help') { inp.value = ''; showHelpBubble(); return; }
-    if (c.local === 'reports') { inp.value = ''; switchTab('reports'); return; }
+    if (c.local === 'reports') { inp.value = ''; switchPage('reports'); return; }
     inp.value = c.template;
     inp.focus();
     if (c.ph) {
