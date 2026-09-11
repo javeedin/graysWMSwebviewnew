@@ -296,6 +296,8 @@ CREATE OR REPLACE PROCEDURE wms_ai_save_report (
     v_sql         CLOB;
     v_created_by  VARCHAR2(100);
     v_param_count NUMBER;
+    v_req_bool    BOOLEAN;
+    v_required    CHAR(1);
 BEGIN
     APEX_JSON.parse(p_body);
     v_report_id  := APEX_JSON.get_number('reportId');       -- null = new report
@@ -327,6 +329,16 @@ BEGIN
 
     v_param_count := NVL(APEX_JSON.get_count('params'), 0);
     FOR i IN 1 .. v_param_count LOOP
+        -- BOOLEAN must be resolved in PL/SQL before it enters the INSERT
+        -- (PL/SQL BOOLEAN is not a SQL type - using it inside VALUES
+        --  makes the procedure INVALID and the handler return 555)
+        v_req_bool := APEX_JSON.get_boolean('params[%d].required', i);
+        IF v_req_bool IS NULL OR v_req_bool THEN
+            v_required := 'Y';
+        ELSE
+            v_required := 'N';
+        END IF;
+
         INSERT INTO wms_ai_report_params
             (report_id, param_name, label, data_type, default_value, required_flag, param_order)
         VALUES (
@@ -335,7 +347,7 @@ BEGIN
             APEX_JSON.get_varchar2('params[%d].label', i),
             NVL(UPPER(APEX_JSON.get_varchar2('params[%d].dataType', i)), 'TEXT'),
             APEX_JSON.get_varchar2('params[%d].defaultValue', i),
-            CASE WHEN NVL(APEX_JSON.get_boolean('params[%d].required', i), TRUE) THEN 'Y' ELSE 'N' END,
+            v_required,
             i
         );
     END LOOP;
