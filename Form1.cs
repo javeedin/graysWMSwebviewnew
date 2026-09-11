@@ -1822,6 +1822,14 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleLoadLocalFile(wv, messageJson, requestId);
                                     break;
 
+                                case "appendAgentLog":
+                                    await HandleAppendAgentLog(wv, messageJson, requestId);
+                                    break;
+
+                                case "readAgentLog":
+                                    await HandleReadAgentLog(wv, messageJson, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3414,6 +3422,80 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Load local file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // ========== SHIPPING AGENT CANCELLATION LOG ==========
+
+        private static string GetAgentCancelLogPath(string tripId)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in (tripId ?? "unknown"))
+            {
+                if (char.IsLetterOrDigit(c) || c == '-' || c == '_') sb.Append(c);
+            }
+            string safe = sb.Length > 0 ? sb.ToString() : "unknown";
+            string dir = @"C:\fusion\agent_logs";
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, $"trip_{safe}_cancellations.log");
+        }
+
+        private async Task HandleAppendAgentLog(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(messageJson);
+                var root = doc.RootElement;
+                string tripId  = root.TryGetProperty("tripId",  out var ti) ? ti.GetString() : "";
+                string message = root.TryGetProperty("message", out var ms) ? ms.GetString() : "";
+
+                string filePath = GetAgentCancelLogPath(tripId);
+                string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}";
+                await File.AppendAllTextAsync(filePath, entry);
+
+                var response = new
+                {
+                    action = "agentLogResponse",
+                    requestId = requestId,
+                    success = true,
+                    filePath = filePath
+                };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(response));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] appendAgentLog failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleReadAgentLog(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(messageJson);
+                var root = doc.RootElement;
+                string tripId = root.TryGetProperty("tripId", out var ti) ? ti.GetString() : "";
+
+                string filePath = GetAgentCancelLogPath(tripId);
+                bool exists = File.Exists(filePath);
+                string content = exists ? await File.ReadAllTextAsync(filePath) : "";
+
+                var response = new
+                {
+                    action = "agentLogResponse",
+                    requestId = requestId,
+                    success = true,
+                    exists = exists,
+                    content = content,
+                    filePath = filePath
+                };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(response));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] readAgentLog failed: {ex.Message}");
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }

@@ -162,6 +162,171 @@
         });
     }
 
+    // ─── BOGO / Child-line cancellation helpers ──────────────────────────────
+    // When a main line is cancelled, its child lines must be cancelled too:
+    //   1) numbered sub-lines first (line 3 → 3.1, 3.2, …)
+    //   2) if none exist, BOGO promo mapping (mainitemcode → promoitemcode)
+    // BOGO master list is cached per instance in window._saBogoCache.
+
+    const ORDS_ROOT = APEX_BASE.replace(/\/TRIPMANAGEMENT$/, '');
+    window._saBogoCache = window._saBogoCache || {};
+
+    async function saGetBogoMap(instance) {
+        const key = (instance || 'PROD').toUpperCase() === 'TEST' ? 'TEST' : 'PROD';
+        if (window._saBogoCache[key]) return window._saBogoCache[key];
+        const url = `${ORDS_ROOT}/ARMODULE/BOGO?p_instance_name=${key}`;
+        try {
+            const data  = await rawGet(url);
+            const items = (data && data.items) ? data.items : (Array.isArray(data) ? data : []);
+            const map = {}; // MAINITEMCODE (upper) → [{ promo, promoName }]
+            for (const it of items) {
+                const main  = (it.mainitemcode  || it.MAINITEMCODE  || '').toString().trim().toUpperCase();
+                const promo = (it.promoitemcode || it.PROMOITEMCODE || '').toString().trim().toUpperCase();
+                if (!main || !promo) continue;
+                if (!map[main]) map[main] = [];
+                if (!map[main].some(p => p.promo === promo))
+                    map[main].push({ promo, promoName: it.promoname || it.PROMONAME || '' });
+            }
+            const entry = { map, itemCount: items.length, fetchedAt: new Date(), url };
+            window._saBogoCache[key] = entry;
+            console.log(`[ShippingAgent] BOGO map cached for ${key}: ${items.length} row(s), ${Object.keys(map).length} main item(s)`);
+            return entry;
+        } catch(e) {
+            console.error('[ShippingAgent] BOGO fetch failed:', e.message);
+            // Return empty (uncached) map so cancellation still proceeds without BOGO expansion
+            return { map: {}, itemCount: 0, fetchedAt: null, url, error: e.message };
+        }
+    }
+
+    // Field accessors tolerant of both APEX response shapes
+    // (getsalesorderlinesbytrip uses PRODUCT_NUMBER/STATUS, getsalesorderlines uses LINE_STATUS/ITEM_NUMBER)
+    function saLineNum(l)    { return (l.LINE_NUMBER || l.line_number || '').toString().trim(); }
+    function saLineItem(l)   { return (l.PRODUCT_NUMBER || l.product_number || l.ITEM_NUMBER || l.item_number || l.ITEM || l.item || '').toString().trim(); }
+    function saLineStatus(l) { return (l.LINE_STATUS || l.line_status || l.STATUS || l.status || '').toString().trim(); }
+    function saLineFulfillId(l) { return l.FULFILL_LINE_ID || l.fulfill_line_id || null; }
+    function saLineKey(l)    { return String(saLineFulfillId(l) || `LN:${saLineNum(l)}:${saLineItem(l)}`); }
+
+    // Child lines already past the point of no return are skipped (with a warning)
+    function saChildBlocked(status) {
+        const s = (status || '').toUpperCase();
+        return s.includes('CANCEL') || s.includes('SHIP') || s.includes('INTERFAC');
+    }
+
+    // Expands flagged main lines with their child lines.
+    // orderLines: ALL lines of the order; flagged: main lines to cancel.
+    // Returns { lines, childCount, skipped: [{line, parentNum, via, reason}] }
+    async function saExpandCancelLines(orderNumber, orderLines, flagged, instance) {
+        const included = new Set(flagged.map(saLineKey));
+        const out      = flagged.slice();
+        const skipped  = [];
+        let bogoEntry  = null;
+
+        for (const parent of flagged) {
+            const pNum = saLineNum(parent);
+
+            // 1) Numbered sub-lines: "3" → "3.1", "3.2", …
+            let children = pNum
+                ? orderLines.filter(l => saLineNum(l).startsWith(pNum + '.'))
+                : [];
+            let via = 'SUB-LINE';
+
+            // 2) BOGO fallback — only when the parent has no numbered sub-lines at all
+            if (children.length === 0) {
+                if (!bogoEntry) bogoEntry = await saGetBogoMap(instance);
+                const promos = bogoEntry.map[saLineItem(parent).toUpperCase()] || [];
+                if (promos.length > 0) {
+                    const promoCodes = promos.map(p => p.promo);
+                    children = orderLines.filter(l => promoCodes.includes(saLineItem(l).toUpperCase()));
+                    via = 'BOGO';
+                }
+            }
+
+            for (const ch of children) {
+                const key = saLineKey(ch);
+                if (included.has(key)) continue; // already flagged as main or already added
+                const st = saLineStatus(ch);
+                if (saChildBlocked(st)) {
+                    skipped.push({ line: ch, parentNum: pNum, via, reason: `status "${st}" not cancellable` });
+                    continue;
+                }
+                if (!saLineFulfillId(ch)) {
+                    skipped.push({ line: ch, parentNum: pNum, via, reason: 'missing FULFILL_LINE_ID' });
+                    continue;
+                }
+                included.add(key);
+                ch._saChildOf  = pNum || saLineItem(parent);
+                ch._saChildVia = via;
+                out.push(ch);
+            }
+        }
+        return { lines: out, childCount: out.length - flagged.length, skipped };
+    }
+
+    // Human-readable log block for one order's cancellation set
+    function saCancelLogText(orderNumber, lines, skipped) {
+        const rows = lines.map(l => l._saChildOf
+            ? `   ↳ line ${saLineNum(l) || '?'} ${saLineItem(l)} — CHILD of line ${l._saChildOf} via ${l._saChildVia} (status: ${saLineStatus(l)})`
+            : `   • line ${saLineNum(l) || '?'} ${saLineItem(l)} — MAIN (status: ${saLineStatus(l)})`);
+        const skips = (skipped || []).map(s =>
+            `   ⚠ SKIPPED child line ${saLineNum(s.line) || '?'} ${saLineItem(s.line)} of line ${s.parentNum} (${s.via}) — ${s.reason}`);
+        return `CANCEL order ${orderNumber} — ${lines.length} line(s):\n` + rows.concat(skips).join('\n');
+    }
+
+    // Append to the per-trip cancellation log file (C:\fusion\agent_logs\) via C#
+    function saAppendCancelLog(tripId, message) {
+        return new Promise((resolve) => {
+            if (typeof sendMessageToCSharp !== 'function') return resolve();
+            sendMessageToCSharp({ action: 'appendAgentLog', tripId: String(tripId), message },
+                (err) => { if (err) console.warn('[ShippingAgent] appendAgentLog failed:', err); resolve(); });
+        });
+    }
+
+    // Cancellation log viewer — opened from the 📄 icon in the trip header
+    window.saShowCancelLog = function(tripId) {
+        document.getElementById('sa-cancel-log-dlg')?.remove();
+        const dlg = document.createElement('div');
+        dlg.id = 'sa-cancel-log-dlg';
+        dlg.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        dlg.innerHTML = `
+            <div style="background:#0f172a;border-radius:12px;width:90vw;max-width:900px;max-height:85vh;display:flex;flex-direction:column;overflow:hidden;border:1px solid #334155;box-shadow:0 24px 80px rgba(0,0,0,0.4);">
+                <div style="padding:0.75rem 1.1rem;background:#1e293b;display:flex;align-items:center;gap:0.6rem;flex-shrink:0;">
+                    <i class="fas fa-file-alt" style="color:#f87171;"></i>
+                    <div>
+                        <div style="font-weight:800;font-size:13px;color:#f1f5f9;">Cancellation Log — Trip ${esc(String(tripId))}</div>
+                        <div id="sa-cancel-log-path" style="font-size:9px;color:#64748b;margin-top:1px;">Loading…</div>
+                    </div>
+                    <button onclick="saShowCancelLog('${esc(String(tripId))}')" title="Refresh"
+                        style="margin-left:auto;background:none;border:1px solid #334155;border-radius:6px;padding:3px 8px;cursor:pointer;color:#94a3b8;font-size:11px;">
+                        <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button onclick="document.getElementById('sa-cancel-log-dlg').remove()"
+                        style="background:none;border:none;color:#94a3b8;font-size:20px;cursor:pointer;line-height:1;">×</button>
+                </div>
+                <pre id="sa-cancel-log-content" style="flex:1;overflow:auto;margin:0;padding:1rem 1.2rem;font-size:10.5px;line-height:1.6;color:#a6e3a1;font-family:monospace;white-space:pre-wrap;word-break:break-word;">Loading…</pre>
+            </div>`;
+        document.body.appendChild(dlg);
+        dlg.addEventListener('click', e => { if (e.target === dlg) dlg.remove(); });
+
+        sendMessageToCSharp({ action: 'readAgentLog', tripId: String(tripId) }, (err, data) => {
+            const pathEl = document.getElementById('sa-cancel-log-path');
+            const bodyEl = document.getElementById('sa-cancel-log-content');
+            if (!bodyEl) return;
+            if (err) {
+                bodyEl.textContent = 'Failed to read log: ' + err;
+                bodyEl.style.color = '#f87171';
+                return;
+            }
+            if (pathEl) pathEl.textContent = data.filePath || '';
+            if (!data.exists || !data.content) {
+                bodyEl.textContent = 'No cancellations logged yet for this trip.';
+                bodyEl.style.color = '#64748b';
+            } else {
+                bodyEl.textContent = data.content;
+                bodyEl.scrollTop = bodyEl.scrollHeight;
+            }
+        });
+    };
+
     // Show API info popup (used by page header and create modal)
     window.saShowApiInfo = function(method, url, bodyObj) {
         const existing = document.getElementById('sa-api-popup');
@@ -520,6 +685,9 @@
                             </button>
                             <button onclick="saShowTripLines('${esc(t.TRIP_ID)}','${esc(t.INSTANCE_NAME)}')" style="background:#f59e0b;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="Show all order lines for this trip">
                                 <i class="fas fa-table"></i> Order Lines
+                            </button>
+                            <button onclick="saShowCancelLog('${esc(t.TRIP_ID)}')" style="background:#dc2626;color:white;border:none;padding:3px 8px;border-radius:5px;font-size:10px;cursor:pointer;font-weight:600;" title="View cancellation log for this trip">
+                                <i class="fas fa-file-alt"></i> Log
                             </button>
                             <button onclick="saUnassignTrip(${agent.ID},'${esc(t.TRIP_ID)}')" style="background:none;border:none;cursor:pointer;color:#94a3b8;font-size:12px;padding:3px 5px;" title="Remove trip" onmouseover="this.style.color='#dc2626'" onmouseout="this.style.color='#94a3b8'"><i class="fas fa-times"></i></button>
                         </div>
@@ -1919,12 +2087,11 @@
         if (!isOpen()) return;
 
         // STEP 4: Populate dialog
-        saPopulateAllLinesDialog(agent || { ID: null }, tripId, inst, allLines, getUrl, setSubtitle);
+        await saPopulateAllLinesDialog(agent || { ID: null }, tripId, inst, allLines, getUrl, setSubtitle);
     };
 
     // Populates the already-open sa-all-lines-dlg with fetched lines.
-    // Populates the already-open sa-all-lines-dlg with fetched lines.
-    function saPopulateAllLinesDialog(agent, tripId, inst, allLines, getUrl, setSubtitle) {
+    async function saPopulateAllLinesDialog(agent, tripId, inst, allLines, getUrl, setSubtitle) {
         const dlg = document.getElementById('sa-all-lines-dlg');
         if (!dlg) return;
 
@@ -1961,6 +2128,21 @@
         const flaggedLines = allLines.filter(l => isCancellable(l.STATUS || l.status));
         const totalFlagged = flaggedLines.length;
 
+        // Expand each order's flagged main lines with child lines (numbered sub-lines / BOGO)
+        const expandedGroups = {}; // orderNum → main + child lines to cancel
+        const skippedByOrder = {}; // orderNum → skipped child info
+        const childKeys      = new Set();
+        for (const on of orders) {
+            const mains = orderMap[on].filter(l => isCancellable(l.STATUS || l.status));
+            if (mains.length === 0) continue;
+            const exp = await saExpandCancelLines(on, orderMap[on], mains, inst);
+            expandedGroups[on] = exp.lines;
+            skippedByOrder[on] = exp.skipped;
+            exp.lines.forEach(l => { if (l._saChildOf) childKeys.add(saLineKey(l)); });
+        }
+        const totalToCancel = Object.values(expandedGroups).reduce((s, a) => s + a.length, 0);
+        const totalChildren = totalToCancel - totalFlagged;
+
         // KPI counts by status
         const statusCounts = {};
         for (const l of allLines) {
@@ -1970,7 +2152,9 @@
 
         if (setSubtitle) setSubtitle(
             `${orders.length} order(s) · ${allLines.length} line(s)` +
-            (totalFlagged > 0 ? ` · ⚠ ${totalFlagged} flagged for cancellation` : ' · nothing to cancel')
+            (totalToCancel > 0
+                ? ` · ⚠ ${totalToCancel} flagged for cancellation (${totalFlagged} main + ${totalChildren} child)`
+                : ' · nothing to cancel')
         );
 
         // Status badge colours
@@ -2013,15 +2197,16 @@
 
         const orderSections = orders.length === 0 ? noLines : orders.map(orderNum => {
             const lines      = orderMap[orderNum];
-            const hasFlagged = lines.some(l => isCancellable(l.STATUS || l.status));
-            const flaggedCnt = lines.filter(l => isCancellable(l.STATUS || l.status)).length;
-            const flaggedForOrder = lines.filter(l => isCancellable(l.STATUS || l.status));
-            const cancelBodyPreview = hasFlagged ? JSON.stringify(buildCancelBody(flaggedForOrder), null, 2) : '';
+            const expanded   = expandedGroups[orderNum] || [];
+            const hasFlagged = expanded.length > 0;
+            const flaggedCnt = expanded.length;
+            const cancelBodyPreview = hasFlagged ? JSON.stringify(buildCancelBody(expanded), null, 2) : '';
             const fusionUrl = fusionCancelUrl(orderNum);
 
             const lineRows = lines.map((l, idx) => {
                 const status   = l.STATUS              || l.status              || '—';
                 const flagged  = isCancellable(status);
+                const isChild  = childKeys.has(saLineKey(l));
                 const lineNum  = l.LINE_NUMBER         || l.line_number         || '—';
                 const item     = l.PRODUCT_NUMBER      || l.product_number      || '—';
                 const desc     = l.PRODUCT_DESCRIPTION || l.product_description || '';
@@ -2029,12 +2214,15 @@
                 const resQty   = l.RESERVED_QUANTITY   || l.reserved_quantity   || '—';
                 const fulfId   = l.FULFILL_LINE_ID     || l.fulfill_line_id     || '—';
                 const cancelSt = l.CANCEL_STATUS       || l.cancel_status       || '';
-                const rowBg    = flagged ? 'background:#fff5f5;' : (idx%2===0?'background:#fafafa;':'');
+                const rowBg    = flagged ? 'background:#fff5f5;' : (isChild ? 'background:#fff7ed;' : (idx%2===0?'background:#fafafa;':''));
+                const childBadge = isChild
+                    ? ` <span style="background:#ffedd5;color:#ea580c;padding:1px 6px;border-radius:8px;font-size:9px;font-weight:700;white-space:nowrap;" title="Cancelled together with main line ${esc(String(l._saChildOf))}">↳ child of ${esc(String(l._saChildOf))} · ${esc(String(l._saChildVia))}</span>`
+                    : '';
                 return `<tr class="sa-lines-row" data-search="${esc((status+' '+item+' '+desc+' '+lineNum).toLowerCase())}" style="border-bottom:1px solid #f1f5f9;${rowBg}">
-                    <td style="padding:5px 8px;color:${flagged?'#dc2626':'#374151'};font-size:11px;font-weight:${flagged?'700':'400'};">${esc(String(lineNum))}</td>
+                    <td style="padding:5px 8px;color:${flagged?'#dc2626':(isChild?'#ea580c':'#374151')};font-size:11px;font-weight:${(flagged||isChild)?'700':'400'};">${isChild?'↳ ':''}${esc(String(lineNum))}</td>
                     <td style="padding:5px 8px;font-size:11px;color:#1e293b;font-weight:600;">${esc(String(item))}</td>
                     <td style="padding:5px 8px;font-size:10px;color:#64748b;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(desc)}">${esc(desc)}</td>
-                    <td style="padding:5px 8px;">${statusBadge(status, flagged)}</td>
+                    <td style="padding:5px 8px;">${statusBadge(status, flagged)}${childBadge}</td>
                     <td style="padding:5px 8px;font-size:11px;color:#1e293b;text-align:right;">${esc(String(ordQty))}</td>
                     <td style="padding:5px 8px;font-size:11px;color:#64748b;text-align:right;">${esc(String(resQty))}</td>
                     <td style="padding:5px 8px;font-size:10px;color:#94a3b8;">${esc(String(fulfId))}</td>
@@ -2086,10 +2274,11 @@
         // Inject body: legend + KPI bar + search + order sections
         const body = document.getElementById('sa-all-lines-body');
         if (body) {
-            const legendHtml = totalFlagged > 0
+            const legendHtml = totalToCancel > 0
                 ? `<div style="padding:0.45rem 1rem;background:#fff5f5;border-bottom:1px solid #fca5a5;font-size:11px;color:#dc2626;flex-shrink:0;">
                        <i class="fas fa-exclamation-triangle"></i>
                        Rows in <strong>red</strong> = <strong>Scheduled</strong> or <strong>Manual Reservation Required</strong> — will be cancelled.
+                       ${totalChildren > 0 ? `<span style="color:#ea580c;margin-left:0.5rem;">Rows in <strong>orange</strong> = child lines (sub-line / BOGO) cancelled together with their main line.</span>` : ''}
                    </div>` : '';
 
             const kpiBarHtml = allLines.length > 0
@@ -2112,34 +2301,29 @@
         // Update footer with correct Fusion cancel API
         const footer = document.getElementById('sa-all-lines-footer');
         if (footer) {
-            const cancelOrders = orders.filter(o => orderMap[o].some(l => isCancellable(l.STATUS || l.status)));
+            const cancelOrders = orders.filter(o => (expandedGroups[o] || []).length > 0);
             footer.innerHTML = `
                 <span style="font-size:11px;color:#64748b;">
-                    ${totalFlagged > 0
-                        ? `<i class="fas fa-ban" style="color:#dc2626;"></i> <strong style="color:#dc2626;">${totalFlagged}</strong> line(s) across <strong>${cancelOrders.length}</strong> order(s) will be cancelled`
+                    ${totalToCancel > 0
+                        ? `<i class="fas fa-ban" style="color:#dc2626;"></i> <strong style="color:#dc2626;">${totalToCancel}</strong> line(s) across <strong>${cancelOrders.length}</strong> order(s) will be cancelled (${totalFlagged} main + ${totalChildren} child)`
                         : '<i class="fas fa-check-circle" style="color:#22c55e;"></i> No lines require cancellation'}
                 </span>
                 <button onclick="document.getElementById('sa-all-lines-dlg').remove()"
                     style="padding:0.4rem 1rem;border:1px solid #e2e8f0;border-radius:8px;background:#fff;cursor:pointer;font-size:12px;font-weight:600;color:#475569;margin-left:auto;">
                     Close
                 </button>
-                ${totalFlagged > 0 ? `
+                ${totalToCancel > 0 ? `
                 <button id="sa-all-lines-api-btn" title="View cancel API details"
                     style="padding:0.4rem 0.75rem;border:1px solid #0e7490;border-radius:8px;background:#fff;cursor:pointer;font-size:11px;color:#0e7490;margin-left:0.5rem;">
                     <i class="fas fa-plug"></i>
                 </button>
                 <button id="sa-all-lines-cancel-btn"
                     style="padding:0.4rem 1.2rem;border:none;border-radius:8px;background:#dc2626;cursor:pointer;font-size:12px;font-weight:700;color:white;margin-left:0.5rem;">
-                    <i class="fas fa-ban"></i> Cancel ${totalFlagged} Flagged Line(s)
+                    <i class="fas fa-ban"></i> Cancel ${totalToCancel} Flagged Line(s)
                 </button>` : ''}`;
 
-            if (totalFlagged > 0) {
-                const cancelGroups = {};
-                for (const line of flaggedLines) {
-                    const on = line.SOURCE_ORDER_NUMBER || line.source_order_number || '—';
-                    if (!cancelGroups[on]) cancelGroups[on] = [];
-                    cancelGroups[on].push(line);
-                }
+            if (totalToCancel > 0) {
+                const cancelGroups = expandedGroups;
 
                 // API info button in footer — shows all orders' URLs + bodies
                 document.getElementById('sa-all-lines-api-btn').onclick = () => {
@@ -2177,6 +2361,8 @@
                         const bodyStr     = JSON.stringify(requestBody);
                         let responseText  = '', ok = false, httpStatus = '';
 
+                        await saAppendCancelLog(tripId, 'MANUAL ' + saCancelLogText(orderNumber, cancelGroups[orderNumber], skippedByOrder[orderNumber]));
+
                         try {
                             const raw = await new Promise((res, rej) => {
                                 sendMessageToCSharp({
@@ -2189,12 +2375,15 @@
                             // data comes back as parsed object or string
                             responseText = typeof raw === 'string' ? raw : JSON.stringify(raw, null, 2);
                             ok = true;
+                            const childCnt = cancelGroups[orderNumber].filter(l => l._saChildOf).length;
+                            await saAppendCancelLog(tripId, `RESULT order ${orderNumber}: SUCCESS — ${cancelGroups[orderNumber].length} line(s) cancelled (${cancelGroups[orderNumber].length - childCnt} main + ${childCnt} child)`);
                             if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'SUCCESS',
                                 cancelGroups[orderNumber].length,
-                                `Cancelled ${cancelGroups[orderNumber].length} line(s) via Fusion PATCH`, null, null);
+                                `Cancelled ${cancelGroups[orderNumber].length} line(s) via Fusion PATCH (incl. ${childCnt} child)`, null, null);
                         } catch(e) {
                             responseText = e.message;
                             ok = false;
+                            await saAppendCancelLog(tripId, `RESULT order ${orderNumber}: FAILED — ${e.message}`);
                             if (agent.ID) await saLogActivity(agent.ID, tripId, orderNumber, 'CANCEL_LINES', 'FAILED', 1, e.message, null, null);
                         }
                         results.push({ orderNumber, url, requestBody, bodyStr, responseText, ok });
@@ -2258,7 +2447,7 @@
                         </div>`;
                     document.body.appendChild(rdlg);
 
-                    if (btn) { btn.disabled = false; btn.innerHTML = `<i class="fas fa-ban"></i> Cancel ${totalFlagged} Flagged Line(s)`; }
+                    if (btn) { btn.disabled = false; btn.innerHTML = `<i class="fas fa-ban"></i> Cancel ${totalToCancel} Flagged Line(s)`; }
                 };
             }
         }
@@ -3598,6 +3787,8 @@
         // Clear any previous abort flag so the new run can proceed
         if (!window._saAgentAbort) window._saAgentAbort = {};
         window._saAgentAbort[agent.ID] = false;
+        // Refresh BOGO parent/child mapping once per run
+        window._saBogoCache = {};
         window._saLoops[agent.ID] = setInterval(() => {
             saAgentTick(agent); // saAgentTick calls saUpdateCpKpis internally
         }, intervalMs);
@@ -4101,10 +4292,17 @@
                     return s.includes('SCHEDULED') || s.includes('MANUAL RESERVATION');
                 });
                 if (toCancel.length > 0) {
-                    cancelGroups[orderNumber] = toCancel;
-                    saConsoleLog(`Task 2 ⚠ Order ${orderNumber}: ${toCancel.length} line(s) need cancellation`, 'warn');
-                    await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', toCancel.length,
-                        `Order ${orderNumber}: ${toCancel.length} line(s) need cancellation (Scheduled/Manual Reservations)`, null, null);
+                    // Expand main lines with child lines (numbered sub-lines, then BOGO promo items)
+                    const exp = await saExpandCancelLines(orderNumber, lines, toCancel, instance);
+                    cancelGroups[orderNumber] = exp.lines;
+                    if (exp.childCount > 0)
+                        saConsoleLog(`Task 2   Order ${orderNumber}: +${exp.childCount} child line(s) added (sub-line/BOGO)`, 'info');
+                    for (const s of exp.skipped)
+                        saConsoleLog(`Task 2 ⚠ Order ${orderNumber}: child line ${saLineNum(s.line)} ${saLineItem(s.line)} skipped — ${s.reason}`, 'warn');
+                    saConsoleLog(`Task 2 ⚠ Order ${orderNumber}: ${exp.lines.length} line(s) need cancellation (${toCancel.length} main + ${exp.childCount} child)`, 'warn');
+                    await saAppendCancelLog(tripId, saCancelLogText(orderNumber, exp.lines, exp.skipped));
+                    await saLogActivity(agent.ID, tripId, orderNumber, 'ANOMALY_DETECT', 'SUCCESS', exp.lines.length,
+                        `Order ${orderNumber}: ${exp.lines.length} line(s) need cancellation (${toCancel.length} main Scheduled/Manual Reservations + ${exp.childCount} child)`, null, null);
                 } else {
                     saConsoleLog(`Task 2 ✓ Order ${orderNumber}: ${lines.length} line(s) — OK`, 'success');
                 }
@@ -4147,9 +4345,11 @@
                         }, (err, data) => err ? rej(new Error(String(err))) : res(data));
                     });
                     autoCancelled += lines.length;
-                    saConsoleLog(`Task 2 ✓ Order ${orderNum}: ${lines.length} line(s) cancelled successfully`, 'success');
+                    const childCnt = lines.filter(l => l._saChildOf).length;
+                    saConsoleLog(`Task 2 ✓ Order ${orderNum}: ${lines.length} line(s) cancelled successfully${childCnt ? ` (${childCnt} child)` : ''}`, 'success');
+                    await saAppendCancelLog(tripId, `RESULT order ${orderNum}: SUCCESS — ${lines.length} line(s) cancelled (${lines.length - childCnt} main + ${childCnt} child)`);
                     await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'SUCCESS', lines.length,
-                        `Auto-cancelled ${lines.length} line(s) via Fusion PATCH`, null, null);
+                        `Auto-cancelled ${lines.length} line(s) via Fusion PATCH (${lines.length - childCnt} main + ${childCnt} child)`, null, null);
                     // Update the KPI cancelled counter in DOM
                     if (!window._saCancelledLines) window._saCancelledLines = {};
                     window._saCancelledLines[tripId] = (window._saCancelledLines[tripId] || 0) + lines.length;
@@ -4161,6 +4361,7 @@
                     }
                 } catch(e) {
                     saConsoleLog(`Task 2 ✗ Order ${orderNum}: cancel failed — ${e.message}`, 'error');
+                    await saAppendCancelLog(tripId, `RESULT order ${orderNum}: FAILED — ${e.message}`);
                     await saLogActivity(agent.ID, tripId, orderNum, 'CANCEL_LINE', 'FAILED', 1, e.message, null, null);
                 }
             }
