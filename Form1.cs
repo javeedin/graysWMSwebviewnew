@@ -1875,6 +1875,28 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiPrintOrdersDecision(wv, messageJson, requestId);
                                     break;
 
+                                case "aiListPrinters":
+                                    {
+                                        var printersNode = System.Text.Json.Nodes.JsonNode.Parse(
+                                            LocalDeviceService.ListPrintersJson())!.AsObject();
+                                        printersNode["requestId"] = requestId;
+                                        wv.CoreWebView2.PostWebMessageAsJson(printersNode.ToJsonString());
+                                    }
+                                    break;
+
+                                case "aiConnectPrinter":
+                                    {
+                                        string uncPath = null;
+                                        using (var cpDoc = JsonDocument.Parse(messageJson))
+                                            if (cpDoc.RootElement.TryGetProperty("unc", out var uncEl) && uncEl.ValueKind == JsonValueKind.String)
+                                                uncPath = uncEl.GetString();
+                                        var connectNode = System.Text.Json.Nodes.JsonNode.Parse(
+                                            await LocalDeviceService.ConnectNetworkPrinterAsync(uncPath))!.AsObject();
+                                        connectNode["requestId"] = requestId;
+                                        wv.CoreWebView2.PostWebMessageAsJson(connectNode.ToJsonString());
+                                    }
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;

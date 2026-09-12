@@ -37,19 +37,121 @@ namespace WMSApp
                         available = valid
                     });
                 }
+                // best-effort: shared printers published on the network
+                // (Active Directory printQueue objects) not yet installed here
+                var network = BrowseNetworkPrinters(list);
+
                 return JsonSerializer.Serialize(new
                 {
                     success = true,
                     machine = Environment.MachineName,
                     defaultPrinter,
                     count = list.Count,
-                    printers = list
+                    printers = list,
+                    networkPrinters = network
                 });
             }
             catch (Exception ex)
             {
                 return JsonSerializer.Serialize(new { success = false, error = ex.Message });
             }
+        }
+
+        /// <summary>
+        /// Browses printers published in Active Directory (printQueue objects).
+        /// Returns only ones whose UNC is not already installed locally.
+        /// Empty list on workgroup PCs / no domain / any error - best effort.
+        /// </summary>
+        private static List<object> BrowseNetworkPrinters(List<object> installed)
+        {
+            var found = new List<object>();
+            try
+            {
+                var installedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string name in PrinterSettings.InstalledPrinters)
+                    installedNames.Add(name);
+
+                using var root = new System.DirectoryServices.DirectoryEntry();
+                using var searcher = new System.DirectoryServices.DirectorySearcher(root)
+                {
+                    Filter = "(objectCategory=printQueue)",
+                    SizeLimit = 100,
+                    ClientTimeout = TimeSpan.FromSeconds(5)
+                };
+                searcher.PropertiesToLoad.Add("printerName");
+                searcher.PropertiesToLoad.Add("serverName");
+                searcher.PropertiesToLoad.Add("uNCName");
+                searcher.PropertiesToLoad.Add("location");
+
+                foreach (System.DirectoryServices.SearchResult r in searcher.FindAll())
+                {
+                    string First(string prop) =>
+                        r.Properties.Contains(prop) && r.Properties[prop].Count > 0
+                            ? r.Properties[prop][0]?.ToString() : null;
+
+                    string unc = First("uNCName");
+                    string pname = First("printerName");
+                    if (string.IsNullOrWhiteSpace(unc)) continue;
+                    // skip ones already installed (either by UNC or share name)
+                    if (installedNames.Contains(unc)) continue;
+
+                    found.Add(new
+                    {
+                        name = pname ?? unc,
+                        server = First("serverName"),
+                        unc,
+                        location = First("location"),
+                        installed = false
+                    });
+                    if (found.Count >= 50) break;
+                }
+            }
+            catch
+            {
+                // not on a domain, no directory access, or search failed - fine
+            }
+            return found;
+        }
+
+        /// <summary>
+        /// Installs a connection to a shared network printer (\\server\share)
+        /// using the Windows printui helper. Driver download may take a moment.
+        /// </summary>
+        public static Task<string> ConnectNetworkPrinterAsync(string uncPath)
+        {
+            return Task.Run(() =>
+            {
+                try
+                {
+                    if (string.IsNullOrWhiteSpace(uncPath) || !uncPath.StartsWith(@"\\"))
+                        return JsonSerializer.Serialize(new { success = false, error = "A UNC path like \\\\server\\printer is required" });
+
+                    var psi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = "rundll32.exe",
+                        Arguments = $"printui.dll,PrintUIEntry /in /q /n \"{uncPath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using var proc = System.Diagnostics.Process.Start(psi);
+                    proc.WaitForExit(60000);
+
+                    // verify it now shows up in the installed list
+                    foreach (string name in PrinterSettings.InstalledPrinters)
+                        if (name.Equals(uncPath, StringComparison.OrdinalIgnoreCase))
+                            return JsonSerializer.Serialize(new { success = true, printer = name });
+
+                    return JsonSerializer.Serialize(new
+                    {
+                        success = false,
+                        error = "Connection did not complete - the driver may still be installing, or access was denied. Re-open the printer list in a moment."
+                    });
+                }
+                catch (Exception ex)
+                {
+                    return JsonSerializer.Serialize(new { success = false, error = ex.Message });
+                }
+            });
         }
 
         // ------------------------------------------------------------
