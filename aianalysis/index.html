@@ -967,6 +967,11 @@ function handleTurnResponse(chat, err, resp) {
         renderJobApprovalCard(chat, resp.pendingJob, resp.apiConversation);
         return;
     }
+    // local print waiting for approval
+    if (resp.requiresApproval && resp.pendingPrint) {
+        renderPrintApprovalCard(chat, resp.pendingPrint, resp.apiConversation);
+        return;
+    }
 
     setBusy(false);
     const rounds = window._turnRounds;
@@ -1704,6 +1709,67 @@ function switchPage(which) {
     if (which === 'reports' && !window._reportsLoaded) loadReports();
     if (which === 'jobs') loadJobs();
     if (which === 'apis') renderApiList();
+}
+
+// ============================================================
+// Local print approval - prints the last result grid to a
+// Windows printer chosen in chat (aiPrintDecision IPC)
+// ============================================================
+function renderPrintApprovalCard(chat, pending, apiConversation) {
+    setStatus('Waiting for your approval…');
+    const box = document.getElementById('messages');
+    const cardId = 'print-' + Date.now();
+    // capture the grid NOW so what you approve is exactly what prints
+    const data = currentData();
+    const rowCap = 2000;
+    const grid = data ? {
+        columns: data.columns,
+        rows: (data.rows || []).slice(0, rowCap).map(r => (r || []).map(v => v === null || v === undefined ? '' : String(v)))
+    } : null;
+    window._pendingPrint = { chat: chat, pending: pending, cardId: cardId, apiConversation: apiConversation || null, grid: grid };
+
+    box.insertAdjacentHTML('beforeend', `
+        <div class="approval-card" id="${cardId}" style="border-color:#94a3b8;background:#f8fafc;">
+            <div class="ah" style="background:#e2e8f0;color:#334155;"><i class="fas fa-print"></i> Print — approval required</div>
+            <div class="ab" style="color:#1e293b;">
+                <div><strong>Printer:</strong> ${esc(pending.printer || '(default)')}</div>
+                <div style="margin-top:3px;"><strong>Title:</strong> ${esc(pending.title || 'WMS AI Result')}</div>
+                <div style="margin-top:3px;"><strong>Content:</strong> ${grid
+                    ? 'the last result — ' + grid.columns.length + ' column(s) × ' + grid.rows.length + ' row(s)' +
+                      ((data.rows || []).length > rowCap ? ' (capped at ' + rowCap + ')' : '')
+                    : '<span style="color:#b91c1c;">no result grid available — run a query first</span>'}</div>
+                ${pending.reason ? `<div style="margin-top:4px;font-size:10px;color:#64748b;">${esc(pending.reason)}</div>` : ''}
+            </div>
+            <div class="af" style="background:#f8fafc;">
+                <button class="btn-reject" onclick="decidePrint(false)"><i class="fas fa-times"></i> Cancel</button>
+                <button class="btn-approve" style="background:#475569;" onclick="decidePrint(true)" ${grid ? '' : 'disabled'}><i class="fas fa-print"></i> Print</button>
+            </div>
+            <div class="adecision"></div>
+        </div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+function decidePrint(approve) {
+    const ctx = window._pendingPrint;
+    if (!ctx) return;
+    window._pendingPrint = null;
+    const card = document.getElementById(ctx.cardId);
+    if (card) {
+        card.querySelector('.af')?.remove();
+        card.querySelector('.adecision').innerHTML =
+            `<div style="padding:6px 10px;font-size:10px;color:${approve ? '#15803d' : '#64748b'};">${approve ? '<i class="fas fa-print"></i> Sending to printer…' : 'Cancelled — nothing was printed.'}</div>`;
+    }
+    setBusy(true);
+    setStatus(approve ? 'Printing…' : 'Claude is thinking…');
+    sendMessageToCSharp({
+        action: 'aiPrintDecision',
+        approve: approve,
+        sessionId: ctx.chat.sessionId,
+        engine: currentEngine(),
+        apiConversation: ctx.apiConversation,
+        pending: { printer: ctx.pending.printer, title: ctx.pending.title },
+        grid: ctx.grid || { columns: [], rows: [] }
+    }, function (err, resp) { handleTurnResponse(ctx.chat, err, resp); });
 }
 
 // ============================================================
@@ -2589,6 +2655,12 @@ const SLASH_COMMANDS = [
       template: 'Save this as a report. Name it REPORT_NAME and turn the filters into parameters where useful.', ph: 'REPORT_NAME' },
     { cmd: '/reports', cat: 'chat', desc: 'Open the saved Reports tab', local: 'reports' },
     { cmd: '/apis', cat: 'chat', desc: 'Open the write APIs tab', local: 'apis' },
+    { cmd: '/printers', cat: 'chat', desc: 'List the printers connected to this PC',
+      template: 'Show the printers connected to this PC' },
+    { cmd: '/print-result', cat: 'chat', write: true, desc: 'Print the last result to a printer (approval required)',
+      template: 'Print the last result on printer PRINTER_NAME', ph: 'PRINTER_NAME' },
+    { cmd: '/sysinfo', cat: 'chat', desc: 'Show this PC’s system info (drives, OS, user)',
+      template: 'Show this PC’s system information' },
     { cmd: '/create-trip', cat: 'apex', write: true, desc: 'Create a new trip (interactive form)',
       template: 'Create a new trip for TRIP_DATE', ph: 'TRIP_DATE' },
     { cmd: '/add-orders', cat: 'apex', write: true, desc: 'Validate pasted orders and add them to a trip',
@@ -2679,6 +2751,8 @@ function showHelpBubble() {
         '**Email** — say *"email this to name@company.com"* (or `/email`): I compose the mail with the data as a table, you review it in an **approval card**, and it\'s sent from your Office 365 account (configure once via the ✉ button or `/email-settings`).',
         '',
         '**Scheduled jobs** — ask me to *schedule a job* (or use `/schedule`): I design a background database job (SQL checks + Fusion/APEX REST steps, once or repeating until done), you approve it in a card, and Oracle runs it even when this app is closed. Monitor, run-now or cancel it in the **Scheduled Jobs** tab (`/jobs`).',
+        '',
+        '**This PC — printers & devices** — ask *"show connected printers"* (`/printers`) or *"show this PC info"* (`/sysinfo`), then *"print that on Zebra-01"* (`/print-result`): the last result grid is printed as a paginated table on the printer you pick, after an approval card. No printer named? I use the Windows default or ask.',
         '',
         '**WMS operations (write APIs)** — say *"create a trip for tomorrow"* or *"add these orders to trip 6812: …"* and I open the matching **interactive form** prefilled from our conversation. You review the fields, click Run, confirm the exact request — only then it executes, and every run is logged to `WMS_AI_API_LOG`. Pasted orders are validated with SQL against pending shipment lines first (valid ones pre-ticked). All writes are also runnable manually from the **APIs** tab (`/apis`).',
         '',

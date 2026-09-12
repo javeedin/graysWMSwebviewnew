@@ -1867,6 +1867,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiJobDecision(wv, messageJson, requestId);
                                     break;
 
+                                case "aiPrintDecision":
+                                    await HandleAiPrintDecision(wv, messageJson, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3783,6 +3787,12 @@ navPanel.Controls.Add(wmsDevButton);
                 {
                     jobJson = result.PendingJob.JobJson
                 },
+                pendingPrint = result.PendingPrint == null ? null : new
+                {
+                    printer = result.PendingPrint.Printer,
+                    title = result.PendingPrint.Title,
+                    reason = result.PendingPrint.Reason
+                },
                 rounds = rounds
             }));
         }
@@ -3845,6 +3855,86 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("[C# ERROR] aiJobDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// User approved/rejected printing the last result grid to a local
+        /// printer. On approve, prints via LocalDeviceService and resumes the
+        /// conversation with PRINT_RESULT.
+        /// </summary>
+        private async Task HandleAiPrintDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null, printer = "", title = "WMS AI Result";
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+                var columns = new List<string>();
+                var rows = new List<List<string>>();
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (pEl.TryGetProperty("printer", out var prEl) && prEl.ValueKind == JsonValueKind.String)
+                            printer = prEl.GetString();
+                        if (pEl.TryGetProperty("title", out var tiEl) && tiEl.ValueKind == JsonValueKind.String &&
+                            !string.IsNullOrWhiteSpace(tiEl.GetString()))
+                            title = tiEl.GetString();
+                    }
+                    if (root.TryGetProperty("grid", out var gEl) && gEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (gEl.TryGetProperty("columns", out var cEl) && cEl.ValueKind == JsonValueKind.Array)
+                            foreach (var c in cEl.EnumerateArray())
+                                columns.Add(c.ValueKind == JsonValueKind.String ? c.GetString() : c.ToString());
+                        if (gEl.TryGetProperty("rows", out var rEl) && rEl.ValueKind == JsonValueKind.Array)
+                            foreach (var r in rEl.EnumerateArray())
+                            {
+                                var row = new List<string>();
+                                if (r.ValueKind == JsonValueKind.Array)
+                                    foreach (var v in r.EnumerateArray())
+                                        row.Add(v.ValueKind == JsonValueKind.Null ? "" :
+                                                v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString());
+                                rows.Add(row);
+                            }
+                    }
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                string printResult;
+                if (!approve)
+                {
+                    printResult = "USER_REJECTED - the user declined the print. Continue and tell them nothing was printed.";
+                }
+                else
+                {
+                    await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Printing to " + printer + "..." });
+                    printResult = await LocalDeviceService.PrintGridAsync(printer, title, columns, rows);
+                }
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "PRINT_RESULT: " + printResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiPrintDecision failed: " + ex.Message);
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }

@@ -50,6 +50,17 @@ namespace WMSApp
     }
 
     /// <summary>
+    /// A local print request waiting for on-screen user approval.
+    /// The page supplies the grid data (the last shown result) on approve.
+    /// </summary>
+    public class AiPendingPrint
+    {
+        public string Printer { get; set; }
+        public string Title { get; set; }
+        public string Reason { get; set; }
+    }
+
+    /// <summary>
     /// A scheduled job definition waiting for on-screen user approval.
     /// JobJson is the model's raw schedule_job object.
     /// </summary>
@@ -93,6 +104,7 @@ namespace WMSApp
         public string Markdown { get; set; }
         public string GridJson { get; set; }     // raw {"action":"grid",...} object for interactive answers
         public string ApiFormJson { get; set; }  // raw {"action":"api_form",...} object - JS renders the form and runs the API after user confirmation
+        public AiPendingPrint PendingPrint { get; set; }
         public string Error { get; set; }
         public string SessionId { get; set; }
         public bool RequiresApproval { get; set; }
@@ -119,7 +131,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V10";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V11";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -321,6 +333,17 @@ namespace WMSApp
             sb.AppendLine("- trip.cancels2vline - cancel staged S2V line - transaction_id;  trip.cancels2vlot - cancel S2V lot - lot_line_id");
             sb.AppendLine();
             sb.AppendLine("Rules: instance fields are filled by the app from the current instance - never include them in values. Prefill everything you can from the conversation (the trip you just created, the orders just discussed). ADD-ORDERS FLOW: when the user pastes order numbers to add to a trip, FIRST run action sql to validate them against the pending shipment lines for the current instance (which exist and are not already on a trip), THEN return api_form for trips.addorders with the valid orders in values.orders (the app shows them as tick rows) and list the invalid ones with reasons in note. If the user did not say which trip, default trip_id to the trip created/discussed in this conversation, else omit it and the form lets them pick. If API_RESULT says USER_CANCELLED, continue without it and tell the user.");
+            sb.AppendLine();
+            sb.AppendLine("## Local devices (this PC)");
+            sb.AppendLine();
+            sb.AppendLine("The app runs on a Windows PC and can touch its local devices via action device:");
+            sb.AppendLine();
+            sb.AppendLine("{ \"action\": \"device\", \"op\": \"list_printers\", \"reason\": \"one line\" }   // installed printers + default, runs immediately");
+            sb.AppendLine("{ \"action\": \"device\", \"op\": \"system_info\", \"reason\": \"one line\" }     // machine, user, OS, drives with free space, runs immediately");
+            sb.AppendLine("{ \"action\": \"device\", \"op\": \"print\", \"printer\": \"exact printer name\", \"title\": \"heading on the printout\", \"reason\": \"one line\" }");
+            sb.AppendLine();
+            sb.AppendLine("You receive DEVICE_RESULT: {...} for the read ops - format printers as a small markdown table marking the default one.");
+            sb.AppendLine("op print sends THE LAST RESULT GRID currently shown in the app (the data of your latest sql/fusion round) to that printer as a paginated table - you cannot print arbitrary content. The app shows the user an approval card first and you then receive PRINT_RESULT: {success, printer, rowsPrinted, pages} or USER_REJECTED - confirm with action answer. Flow: if the user has not named a printer, run list_printers first and either use the default or ask which one via action answer; use the exact name from the list. If the user asks to print something not yet queried, run the sql action first so the result exists, then print.");
             sb.AppendLine();
             sb.AppendLine("## Sending emails");
             sb.AppendLine();
@@ -580,6 +603,41 @@ namespace WMSApp
                                           gmEl.ValueKind == JsonValueKind.String ? gmEl.GetString() : "";
                         result.GridJson = modelJson.RootElement.GetRawText();
                         return result;
+                    }
+
+                    if (string.Equals(action, "device", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var root = modelJson.RootElement;
+                        string op = root.TryGetProperty("op", out var opEl) ? (opEl.GetString() ?? "").ToLowerInvariant() : "";
+
+                        if (op == "list_printers" || op == "system_info")
+                        {
+                            await onEvent(new { action = "aiChatEvent", eventType = "status", text = op == "list_printers" ? "Reading installed printers..." : "Reading system info..." });
+                            string devResult = op == "list_printers"
+                                ? LocalDeviceService.ListPrintersJson()
+                                : LocalDeviceService.SystemInfoJson();
+                            prompt = "DEVICE_RESULT: " + devResult;
+                            continue;
+                        }
+
+                        if (op == "print")
+                        {
+                            // pause - the UI shows a print approval card holding the
+                            // last result grid, then calls aiPrintDecision
+                            result.Success = true;
+                            result.RequiresApproval = true;
+                            if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                            result.PendingPrint = new AiPendingPrint
+                            {
+                                Printer = root.TryGetProperty("printer", out var prEl) && prEl.ValueKind == JsonValueKind.String ? prEl.GetString() : "",
+                                Title   = root.TryGetProperty("title",   out var tiEl) && tiEl.ValueKind == JsonValueKind.String ? tiEl.GetString() : "WMS AI Result",
+                                Reason  = root.TryGetProperty("reason",  out var rnEl) && rnEl.ValueKind == JsonValueKind.String ? rnEl.GetString() : ""
+                            };
+                            return result;
+                        }
+
+                        prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Unknown device op '" + op + "' - use list_printers, system_info or print\"}";
+                        continue;
                     }
 
                     if (string.Equals(action, "api_form", StringComparison.OrdinalIgnoreCase))
