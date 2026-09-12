@@ -1863,6 +1863,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiDbWriteDecision(wv, messageJson, requestId);
                                     break;
 
+                                case "aiJobDecision":
+                                    await HandleAiJobDecision(wv, messageJson, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3774,8 +3778,74 @@ navPanel.Controls.Add(wmsDevButton);
                     sql = result.PendingDbWrite.Sql,
                     reason = result.PendingDbWrite.Reason
                 },
+                pendingJob = result.PendingJob == null ? null : new
+                {
+                    jobJson = result.PendingJob.JobJson
+                },
                 rounds = rounds
             }));
+        }
+
+        /// <summary>
+        /// User approved/rejected an AI-composed scheduled job. On approve,
+        /// creates it via ai/jobs/create (DBMS_SCHEDULER) and resumes the
+        /// conversation with JOB_RESULT.
+        /// </summary>
+        private async Task HandleAiJobDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null, jobJson = null;
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object &&
+                        pEl.TryGetProperty("jobJson", out var jEl))
+                        jobJson = jEl.GetString();
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                string jobResult;
+                if (!approve)
+                {
+                    jobResult = "USER_REJECTED - the user declined to schedule this job. Continue and tell them nothing was scheduled.";
+                }
+                else if (string.IsNullOrWhiteSpace(jobJson))
+                {
+                    jobResult = "{\"success\":false,\"error\":\"No job definition in the approval\"}";
+                }
+                else
+                {
+                    await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Creating scheduled job..." });
+                    jobResult = await GetClaudeCliService().CreateScheduledJobAsync(jobJson);
+                    await onEvent(new { action = "aiChatEvent", eventType = "jobCreated", result = jobResult });
+                }
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "JOB_RESULT: " + jobResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiJobDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
         }
 
         /// <summary>

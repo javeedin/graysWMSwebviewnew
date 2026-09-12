@@ -331,6 +331,7 @@
     <div class="main-tabs">
         <div class="main-tab active" id="ptab-chatbot" onclick="switchPage('chatbot')"><i class="fas fa-robot"></i> Chatbot</div>
         <div class="main-tab" id="ptab-reports" onclick="switchPage('reports')"><i class="fas fa-chart-line"></i> Saved Reports</div>
+        <div class="main-tab" id="ptab-jobs" onclick="switchPage('jobs')"><i class="fas fa-clock"></i> Scheduled Jobs</div>
     </div>
 
     <!-- ══════════ PAGE 1: CHATBOT ══════════ -->
@@ -436,6 +437,51 @@
             <div class="rp-foot" id="rp-foot"></div>
         </div>
     </div><!-- /page-reports -->
+
+    <!-- ══════════ PAGE 3: SCHEDULED JOBS (monitor) ══════════ -->
+    <div class="page" id="page-jobs" style="display:none;">
+        <!-- Left: job list + filters -->
+        <div class="rp-left" style="width:340px;min-width:340px;">
+            <div class="rp-left-head">
+                <i class="fas fa-clock" style="color:#7c3aed;"></i>
+                <span class="t">Scheduled Jobs</span>
+                <button onclick="loadJobs()" title="Refresh"><i class="fas fa-sync-alt"></i></button>
+            </div>
+            <div style="padding:0.5rem 0.7rem;border-bottom:1px solid var(--border);display:flex;flex-wrap:wrap;gap:5px;">
+                <input id="jb-from" type="date" title="From date" onchange="loadJobs()"
+                    style="flex:1;min-width:105px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:10.5px;">
+                <input id="jb-to" type="date" title="To date" onchange="loadJobs()"
+                    style="flex:1;min-width:105px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:10.5px;">
+                <select id="jb-status" onchange="loadJobs()"
+                    style="flex:1;min-width:100px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;font-size:10.5px;">
+                    <option value="">All statuses</option>
+                    <option>SCHEDULED</option><option>RUNNING</option><option>COMPLETED</option>
+                    <option>FAILED</option><option>CANCELLED</option><option>EXPIRED</option>
+                </select>
+                <input id="jb-search" type="text" placeholder="🔍 search name…" oninput="renderJobs()"
+                    style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:10.5px;">
+            </div>
+            <div class="rp-list" id="jb-list"><div style="font-size:11px;color:#94a3b8;">Loading jobs…</div></div>
+        </div>
+        <!-- Right: job detail -->
+        <div class="rp-main">
+            <div class="rp-main-head">
+                <span class="rtitle2" id="jb-main-title"><i class="fas fa-clock" style="color:#7c3aed;"></i> Select a job</span>
+                <span class="rparams" id="jb-main-status"></span>
+                <button class="tool-btn" id="jb-runnow-btn" style="margin-left:auto;display:none;" onclick="runNowJob()"><i class="fas fa-play"></i> Run Now</button>
+                <button class="tool-btn" id="jb-cancel-btn" style="display:none;color:#dc2626;border-color:#fca5a5;" onclick="cancelJob()"><i class="fas fa-ban"></i> Cancel Job</button>
+                <button class="tool-btn" id="jb-refresh-btn" style="display:none;" onclick="refreshOpenJob()"><i class="fas fa-sync-alt"></i></button>
+            </div>
+            <div class="right-body" id="jb-detail" style="background:var(--bg);padding:0.9rem 1.1rem;overflow-y:auto;">
+                <div style="text-align:center;color:#94a3b8;font-size:12px;padding:4rem 2rem;">
+                    <i class="fas fa-clock" style="font-size:30px;display:block;margin-bottom:10px;"></i>
+                    Jobs are created from the Chatbot — e.g.<br>
+                    <em>"every 10 minutes check trip 6720 and cancel Manual Reservation lines until none are left"</em><br><br>
+                    Pick a job on the left to see its plan, schedule and run history.
+                </div>
+            </div>
+        </div>
+    </div><!-- /page-jobs -->
 
 <script>
 // ============================================================
@@ -830,6 +876,11 @@ function handleTurnResponse(chat, err, resp) {
     // database write (DDL/DML) waiting for approval
     if (resp.requiresApproval && resp.pendingDbWrite) {
         renderDbWriteApprovalCard(chat, resp.pendingDbWrite, resp.apiConversation);
+        return;
+    }
+    // scheduled job waiting for approval
+    if (resp.requiresApproval && resp.pendingJob) {
+        renderJobApprovalCard(chat, resp.pendingJob, resp.apiConversation);
         return;
     }
 
@@ -1543,11 +1594,240 @@ function copySqlData(d) {
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
 function switchPage(which) {
-    document.getElementById('ptab-chatbot').classList.toggle('active', which === 'chatbot');
-    document.getElementById('ptab-reports').classList.toggle('active', which === 'reports');
-    document.getElementById('page-chatbot').style.display = which === 'chatbot' ? '' : 'none';
-    document.getElementById('page-reports').style.display = which === 'reports' ? '' : 'none';
+    ['chatbot', 'reports', 'jobs'].forEach(p => {
+        document.getElementById('ptab-' + p).classList.toggle('active', which === p);
+        document.getElementById('page-' + p).style.display = which === p ? '' : 'none';
+    });
     if (which === 'reports' && !window._reportsLoaded) loadReports();
+    if (which === 'jobs') loadJobs();
+}
+
+// ============================================================
+// Scheduled Jobs monitor (DBMS_SCHEDULER jobs via ai/jobs/*)
+// ============================================================
+const JOB_STATUS_COLORS = {
+    SCHEDULED: ['#dbeafe', '#1d4ed8'], RUNNING: ['#dcfce7', '#15803d'],
+    COMPLETED: ['#ede9fe', '#6d28d9'], FAILED: ['#fee2e2', '#b91c1c'],
+    CANCELLED: ['#f1f5f9', '#475569'], EXPIRED: ['#fef9c3', '#a16207']
+};
+let allJobs = [];
+let openJobId = null;
+
+function jobBadge(st) {
+    const c = JOB_STATUS_COLORS[st] || ['#f1f5f9', '#475569'];
+    return `<span style="background:${c[0]};color:${c[1]};padding:1px 8px;border-radius:8px;font-size:9px;font-weight:800;">${esc(st)}</span>`;
+}
+
+function loadJobs() {
+    const from = document.getElementById('jb-from').value;
+    const to = document.getElementById('jb-to').value;
+    const status = document.getElementById('jb-status').value;
+    let url = AI_BASE + '/jobs/list?t=' + Date.now();
+    if (from) url += '&fromdate=' + from;
+    if (to) url += '&todate=' + to;
+    if (status) url += '&status=' + encodeURIComponent(status);
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: url }, function (err, data) {
+        const el = document.getElementById('jb-list');
+        if (err) { el.innerHTML = '<div style="font-size:11px;color:#dc2626;">Failed: ' + esc(err) + '<br><span style="color:#94a3b8;">Are the ai/jobs handlers created in APEX?</span></div>'; return; }
+        try {
+            const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+            allJobs = (parsed && parsed.jobs) || [];
+        } catch (e) { allJobs = []; }
+        renderJobs();
+    });
+}
+
+function renderJobs() {
+    const q = (document.getElementById('jb-search').value || '').toLowerCase();
+    const el = document.getElementById('jb-list');
+    const list = allJobs.filter(j => !q || (j.name || '').toLowerCase().includes(q));
+    if (list.length === 0) { el.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:0.3rem;">No jobs found.</div>'; return; }
+    let html = '', lastDay = null;
+    for (const j of list) {
+        const day = (j.createdDate || '').slice(0, 10);
+        if (day !== lastDay) {
+            lastDay = day;
+            html += `<div style="font-size:9.5px;font-weight:800;color:#94a3b8;text-transform:uppercase;margin:0.6rem 0 0.3rem;">${esc(day)}</div>`;
+        }
+        html += `
+        <div class="rp-item ${j.jobId === openJobId ? 'active' : ''}" onclick="openJob(${j.jobId})">
+            <div class="rname">
+                <i class="fas fa-clock" style="color:#7c3aed;font-size:11px;"></i>
+                <span>${esc(j.name)}</span>
+                <span style="margin-left:auto;">${jobBadge(j.status)}</span>
+            </div>
+            ${j.description ? `<div class="rdesc">${esc(j.description)}</div>` : ''}
+            <div class="rmeta2">
+                <span><i class="fas fa-user" style="font-size:8px;"></i> ${esc(j.createdBy || '')}</span>
+                <span><i class="fas fa-desktop" style="font-size:8px;"></i> ${esc(j.createdMachine || '')}</span>
+                <span>${j.runsCount || 0} run(s)</span>
+                ${j.nextRun && j.status === 'SCHEDULED' ? `<span style="color:#1d4ed8;"><i class="fas fa-forward" style="font-size:8px;"></i> ${esc(j.nextRun.slice(11, 16))}</span>` : ''}
+            </div>
+        </div>`;
+    }
+    el.innerHTML = html;
+}
+
+function openJob(id) {
+    openJobId = id;
+    renderJobs();
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: AI_BASE + '/jobs/get?id=' + id + '&t=' + Date.now() }, function (err, data) {
+        const el = document.getElementById('jb-detail');
+        if (err) { el.innerHTML = '<div style="color:#dc2626;font-size:12px;">Failed: ' + esc(err) + '</div>'; return; }
+        let j = null;
+        try { j = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (!j || !j.jobId) { el.innerHTML = '<div style="color:#dc2626;font-size:12px;">Job not found</div>'; return; }
+        renderJobDetail(j);
+    });
+}
+function refreshOpenJob() { if (openJobId) openJob(openJobId); }
+
+function renderJobDetail(j) {
+    document.getElementById('jb-main-title').innerHTML =
+        '<i class="fas fa-clock" style="color:#7c3aed;"></i> ' + esc(j.name);
+    document.getElementById('jb-main-status').innerHTML = jobBadge(j.status);
+    const active = ['SCHEDULED', 'RUNNING'].includes(j.status);
+    document.getElementById('jb-runnow-btn').style.display = active ? '' : 'none';
+    document.getElementById('jb-cancel-btn').style.display = active ? '' : 'none';
+    document.getElementById('jb-refresh-btn').style.display = '';
+
+    let steps = [];
+    try { steps = (JSON.parse(j.stepsJson || '{}').steps) || []; } catch (e) { }
+    const stepsHtml = steps.map((s, i) => {
+        if ((s.type || 'rest') === 'sql')
+            return `<div style="padding:6px 10px;border-bottom:1px solid #f1f5f9;"><strong style="font-size:10px;color:#1d4ed8;">${i + 1}. SQL</strong>
+                    <pre style="margin:3px 0 0;background:#0f172a;color:#a5f3fc;padding:6px 8px;border-radius:6px;font-size:10px;white-space:pre-wrap;word-break:break-all;">${esc(s.sql || '')}</pre></div>`;
+        return `<div style="padding:6px 10px;border-bottom:1px solid #f1f5f9;">
+                <strong style="font-size:10px;color:${s.method === 'GET' ? '#15803d' : '#b91c1c'};">${i + 1}. ${esc(s.method || 'GET')}</strong>
+                <span style="font-size:9px;color:#94a3b8;">auth: ${esc(s.auth || 'none')}</span>
+                <div style="font-size:10px;color:#334155;word-break:break-all;">${esc(s.url || '')}</div>
+                ${s.body ? `<pre style="margin:3px 0 0;background:#0f172a;color:#a6e3a1;padding:6px 8px;border-radius:6px;font-size:9.5px;white-space:pre-wrap;word-break:break-all;max-height:100px;overflow-y:auto;">${esc(typeof s.body === 'string' ? s.body : JSON.stringify(s.body, null, 2))}</pre>` : ''}
+                ${s.extract ? `<div style="font-size:9px;color:#7c3aed;">extract: ${esc(JSON.stringify(s.extract))}</div>` : ''}
+            </div>`;
+    }).join('');
+
+    const runsHtml = (j.runs || []).map(r => `
+        <tr style="border-bottom:1px solid #f1f5f9;cursor:pointer;" onclick="const l=this.nextElementSibling;l.style.display=l.style.display==='none'?'':'none';">
+            <td style="padding:4px 8px;font-size:10.5px;">#${r.runId}</td>
+            <td style="padding:4px 8px;font-size:10.5px;">${esc(r.startedAt || '')}</td>
+            <td style="padding:4px 8px;font-size:10.5px;">${esc(r.finishedAt || '…')}</td>
+            <td style="padding:4px 8px;">${jobBadge(r.status || '')}</td>
+        </tr>
+        <tr style="display:none;"><td colspan="4" style="padding:4px 8px;">
+            <pre style="margin:0;background:#0f172a;color:#a6e3a1;padding:8px;border-radius:6px;font-size:9.5px;white-space:pre-wrap;word-break:break-all;max-height:220px;overflow-y:auto;">${esc(r.log || '(no log)')}</pre>
+        </td></tr>`).join('');
+
+    document.getElementById('jb-detail').innerHTML = `
+        ${j.description ? `<div style="font-size:12px;color:#334155;margin-bottom:0.7rem;">${esc(j.description)}</div>` : ''}
+        <div style="display:flex;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.8rem;font-size:10.5px;color:#475569;">
+            <span style="background:white;border:1px solid var(--border);border-radius:8px;padding:4px 10px;"><strong>${esc(j.scheduleType)}</strong>${j.intervalMinutes ? ' · every ' + j.intervalMinutes + ' min' : ''}</span>
+            <span style="background:white;border:1px solid var(--border);border-radius:8px;padding:4px 10px;">start ${esc(j.startAt || '')}</span>
+            <span style="background:white;border:1px solid var(--border);border-radius:8px;padding:4px 10px;">max ${j.maxRuns} runs · until ${esc(j.untilDate || '')}</span>
+            <span style="background:white;border:1px solid var(--border);border-radius:8px;padding:4px 10px;">runs: <strong>${j.runsCount || 0}</strong>${j.nextRun ? ' · next ' + esc(j.nextRun) : ''}</span>
+            <span style="background:white;border:1px solid var(--border);border-radius:8px;padding:4px 10px;"><i class="fas fa-user" style="font-size:9px;"></i> ${esc(j.createdBy || '')} @ ${esc(j.createdMachine || '')} · ${esc(j.createdDate || '')}</span>
+        </div>
+        ${j.lastError ? `<div style="background:#fff5f5;border:1px solid #fca5a5;border-radius:8px;padding:6px 10px;font-size:10.5px;color:#b91c1c;margin-bottom:0.8rem;"><i class="fas fa-triangle-exclamation"></i> Last error: ${esc(j.lastError)}</div>` : ''}
+        <div style="background:white;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:0.8rem;">
+            <div style="padding:6px 10px;background:#f8fafc;font-size:10.5px;font-weight:800;color:#475569;">STEP PLAN (${steps.length})</div>
+            ${stepsHtml || '<div style="padding:8px 10px;font-size:11px;color:#94a3b8;">No steps</div>'}
+            ${j.completionSql ? `<div style="padding:6px 10px;background:#f5f3ff;font-size:10px;color:#5b21b6;"><strong>Done when 0 rows:</strong> <code style="font-size:9.5px;">${esc(j.completionSql)}</code></div>` : ''}
+        </div>
+        <div style="background:white;border:1px solid var(--border);border-radius:10px;overflow:hidden;">
+            <div style="padding:6px 10px;background:#f8fafc;font-size:10.5px;font-weight:800;color:#475569;">RUN HISTORY (click a row for the step log)</div>
+            <table style="width:100%;border-collapse:collapse;">
+                <thead><tr style="background:#fafafa;">
+                    <th style="padding:4px 8px;font-size:9.5px;color:#94a3b8;text-align:left;">Run</th>
+                    <th style="padding:4px 8px;font-size:9.5px;color:#94a3b8;text-align:left;">Started</th>
+                    <th style="padding:4px 8px;font-size:9.5px;color:#94a3b8;text-align:left;">Finished</th>
+                    <th style="padding:4px 8px;font-size:9.5px;color:#94a3b8;text-align:left;">Status</th>
+                </tr></thead>
+                <tbody>${runsHtml || '<tr><td colspan="4" style="padding:8px 10px;font-size:11px;color:#94a3b8;">No runs yet</td></tr>'}</tbody>
+            </table>
+        </div>`;
+}
+
+function cancelJob() {
+    if (!openJobId) return;
+    if (!confirm('Cancel job #' + openJobId + '? It will stop firing permanently.')) return;
+    sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/jobs/cancel', body: JSON.stringify({ jobId: openJobId }) },
+        function () { loadJobs(); refreshOpenJob(); });
+}
+
+function runNowJob() {
+    if (!openJobId) return;
+    sendMessageToCSharp({ action: 'executePost', fullUrl: AI_BASE + '/jobs/runnow', body: JSON.stringify({ jobId: openJobId }) },
+        function () { setTimeout(() => { loadJobs(); refreshOpenJob(); }, 2500); });
+}
+
+// auto-refresh the monitor every 30s while it is the visible page
+setInterval(function () {
+    if (document.getElementById('page-jobs').style.display !== 'none') {
+        loadJobs();
+        if (openJobId) refreshOpenJob();
+    }
+}, 30000);
+
+// ── schedule_job approval card ─────────────────────────────
+function renderJobApprovalCard(chat, pending, apiConversation) {
+    setStatus('Waiting for your approval…');
+    const box = document.getElementById('messages');
+    const cardId = 'job-' + Date.now();
+    window._pendingJob = { chat: chat, pending: pending, cardId: cardId, apiConversation: apiConversation || null };
+    let job = {};
+    try { job = JSON.parse(pending.jobJson || '{}'); } catch (e) { }
+    const steps = job.steps || [];
+    const stepsHtml = steps.map((s, i) =>
+        (s.type || 'rest') === 'sql'
+            ? `<div style="font-size:10px;"><strong>${i + 1}. SQL</strong> <code style="word-break:break-all;">${esc((s.sql || '').slice(0, 150))}</code></div>`
+            : `<div style="font-size:10px;"><strong>${i + 1}. ${esc(s.method || 'GET')}</strong> <span style="word-break:break-all;">${esc((s.url || '').slice(0, 130))}</span>${s.auth === 'fusion' ? ' <em>(fusion auth)</em>' : ''}</div>`
+    ).join('');
+    box.insertAdjacentHTML('beforeend', `
+        <div class="approval-card" id="${cardId}" style="border-color:#a78bfa;background:#f5f3ff;">
+            <div class="ah" style="background:#ede9fe;color:#5b21b6;"><i class="fas fa-clock"></i> Scheduled job — approval required</div>
+            <div class="ab" style="color:#4c1d95;">
+                <div><strong>${esc(job.name || 'Job')}</strong>${job.description ? ' — ' + esc(job.description) : ''}</div>
+                <div style="margin-top:4px;font-size:10.5px;">
+                    <strong>${esc(job.scheduleType || 'ONCE')}</strong>
+                    ${job.intervalMinutes ? ' · every ' + job.intervalMinutes + ' min' : ''}
+                    ${job.startAt ? ' · starts ' + esc(job.startAt) : ' · starts now'}
+                    · max ${job.maxRuns || 50} runs · until ${esc(job.untilDate || '+7 days')}
+                    · ${esc(job.instance || 'PROD')}
+                </div>
+                <div style="margin-top:6px;border:1px solid #ddd6fe;border-radius:6px;background:white;padding:7px 9px;display:flex;flex-direction:column;gap:4px;">
+                    ${stepsHtml || '<em style="font-size:10px;">no steps</em>'}
+                </div>
+                ${job.completionSql ? `<div style="margin-top:5px;font-size:10px;"><strong>Done when 0 rows:</strong> <code style="word-break:break-all;">${esc(job.completionSql.slice(0, 200))}</code></div>` : ''}
+                <div style="margin-top:5px;font-size:9.5px;color:#7c3aed;">Runs inside the database — keeps going even when this app is closed. Cancel any time from the Scheduled Jobs tab.</div>
+            </div>
+            <div class="af" style="background:#f5f3ff;">
+                <button class="btn-reject" onclick="decideJob(false)"><i class="fas fa-times"></i> Reject</button>
+                <button class="btn-approve" style="background:#7c3aed;" onclick="decideJob(true)"><i class="fas fa-check"></i> Approve &amp; Schedule</button>
+            </div>
+            <div class="adecision"></div>
+        </div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+function decideJob(approve) {
+    const ctx = window._pendingJob;
+    if (!ctx) return;
+    window._pendingJob = null;
+    const card = document.getElementById(ctx.cardId);
+    if (card) {
+        card.classList.add('decided');
+        const d = card.querySelector('.adecision');
+        d.textContent = approve ? '✓ Approved — scheduling…' : '✗ Rejected — nothing scheduled';
+        d.style.color = approve ? '#7c3aed' : '#dc2626';
+    }
+    setStatus(approve ? 'Creating scheduled job…' : 'Rejected — Claude is continuing…');
+    sendMessageToCSharp({
+        action: 'aiJobDecision',
+        approve: approve,
+        sessionId: ctx.chat.sessionId,
+        pending: ctx.pending,
+        engine: currentEngine(),
+        apiConversation: ctx.apiConversation
+    }, function (err, resp) { handleTurnResponse(ctx.chat, err, resp); });
 }
 
 function loadReports() {
@@ -1904,6 +2184,9 @@ const SLASH_COMMANDS = [
     { cmd: '/save-report', cat: 'chat', desc: 'Save the last answer as a re-runnable report',
       template: 'Save this as a report. Name it REPORT_NAME and turn the filters into parameters where useful.', ph: 'REPORT_NAME' },
     { cmd: '/reports', cat: 'chat', desc: 'Open the saved Reports tab', local: 'reports' },
+    { cmd: '/schedule', cat: 'chat', write: true, desc: 'Schedule a background DB job (approval required)',
+      template: 'Schedule a job: every 5 minutes, check trip TRIP_ID and cancel the Scheduled / Manual Reservation Required lines (including child lines) until none are left', ph: 'TRIP_ID' },
+    { cmd: '/jobs', cat: 'chat', desc: 'Open the Scheduled Jobs tab', local: 'jobs' },
     { cmd: '/help', cat: 'chat', desc: 'What can this assistant do?', local: 'help' },
     { cmd: '/new',  cat: 'chat', desc: 'Start a new conversation',    local: 'new' }
 ];
@@ -1944,6 +2227,7 @@ function applySlash(i) {
     if (c.local === 'new') { inp.value = ''; newChat(); return; }
     if (c.local === 'help') { inp.value = ''; showHelpBubble(); return; }
     if (c.local === 'reports') { inp.value = ''; switchPage('reports'); return; }
+    if (c.local === 'jobs') { inp.value = ''; switchPage('jobs'); return; }
     if (c.local === 'emailSettings') { inp.value = ''; openEmailSettings(false); return; }
     if (c.local === 'engine') { inp.value = ''; openEngineSettings(); return; }
     inp.value = c.template;
@@ -1983,6 +2267,8 @@ function showHelpBubble() {
         '**Saved reports** — after any answer say *"save this as a report"* (or `/save-report`): the SQL is stored in the database with prompt-able parameters (trip, order, date range). Re-run it any time from the **Reports** tab — it always fetches live data.',
         '',
         '**Email** — say *"email this to name@company.com"* (or `/email`): I compose the mail with the data as a table, you review it in an **approval card**, and it\'s sent from your Office 365 account (configure once via the ✉ button or `/email-settings`).',
+        '',
+        '**Scheduled jobs** — ask me to *schedule a job* (or use `/schedule`): I design a background database job (SQL checks + Fusion/APEX REST steps, once or repeating until done), you approve it in a card, and Oracle runs it even when this app is closed. Monitor, run-now or cancel it in the **Scheduled Jobs** tab (`/jobs`).',
         '',
         '### Slash commands',
         '',
