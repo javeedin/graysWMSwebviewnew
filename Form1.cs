@@ -1890,20 +1890,34 @@ navPanel.Controls.Add(wmsDevButton);
                                         using (var pfDoc = JsonDocument.Parse(messageJson))
                                             if (pfDoc.RootElement.TryGetProperty("current", out var cfEl) && cfEl.ValueKind == JsonValueKind.String)
                                                 currentFolder = cfEl.GetString();
-                                        using (var dlg = new FolderBrowserDialog())
+                                        string pickRequestId = requestId;
+                                        // WebView2 forbids modal dialogs inside its event handlers
+                                        // (reentrancy crash) - defer the dialog to the message queue
+                                        BeginInvoke(new Action(() =>
                                         {
-                                            dlg.Description = "Choose the download folder for AI-downloaded files";
-                                            dlg.UseDescriptionForTitle = true;
-                                            if (!string.IsNullOrWhiteSpace(currentFolder) && Directory.Exists(currentFolder))
-                                                dlg.SelectedPath = currentFolder;
-                                            bool okPick = dlg.ShowDialog(this) == DialogResult.OK;
-                                            wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                                            try
                                             {
-                                                requestId,
-                                                success = okPick,
-                                                folder = okPick ? dlg.SelectedPath : null
-                                            }));
-                                        }
+                                                using (var dlg = new FolderBrowserDialog())
+                                                {
+                                                    dlg.Description = "Choose the download folder for AI-downloaded files";
+                                                    dlg.UseDescriptionForTitle = true;
+                                                    if (!string.IsNullOrWhiteSpace(currentFolder) && Directory.Exists(currentFolder))
+                                                        dlg.SelectedPath = currentFolder;
+                                                    bool okPick = dlg.ShowDialog(this) == DialogResult.OK;
+                                                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                                                    {
+                                                        requestId = pickRequestId,
+                                                        success = okPick,
+                                                        folder = okPick ? dlg.SelectedPath : null
+                                                    }));
+                                                }
+                                            }
+                                            catch (Exception exPick)
+                                            {
+                                                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiPickFolder failed: " + exPick.Message);
+                                                try { SendErrorResponse(wv, pickRequestId, exPick.Message); } catch { }
+                                            }
+                                        }));
                                     }
                                     break;
 
