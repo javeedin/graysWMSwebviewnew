@@ -1,5 +1,6 @@
 -- ============================================================
 -- AI DIGITAL EMPLOYEE - ACTION POLICIES (authority limits)
+-- (column is POLICY_MODE - "MODE" is an Oracle reserved word)
 -- ============================================================
 -- Decides, per user and per action, whether the AI may act
 -- WITHOUT asking (AUTO), must show an approval card (ASK - the
@@ -34,7 +35,7 @@ CREATE TABLE wms_ai_policies (
     app_user     VARCHAR2(100) DEFAULT '*' NOT NULL,   -- Windows username or '*'
     action_key   VARCHAR2(40) NOT NULL,
     instance     VARCHAR2(10) DEFAULT '*' NOT NULL CHECK (instance IN ('*','PROD','TEST')),
-    mode         VARCHAR2(10) NOT NULL CHECK (mode IN ('AUTO','ASK','DENY')),
+    policy_mode  VARCHAR2(10) NOT NULL CHECK (policy_mode IN ('AUTO','ASK','DENY')),
     max_batch    NUMBER,
     note         VARCHAR2(400),
     updated_by   VARCHAR2(100),
@@ -45,7 +46,7 @@ CREATE TABLE wms_ai_policies (
 COMMENT ON TABLE wms_ai_policies IS 'AI Digital Employee authority limits: per user/action/instance -> AUTO (act without asking), ASK (approval card), DENY (refused). Missing = ASK.';
 
 -- Seed: everything ASK everywhere (today's behavior, explicit)
-INSERT INTO wms_ai_policies (app_user, action_key, instance, mode, note)
+INSERT INTO wms_ai_policies (app_user, action_key, instance, policy_mode, note)
     SELECT '*', k, '*', 'ASK', 'default'
     FROM (SELECT 'fusion_write' k FROM dual UNION ALL SELECT 'db_write' FROM dual
           UNION ALL SELECT 'schedule_job' FROM dual UNION ALL SELECT 'wms_api' FROM dual
@@ -55,13 +56,13 @@ COMMIT;
 
 -- Examples (edit to taste):
 -- Everything AUTO on TEST for everyone:
---   UPDATE wms_ai_policies SET mode='AUTO' WHERE app_user='*' AND instance='*' AND action_key IN ('fusion_write','wms_api');
+--   UPDATE wms_ai_policies SET policy_mode='AUTO' WHERE app_user='*' AND instance='*' AND action_key IN ('fusion_write','wms_api');
 --   ... or add instance-specific rows:
---   INSERT INTO wms_ai_policies (app_user, action_key, instance, mode) VALUES ('*','fusion_write','TEST','AUTO');
+--   INSERT INTO wms_ai_policies (app_user, action_key, instance, policy_mode) VALUES ('*','fusion_write','TEST','AUTO');
 -- One power user may auto-cancel up to 5 lines on PROD:
---   INSERT INTO wms_ai_policies (app_user, action_key, instance, mode, max_batch) VALUES ('JAVEED','fusion_write','PROD','AUTO',5);
+--   INSERT INTO wms_ai_policies (app_user, action_key, instance, policy_mode, max_batch) VALUES ('JAVEED','fusion_write','PROD','AUTO',5);
 -- Block DDL/DML for everyone on PROD:
---   INSERT INTO wms_ai_policies (app_user, action_key, instance, mode) VALUES ('*','db_write','PROD','DENY');
+--   INSERT INTO wms_ai_policies (app_user, action_key, instance, policy_mode) VALUES ('*','db_write','PROD','DENY');
 
 
 -- ============================================================
@@ -78,7 +79,7 @@ COMMIT;
 BEGIN
     APEX_JSON.open_object;
     APEX_JSON.open_array('policies');
-    FOR r IN (SELECT app_user, action_key, instance, mode, max_batch
+    FOR r IN (SELECT app_user, action_key, instance, policy_mode, max_batch
               FROM wms_ai_policies
               WHERE app_user = '*' OR UPPER(app_user) = UPPER(NVL(:appuser, '*'))
               ORDER BY policy_id) LOOP
@@ -86,7 +87,7 @@ BEGIN
         APEX_JSON.write('appUser',  r.app_user);
         APEX_JSON.write('action',   r.action_key);
         APEX_JSON.write('instance', r.instance);
-        APEX_JSON.write('mode',     r.mode);
+        APEX_JSON.write('mode',     r.policy_mode);
         IF r.max_batch IS NOT NULL THEN APEX_JSON.write('maxBatch', r.max_batch); END IF;
         APEX_JSON.close_object;
     END LOOP;

@@ -31,8 +31,8 @@
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'fusion_write' a, 'TEST' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'AUTO', max_batch = 20, note = 'TEST: act freely, ask above 20 lines', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, max_batch, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'AUTO', max_batch = 20, note = 'TEST: act freely, ask above 20 lines', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, max_batch, note, updated_by)
 VALUES ('*', 'fusion_write', 'TEST', 'AUTO', 20, 'TEST: act freely, ask above 20 lines', 'SEED41');
 
 -- WMS write APIs (create trip, add orders, assign picker, pick
@@ -41,8 +41,8 @@ VALUES ('*', 'fusion_write', 'TEST', 'AUTO', 20, 'TEST: act freely, ask above 20
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'wms_api' a, 'TEST' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'AUTO', max_batch = NULL, note = 'TEST: forms run without confirm dialog', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'AUTO', max_batch = NULL, note = 'TEST: forms run without confirm dialog', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'wms_api', 'TEST', 'AUTO', 'TEST: forms run without confirm dialog', 'SEED41');
 
 -- DDL/DML from chat: AUTO on TEST (sandbox), so table experiments
@@ -50,8 +50,8 @@ VALUES ('*', 'wms_api', 'TEST', 'AUTO', 'TEST: forms run without confirm dialog'
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'db_write' a, 'TEST' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'AUTO', max_batch = NULL, note = 'TEST sandbox: DDL/DML without card', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'AUTO', max_batch = NULL, note = 'TEST sandbox: DDL/DML without card', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'db_write', 'TEST', 'AUTO', 'TEST sandbox: DDL/DML without card', 'SEED41');
 
 -- Scheduled jobs: ASK even on TEST - jobs persist and keep running
@@ -59,8 +59,8 @@ VALUES ('*', 'db_write', 'TEST', 'AUTO', 'TEST sandbox: DDL/DML without card', '
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'schedule_job' a, 'TEST' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'ASK', max_batch = NULL, note = 'jobs persist - always review the plan', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'ASK', max_batch = NULL, note = 'jobs persist - always review the plan', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'schedule_job', 'TEST', 'ASK', 'jobs persist - always review the plan', 'SEED41');
 
 -- ══════════ EVERYONE ('*') on PROD — supervised ══════════
@@ -69,16 +69,16 @@ VALUES ('*', 'schedule_job', 'TEST', 'ASK', 'jobs persist - always review the pl
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'fusion_write' a, 'PROD' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'ASK', max_batch = NULL, note = 'PROD: human approves every write', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'ASK', max_batch = NULL, note = 'PROD: human approves every write', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'fusion_write', 'PROD', 'ASK', 'PROD: human approves every write', 'SEED41');
 
 -- WMS write APIs: always ask on PROD.
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'wms_api' a, 'PROD' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'ASK', max_batch = NULL, note = 'PROD: confirm dialog on every form', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'ASK', max_batch = NULL, note = 'PROD: confirm dialog on every form', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'wms_api', 'PROD', 'ASK', 'PROD: confirm dialog on every form', 'SEED41');
 
 -- DDL/DML on PROD: DENIED for regular users - only the admin row
@@ -86,16 +86,16 @@ VALUES ('*', 'wms_api', 'PROD', 'ASK', 'PROD: confirm dialog on every form', 'SE
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'db_write' a, 'PROD' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'DENY', max_batch = NULL, note = 'PROD schema changes: admin only', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'DENY', max_batch = NULL, note = 'PROD schema changes: admin only', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'db_write', 'PROD', 'DENY', 'PROD schema changes: admin only', 'SEED41');
 
 -- Scheduled jobs on PROD: ask.
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'schedule_job' a, 'PROD' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'ASK', max_batch = NULL, note = 'PROD: review every job plan', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'ASK', max_batch = NULL, note = 'PROD: review every job plan', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'schedule_job', 'PROD', 'ASK', 'PROD: review every job plan', 'SEED41');
 
 -- ══════════ EVERYONE ('*'), BOTH instances ══════════
@@ -105,22 +105,22 @@ VALUES ('*', 'schedule_job', 'PROD', 'ASK', 'PROD: review every job plan', 'SEED
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'email' a, '*' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'ASK', max_batch = NULL, note = 'review recipients + body before send', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'ASK', max_batch = NULL, note = 'review recipients + body before send', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'email', '*', 'ASK', 'review recipients + body before send', 'SEED41');
 
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'print' a, '*' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'ASK', max_batch = NULL, note = 'physical output - confirm', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'ASK', max_batch = NULL, note = 'physical output - confirm', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'print', '*', 'ASK', 'physical output - confirm', 'SEED41');
 
 MERGE INTO wms_ai_policies p
 USING (SELECT '*' u, 'print_orders' a, '*' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'ASK', max_batch = NULL, note = 'paper + toner - confirm the batch', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'ASK', max_batch = NULL, note = 'paper + toner - confirm the batch', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES ('*', 'print_orders', '*', 'ASK', 'paper + toner - confirm the batch', 'SEED41');
 
 -- ══════════ ADMIN on PROD — limited autonomy ══════════
@@ -130,16 +130,16 @@ VALUES ('*', 'print_orders', '*', 'ASK', 'paper + toner - confirm the batch', 'S
 MERGE INTO wms_ai_policies p
 USING (SELECT UPPER('JAVEED') u, 'fusion_write' a, 'PROD' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'AUTO', max_batch = 5, note = 'admin: small PROD cancels unaided', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, max_batch, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'AUTO', max_batch = 5, note = 'admin: small PROD cancels unaided', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, max_batch, note, updated_by)
 VALUES (UPPER('JAVEED'), 'fusion_write', 'PROD', 'AUTO', 5, 'admin: small PROD cancels unaided', 'SEED41');
 
 -- Admin may run DDL/DML on PROD - but always with a card.
 MERGE INTO wms_ai_policies p
 USING (SELECT UPPER('JAVEED') u, 'db_write' a, 'PROD' i FROM dual) s
 ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i)
-WHEN MATCHED THEN UPDATE SET mode = 'ASK', max_batch = NULL, note = 'admin: PROD DDL/DML allowed, with card', updated_by = 'SEED41', updated_date = SYSDATE
-WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, mode, note, updated_by)
+WHEN MATCHED THEN UPDATE SET policy_mode = 'ASK', max_batch = NULL, note = 'admin: PROD DDL/DML allowed, with card', updated_by = 'SEED41', updated_date = SYSDATE
+WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, note, updated_by)
 VALUES (UPPER('JAVEED'), 'db_write', 'PROD', 'ASK', 'admin: PROD DDL/DML allowed, with card', 'SEED41');
 
 COMMIT;
@@ -147,7 +147,7 @@ COMMIT;
 -- ------------------------------------------------------------
 -- Verify: effective policy matrix
 -- ------------------------------------------------------------
-SELECT app_user, action_key, instance, mode, max_batch, note
+SELECT app_user, action_key, instance, policy_mode, max_batch, note
 FROM wms_ai_policies
 ORDER BY CASE app_user WHEN '*' THEN 1 ELSE 0 END, app_user, action_key,
          CASE instance WHEN '*' THEN 2 WHEN 'PROD' THEN 1 ELSE 0 END;
