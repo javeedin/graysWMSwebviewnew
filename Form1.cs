@@ -1859,6 +1859,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiApiTest(wv, messageJson, requestId);
                                     break;
 
+                                case "aiDbWriteDecision":
+                                    await HandleAiDbWriteDecision(wv, messageJson, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3765,8 +3769,74 @@ navPanel.Controls.Add(wmsDevButton);
                     bodyHtml = result.PendingEmail.BodyHtml,
                     reason = result.PendingEmail.Reason
                 },
+                pendingDbWrite = result.PendingDbWrite == null ? null : new
+                {
+                    sql = result.PendingDbWrite.Sql,
+                    reason = result.PendingDbWrite.Reason
+                },
                 rounds = rounds
             }));
+        }
+
+        /// <summary>
+        /// User approved/rejected an AI-composed DDL/DML statement. On approve,
+        /// executes it via the guarded ai/executewrite endpoint, then resumes
+        /// the conversation with DB_WRITE_RESULT.
+        /// </summary>
+        private async Task HandleAiDbWriteDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null, sql = "";
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object &&
+                        pEl.TryGetProperty("sql", out var sqEl))
+                        sql = sqEl.GetString() ?? "";
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                string writeResult;
+                if (!approve)
+                {
+                    writeResult = "USER_REJECTED - the user declined this statement. Continue and tell them it was not executed.";
+                }
+                else if (string.IsNullOrWhiteSpace(sql))
+                {
+                    writeResult = "{\"success\":false,\"error\":\"No SQL statement in the approval\"}";
+                }
+                else
+                {
+                    await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Executing approved statement..." });
+                    writeResult = await GetClaudeCliService().ExecuteDbWriteAsync(sql);
+                }
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "DB_WRITE_RESULT: " + writeResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiDbWriteDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
         }
 
         /// <summary>
