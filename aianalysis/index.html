@@ -345,6 +345,7 @@
         <div class="main-tab" id="ptab-reports" onclick="switchPage('reports')"><i class="fas fa-chart-line"></i> Saved Reports</div>
         <div class="main-tab" id="ptab-jobs" onclick="switchPage('jobs')"><i class="fas fa-clock"></i> Scheduled Jobs</div>
         <div class="main-tab" id="ptab-apis" onclick="switchPage('apis')"><i class="fas fa-plug"></i> APIs</div>
+        <div class="main-tab" id="ptab-cando" onclick="switchPage('cando')"><i class="fas fa-wand-magic-sparkles"></i> What can I do?</div>
     </div>
 
     <!-- ══════════ PAGE 1: CHATBOT ══════════ -->
@@ -528,6 +529,113 @@
             </div>
         </div>
     </div><!-- /page-apis -->
+
+    <!-- ══════════ PAGE 5: WHAT CAN I DO? ══════════ -->
+    <div class="page" id="page-cando" style="display:none;">
+        <div style="flex:1;overflow-y:auto;background:var(--bg);padding:1.1rem 1.4rem;">
+            <div style="max-width:1150px;margin:0 auto;">
+                <div style="margin-bottom:0.9rem;">
+                    <div style="font-size:17px;font-weight:800;color:#0f172a;"><i class="fas fa-wand-magic-sparkles" style="color:#7c3aed;"></i> Everything this assistant can do</div>
+                    <div style="font-size:11.5px;color:#64748b;margin-top:3px;">
+                        Ask in plain English on the <strong>Chatbot</strong> tab — type <code>/</code> for shortcuts.
+                        <span style="background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:8px;font-size:9.5px;font-weight:800;margin-left:6px;">✋ approval</span> = nothing executes until you approve a card.
+                        <span style="background:#dcfce7;color:#15803d;padding:1px 8px;border-radius:8px;font-size:9.5px;font-weight:800;margin-left:4px;">⚡ instant</span> = read-only, runs immediately.
+                        Everything follows the <strong>PROD / TEST</strong> chip in the top bar.
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:10px;" id="cando-grid">
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-database" style="color:#2563eb;"></i> Ask anything about your data <span style="background:#dcfce7;color:#15803d;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">⚡ instant</span></div>
+                        <div style="font-size:10.5px;color:#475569;">I write and run read-only Oracle SQL on the WMS schema — trips, orders, shipment lines, print jobs, agents, jobs, logs. Results export to Excel / CSV / PDF.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"Give me the list of trips for today" · "How many print jobs failed this week by day?"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-list-check" style="color:#2563eb;"></i> Interactive selection grids <span style="background:#dcfce7;color:#15803d;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">⚡ instant</span></div>
+                        <div style="font-size:10.5px;color:#475569;">Ask for a list "in a selectable grid": tick the rows you want and click an action button (e.g. cancel the selected lines).</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"/trip-manual-lines" · "Show order 418978's lines in a selectable grid so I can cancel some"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid #fca5a5;border-radius:10px;background:#fff7f7;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-ban" style="color:#dc2626;"></i> Cancel lines — WITH child lines <span style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">✋ approval</span></div>
+                        <div style="font-size:10.5px;color:#475569;">The Shipping-Agent rule, on demand: cancelling main line 3 also cancels 3.1, 3.2…; if there are no numbered sub-lines I read the <strong>BOGO promo mapping</strong> and cancel the promo child items of the same order. Children already cancelled / shipped / interfaced are skipped and reported. You see the full plan (main ↳ children, via SUB-LINE or BOGO) before one approval per order.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"Cancel the Manual Reservation lines of order 418978 including child lines"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-truck" style="color:#0891b2;"></i> Trip operations <span style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">✋ approval</span></div>
+                        <div style="font-size:10.5px;color:#475569;">Create a trip (prefilled form), add pasted orders to it (validated against pending shipments, valid ones pre-ticked), update the trip header, remove an order from a trip. I remember the trip we just created for follow-ups.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"/create-trip" · "Add these orders to that trip: 418978, 419001, …"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-person-walking" style="color:#0891b2;"></i> Pickers & picking <span style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">✋ approval</span></div>
+                        <div style="font-size:10.5px;color:#475569;">Assign a picker to an order, trip-level picker assignment, call a pick wave, run pick release for an order, update pick confirm status, release picks.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"Assign picker 14 (John) to order 418978" · "Run pick release for order 419001"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-cloud" style="color:#0891b2;"></i> Oracle Fusion direct <span style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">✋ approval for writes</span></div>
+                        <div style="font-size:10.5px;color:#475569;">Say "fusion" and I use the live Fusion REST APIs: shipment lines, sales orders, staged inventory transactions, pick/ship transactions. Reads are instant; every write shows an approval card with the exact request.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"fusion: show the shipment lines of order 418978" · "/fusion-…" commands</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-chart-line" style="color:#16a34a;"></i> Saved reports <span style="background:#dcfce7;color:#15803d;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">⚡ instant</span></div>
+                        <div style="font-size:10.5px;color:#475569;">Save any answer as a re-runnable report with typed parameters (trip, date range…). Run it from the Saved Reports tab or from chat — always live data, always exportable.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"Save this as a report" · "/reports"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-clock" style="color:#7c3aed;"></i> Scheduled background jobs <span style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">✋ approval</span></div>
+                        <div style="font-size:10.5px;color:#475569;">"Every 10 minutes until done" jobs that run INSIDE Oracle — SQL checks + REST steps chained with extracted values — even when this app is closed. Monitor, run-now or cancel them in the Scheduled Jobs tab.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"/schedule" · "every 10 min cancel trip 6812's manual lines until none are left"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-print" style="color:#475569;"></i> Print — results & order documents <span style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">✋ approval</span></div>
+                        <div style="font-size:10.5px;color:#475569;">Print any result grid as a paginated table, or print real <strong>Sales Order PDFs</strong> (downloaded from Oracle BI Publisher) — one order or a whole trip (max 20). Uses your default printer (🖨 button) or one you name; the printer list also browses shared network printers you can connect.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"/print-order 418978" · "/print-trip-orders 6812" · "/printers"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-download" style="color:#475569;"></i> Download order PDFs <span style="background:#dcfce7;color:#15803d;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">⚡ instant</span></div>
+                        <div style="font-size:10.5px;color:#475569;">Sales Order PDFs saved straight into your download folder (📁 button), named <code>{order}.pdf</code>, no questions — then I show you the folder's file list.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"/download-trip-orders 6812" · "/my-files"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-envelope" style="color:#2563eb;"></i> Email results <span style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">✋ approval</span></div>
+                        <div style="font-size:10.5px;color:#475569;">I compose the mail with your data as a table; you review recipients and body in a card; it sends from your Office 365 account (✉ button to configure once).</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"Email this to dispatch@grays.com with a short summary"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-table" style="color:#b45309;"></i> Database changes <span style="background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">✋ approval</span></div>
+                        <div style="font-size:10.5px;color:#475569;">Create tables, insert / update / delete rows — I compose the exact statement, you approve it in a card. New tables join my schema catalog automatically. Every API run is also audit-logged to WMS_AI_API_LOG.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"Create a table for driver check-ins" · "Record trip 7833 as downloaded"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-desktop" style="color:#475569;"></i> This PC <span style="background:#dcfce7;color:#15803d;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:800;">⚡ instant</span></div>
+                        <div style="font-size:10.5px;color:#475569;">List installed printers (default marked), browse network printers, show machine / user / OS / drive space, list your downloaded files.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"/printers" · "/sysinfo" · "/my-files"</div>
+                    </div>
+
+                    <div class="cando-card" style="border:1px solid var(--border);border-radius:10px;background:white;padding:11px 13px;">
+                        <div style="font-size:12.5px;font-weight:800;color:#0f172a;margin-bottom:4px;"><i class="fas fa-sliders" style="color:#64748b;"></i> Settings that steer me</div>
+                        <div style="font-size:10.5px;color:#475569;"><strong>PROD/TEST chip</strong> — every query, Fusion call, form and job follows it. <strong>⚙ Engine</strong> — Claude CLI (subscription) or API key. <strong>🖨 Default printer</strong> · <strong>📁 Download folder</strong> · <strong>✉ Email account</strong>. All per PC.</div>
+                        <div style="font-size:10px;color:#7c3aed;margin-top:5px;">"/engine" · "/default-printer" · "/download-folder" · "/email-settings"</div>
+                    </div>
+
+                </div>
+                <div style="font-size:10px;color:#94a3b8;margin:14px 2px;">
+                    Safety: I can only run whitelisted operations — reads are SQL-only (SELECT), writes are the catalogued webservices and always need your approval, scheduled jobs are capped (≤200 runs, ≤30 days, whitelisted hosts), and every write-API run is audit-logged with your name and machine.
+                </div>
+            </div>
+        </div>
+    </div><!-- /page-cando -->
 
 <script src="api-catalog.js"></script>
 <script>
@@ -1856,7 +1964,7 @@ function copySqlData(d) {
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
 function switchPage(which) {
-    ['chatbot', 'reports', 'jobs', 'apis'].forEach(p => {
+    ['chatbot', 'reports', 'jobs', 'apis', 'cando'].forEach(p => {
         document.getElementById('ptab-' + p).classList.toggle('active', which === p);
         document.getElementById('page-' + p).style.display = which === p ? '' : 'none';
     });
@@ -2870,6 +2978,9 @@ const SLASH_COMMANDS = [
       template: 'Save this as a report. Name it REPORT_NAME and turn the filters into parameters where useful.', ph: 'REPORT_NAME' },
     { cmd: '/reports', cat: 'chat', desc: 'Open the saved Reports tab', local: 'reports' },
     { cmd: '/apis', cat: 'chat', desc: 'Open the write APIs tab', local: 'apis' },
+    { cmd: '/what-can-i-do', cat: 'chat', desc: 'Open the capabilities overview tab', local: 'cando' },
+    { cmd: '/cancel-line', cat: 'apex', write: true, desc: 'Cancel a line INCLUDING its child lines (sub-lines / BOGO)',
+      template: 'Cancel line LINE_NUMBER of order ORDER_NUMBER including its child lines (numbered sub-lines, or BOGO promo items if none)', ph: 'LINE_NUMBER' },
     { cmd: '/printers', cat: 'chat', desc: 'List the printers connected to this PC',
       template: 'Show the printers connected to this PC' },
     { cmd: '/default-printer', cat: 'chat', desc: 'Choose the default printer for AI printing', local: 'defaultPrinter' },
@@ -2937,6 +3048,7 @@ function applySlash(i) {
     if (c.local === 'reports') { inp.value = ''; switchPage('reports'); return; }
     if (c.local === 'jobs') { inp.value = ''; switchPage('jobs'); return; }
     if (c.local === 'apis') { inp.value = ''; switchPage('apis'); return; }
+    if (c.local === 'cando') { inp.value = ''; switchPage('cando'); return; }
     if (c.local === 'defaultPrinter') { inp.value = ''; openPrinterSettings(); return; }
     if (c.local === 'downloadFolder') { inp.value = ''; pickDownloadFolder(); return; }
     if (c.local === 'emailSettings') { inp.value = ''; openEmailSettings(false); return; }

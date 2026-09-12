@@ -149,7 +149,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V14";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V15";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -158,6 +158,11 @@ namespace WMSApp
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/reports/save";
         private const int FUSION_RESULT_MAX_CHARS = 25000;   // fed back to the model
         private const int FUSION_STORE_MAX_CHARS  = 100000;  // kept for the inspector
+
+        private const string ORDS_ROOT_URL =
+            "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP";
+        // read-only ORDS helper endpoints the model may GET via action "ords"
+        private static readonly string[] ORDS_READ_WHITELIST = { "/ARMODULE/BOGO" };
 
         private const string FUSION_PROD_BASE = "https://efmh.fa.em3.oraclecloud.com";
         private const string FUSION_TEST_BASE = "https://efmh-test.fa.em3.oraclecloud.com";
@@ -326,6 +331,22 @@ namespace WMSApp
             sb.AppendLine("    { \"type\": \"sql\", \"sql\": \"SELECT ...\" } ] }");
             sb.AppendLine();
             sb.AppendLine("Rules: steps run in order inside the DATABASE (the app can be closed); rest URLs only on the ORDS host or the two Fusion hosts (efmh / efmh-test); always write Fusion step URLs with #FUSION_BASE# instead of a hardcoded host so the job follows its instance; auth fusion uses stored credentials; #VAR# substitutes values captured by an earlier step's extract; sql steps and completionSql must be plain SELECTs (the runner evaluates SELECT COUNT(*) of them). The app shows the user an approval card with the full plan - nothing is scheduled until approved. You then receive JOB_RESULT: {success, jobId, firstRun} or USER_REJECTED - confirm with action answer and tell the user to watch it in the Scheduled Jobs tab.");
+            sb.AppendLine();
+            sb.AppendLine("## Helper ORDS reads (action ords)");
+            sb.AppendLine();
+            sb.AppendLine("{ \"action\": \"ords\", \"path\": \"/ARMODULE/BOGO\", \"params\": { \"p_instance_name\": \"PROD\" }, \"reason\": \"one line\" }");
+            sb.AppendLine();
+            sb.AppendLine("GET-only, whitelisted helper endpoints on the app's own ORDS. Currently: /ARMODULE/BOGO = the BOGO promotion mapping - items[] rows with mainitemcode (parent item) and promoitemcode (free/child item). Runs immediately; you receive ORDS_RESULT: {...}.");
+            sb.AppendLine();
+            sb.AppendLine("## Cancelling order lines WITH CHILD LINES (shipping-agent rule)");
+            sb.AppendLine();
+            sb.AppendLine("Whenever you cancel a MAIN order line (typically status Manual Reservation Required, Scheduled or Backordered), you MUST expand and cancel its child lines exactly like the app's Shipping Agent does:");
+            sb.AppendLine("1. Get ALL lines of the order (action sql on the shipment lines for the current instance, or fusion shipmentLines GET): line number, item code, status, FULFILL_LINE_ID.");
+            sb.AppendLine("2. NUMBERED SUB-LINES first: children of line N are the lines whose line number starts with \"N.\" (line 3 -> 3.1, 3.2, ...).");
+            sb.AppendLine("3. BOGO fallback - ONLY when the parent has no numbered sub-lines at all: fetch /ARMODULE/BOGO once for the current instance (action ords), map the parent's ITEM CODE (uppercase) to its promoitemcode list, and the children are the SAME ORDER's lines whose item code is in that list.");
+            sb.AppendLine("4. SKIP (and report, never cancel) any child whose status contains CANCEL, SHIP or INTERFAC, and any child without a FULFILL_LINE_ID.");
+            sb.AppendLine("5. Show the user the FULL plan before acting: main lines, child lines marked as child-of-N via SUB-LINE or BOGO, and the skipped ones with reasons (use a grid or a clear list).");
+            sb.AppendLine("6. Cancel with ONE fusion PATCH per order (salesOrdersForOrderHub, lines array carrying every FulfillLineId with OrderedQuantity 0 and a CancelReason) - the approval card then covers the whole order's set. Never cancel a child silently; never skip the expansion because the user only named the main line.");
             sb.AppendLine();
             sb.AppendLine("## WMS write APIs (interactive forms)");
             sb.AppendLine();
@@ -631,6 +652,78 @@ namespace WMSApp
                                           gmEl.ValueKind == JsonValueKind.String ? gmEl.GetString() : "";
                         result.GridJson = modelJson.RootElement.GetRawText();
                         return result;
+                    }
+
+                    if (string.Equals(action, "ords", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (result.Rounds.Count >= MAX_SQL_ROUNDS)
+                        {
+                            prompt = "You have used all " + MAX_SQL_ROUNDS +
+                                     " rounds. Reply NOW with { \"action\": \"answer\", \"markdown\": \"...\" } summarizing what you found.";
+                            continue;
+                        }
+
+                        var root = modelJson.RootElement;
+                        string opath = root.TryGetProperty("path", out var opEl) && opEl.ValueKind == JsonValueKind.String ? opEl.GetString() : "";
+                        string oreason = root.TryGetProperty("reason", out var orEl) && orEl.ValueKind == JsonValueKind.String ? orEl.GetString() : "";
+
+                        bool allowed = false;
+                        foreach (var w in ORDS_READ_WHITELIST)
+                            if (string.Equals(opath, w, StringComparison.OrdinalIgnoreCase)) { allowed = true; break; }
+                        if (!allowed)
+                        {
+                            prompt = "ORDS_RESULT: {\"success\":false,\"error\":\"Path not in the read whitelist: " + opath + "\"}";
+                            continue;
+                        }
+
+                        var query = new StringBuilder();
+                        if (root.TryGetProperty("params", out var oqEl) && oqEl.ValueKind == JsonValueKind.Object)
+                            foreach (var qp in oqEl.EnumerateObject())
+                            {
+                                query.Append(query.Length == 0 ? '?' : '&');
+                                query.Append(Uri.EscapeDataString(qp.Name)).Append('=');
+                                query.Append(Uri.EscapeDataString(qp.Value.ValueKind == JsonValueKind.String ? qp.Value.GetString() : qp.Value.ToString()));
+                            }
+
+                        int oRoundNo = result.Rounds.Count + 1;
+                        await onEvent(new { action = "aiChatEvent", eventType = "status", text = $"Reading {opath} (round {oRoundNo})..." });
+
+                        var oRound = new AiSqlRound { Kind = "fusion", Method = "GET", Path = opath, Reason = oreason };
+                        var sw = System.Diagnostics.Stopwatch.StartNew();
+                        try
+                        {
+                            var oResp = await _http.GetAsync(ORDS_ROOT_URL + opath + query);
+                            string oBody = await oResp.Content.ReadAsStringAsync();
+                            oRound.Success = oResp.IsSuccessStatusCode;
+                            oRound.ResultJson = oBody;
+                            if (!oResp.IsSuccessStatusCode) oRound.Error = "HTTP " + (int)oResp.StatusCode;
+                        }
+                        catch (Exception oex)
+                        {
+                            oRound.Success = false;
+                            oRound.Error = oex.Message;
+                            oRound.ResultJson = JsonSerializer.Serialize(new { success = false, error = oex.Message });
+                        }
+                        oRound.ElapsedMs = sw.ElapsedMilliseconds;
+                        result.Rounds.Add(oRound);
+
+                        await onEvent(new
+                        {
+                            action = "aiChatEvent",
+                            eventType = "sqlRound",
+                            round = oRoundNo,
+                            kind = "fusion",
+                            sql = (string)null,
+                            method = "GET",
+                            path = opath,
+                            success = oRound.Success,
+                            rowCount = (int?)null,
+                            elapsedMs = oRound.ElapsedMs,
+                            error = oRound.Error
+                        });
+
+                        prompt = "ORDS_RESULT: " + TruncateForModel(oRound.ResultJson);
+                        continue;
                     }
 
                     if (string.Equals(action, "device", StringComparison.OrdinalIgnoreCase))
