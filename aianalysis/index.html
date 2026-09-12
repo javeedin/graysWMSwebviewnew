@@ -345,6 +345,7 @@
         <div class="main-tab" id="ptab-reports" onclick="switchPage('reports')"><i class="fas fa-chart-line"></i> Saved Reports</div>
         <div class="main-tab" id="ptab-jobs" onclick="switchPage('jobs')"><i class="fas fa-clock"></i> Scheduled Jobs</div>
         <div class="main-tab" id="ptab-apis" onclick="switchPage('apis')"><i class="fas fa-plug"></i> APIs</div>
+        <div class="main-tab" id="ptab-policies" onclick="switchPage('policies')"><i class="fas fa-user-shield"></i> Policies</div>
         <div class="main-tab" id="ptab-cando" onclick="switchPage('cando')"><i class="fas fa-wand-magic-sparkles"></i> What can I do?</div>
     </div>
 
@@ -529,6 +530,37 @@
             </div>
         </div>
     </div><!-- /page-apis -->
+
+    <!-- ══════════ PAGE: POLICIES (authority limits) ══════════ -->
+    <div class="page" id="page-policies" style="display:none;">
+        <!-- Left: users -->
+        <div class="rp-left" style="width:280px;min-width:280px;">
+            <div class="rp-left-head">
+                <i class="fas fa-user-shield" style="color:#b45309;"></i>
+                <span class="t">Users</span>
+                <button onclick="loadPoliciesPage()" title="Refresh"><i class="fas fa-sync-alt"></i></button>
+            </div>
+            <div style="padding:0.5rem 0.7rem;border-bottom:1px solid var(--border);">
+                <button class="tool-btn" style="width:100%;justify-content:center;" onclick="addPolicyUser()"><i class="fas fa-user-plus"></i> Add user</button>
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:5px;">
+                    Policies decide what the AI employee may do <strong>without asking</strong> (AUTO), with an <strong>approval card</strong> (ASK) or <strong>not at all</strong> (DENY). A user's own rule beats the Everyone rule; a PROD/TEST rule beats a Both rule. Missing = ASK.
+                </div>
+            </div>
+            <div class="rp-list" id="pol-users"><div style="font-size:11px;color:#94a3b8;">Loading…</div></div>
+        </div>
+        <!-- Right: policy matrix for the selected user -->
+        <div class="rp-main">
+            <div class="rp-main-head">
+                <span class="rtitle2" id="pol-main-title"><i class="fas fa-user-shield" style="color:#b45309;"></i> Select a user</span>
+            </div>
+            <div class="right-body" id="pol-detail" style="background:var(--bg);padding:0.9rem 1.1rem;overflow-y:auto;">
+                <div style="text-align:center;color:#94a3b8;font-size:12px;padding:4rem 2rem;">
+                    <i class="fas fa-user-shield" style="font-size:30px;display:block;margin-bottom:10px;"></i>
+                    Pick <strong>Everyone (*)</strong> or a user on the left to view and assign their policies.
+                </div>
+            </div>
+        </div>
+    </div><!-- /page-policies -->
 
     <!-- ══════════ PAGE 5: WHAT CAN I DO? ══════════ -->
     <div class="page" id="page-cando" style="display:none;">
@@ -1965,13 +1997,14 @@ function copySqlData(d) {
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
 function switchPage(which) {
-    ['chatbot', 'reports', 'jobs', 'apis', 'cando'].forEach(p => {
+    ['chatbot', 'reports', 'jobs', 'apis', 'policies', 'cando'].forEach(p => {
         document.getElementById('ptab-' + p).classList.toggle('active', which === p);
         document.getElementById('page-' + p).style.display = which === p ? '' : 'none';
     });
     if (which === 'reports' && !window._reportsLoaded) loadReports();
     if (which === 'jobs') loadJobs();
     if (which === 'apis') renderApiList();
+    if (which === 'policies') { if (!_polUser) _polUser = '*'; loadPoliciesPage(); }
 }
 
 // ============================================================
@@ -2124,6 +2157,201 @@ function clientPolicy(actionKey) {
         (p.instance || '*').toUpperCase() === pi);
     const r = find(user, inst) || find(user, '*') || find('*', inst) || find('*', '*');
     return r ? { mode: (r.mode || 'ASK').toUpperCase(), maxBatch: r.maxBatch } : { mode: 'ASK' };
+}
+
+// ============================================================
+// Policies tab - master action list + per-user assignment UI.
+// Reads via the SQL gateway, writes via ai/executewrite (MERGE /
+// DELETE), so no dedicated endpoints are needed.
+// ============================================================
+const POLICY_ACTIONS = [
+    { key: 'fusion_write', name: 'Fusion writes', desc: 'Cancel order lines (incl. child lines), ship confirms — every Fusion POST/PATCH/DELETE.', hasBatch: true },
+    { key: 'wms_api',      name: 'WMS operation forms', desc: 'Create trip, add orders, assign picker, pick wave/release, cancellations via the API forms.' },
+    { key: 'db_write',     name: 'Database changes', desc: 'CREATE TABLE / INSERT / UPDATE / DELETE composed in chat.' },
+    { key: 'schedule_job', name: 'Scheduled jobs', desc: 'Creating background DBMS scheduler jobs.' },
+    { key: 'print_orders', name: 'Print order documents', desc: 'Sales Order PDF batches to a printer. (AUTO currently behaves as ASK.)' },
+    { key: 'print',        name: 'Print results', desc: 'The last result grid to a printer. (AUTO currently behaves as ASK.)' },
+    { key: 'email',        name: 'Send emails', desc: 'Office 365 mails composed in chat. (AUTO currently behaves as ASK.)' }
+];
+const POLICY_MODES = {
+    AUTO: ['#dcfce7', '#15803d', 'acts without asking'],
+    ASK:  ['#fef3c7', '#92400e', 'approval card'],
+    DENY: ['#fee2e2', '#b91c1c', 'refused']
+};
+let _polRows = [];
+let _polUser = null;
+
+function polModeBadge(m) {
+    const c = POLICY_MODES[m] || POLICY_MODES.ASK;
+    return `<span style="background:${c[0]};color:${c[1]};padding:1px 8px;border-radius:8px;font-size:9px;font-weight:800;">${esc(m)}</span>`;
+}
+
+function sqlq(v) { return "'" + String(v).replace(/'/g, "''") + "'"; }
+
+function loadPoliciesPage() {
+    const sql = 'SELECT policy_id, app_user, action_key, instance, policy_mode, max_batch, note, updated_by FROM wms_ai_policies ORDER BY app_user, action_key, instance';
+    sendMessageToCSharp({
+        action: 'executePost', fullUrl: AI_BASE + '/executequery',
+        body: JSON.stringify({ sql: sql, maxRows: 500, appUser: appUserName() })
+    }, function (err, data) {
+        const box = document.getElementById('pol-users');
+        if (err) { box.innerHTML = '<div style="font-size:11px;color:#b91c1c;">' + esc(String(err)) + '</div>'; return; }
+        let d = null;
+        try { d = typeof data === 'string' ? JSON.parse(data) : data; } catch (e) { }
+        if (!d || d.success !== true || !Array.isArray(d.columns)) {
+            box.innerHTML = '<div style="font-size:11px;color:#b91c1c;">Could not load policies: ' + esc((d && d.error) || 'unexpected response') + '</div>';
+            return;
+        }
+        const ix = {}; d.columns.forEach((c, i) => ix[String(c).toUpperCase()] = i);
+        _polRows = (d.rows || []).map(r => ({
+            id: r[ix.POLICY_ID], user: String(r[ix.APP_USER] || '*'), action: String(r[ix.ACTION_KEY] || ''),
+            instance: String(r[ix.INSTANCE] || '*'), mode: String(r[ix.POLICY_MODE] || 'ASK'),
+            maxBatch: r[ix.MAX_BATCH], note: r[ix.NOTE], updatedBy: r[ix.UPDATED_BY]
+        }));
+        renderPolicyUsers();
+        if (_polUser) renderPolicyDetail();
+        loadClientPolicies();   // keep the wms_api enforcement cache fresh
+    });
+}
+
+function renderPolicyUsers() {
+    const box = document.getElementById('pol-users');
+    const users = ['*'];
+    _polRows.forEach(r => { if (r.user !== '*' && users.indexOf(r.user) < 0) users.push(r.user); });
+    if (_polUser && users.indexOf(_polUser) < 0) users.push(_polUser);
+    box.innerHTML = users.map(u => `
+        <div onclick="openPolicyUser('${esc(u)}')" style="border:1px solid ${_polUser === u ? '#fbbf24' : 'var(--border)'};background:${_polUser === u ? '#fffbeb' : 'white'};border-radius:8px;padding:8px 10px;margin-bottom:5px;cursor:pointer;display:flex;align-items:center;gap:7px;">
+            <i class="fas ${u === '*' ? 'fa-globe' : 'fa-user'}" style="color:#b45309;font-size:11px;"></i>
+            <span style="font-size:11.5px;font-weight:700;color:#0f172a;">${u === '*' ? 'Everyone (*)' : esc(u)}</span>
+            <span style="margin-left:auto;font-size:9px;color:#94a3b8;">${_polRows.filter(r => r.user === u).length} rule(s)</span>
+        </div>`).join('');
+}
+
+function addPolicyUser() {
+    const name = prompt('Windows username (as it appears in the audit logs / Environment.UserName):');
+    if (!name || !name.trim()) return;
+    _polUser = name.trim().toUpperCase();
+    renderPolicyUsers();
+    renderPolicyDetail();
+}
+
+function openPolicyUser(u) { _polUser = u; renderPolicyUsers(); renderPolicyDetail(); }
+
+function polResolve(user, actionKey, inst) {
+    const find = (pu, pi) => _polRows.find(r =>
+        r.action.toUpperCase() === actionKey.toUpperCase() &&
+        r.user.toUpperCase() === pu.toUpperCase() && r.instance === pi);
+    return find(user, inst) || find(user, '*') || (user !== '*' && (find('*', inst) || find('*', '*'))) || null;
+}
+
+function renderPolicyDetail() {
+    const u = _polUser;
+    document.getElementById('pol-main-title').innerHTML =
+        `<i class="fas ${u === '*' ? 'fa-globe' : 'fa-user'}" style="color:#b45309;"></i> ${u === '*' ? 'Everyone (*)' : esc(u)} — authority limits`;
+    const box = document.getElementById('pol-detail');
+    box.innerHTML = POLICY_ACTIONS.map(a => {
+        const own = _polRows.filter(r => r.user.toUpperCase() === u.toUpperCase() && r.action === a.key);
+        const ownHtml = own.length ? own.map(r => `
+            <span style="display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);border-radius:8px;background:white;padding:3px 8px;margin:2px;font-size:10px;">
+                <strong>${r.instance === '*' ? 'Both' : esc(r.instance)}</strong> ${polModeBadge(r.mode)}
+                ${r.maxBatch ? `<span style="color:#64748b;">≤${r.maxBatch} lines</span>` : ''}
+                <a href="#" onclick="openPolicyEdit('${a.key}','${esc(r.instance)}');return false;" title="Edit"><i class="fas fa-pen" style="font-size:9px;color:#2563eb;"></i></a>
+                <a href="#" onclick="deletePolicy(${r.id});return false;" title="Remove"><i class="fas fa-times" style="font-size:10px;color:#dc2626;"></i></a>
+            </span>`).join('')
+            : '<span style="font-size:10px;color:#94a3b8;">no own rules — inherits</span>';
+        const effP = polResolve(u, a.key, 'PROD'), effT = polResolve(u, a.key, 'TEST');
+        const effTxt = (eff, label) => eff
+            ? `${label} → ${polModeBadge(eff.mode)}${eff.maxBatch ? ' ≤' + eff.maxBatch : ''} <span style="color:#94a3b8;">(${eff.user === '*' ? 'Everyone' : 'own'}${eff.instance === '*' ? ', Both' : ''})</span>`
+            : `${label} → ${polModeBadge('ASK')} <span style="color:#94a3b8;">(default)</span>`;
+        return `
+        <div style="border:1px solid var(--border);border-radius:10px;background:white;padding:10px 13px;margin-bottom:9px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:12px;font-weight:800;color:#0f172a;">${esc(a.name)}</span>
+                <code style="font-size:9px;color:#64748b;">${a.key}</code>
+                <button class="tool-btn" style="margin-left:auto;font-size:10px;" onclick="openPolicyEdit('${a.key}', null)"><i class="fas fa-plus"></i> Assign</button>
+            </div>
+            <div style="font-size:10px;color:#64748b;margin:3px 0 6px;">${esc(a.desc)}</div>
+            <div>${ownHtml}</div>
+            <div style="font-size:10px;color:#475569;margin-top:6px;border-top:1px dashed var(--border);padding-top:5px;">
+                Effective: &nbsp;${effTxt(effP, 'PROD')} &nbsp;·&nbsp; ${effTxt(effT, 'TEST')}
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function openPolicyEdit(actionKey, instance) {
+    const a = POLICY_ACTIONS.find(x => x.key === actionKey);
+    const existing = instance !== null
+        ? _polRows.find(r => r.user.toUpperCase() === _polUser.toUpperCase() && r.action === actionKey && r.instance === instance)
+        : null;
+    document.getElementById('pol-edit-modal')?.remove();
+    document.body.insertAdjacentHTML('beforeend', `
+        <div id="pol-edit-modal" style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:white;border-radius:12px;max-width:420px;width:92%;box-shadow:0 20px 50px rgba(0,0,0,.3);">
+                <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:800;font-size:13px;color:#0f172a;">
+                    <i class="fas fa-user-shield" style="color:#b45309;"></i> ${esc(a.name)} — ${_polUser === '*' ? 'Everyone (*)' : esc(_polUser)}
+                </div>
+                <div style="padding:12px 16px;font-size:11.5px;color:#334155;display:flex;flex-direction:column;gap:9px;">
+                    <label style="display:flex;align-items:center;gap:8px;">Instance
+                        <select id="pol-e-inst" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;">
+                            <option value="*" ${(existing ? existing.instance : instance) === '*' ? 'selected' : ''}>Both (*)</option>
+                            <option ${(existing ? existing.instance : instance) === 'PROD' ? 'selected' : ''}>PROD</option>
+                            <option ${(existing ? existing.instance : instance) === 'TEST' ? 'selected' : ''}>TEST</option>
+                        </select></label>
+                    <label style="display:flex;align-items:center;gap:8px;">Mode
+                        <select id="pol-e-mode" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;">
+                            <option ${existing && existing.mode === 'AUTO' ? 'selected' : ''}>AUTO</option>
+                            <option ${!existing || existing.mode === 'ASK' ? 'selected' : ''}>ASK</option>
+                            <option ${existing && existing.mode === 'DENY' ? 'selected' : ''}>DENY</option>
+                        </select></label>
+                    ${a.hasBatch ? `<label style="display:flex;align-items:center;gap:8px;">Max lines for AUTO
+                        <input id="pol-e-batch" type="number" min="1" value="${existing && existing.maxBatch ? existing.maxBatch : ''}" placeholder="no cap"
+                            style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;"></label>` : ''}
+                    <label style="display:flex;align-items:center;gap:8px;">Note
+                        <input id="pol-e-note" type="text" value="${esc(existing && existing.note ? existing.note : '')}"
+                            style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;"></label>
+                    <div style="font-size:9.5px;color:#94a3b8;">AUTO = the employee acts and tells you afterwards · ASK = approval card · DENY = refused. Chat-side enforcement refreshes within ~5 minutes.</div>
+                </div>
+                <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+                    <button class="btn-reject" onclick="document.getElementById('pol-edit-modal').remove()">Cancel</button>
+                    <button class="btn-approve" style="background:#b45309;" onclick="savePolicy('${actionKey}', ${a.hasBatch ? 'true' : 'false'})"><i class="fas fa-check"></i> Save</button>
+                </div>
+            </div>
+        </div>`);
+}
+
+function savePolicy(actionKey, hasBatch) {
+    const inst = document.getElementById('pol-e-inst').value;
+    const mode = document.getElementById('pol-e-mode').value;
+    const note = (document.getElementById('pol-e-note').value || '').trim();
+    const batchEl = document.getElementById('pol-e-batch');
+    const batch = hasBatch && batchEl && batchEl.value !== '' ? parseInt(batchEl.value, 10) : null;
+    document.getElementById('pol-edit-modal')?.remove();
+
+    const sql =
+        'MERGE INTO wms_ai_policies p USING (SELECT ' + sqlq(_polUser) + ' u, ' + sqlq(actionKey) + ' a, ' + sqlq(inst) + ' i FROM dual) s ' +
+        'ON (p.app_user = s.u AND p.action_key = s.a AND p.instance = s.i) ' +
+        'WHEN MATCHED THEN UPDATE SET policy_mode = ' + sqlq(mode) + ', max_batch = ' + (batch === null || isNaN(batch) ? 'NULL' : batch) + ', note = ' + (note ? sqlq(note) : 'NULL') + ', updated_by = ' + sqlq(appUserName()) + ', updated_date = SYSDATE ' +
+        'WHEN NOT MATCHED THEN INSERT (app_user, action_key, instance, policy_mode, max_batch, note, updated_by) ' +
+        'VALUES (' + sqlq(_polUser) + ', ' + sqlq(actionKey) + ', ' + sqlq(inst) + ', ' + sqlq(mode) + ', ' + (batch === null || isNaN(batch) ? 'NULL' : batch) + ', ' + (note ? sqlq(note) : 'NULL') + ', ' + sqlq(appUserName()) + ')';
+
+    sendMessageToCSharp({
+        action: 'executePost', fullUrl: AI_BASE + '/executewrite',
+        body: JSON.stringify({ sql: sql, appUser: appUserName() })
+    }, function (err, data) {
+        let ok = !err;
+        try { const d = typeof data === 'string' ? JSON.parse(data) : data; if (d && d.success === false) { ok = false; err = d.error; } } catch (e) { }
+        if (!ok) alert('Saving the policy failed: ' + (err || 'unknown error'));
+        loadPoliciesPage();
+    });
+}
+
+function deletePolicy(id) {
+    if (!confirm('Remove this policy rule? The user then inherits the Everyone rule (or the ASK default).')) return;
+    sendMessageToCSharp({
+        action: 'executePost', fullUrl: AI_BASE + '/executewrite',
+        body: JSON.stringify({ sql: 'DELETE FROM wms_ai_policies WHERE policy_id = ' + parseInt(id, 10), appUser: appUserName() })
+    }, function () { loadPoliciesPage(); });
 }
 
 // ============================================================
@@ -3023,6 +3251,7 @@ const SLASH_COMMANDS = [
     { cmd: '/reports', cat: 'chat', desc: 'Open the saved Reports tab', local: 'reports' },
     { cmd: '/apis', cat: 'chat', desc: 'Open the write APIs tab', local: 'apis' },
     { cmd: '/what-can-i-do', cat: 'chat', desc: 'Open the capabilities overview tab', local: 'cando' },
+    { cmd: '/policies', cat: 'chat', desc: 'Open the Policies tab (authority limits per user)', local: 'policies' },
     { cmd: '/cancel-line', cat: 'apex', write: true, desc: 'Cancel a line INCLUDING its child lines (sub-lines / BOGO)',
       template: 'Cancel line LINE_NUMBER of order ORDER_NUMBER including its child lines (numbered sub-lines, or BOGO promo items if none)', ph: 'LINE_NUMBER' },
     { cmd: '/printers', cat: 'chat', desc: 'List the printers connected to this PC',
@@ -3093,6 +3322,7 @@ function applySlash(i) {
     if (c.local === 'jobs') { inp.value = ''; switchPage('jobs'); return; }
     if (c.local === 'apis') { inp.value = ''; switchPage('apis'); return; }
     if (c.local === 'cando') { inp.value = ''; switchPage('cando'); return; }
+    if (c.local === 'policies') { inp.value = ''; switchPage('policies'); return; }
     if (c.local === 'defaultPrinter') { inp.value = ''; openPrinterSettings(); return; }
     if (c.local === 'downloadFolder') { inp.value = ''; pickDownloadFolder(); return; }
     if (c.local === 'emailSettings') { inp.value = ''; openEmailSettings(false); return; }
