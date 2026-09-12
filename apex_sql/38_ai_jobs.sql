@@ -42,11 +42,19 @@ INSERT INTO wms_ai_settings (setting_key, setting_value, description)
 VALUES ('FUSION_PASSWORD', 'CHANGE_ME', 'Oracle Fusion password for scheduled job REST calls');
 INSERT INTO wms_ai_settings (setting_key, setting_value, description)
 VALUES ('FUSION_INSTANCE', 'PROD', 'Default Fusion instance for scheduled jobs: PROD or TEST. Used when a job does not specify one, and resolves the #FUSION_BASE# placeholder in step URLs.');
+INSERT INTO wms_ai_settings (setting_key, setting_value, description)
+VALUES ('FUSION_USERNAME_TEST', NULL, 'Optional: Fusion user for the TEST instance. Leave NULL to reuse FUSION_USERNAME on TEST too.');
+INSERT INTO wms_ai_settings (setting_key, setting_value, description)
+VALUES ('FUSION_PASSWORD_TEST', NULL, 'Optional: Fusion password for the TEST instance. Leave NULL to reuse FUSION_PASSWORD on TEST too.');
 COMMIT;
 -- !! UPDATE the rows above with the real values:
+-- FUSION_USERNAME / FUSION_PASSWORD are used for PROD jobs, and for TEST
+-- jobs too UNLESS both _TEST rows are filled in:
 -- UPDATE wms_ai_settings SET setting_value='...'  WHERE setting_key='FUSION_USERNAME';
 -- UPDATE wms_ai_settings SET setting_value='...'  WHERE setting_key='FUSION_PASSWORD';
--- UPDATE wms_ai_settings SET setting_value='TEST' WHERE setting_key='FUSION_INSTANCE';  -- optional
+-- UPDATE wms_ai_settings SET setting_value='...'  WHERE setting_key='FUSION_USERNAME_TEST';  -- only if TEST creds differ
+-- UPDATE wms_ai_settings SET setting_value='...'  WHERE setting_key='FUSION_PASSWORD_TEST';  -- only if TEST creds differ
+-- UPDATE wms_ai_settings SET setting_value='TEST' WHERE setting_key='FUSION_INSTANCE';       -- optional default instance
 -- COMMIT;
 
 
@@ -191,6 +199,25 @@ BEGIN
     END IF;
     v_vars('FUSION_BASE') := v_fusion_base;   -- #FUSION_BASE# in step URLs/bodies
     logln('Fusion instance: ' || v_fusion_inst || ' (' || v_fusion_base || ')');
+
+    -- TEST jobs use the TEST credential pair when both rows are set,
+    -- otherwise they fall back to the main FUSION_USERNAME/PASSWORD
+    IF v_fusion_inst = 'TEST' THEN
+        DECLARE
+            v_u VARCHAR2(400);
+            v_p VARCHAR2(400);
+        BEGIN
+            SELECT MAX(setting_value) INTO v_u FROM wms_ai_settings WHERE setting_key = 'FUSION_USERNAME_TEST';
+            SELECT MAX(setting_value) INTO v_p FROM wms_ai_settings WHERE setting_key = 'FUSION_PASSWORD_TEST';
+            IF v_u IS NOT NULL AND v_p IS NOT NULL THEN
+                v_fusion_user := v_u;
+                v_fusion_pass := v_p;
+                logln('Using TEST-specific Fusion credentials (' || v_u || ')');
+            ELSE
+                logln('No TEST-specific credentials set - using the main pair');
+            END IF;
+        END;
+    END IF;
 
     APEX_JSON.parse(v_job.steps_json);
     v_step_cnt := NVL(APEX_JSON.get_count('steps'), 0);
