@@ -1791,7 +1791,7 @@ function renderJobApprovalCard(chat, pending, apiConversation) {
                     ${job.intervalMinutes ? ' · every ' + job.intervalMinutes + ' min' : ''}
                     ${job.startAt ? ' · starts ' + esc(job.startAt) : ' · starts now'}
                     · max ${job.maxRuns || 50} runs · until ${esc(job.untilDate || '+7 days')}
-                    · ${esc(job.instance || 'PROD')}
+                    · ${job.instance ? esc(job.instance) : 'instance: DB default (WMS_AI_SETTINGS)'}
                 </div>
                 <div style="margin-top:6px;border:1px solid #ddd6fe;border-radius:6px;background:white;padding:7px 9px;display:flex;flex-direction:column;gap:4px;">
                     ${stepsHtml || '<em style="font-size:10px;">no steps</em>'}

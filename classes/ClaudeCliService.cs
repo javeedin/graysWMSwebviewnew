@@ -118,7 +118,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V7";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V8";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -282,18 +282,19 @@ namespace WMSApp
             sb.AppendLine("  \"scheduleType\": \"REPEAT_UNTIL_DONE\",   // or ONCE or RECURRING");
             sb.AppendLine("  \"startAt\": \"2026-09-12 18:00\",          // optional, YYYY-MM-DD HH24:MI, default now");
             sb.AppendLine("  \"intervalMinutes\": 10,                    // for RECURRING / REPEAT_UNTIL_DONE, min 2");
-            sb.AppendLine("  \"maxRuns\": 50, \"untilDate\": \"2026-09-19\", \"instance\": \"PROD\",");
+            sb.AppendLine("  \"maxRuns\": 50, \"untilDate\": \"2026-09-19\",");
+            sb.AppendLine("  \"instance\": \"PROD\",                       // PROD or TEST; OMIT it unless the user names one - the DB then uses its configured default");
             sb.AppendLine("  \"completionSql\": \"SELECT 1 FROM wms_order_shipment_lines WHERE ... \",   // REPEAT_UNTIL_DONE: job is DONE when this SELECT returns 0 rows");
             sb.AppendLine("  \"steps\": [");
             sb.AppendLine("    { \"type\": \"rest\", \"method\": \"GET\", \"auth\": \"none\",");
             sb.AppendLine("      \"url\": \"https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/...\",");
             sb.AppendLine("      \"extract\": { \"FLID\": \"items[1].FULFILL_LINE_ID\" } },   // APEX_JSON paths - arrays are 1-BASED");
             sb.AppendLine("    { \"type\": \"rest\", \"method\": \"PATCH\", \"auth\": \"fusion\",");
-            sb.AppendLine("      \"url\": \"https://efmh.fa.em3.oraclecloud.com/fscmRestApi/...\",");
+            sb.AppendLine("      \"url\": \"#FUSION_BASE#/fscmRestApi/...\",   // #FUSION_BASE# = the job's Fusion instance base URL, resolved at run time");
             sb.AppendLine("      \"body\": { \"lines\": [ { \"FulfillLineId\": \"#FLID#\", \"OrderedQuantity\": 0, \"CancelReason\": \"OUT OF STOCK\" } ] } },");
             sb.AppendLine("    { \"type\": \"sql\", \"sql\": \"SELECT ...\" } ] }");
             sb.AppendLine();
-            sb.AppendLine("Rules: steps run in order inside the DATABASE (the app can be closed); rest URLs only on the ORDS host or the two Fusion hosts (efmh / efmh-test); auth fusion uses stored credentials; #VAR# substitutes values captured by an earlier step's extract; sql steps and completionSql must be plain SELECTs (the runner evaluates SELECT COUNT(*) of them). The app shows the user an approval card with the full plan - nothing is scheduled until approved. You then receive JOB_RESULT: {success, jobId, firstRun} or USER_REJECTED - confirm with action answer and tell the user to watch it in the Scheduled Jobs tab.");
+            sb.AppendLine("Rules: steps run in order inside the DATABASE (the app can be closed); rest URLs only on the ORDS host or the two Fusion hosts (efmh / efmh-test); always write Fusion step URLs with #FUSION_BASE# instead of a hardcoded host so the job follows its instance; auth fusion uses stored credentials; #VAR# substitutes values captured by an earlier step's extract; sql steps and completionSql must be plain SELECTs (the runner evaluates SELECT COUNT(*) of them). The app shows the user an approval card with the full plan - nothing is scheduled until approved. You then receive JOB_RESULT: {success, jobId, firstRun} or USER_REJECTED - confirm with action answer and tell the user to watch it in the Scheduled Jobs tab.");
             sb.AppendLine();
             sb.AppendLine("## Sending emails");
             sb.AppendLine();

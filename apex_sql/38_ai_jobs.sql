@@ -40,10 +40,13 @@ INSERT INTO wms_ai_settings (setting_key, setting_value, description)
 VALUES ('FUSION_USERNAME', 'CHANGE_ME', 'Oracle Fusion user for scheduled job REST calls');
 INSERT INTO wms_ai_settings (setting_key, setting_value, description)
 VALUES ('FUSION_PASSWORD', 'CHANGE_ME', 'Oracle Fusion password for scheduled job REST calls');
+INSERT INTO wms_ai_settings (setting_key, setting_value, description)
+VALUES ('FUSION_INSTANCE', 'PROD', 'Default Fusion instance for scheduled jobs: PROD or TEST. Used when a job does not specify one, and resolves the #FUSION_BASE# placeholder in step URLs.');
 COMMIT;
--- !! UPDATE the two rows above with the real Fusion credentials:
--- UPDATE wms_ai_settings SET setting_value='...' WHERE setting_key='FUSION_USERNAME';
--- UPDATE wms_ai_settings SET setting_value='...' WHERE setting_key='FUSION_PASSWORD';
+-- !! UPDATE the rows above with the real values:
+-- UPDATE wms_ai_settings SET setting_value='...'  WHERE setting_key='FUSION_USERNAME';
+-- UPDATE wms_ai_settings SET setting_value='...'  WHERE setting_key='FUSION_PASSWORD';
+-- UPDATE wms_ai_settings SET setting_value='TEST' WHERE setting_key='FUSION_INSTANCE';  -- optional
 -- COMMIT;
 
 
@@ -107,6 +110,8 @@ CREATE OR REPLACE PROCEDURE wms_ai_job_runner (
 
     v_fusion_user VARCHAR2(400);
     v_fusion_pass VARCHAR2(400);
+    v_fusion_inst VARCHAR2(10);
+    v_fusion_base VARCHAR2(200);
 
     PROCEDURE logln (p_txt IN VARCHAR2) IS
     BEGIN
@@ -175,6 +180,17 @@ BEGIN
 
     SELECT MAX(setting_value) INTO v_fusion_user FROM wms_ai_settings WHERE setting_key = 'FUSION_USERNAME';
     SELECT MAX(setting_value) INTO v_fusion_pass FROM wms_ai_settings WHERE setting_key = 'FUSION_PASSWORD';
+    SELECT MAX(setting_value) INTO v_fusion_inst FROM wms_ai_settings WHERE setting_key = 'FUSION_INSTANCE';
+
+    -- effective instance: job's own value wins, else the settings default
+    v_fusion_inst := UPPER(NVL(v_job.instance, NVL(v_fusion_inst, 'PROD')));
+    IF v_fusion_inst = 'TEST' THEN
+        v_fusion_base := 'https://efmh-test.fa.em3.oraclecloud.com';
+    ELSE
+        v_fusion_base := 'https://efmh.fa.em3.oraclecloud.com';
+    END IF;
+    v_vars('FUSION_BASE') := v_fusion_base;   -- #FUSION_BASE# in step URLs/bodies
+    logln('Fusion instance: ' || v_fusion_inst || ' (' || v_fusion_base || ')');
 
     APEX_JSON.parse(v_job.steps_json);
     v_step_cnt := NVL(APEX_JSON.get_count('steps'), 0);
@@ -352,7 +368,13 @@ BEGIN
     v_interval   := APEX_JSON.get_number('intervalMinutes');
     v_completion := APEX_JSON.get_clob('completionSql');
     v_max_runs   := LEAST(NVL(APEX_JSON.get_number('maxRuns'), 50), 200);
-    v_instance   := NVL(APEX_JSON.get_varchar2('instance'), 'PROD');
+    v_instance   := UPPER(APEX_JSON.get_varchar2('instance'));
+    IF v_instance IS NULL THEN
+        SELECT MAX(setting_value) INTO v_instance
+        FROM wms_ai_settings WHERE setting_key = 'FUSION_INSTANCE';
+        v_instance := NVL(UPPER(v_instance), 'PROD');
+    END IF;
+    IF v_instance NOT IN ('PROD', 'TEST') THEN v_instance := 'PROD'; END IF;
     v_by         := NVL(APEX_JSON.get_varchar2('createdBy'), 'UNKNOWN');
     v_machine    := NVL(APEX_JSON.get_varchar2('createdMachine'), 'UNKNOWN');
 
