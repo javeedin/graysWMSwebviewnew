@@ -52,10 +52,24 @@ namespace WMSApp
     }
 
     /// <summary>
+    /// Which Claude transport to use: the local CLI (subscription login)
+    /// or the Claude API directly (api key, no install on the PC).
+    /// </summary>
+    public class AiEngineConfig
+    {
+        public string Mode { get; set; } = "cli";          // "cli" | "api"
+        public string ApiKey { get; set; }
+        public string Model { get; set; } = "claude-sonnet-5";
+    }
+
+    /// <summary>
     /// Final outcome of one user message (after up to 5 SQL/Fusion rounds).
     /// </summary>
     public class AiChatResult
     {
+        // API mode only: serialized message list so an approval pause can
+        // resume the exact conversation (the CLI uses SessionId instead)
+        public string ApiConversation { get; set; }
         public bool Success { get; set; }
         public string Markdown { get; set; }
         public string GridJson { get; set; }     // raw {"action":"grid",...} object for interactive answers
@@ -259,6 +273,7 @@ namespace WMSApp
             sb.AppendLine("```");
 
             await File.WriteAllTextAsync(claudeMdPath, sb.ToString());
+            _systemPromptCache = null;   // API mode re-reads the fresh prompt
             return objectCount;
         }
 
@@ -310,7 +325,21 @@ namespace WMSApp
         // ============================================================
         public Task<AiChatResult> SendAsync(string userText, string sessionId, Func<object, Task> onEvent)
         {
-            return RunLoopAsync(userText, sessionId, onEvent);
+            return SendAsync(userText, sessionId, null, null, onEvent);
+        }
+
+        public Task<AiChatResult> SendAsync(string userText, string sessionId, AiEngineConfig engine,
+            string historyJson, Func<object, Task> onEvent)
+        {
+            List<object> apiMsgs = null;
+            if (IsApi(engine))
+                apiMsgs = BuildApiMessagesFromHistory(historyJson);
+            return RunLoopAsync(userText, sessionId, engine, apiMsgs, onEvent);
+        }
+
+        private static bool IsApi(AiEngineConfig engine)
+        {
+            return engine != null && string.Equals(engine.Mode, "api", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -318,7 +347,7 @@ namespace WMSApp
         /// Executes (or skips) the pending call, feeds FUSION_RESULT back and resumes the loop.
         /// </summary>
         public async Task<AiChatResult> ResumeWithFusionDecisionAsync(bool approve, AiPendingFusion pending,
-            string sessionId, Func<object, Task> onEvent)
+            string sessionId, AiEngineConfig engine, string apiConversation, Func<object, Task> onEvent)
         {
             string prompt;
             var preRounds = new List<AiSqlRound>();
@@ -342,7 +371,7 @@ namespace WMSApp
                 prompt = "FUSION_RESULT: USER_REJECTED - the user declined this write call. Continue without it and tell the user it was not executed.";
             }
 
-            var result = await RunLoopAsync(prompt, sessionId, onEvent);
+            var result = await RunLoopAsync(prompt, sessionId, engine, ParseApiConversation(apiConversation), onEvent);
             result.Rounds.InsertRange(0, preRounds);
             return result;
         }
@@ -351,13 +380,56 @@ namespace WMSApp
         /// Resumes a paused turn with an arbitrary result prompt
         /// (e.g. EMAIL_RESULT after the user approved/rejected sending).
         /// </summary>
-        public Task<AiChatResult> ResumeWithPromptAsync(string prompt, string sessionId, Func<object, Task> onEvent)
+        public Task<AiChatResult> ResumeWithPromptAsync(string prompt, string sessionId,
+            AiEngineConfig engine, string apiConversation, Func<object, Task> onEvent)
         {
-            return RunLoopAsync(prompt, sessionId, onEvent);
+            return RunLoopAsync(prompt, sessionId, engine, ParseApiConversation(apiConversation), onEvent);
         }
 
-        private async Task<AiChatResult> RunLoopAsync(string initialPrompt, string sessionId, Func<object, Task> onEvent)
+        private static List<object> ParseApiConversation(string apiConversation)
         {
+            if (string.IsNullOrEmpty(apiConversation)) return null;
+            try
+            {
+                var elements = JsonSerializer.Deserialize<List<JsonElement>>(apiConversation);
+                return elements == null ? null : new List<object>(elements.Count == 0
+                    ? Array.Empty<object>() : elements.ConvertAll(e => (object)e));
+            }
+            catch (JsonException) { return null; }
+        }
+
+        private static List<object> BuildApiMessagesFromHistory(string historyJson)
+        {
+            var msgs = new List<object>();
+            if (string.IsNullOrEmpty(historyJson)) return msgs;
+            try
+            {
+                using var doc = JsonDocument.Parse(historyJson);
+                foreach (var m in doc.RootElement.EnumerateArray())
+                {
+                    string role = m.TryGetProperty("role", out var rEl) ? rEl.GetString() : null;
+                    string text = m.TryGetProperty("text", out var tEl) ? tEl.GetString() : null;
+                    if ((role == "user" || role == "assistant") && !string.IsNullOrWhiteSpace(text))
+                        msgs.Add(new { role, content = text });
+                }
+                // API requires alternating roles starting with user; drop a leading assistant msg
+                if (msgs.Count > 0)
+                {
+                    using var first = JsonDocument.Parse(JsonSerializer.Serialize(msgs[0]));
+                    if (first.RootElement.GetProperty("role").GetString() == "assistant")
+                        msgs.RemoveAt(0);
+                }
+            }
+            catch (JsonException) { }
+            return msgs;
+        }
+
+        private async Task<AiChatResult> RunLoopAsync(string initialPrompt, string sessionId,
+            AiEngineConfig engine, List<object> apiMsgs, Func<object, Task> onEvent)
+        {
+            bool isApi = IsApi(engine);
+            if (isApi && apiMsgs == null) apiMsgs = new List<object>();
+
             var result = new AiChatResult { SessionId = sessionId };
             string prompt = initialPrompt;
             bool retriedMalformed = false;
@@ -367,7 +439,16 @@ namespace WMSApp
             {
                 await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Claude is thinking..." });
 
-                var turn = await RunTurnAsync(prompt, result.SessionId);
+                TurnOutcome turn;
+                if (isApi)
+                {
+                    apiMsgs.Add(new { role = "user", content = prompt });
+                    turn = await RunApiTurnAsync(engine, apiMsgs);
+                }
+                else
+                {
+                    turn = await RunTurnAsync(prompt, result.SessionId);
+                }
                 if (!turn.Ok)
                 {
                     result.Success = false;
@@ -481,6 +562,7 @@ namespace WMSApp
                             // stop here - the UI shows an approval card, then calls ResumeWithFusionDecisionAsync
                             result.Success = true;
                             result.RequiresApproval = true;
+                            if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
                             result.Pending = new AiPendingFusion
                             {
                                 Method = method, Path = path, Body = body,
@@ -519,6 +601,7 @@ namespace WMSApp
                         var root = modelJson.RootElement;
                         result.Success = true;
                         result.RequiresApproval = true;
+                        if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
                         result.PendingEmail = new AiPendingEmail
                         {
                             To       = root.TryGetProperty("to",       out var toEl) ? toEl.GetString() : "",
@@ -785,6 +868,140 @@ namespace WMSApp
                 round.ResultJson = JsonSerializer.Serialize(new { success = false, error = ex.Message });
             }
             return round;
+        }
+
+        // ============================================================
+        // Claude API transport (api-key mode - no CLI on the PC)
+        // ============================================================
+        private const string CLAUDE_API_URL = "https://api.anthropic.com/v1/messages";
+        private const string ANTHROPIC_VERSION = "2023-06-01";
+        private string _systemPromptCache;
+
+        private async Task<string> GetSystemPromptAsync()
+        {
+            if (_systemPromptCache != null) return _systemPromptCache;
+            string path = Path.Combine(WorkspaceDir, "CLAUDE.md");
+            if (!File.Exists(path))
+                await PrepareWorkspaceAsync(false);
+            _systemPromptCache = File.Exists(path) ? await File.ReadAllTextAsync(path) : "";
+            return _systemPromptCache;
+        }
+
+        /// <summary>
+        /// One Claude API call. apiMsgs already contains the new user turn;
+        /// the assistant reply is appended to it on success. The system
+        /// prompt (schema catalog) carries a cache_control breakpoint so
+        /// repeat calls read it from the prompt cache at ~10% input price.
+        /// </summary>
+        private async Task<TurnOutcome> RunApiTurnAsync(AiEngineConfig engine, List<object> apiMsgs)
+        {
+            var outcome = new TurnOutcome();
+            try
+            {
+                if (string.IsNullOrEmpty(engine.ApiKey))
+                {
+                    outcome.Ok = false;
+                    outcome.Error = "API mode is selected but no API key is configured (gear icon > AI Engine).";
+                    return outcome;
+                }
+
+                string systemPrompt = await GetSystemPromptAsync();
+                var body = new
+                {
+                    model = string.IsNullOrEmpty(engine.Model) ? "claude-sonnet-5" : engine.Model,
+                    max_tokens = 8000,
+                    system = new object[]
+                    {
+                        new
+                        {
+                            type = "text",
+                            text = systemPrompt,
+                            cache_control = new { type = "ephemeral" }
+                        }
+                    },
+                    messages = apiMsgs
+                };
+
+                using var req = new HttpRequestMessage(HttpMethod.Post, CLAUDE_API_URL);
+                req.Headers.Add("x-api-key", engine.ApiKey);
+                req.Headers.Add("anthropic-version", ANTHROPIC_VERSION);
+                req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(CLI_TIMEOUT_SECONDS));
+                var resp = await _http.SendAsync(req, cts.Token);
+                string respBody = await resp.Content.ReadAsStringAsync();
+
+                using var doc = JsonDocument.Parse(respBody);
+                var root = doc.RootElement;
+
+                if (!resp.IsSuccessStatusCode)
+                {
+                    string apiErr = root.TryGetProperty("error", out var eEl) &&
+                                    eEl.TryGetProperty("message", out var mEl)
+                        ? mEl.GetString() : respBody;
+                    outcome.Ok = false;
+                    outcome.Error = "Claude API error (HTTP " + (int)resp.StatusCode + "): " + Truncate(apiErr, 400);
+                    return outcome;
+                }
+
+                var textSb = new StringBuilder();
+                if (root.TryGetProperty("content", out var contentEl))
+                {
+                    foreach (var blockEl in contentEl.EnumerateArray())
+                    {
+                        if (blockEl.TryGetProperty("type", out var tEl) && tEl.GetString() == "text" &&
+                            blockEl.TryGetProperty("text", out var txtEl))
+                            textSb.Append(txtEl.GetString());
+                    }
+                }
+
+                string assistantText = textSb.ToString();
+                apiMsgs.Add(new { role = "assistant", content = assistantText });
+                outcome.Ok = true;
+                outcome.ResultText = assistantText;
+            }
+            catch (OperationCanceledException)
+            {
+                outcome.Ok = false;
+                outcome.Error = "Claude API request timed out.";
+            }
+            catch (Exception ex)
+            {
+                outcome.Ok = false;
+                outcome.Error = "Claude API call failed: " + ex.Message;
+            }
+            return outcome;
+        }
+
+        /// <summary>Minimal ping to validate an API key + model.</summary>
+        public async Task<(bool Ok, string Message)> TestApiKeyAsync(string apiKey, string model)
+        {
+            try
+            {
+                var body = new
+                {
+                    model = string.IsNullOrEmpty(model) ? "claude-sonnet-5" : model,
+                    max_tokens = 32,
+                    messages = new object[] { new { role = "user", content = "Reply with the single word OK." } }
+                };
+                using var req = new HttpRequestMessage(HttpMethod.Post, CLAUDE_API_URL);
+                req.Headers.Add("x-api-key", apiKey ?? "");
+                req.Headers.Add("anthropic-version", ANTHROPIC_VERSION);
+                req.Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
+                var resp = await _http.SendAsync(req);
+                string respBody = await resp.Content.ReadAsStringAsync();
+                if (resp.IsSuccessStatusCode)
+                    return (true, "API key works (" + body.model + ")");
+                using var doc = JsonDocument.Parse(respBody);
+                string msg = doc.RootElement.TryGetProperty("error", out var eEl) &&
+                             eEl.TryGetProperty("message", out var mEl)
+                    ? mEl.GetString() : ("HTTP " + (int)resp.StatusCode);
+                return (false, msg);
+            }
+            catch (Exception ex)
+            {
+                return (false, ex.Message);
+            }
         }
 
         // ============================================================

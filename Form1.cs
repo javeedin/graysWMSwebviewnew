@@ -1855,6 +1855,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiEmailDecision(wv, messageJson, requestId);
                                     break;
 
+                                case "aiApiTest":
+                                    await HandleAiApiTest(wv, messageJson, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3534,6 +3538,45 @@ navPanel.Controls.Add(wmsDevButton);
             return _claudeCliService;
         }
 
+        /// <summary>Reads the optional engine config ({mode, apiKey, model}) from a JS message.</summary>
+        private static AiEngineConfig ParseAiEngine(JsonElement root)
+        {
+            if (!root.TryGetProperty("engine", out var eEl) || eEl.ValueKind != JsonValueKind.Object)
+                return null;
+            var cfg = new AiEngineConfig();
+            if (eEl.TryGetProperty("mode",   out var m) && m.ValueKind == JsonValueKind.String) cfg.Mode = m.GetString();
+            if (eEl.TryGetProperty("apiKey", out var k) && k.ValueKind == JsonValueKind.String) cfg.ApiKey = k.GetString();
+            if (eEl.TryGetProperty("model",  out var md) && md.ValueKind == JsonValueKind.String) cfg.Model = md.GetString();
+            return cfg;
+        }
+
+        private async Task HandleAiApiTest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                string apiKey = "", model = "";
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("apiKey", out var k)) apiKey = k.GetString() ?? "";
+                    if (root.TryGetProperty("model", out var m)) model = m.GetString() ?? "";
+                }
+                var (ok, message) = await GetClaudeCliService().TestApiKeyAsync(apiKey, model);
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiApiTestResponse",
+                    requestId = requestId,
+                    success = true,
+                    ok = ok,
+                    message = message
+                }));
+            }
+            catch (Exception ex)
+            {
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
         private async Task HandleAiCliStatus(WebView2 wv, string requestId)
         {
             try
@@ -3586,12 +3629,17 @@ navPanel.Controls.Add(wmsDevButton);
             {
                 string text = "";
                 string sessionId = null;
+                AiEngineConfig engine = null;
+                string historyJson = null;
                 using (var doc = JsonDocument.Parse(messageJson))
                 {
                     var root = doc.RootElement;
                     text = root.TryGetProperty("text", out var tEl) ? tEl.GetString() : "";
                     if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
                         sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("history", out var hEl) && hEl.ValueKind == JsonValueKind.Array)
+                        historyJson = hEl.GetRawText();
                 }
 
                 if (string.IsNullOrWhiteSpace(text))
@@ -3610,7 +3658,7 @@ navPanel.Controls.Add(wmsDevButton);
                     return Task.CompletedTask;
                 };
 
-                var result = await service.SendAsync(text, sessionId, onEvent);
+                var result = await service.SendAsync(text, sessionId, engine, historyJson, onEvent);
                 PostAiChatAnswer(wv, requestId, result);
             }
             catch (Exception ex)
@@ -3627,6 +3675,8 @@ navPanel.Controls.Add(wmsDevButton);
                 bool approve = false;
                 string sessionId = null;
                 AiPendingFusion pending = null;
+                AiEngineConfig engine = null;
+                string apiConversation = null;
 
                 using (var doc = JsonDocument.Parse(messageJson))
                 {
@@ -3634,6 +3684,9 @@ navPanel.Controls.Add(wmsDevButton);
                     approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
                     if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
                         sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
                     if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
                     {
                         pending = new AiPendingFusion
@@ -3654,7 +3707,8 @@ navPanel.Controls.Add(wmsDevButton);
                     return Task.CompletedTask;
                 };
 
-                var result = await GetClaudeCliService().ResumeWithFusionDecisionAsync(approve, pending, sessionId, onEvent);
+                var result = await GetClaudeCliService().ResumeWithFusionDecisionAsync(
+                    approve, pending, sessionId, engine, apiConversation, onEvent);
                 PostAiChatAnswer(wv, requestId, result);
             }
             catch (Exception ex)
@@ -3691,6 +3745,7 @@ navPanel.Controls.Add(wmsDevButton);
                 success = result.Success,
                 markdown = result.Markdown,
                 grid = result.GridJson,
+                apiConversation = result.ApiConversation,
                 error = result.Error,
                 sessionId = result.SessionId,
                 requiresApproval = result.RequiresApproval,
@@ -3729,6 +3784,8 @@ navPanel.Controls.Add(wmsDevButton);
                 string smtpServer = "smtp.office365.com";
                 int smtpPort = 587;
                 string username = "", password = "";
+                AiEngineConfig engine = null;
+                string apiConversation = null;
 
                 using (var doc = JsonDocument.Parse(messageJson))
                 {
@@ -3736,6 +3793,9 @@ navPanel.Controls.Add(wmsDevButton);
                     approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
                     if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
                         sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
                     if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
                     {
                         to       = pEl.TryGetProperty("to",       out var t) ? t.GetString() ?? "" : "";
@@ -3806,7 +3866,7 @@ navPanel.Controls.Add(wmsDevButton);
                 };
 
                 var result = await GetClaudeCliService().ResumeWithPromptAsync(
-                    "EMAIL_RESULT: " + emailResult, sessionId, onEvent);
+                    "EMAIL_RESULT: " + emailResult, sessionId, engine, apiConversation, onEvent);
                 PostAiChatAnswer(wv, requestId, result);
             }
             catch (Exception ex)
