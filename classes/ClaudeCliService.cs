@@ -147,9 +147,73 @@ namespace WMSApp
         /// configured folder with each chat message; falls back to the default.</summary>
         public string DownloadFolder { get; set; } = @"C:\fusion\ai_chat\downloads";
 
+        /// <summary>Current PROD/TEST instance, sent by the page with each
+        /// chat message. Used to resolve action policies.</summary>
+        public string CurrentInstance { get; set; } = "PROD";
+
+        // ------------------------------------------------------------
+        // Action policies (WMS_AI_POLICIES): AUTO / ASK / DENY per
+        // user + action + instance. Cached 5 minutes; missing = ASK.
+        // ------------------------------------------------------------
+        private class PolicyRule
+        {
+            public string AppUser;
+            public string Action;
+            public string Instance;
+            public string Mode;
+            public int? MaxBatch;
+        }
+        private List<PolicyRule> _policies;
+        private DateTime _policiesLoadedAt = DateTime.MinValue;
+        private const string POLICIES_URL =
+            "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/policies";
+
+        private async Task<(string Mode, int? MaxBatch)> GetPolicyAsync(string actionKey)
+        {
+            try
+            {
+                if (_policies == null || (DateTime.Now - _policiesLoadedAt).TotalMinutes > 5)
+                {
+                    var list = new List<PolicyRule>();
+                    var resp = await _http.GetAsync(POLICIES_URL + "?appuser=" + Uri.EscapeDataString(Environment.UserName) + "&t=" + DateTime.Now.Ticks);
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                        if (doc.RootElement.TryGetProperty("policies", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                            foreach (var p in arr.EnumerateArray())
+                                list.Add(new PolicyRule
+                                {
+                                    AppUser  = p.TryGetProperty("appUser",  out var u) ? u.GetString() : "*",
+                                    Action   = p.TryGetProperty("action",   out var a) ? a.GetString() : "",
+                                    Instance = p.TryGetProperty("instance", out var i) ? i.GetString() : "*",
+                                    Mode     = p.TryGetProperty("mode",     out var m) ? m.GetString() : "ASK",
+                                    MaxBatch = p.TryGetProperty("maxBatch", out var b) && b.ValueKind == JsonValueKind.Number ? b.GetInt32() : (int?)null
+                                });
+                        _policies = list;
+                        _policiesLoadedAt = DateTime.Now;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[ClaudeCliService] policy fetch failed: " + ex.Message);
+            }
+
+            if (_policies == null) return ("ASK", null);   // endpoint missing -> safe default
+
+            string user = Environment.UserName;
+            string inst = string.Equals(CurrentInstance, "TEST", StringComparison.OrdinalIgnoreCase) ? "TEST" : "PROD";
+            PolicyRule Find(string pu, string pi) =>
+                _policies.Find(p => string.Equals(p.Action, actionKey, StringComparison.OrdinalIgnoreCase)
+                                 && string.Equals(p.AppUser, pu, StringComparison.OrdinalIgnoreCase)
+                                 && string.Equals(p.Instance, pi, StringComparison.OrdinalIgnoreCase));
+            var rule = Find(user, inst) ?? Find(user, "*") ?? Find("*", inst) ?? Find("*", "*");
+            return rule == null ? ("ASK", null) : (rule.Mode?.ToUpperInvariant() ?? "ASK", rule.MaxBatch);
+        }
+
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V15";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V16";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -331,6 +395,10 @@ namespace WMSApp
             sb.AppendLine("    { \"type\": \"sql\", \"sql\": \"SELECT ...\" } ] }");
             sb.AppendLine();
             sb.AppendLine("Rules: steps run in order inside the DATABASE (the app can be closed); rest URLs only on the ORDS host or the two Fusion hosts (efmh / efmh-test); always write Fusion step URLs with #FUSION_BASE# instead of a hardcoded host so the job follows its instance; auth fusion uses stored credentials; #VAR# substitutes values captured by an earlier step's extract; sql steps and completionSql must be plain SELECTs (the runner evaluates SELECT COUNT(*) of them). The app shows the user an approval card with the full plan - nothing is scheduled until approved. You then receive JOB_RESULT: {success, jobId, firstRun} or USER_REJECTED - confirm with action answer and tell the user to watch it in the Scheduled Jobs tab.");
+            sb.AppendLine();
+            sb.AppendLine("## Action policies (authority limits)");
+            sb.AppendLine();
+            sb.AppendLine("The app enforces per-user policies on write actions: AUTO (the action runs immediately without an approval card - the result marker says so; tell the user it was auto-approved by policy), ASK (approval card, the default), DENY (you receive ..._RESULT with DENIED_BY_POLICY - tell the user this action is not allowed for them and DO NOT retry or work around it). Policies live in WMS_AI_POLICIES; an admin can change them there.");
             sb.AppendLine();
             sb.AppendLine("## Helper ORDS reads (action ords)");
             sb.AppendLine();
@@ -831,6 +899,12 @@ namespace WMSApp
 
                         if (op == "print_orders")
                         {
+                            var (poMode, _) = await GetPolicyAsync("print_orders");
+                            if (poMode == "DENY")
+                            {
+                                prompt = "PRINT_ORDERS_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to print order documents. Tell the user and do not retry.\"}";
+                                continue;
+                            }
                             // pause - the UI shows an approval card listing the orders,
                             // then calls aiPrintOrdersDecision (download SOAP PDFs + print)
                             var orders = new List<string>();
@@ -867,6 +941,12 @@ namespace WMSApp
 
                         if (op == "print")
                         {
+                            var (prMode, _) = await GetPolicyAsync("print");
+                            if (prMode == "DENY")
+                            {
+                                prompt = "PRINT_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to print. Tell the user and do not retry.\"}";
+                                continue;
+                            }
                             // pause - the UI shows a print approval card holding the
                             // last result grid, then calls aiPrintDecision
                             result.Success = true;
@@ -962,7 +1042,54 @@ namespace WMSApp
                         bool isWrite = method != "GET";
                         if (isWrite)
                         {
-                            // stop here - the UI shows an approval card, then calls ResumeWithFusionDecisionAsync
+                            var (fwMode, fwMaxBatch) = await GetPolicyAsync("fusion_write");
+
+                            if (fwMode == "DENY")
+                            {
+                                prompt = "FUSION_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to run Fusion write operations. Tell the user and do not retry.\"}";
+                                continue;
+                            }
+
+                            if (fwMode == "AUTO")
+                            {
+                                // batch cap: more lines than max_batch downgrades to ASK
+                                int lineCount = 0;
+                                try
+                                {
+                                    if (!string.IsNullOrEmpty(body))
+                                        using (var bDoc = JsonDocument.Parse(body))
+                                            if (bDoc.RootElement.ValueKind == JsonValueKind.Object &&
+                                                bDoc.RootElement.TryGetProperty("lines", out var lnEl) &&
+                                                lnEl.ValueKind == JsonValueKind.Array)
+                                                lineCount = lnEl.GetArrayLength();
+                                }
+                                catch { }
+
+                                if (!(fwMaxBatch.HasValue && lineCount > fwMaxBatch.Value))
+                                {
+                                    int aRoundNo = result.Rounds.Count + 1;
+                                    await onEvent(new { action = "aiChatEvent", eventType = "status",
+                                        text = $"Auto-approved by policy: Fusion {method} (round {aRoundNo})..." });
+
+                                    var aRound = await ExecuteFusionAsync(method, path, body, instance,
+                                        (string.IsNullOrEmpty(reason) ? "" : reason + " ") + "[auto-approved by policy]");
+                                    result.Rounds.Add(aRound);
+                                    await onEvent(new
+                                    {
+                                        action = "aiChatEvent", eventType = "sqlRound", round = aRoundNo,
+                                        kind = "fusion", sql = (string)null,
+                                        method = aRound.Method, path = aRound.Path,
+                                        success = aRound.Success, rowCount = aRound.RowCount,
+                                        elapsedMs = aRound.ElapsedMs, error = aRound.Error
+                                    });
+                                    prompt = "FUSION_RESULT (auto-approved by policy - tell the user it ran without an approval card): "
+                                             + TruncateForModel(aRound.ResultJson);
+                                    continue;
+                                }
+                                // over the batch cap -> fall through to ASK
+                            }
+
+                            // ASK - stop here: the UI shows an approval card, then calls ResumeWithFusionDecisionAsync
                             result.Success = true;
                             result.RequiresApproval = true;
                             if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
@@ -1001,6 +1128,21 @@ namespace WMSApp
 
                     if (string.Equals(action, "schedule_job", StringComparison.OrdinalIgnoreCase))
                     {
+                        var (sjMode, _) = await GetPolicyAsync("schedule_job");
+                        if (sjMode == "DENY")
+                        {
+                            prompt = "JOB_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to schedule jobs. Tell the user and do not retry.\"}";
+                            continue;
+                        }
+                        if (sjMode == "AUTO")
+                        {
+                            await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Auto-approved by policy: creating scheduled job..." });
+                            string sjResult = await CreateScheduledJobAsync(modelJson.RootElement.GetRawText());
+                            await onEvent(new { action = "aiChatEvent", eventType = "jobCreated", result = sjResult });
+                            prompt = "JOB_RESULT (auto-approved by policy - tell the user it was scheduled without an approval card): " + sjResult;
+                            continue;
+                        }
+
                         result.Success = true;
                         result.RequiresApproval = true;
                         if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
@@ -1011,19 +1153,39 @@ namespace WMSApp
                     if (string.Equals(action, "db_write", StringComparison.OrdinalIgnoreCase))
                     {
                         var root = modelJson.RootElement;
+                        string dwSql    = root.TryGetProperty("sql",    out var swEl) ? swEl.GetString() : "";
+                        string dwReason = root.TryGetProperty("reason", out var rwEl) && rwEl.ValueKind == JsonValueKind.String ? rwEl.GetString() : "";
+
+                        var (dwMode, _) = await GetPolicyAsync("db_write");
+                        if (dwMode == "DENY")
+                        {
+                            prompt = "DB_WRITE_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to run DDL/DML. Tell the user and do not retry.\"}";
+                            continue;
+                        }
+                        if (dwMode == "AUTO")
+                        {
+                            await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Auto-approved by policy: executing database write..." });
+                            string dwResult = await ExecuteDbWriteAsync(dwSql);
+                            prompt = "DB_WRITE_RESULT (auto-approved by policy - tell the user it ran without an approval card): " + dwResult;
+                            continue;
+                        }
+
                         result.Success = true;
                         result.RequiresApproval = true;
                         if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
-                        result.PendingDbWrite = new AiPendingDbWrite
-                        {
-                            Sql    = root.TryGetProperty("sql",    out var swEl) ? swEl.GetString() : "",
-                            Reason = root.TryGetProperty("reason", out var rwEl) && rwEl.ValueKind == JsonValueKind.String ? rwEl.GetString() : ""
-                        };
+                        result.PendingDbWrite = new AiPendingDbWrite { Sql = dwSql, Reason = dwReason };
                         return result;
                     }
 
                     if (string.Equals(action, "email", StringComparison.OrdinalIgnoreCase))
                     {
+                        var (emMode, _) = await GetPolicyAsync("email");
+                        if (emMode == "DENY")
+                        {
+                            prompt = "EMAIL_RESULT: {\"success\":false,\"error\":\"DENIED_BY_POLICY - this user is not allowed to send emails. Tell the user and do not retry.\"}";
+                            continue;
+                        }
+
                         var root = modelJson.RootElement;
                         result.Success = true;
                         result.RequiresApproval = true;

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI Analysis - Gray's WMS</title>
+<title>AI Digital Employee - Gray's WMS</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
@@ -321,7 +321,7 @@
 
     <div class="topbar">
         <a class="back" href="../Home/index.html"><i class="fas fa-arrow-left"></i> Home</a>
-        <div class="title">🤖 AI Analysis <span class="ver-badge">v10.0.0</span></div>
+        <div class="title">🤖 AI Digital Employee <span class="ver-badge">v10.0.0</span></div>
         <button class="inst-chip prod" id="inst-chip" onclick="toggleInstance()"
             title="Fusion / data instance used by the AI — click to switch between PROD and TEST">PROD</button>
         <button onclick="pickDownloadFolder()" id="folder-btn" title="Download folder for AI-downloaded files"
@@ -631,7 +631,8 @@
 
                 </div>
                 <div style="font-size:10px;color:#94a3b8;margin:14px 2px;">
-                    Safety: I can only run whitelisted operations — reads are SQL-only (SELECT), writes are the catalogued webservices and always need your approval, scheduled jobs are capped (≤200 runs, ≤30 days, whitelisted hosts), and every write-API run is audit-logged with your name and machine.
+                    Safety: I can only run whitelisted operations — reads are SQL-only (SELECT), writes are the catalogued webservices behind approval cards, scheduled jobs are capped (≤200 runs, ≤30 days, whitelisted hosts), and every write-API run is audit-logged with your name and machine.
+                    <strong>Authority policies</strong> (WMS_AI_POLICIES) let an admin set, per user / action / instance: <strong>AUTO</strong> (I act without asking — I always say so), <strong>ASK</strong> (approval card, the default) or <strong>DENY</strong> (I refuse and say who to ask).
                 </div>
             </div>
         </div>
@@ -813,7 +814,7 @@ function renderEmptyState() {
     document.getElementById('messages').innerHTML = `
         <div class="empty">
             <div class="big">🤖</div>
-            <div style="font-weight:800;font-size:16px;color:var(--text);">WMS AI Analysis</div>
+            <div style="font-weight:800;font-size:16px;color:var(--text);">WMS AI Digital Employee</div>
             <div style="font-size:12px;margin-top:4px;">Ask in plain English — Claude writes and runs the SQL for you.</div>
             <div class="examples">
                 <div class="example" onclick="useExample(this)">Give me the list of trips for today</div>
@@ -1176,7 +1177,7 @@ function sendTurn(promptText, displayText) {
     window._turnRounds = [];
     const dp = getDefaultPrinter();
     const ctxLine = '[CURRENT_INSTANCE: ' + currentInstance() + ']' + (dp ? ' [DEFAULT_PRINTER: ' + dp + ']' : '');
-    const msg = { action: 'aiChatSend', text: ctxLine + '\n' + promptText, sessionId: chat.sessionId, downloadFolder: getDownloadFolder() };
+    const msg = { action: 'aiChatSend', text: ctxLine + '\n' + promptText, sessionId: chat.sessionId, downloadFolder: getDownloadFolder(), instance: currentInstance() };
     const eng = currentEngine();
     if (eng) {
         msg.engine = eng;
@@ -1921,12 +1922,12 @@ function exportPdfData(d) {
     if (!d) return;
     // window.open('') is intercepted by the WebView2 host and comes up blank,
     // so print from a hidden same-page iframe instead.
-    const html = `<!DOCTYPE html><html><head><title>AI Analysis Result</title><style>
+    const html = `<!DOCTYPE html><html><head><title>AI Digital Employee Result</title><style>
         body{font-family:Segoe UI,sans-serif;font-size:11px;margin:20px;}
         h3{margin:0 0 4px;} .sql{font-family:Consolas,monospace;font-size:10px;color:#475569;background:#f8fafc;padding:6px;border-radius:4px;margin-bottom:10px;white-space:pre-wrap;word-break:break-all;}
         table{border-collapse:collapse;width:100%;} th,td{border:1px solid #cbd5e1;padding:3px 7px;text-align:left;font-size:10px;}
         th{background:#f1f5f9;} tr{page-break-inside:avoid;}</style></head><body>
-        <h3>Gray's WMS — AI Analysis Result</h3>
+        <h3>Gray's WMS — AI Digital Employee Result</h3>
         <div class="sql">${esc(d.sql)}</div>
         <table><thead><tr>${d.columns.map(c => '<th>' + esc(c) + '</th>').join('')}</tr></thead>
         <tbody>${d.rows.map(r => '<tr>' + r.map(v => '<td>' + (v === null ? '' : esc(v)) + '</td>').join('') + '</tr>').join('')}</tbody></table>
@@ -2093,6 +2094,36 @@ function decidePrintOrders(approve) {
             instance: ctx.pending.instance
         }
     }, function (err, resp) { handleTurnResponse(ctx.chat, err, resp); });
+}
+
+// ============================================================
+// Action policies (WMS_AI_POLICIES) - client-side enforcement
+// for the write-API forms: AUTO skips the confirm dialog,
+// DENY blocks the run. Server-side actions are enforced in C#.
+// ============================================================
+let _clientPolicies = null;
+
+function loadClientPolicies() {
+    sendMessageToCSharp({ action: 'executeGet', fullUrl: AI_BASE + '/policies?appuser=' + encodeURIComponent(appUserName()) + '&t=' + Date.now() },
+        function (err, data) {
+            if (err) return;   // endpoint not deployed yet -> default ASK
+            try {
+                const d = typeof data === 'string' ? JSON.parse(data) : data;
+                if (d && Array.isArray(d.policies)) _clientPolicies = d.policies;
+            } catch (e) { }
+        });
+}
+
+function clientPolicy(actionKey) {
+    if (!_clientPolicies) return { mode: 'ASK' };
+    const user = appUserName().toUpperCase();
+    const inst = currentInstance();
+    const find = (pu, pi) => _clientPolicies.find(p =>
+        (p.action || '').toUpperCase() === actionKey.toUpperCase() &&
+        (p.appUser || '*').toUpperCase() === pu &&
+        (p.instance || '*').toUpperCase() === pi);
+    const r = find(user, inst) || find(user, '*') || find('*', inst) || find('*', '*');
+    return r ? { mode: (r.mode || 'ASK').toUpperCase(), maxBatch: r.maxBatch } : { mode: 'ASK' };
 }
 
 // ============================================================
@@ -2296,6 +2327,19 @@ function runApiFromForm(formId) {
             req.body = JSON.stringify(b);
         }
     } catch (e) { }
+
+    // policy: DENY blocks, AUTO runs without the confirm dialog
+    const pol = clientPolicy('wms_api');
+    if (pol.mode === 'DENY') {
+        resBox.innerHTML = '<div style="font-size:10.5px;color:#b91c1c;margin-top:4px;"><i class="fas fa-ban"></i> Blocked by policy — you are not allowed to run write APIs. Ask an administrator (WMS_AI_POLICIES).</div>';
+        return;
+    }
+    if (pol.mode === 'AUTO') {
+        resBox.innerHTML = '<div style="font-size:9.5px;color:#0e7490;margin-top:4px;"><i class="fas fa-bolt"></i> Auto-approved by policy</div>';
+        window._apiConfirm = { formId: formId, req: req };
+        confirmApiRun();
+        return;
+    }
 
     showApiConfirm(formId, req);
 }
@@ -3130,6 +3174,9 @@ function showHelpBubble() {
 
     // folder button tooltip shows the configured download folder
     updateFolderBtn();
+
+    // action policies (AUTO/ASK/DENY) for client-side enforcement
+    loadClientPolicies();
 
     // Build/refresh CLAUDE.md workspace in background
     sendMessageToCSharp({ action: 'aiChatPrepare', forceRefresh: false }, function (err, resp) {

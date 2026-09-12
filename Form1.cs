@@ -3718,6 +3718,9 @@ navPanel.Controls.Add(wmsDevButton);
                     if (root.TryGetProperty("downloadFolder", out var dfEl) && dfEl.ValueKind == JsonValueKind.String &&
                         !string.IsNullOrWhiteSpace(dfEl.GetString()))
                         GetClaudeCliService().DownloadFolder = dfEl.GetString();
+                    if (root.TryGetProperty("instance", out var ciEl) && ciEl.ValueKind == JsonValueKind.String &&
+                        !string.IsNullOrWhiteSpace(ciEl.GetString()))
+                        GetClaudeCliService().CurrentInstance = ciEl.GetString();
                 }
 
                 if (string.IsNullOrWhiteSpace(text))
