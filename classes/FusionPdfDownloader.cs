@@ -146,7 +146,6 @@ namespace WMSApp.PrintManagement
 
                 // Create folder structure: C:\fusion\{trip_date}\{trip_id}
                 string folderPath = Path.Combine(@"C:\fusion", tripDate, tripId);
-                folderPath = "C:\\fusion\\2025-11-05\\"+ tripId;
                 Directory.CreateDirectory(folderPath);
 
                 // Save PDF file

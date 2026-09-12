@@ -72,6 +72,7 @@ namespace WMSApp
 
         // RAG Service Process
         private System.Diagnostics.Process _ragServiceProcess;
+        private ClaudeCliService _claudeCliService;
 
         // Mobile Notification Listener
         private MobileNotificationListener _mobileListener;
@@ -1822,6 +1823,117 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleLoadLocalFile(wv, messageJson, requestId);
                                     break;
 
+                                case "appendAgentLog":
+                                    await HandleAppendAgentLog(wv, messageJson, requestId);
+                                    break;
+
+                                case "readAgentLog":
+                                    await HandleReadAgentLog(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiCliStatus":
+                                    await HandleAiCliStatus(wv, requestId);
+                                    break;
+
+                                case "aiChatPrepare":
+                                    await HandleAiChatPrepare(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiChatSend":
+                                    await HandleAiChatSend(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiChatCancel":
+                                    HandleAiChatCancel(wv, requestId);
+                                    break;
+
+                                case "aiFusionDecision":
+                                    await HandleAiFusionDecision(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiEmailDecision":
+                                    await HandleAiEmailDecision(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiApiTest":
+                                    await HandleAiApiTest(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiDbWriteDecision":
+                                    await HandleAiDbWriteDecision(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiJobDecision":
+                                    await HandleAiJobDecision(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiPrintDecision":
+                                    await HandleAiPrintDecision(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiPrintOrdersDecision":
+                                    await HandleAiPrintOrdersDecision(wv, messageJson, requestId);
+                                    break;
+
+                                case "aiListPrinters":
+                                    {
+                                        var printersNode = System.Text.Json.Nodes.JsonNode.Parse(
+                                            LocalDeviceService.ListPrintersJson())!.AsObject();
+                                        printersNode["requestId"] = requestId;
+                                        wv.CoreWebView2.PostWebMessageAsJson(printersNode.ToJsonString());
+                                    }
+                                    break;
+
+                                case "aiPickFolder":
+                                    {
+                                        string currentFolder = null;
+                                        using (var pfDoc = JsonDocument.Parse(messageJson))
+                                            if (pfDoc.RootElement.TryGetProperty("current", out var cfEl) && cfEl.ValueKind == JsonValueKind.String)
+                                                currentFolder = cfEl.GetString();
+                                        string pickRequestId = requestId;
+                                        // WebView2 forbids modal dialogs inside its event handlers
+                                        // (reentrancy crash) - defer the dialog to the message queue
+                                        BeginInvoke(new Action(() =>
+                                        {
+                                            try
+                                            {
+                                                using (var dlg = new FolderBrowserDialog())
+                                                {
+                                                    dlg.Description = "Choose the download folder for AI-downloaded files";
+                                                    dlg.UseDescriptionForTitle = true;
+                                                    if (!string.IsNullOrWhiteSpace(currentFolder) && Directory.Exists(currentFolder))
+                                                        dlg.SelectedPath = currentFolder;
+                                                    bool okPick = dlg.ShowDialog(this) == DialogResult.OK;
+                                                    wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                                                    {
+                                                        requestId = pickRequestId,
+                                                        success = okPick,
+                                                        folder = okPick ? dlg.SelectedPath : null
+                                                    }));
+                                                }
+                                            }
+                                            catch (Exception exPick)
+                                            {
+                                                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiPickFolder failed: " + exPick.Message);
+                                                try { SendErrorResponse(wv, pickRequestId, exPick.Message); } catch { }
+                                            }
+                                        }));
+                                    }
+                                    break;
+
+                                case "aiConnectPrinter":
+                                    {
+                                        string uncPath = null;
+                                        using (var cpDoc = JsonDocument.Parse(messageJson))
+                                            if (cpDoc.RootElement.TryGetProperty("unc", out var uncEl) && uncEl.ValueKind == JsonValueKind.String)
+                                                uncPath = uncEl.GetString();
+                                        var connectNode = System.Text.Json.Nodes.JsonNode.Parse(
+                                            await LocalDeviceService.ConnectNetworkPrinterAsync(uncPath))!.AsObject();
+                                        connectNode["requestId"] = requestId;
+                                        wv.CoreWebView2.PostWebMessageAsJson(connectNode.ToJsonString());
+                                    }
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3414,6 +3526,800 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[C# ERROR] Load local file failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // ========== SHIPPING AGENT CANCELLATION LOG ==========
+
+        private static string GetAgentCancelLogPath(string tripId)
+        {
+            var sb = new StringBuilder();
+            foreach (char c in (tripId ?? "unknown"))
+            {
+                if (char.IsLetterOrDigit(c) || c == '-' || c == '_') sb.Append(c);
+            }
+            string safe = sb.Length > 0 ? sb.ToString() : "unknown";
+            string dir = @"C:\fusion\agent_logs";
+            Directory.CreateDirectory(dir);
+            return Path.Combine(dir, $"trip_{safe}_cancellations.log");
+        }
+
+        private async Task HandleAppendAgentLog(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(messageJson);
+                var root = doc.RootElement;
+                string tripId  = root.TryGetProperty("tripId",  out var ti) ? ti.GetString() : "";
+                string message = root.TryGetProperty("message", out var ms) ? ms.GetString() : "";
+
+                string filePath = GetAgentCancelLogPath(tripId);
+                string entry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}";
+                await File.AppendAllTextAsync(filePath, entry);
+
+                var response = new
+                {
+                    action = "agentLogResponse",
+                    requestId = requestId,
+                    success = true,
+                    filePath = filePath
+                };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(response));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] appendAgentLog failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleReadAgentLog(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(messageJson);
+                var root = doc.RootElement;
+                string tripId = root.TryGetProperty("tripId", out var ti) ? ti.GetString() : "";
+
+                string filePath = GetAgentCancelLogPath(tripId);
+                bool exists = File.Exists(filePath);
+                string content = exists ? await File.ReadAllTextAsync(filePath) : "";
+
+                var response = new
+                {
+                    action = "agentLogResponse",
+                    requestId = requestId,
+                    success = true,
+                    exists = exists,
+                    content = content,
+                    filePath = filePath
+                };
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(response));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[C# ERROR] readAgentLog failed: {ex.Message}");
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        // ========== AI ANALYSIS CHAT (Claude CLI + guarded SQL gateway) ==========
+
+        private ClaudeCliService GetClaudeCliService()
+        {
+            if (_claudeCliService == null)
+                _claudeCliService = new ClaudeCliService();
+            return _claudeCliService;
+        }
+
+        /// <summary>Reads the optional engine config ({mode, apiKey, model}) from a JS message.</summary>
+        private static AiEngineConfig ParseAiEngine(JsonElement root)
+        {
+            if (!root.TryGetProperty("engine", out var eEl) || eEl.ValueKind != JsonValueKind.Object)
+                return null;
+            var cfg = new AiEngineConfig();
+            if (eEl.TryGetProperty("mode",   out var m) && m.ValueKind == JsonValueKind.String) cfg.Mode = m.GetString();
+            if (eEl.TryGetProperty("apiKey", out var k) && k.ValueKind == JsonValueKind.String) cfg.ApiKey = k.GetString();
+            if (eEl.TryGetProperty("model",  out var md) && md.ValueKind == JsonValueKind.String) cfg.Model = md.GetString();
+            return cfg;
+        }
+
+        private async Task HandleAiApiTest(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                string apiKey = "", model = "";
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("apiKey", out var k)) apiKey = k.GetString() ?? "";
+                    if (root.TryGetProperty("model", out var m)) model = m.GetString() ?? "";
+                }
+                var (ok, message) = await GetClaudeCliService().TestApiKeyAsync(apiKey, model);
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiApiTestResponse",
+                    requestId = requestId,
+                    success = true,
+                    ok = ok,
+                    message = message
+                }));
+            }
+            catch (Exception ex)
+            {
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleAiCliStatus(WebView2 wv, string requestId)
+        {
+            try
+            {
+                var (installed, version) = await GetClaudeCliService().CheckCliAsync();
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiCliStatusResponse",
+                    requestId = requestId,
+                    success = true,
+                    installed = installed,
+                    version = version
+                }));
+            }
+            catch (Exception ex)
+            {
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleAiChatPrepare(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool force = false;
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    if (doc.RootElement.TryGetProperty("forceRefresh", out var fEl))
+                        force = fEl.ValueKind == JsonValueKind.True;
+                }
+                int objectCount = await GetClaudeCliService().PrepareWorkspaceAsync(force);
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiChatPrepareResponse",
+                    requestId = requestId,
+                    success = true,
+                    objectCount = objectCount   // -1 means catalog was still fresh (cached)
+                }));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiChatPrepare failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleAiChatSend(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                string text = "";
+                string sessionId = null;
+                AiEngineConfig engine = null;
+                string historyJson = null;
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    text = root.TryGetProperty("text", out var tEl) ? tEl.GetString() : "";
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("history", out var hEl) && hEl.ValueKind == JsonValueKind.Array)
+                        historyJson = hEl.GetRawText();
+                    if (root.TryGetProperty("downloadFolder", out var dfEl) && dfEl.ValueKind == JsonValueKind.String &&
+                        !string.IsNullOrWhiteSpace(dfEl.GetString()))
+                        GetClaudeCliService().DownloadFolder = dfEl.GetString();
+                    if (root.TryGetProperty("instance", out var ciEl) && ciEl.ValueKind == JsonValueKind.String &&
+                        !string.IsNullOrWhiteSpace(ciEl.GetString()))
+                        GetClaudeCliService().CurrentInstance = ciEl.GetString();
+                }
+
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    SendErrorResponse(wv, requestId, "Empty message");
+                    return;
+                }
+
+                var service = GetClaudeCliService();
+
+                // stream status / sqlRound events to the page as they happen
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                var result = await service.SendAsync(text, sessionId, engine, historyJson, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiChatSend failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private async Task HandleAiFusionDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null;
+                AiPendingFusion pending = null;
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
+                    {
+                        pending = new AiPendingFusion
+                        {
+                            Method   = pEl.TryGetProperty("method",   out var m) ? m.GetString() : "POST",
+                            Path     = pEl.TryGetProperty("path",     out var p) ? p.GetString() : "",
+                            Instance = pEl.TryGetProperty("instance", out var i) && i.ValueKind == JsonValueKind.String ? i.GetString() : "PROD",
+                            Reason   = pEl.TryGetProperty("reason",   out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : "",
+                            Body     = pEl.TryGetProperty("body",     out var b) && b.ValueKind == JsonValueKind.String ? b.GetString() : null
+                        };
+                    }
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                var result = await GetClaudeCliService().ResumeWithFusionDecisionAsync(
+                    approve, pending, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiFusionDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private void PostAiChatAnswer(WebView2 wv, string requestId, AiChatResult result)
+        {
+            var rounds = new List<object>();
+            foreach (var r in result.Rounds)
+            {
+                rounds.Add(new
+                {
+                    kind = r.Kind,
+                    sql = r.Sql,
+                    method = r.Method,
+                    path = r.Path,
+                    reason = r.Reason,
+                    success = r.Success,
+                    rowCount = r.RowCount,
+                    elapsedMs = r.ElapsedMs,
+                    error = r.Error,
+                    resultJson = r.ResultJson
+                });
+            }
+
+            wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+            {
+                action = "aiChatAnswer",
+                requestId = requestId,
+                success = result.Success,
+                markdown = result.Markdown,
+                grid = result.GridJson,
+                apiForm = result.ApiFormJson,
+                apiConversation = result.ApiConversation,
+                error = result.Error,
+                sessionId = result.SessionId,
+                requiresApproval = result.RequiresApproval,
+                pending = result.Pending == null ? null : new
+                {
+                    method = result.Pending.Method,
+                    path = result.Pending.Path,
+                    body = result.Pending.Body,
+                    instance = result.Pending.Instance,
+                    reason = result.Pending.Reason
+                },
+                pendingEmail = result.PendingEmail == null ? null : new
+                {
+                    to = result.PendingEmail.To,
+                    cc = result.PendingEmail.Cc,
+                    subject = result.PendingEmail.Subject,
+                    bodyHtml = result.PendingEmail.BodyHtml,
+                    reason = result.PendingEmail.Reason
+                },
+                pendingDbWrite = result.PendingDbWrite == null ? null : new
+                {
+                    sql = result.PendingDbWrite.Sql,
+                    reason = result.PendingDbWrite.Reason
+                },
+                pendingJob = result.PendingJob == null ? null : new
+                {
+                    jobJson = result.PendingJob.JobJson
+                },
+                pendingPrint = result.PendingPrint == null ? null : new
+                {
+                    printer = result.PendingPrint.Printer,
+                    title = result.PendingPrint.Title,
+                    reason = result.PendingPrint.Reason
+                },
+                pendingPrintOrders = result.PendingPrintOrders == null ? null : new
+                {
+                    orders = result.PendingPrintOrders.Orders,
+                    printer = result.PendingPrintOrders.Printer,
+                    instance = result.PendingPrintOrders.Instance,
+                    reason = result.PendingPrintOrders.Reason
+                },
+                rounds = rounds
+            }));
+        }
+
+        /// <summary>
+        /// User approved/rejected an AI-composed scheduled job. On approve,
+        /// creates it via ai/jobs/create (DBMS_SCHEDULER) and resumes the
+        /// conversation with JOB_RESULT.
+        /// </summary>
+        private async Task HandleAiJobDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null, jobJson = null;
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object &&
+                        pEl.TryGetProperty("jobJson", out var jEl))
+                        jobJson = jEl.GetString();
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                string jobResult;
+                if (!approve)
+                {
+                    jobResult = "USER_REJECTED - the user declined to schedule this job. Continue and tell them nothing was scheduled.";
+                }
+                else if (string.IsNullOrWhiteSpace(jobJson))
+                {
+                    jobResult = "{\"success\":false,\"error\":\"No job definition in the approval\"}";
+                }
+                else
+                {
+                    await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Creating scheduled job..." });
+                    jobResult = await GetClaudeCliService().CreateScheduledJobAsync(jobJson);
+                    await onEvent(new { action = "aiChatEvent", eventType = "jobCreated", result = jobResult });
+                }
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "JOB_RESULT: " + jobResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiJobDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// User approved/rejected printing order documents. On approve, each
+        /// order's Sales Order PDF is downloaded from Oracle BI Publisher
+        /// (FusionPdfDownloader SOAP) and printed via PrinterService, then the
+        /// conversation resumes with PRINT_ORDERS_RESULT.
+        /// </summary>
+        private async Task HandleAiPrintOrdersDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null, printer = "", instance = "PROD";
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+                var orders = new List<string>();
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (pEl.TryGetProperty("printer", out var prEl) && prEl.ValueKind == JsonValueKind.String)
+                            printer = prEl.GetString();
+                        if (pEl.TryGetProperty("instance", out var inEl) && inEl.ValueKind == JsonValueKind.String &&
+                            !string.IsNullOrWhiteSpace(inEl.GetString()))
+                            instance = inEl.GetString().ToUpperInvariant() == "TEST" ? "TEST" : "PROD";
+                        if (pEl.TryGetProperty("orders", out var oEl) && oEl.ValueKind == JsonValueKind.Array)
+                            foreach (var o in oEl.EnumerateArray())
+                                if (o.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(o.GetString()))
+                                    orders.Add(o.GetString().Trim());
+                    }
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                string printResult;
+                if (!approve)
+                {
+                    printResult = "USER_REJECTED - the user declined the print. Continue and tell them nothing was printed.";
+                }
+                else if (orders.Count == 0 || string.IsNullOrWhiteSpace(printer))
+                {
+                    printResult = "{\"success\":false,\"error\":\"No orders or no printer in the approval\"}";
+                }
+                else
+                {
+                    var (fusionUser, fusionPass) = await FusionCredentialsService.GetAsync();
+                    if (string.IsNullOrEmpty(fusionUser))
+                    {
+                        printResult = "{\"success\":false,\"error\":\"Fusion credentials not available (ARMODULE/fusion webservice unreachable)\"}";
+                    }
+                    else
+                    {
+                        var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                        var printerService = new WMSApp.PrintManagement.PrinterService();
+                        string folder = Path.Combine(@"C:\fusion", "ai_chat", "prints", DateTime.Now.ToString("yyyy-MM-dd"));
+                        Directory.CreateDirectory(folder);
+
+                        var results = new List<object>();
+                        for (int i = 0; i < orders.Count; i++)
+                        {
+                            string order = orders[i];
+                            await onEvent(new { action = "aiChatEvent", eventType = "status",
+                                text = $"Order {order}: downloading PDF ({i + 1}/{orders.Count})..." });
+
+                            var dl = await downloader.DownloadSalesOrderPdfAsync(order, instance, fusionUser, fusionPass);
+                            if (!dl.Success)
+                            {
+                                results.Add(new { order, downloaded = false, printed = false, error = dl.ErrorMessage });
+                                continue;
+                            }
+
+                            string pdfPath = Path.Combine(folder, order + ".pdf");
+                            try
+                            {
+                                await File.WriteAllBytesAsync(pdfPath, Convert.FromBase64String(dl.Base64Content));
+                            }
+                            catch (Exception exSave)
+                            {
+                                results.Add(new { order, downloaded = true, printed = false, error = "Save failed: " + exSave.Message });
+                                continue;
+                            }
+
+                            await onEvent(new { action = "aiChatEvent", eventType = "status",
+                                text = $"Order {order}: printing on {printer} ({i + 1}/{orders.Count})..." });
+
+                            var pr = await printerService.PrintPdfAsync(pdfPath, printer);
+                            results.Add(new
+                            {
+                                order,
+                                downloaded = true,
+                                printed = pr.Success,
+                                method = pr.Success ? pr.PrintMethod : null,
+                                error = pr.Success ? null : pr.ErrorMessage,
+                                pdfPath
+                            });
+                        }
+                        printResult = JsonSerializer.Serialize(new { success = true, printer, instance, results });
+                    }
+                }
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "PRINT_ORDERS_RESULT: " + printResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiPrintOrdersDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// User approved/rejected printing the last result grid to a local
+        /// printer. On approve, prints via LocalDeviceService and resumes the
+        /// conversation with PRINT_RESULT.
+        /// </summary>
+        private async Task HandleAiPrintDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null, printer = "", title = "WMS AI Result";
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+                var columns = new List<string>();
+                var rows = new List<List<string>>();
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (pEl.TryGetProperty("printer", out var prEl) && prEl.ValueKind == JsonValueKind.String)
+                            printer = prEl.GetString();
+                        if (pEl.TryGetProperty("title", out var tiEl) && tiEl.ValueKind == JsonValueKind.String &&
+                            !string.IsNullOrWhiteSpace(tiEl.GetString()))
+                            title = tiEl.GetString();
+                    }
+                    if (root.TryGetProperty("grid", out var gEl) && gEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (gEl.TryGetProperty("columns", out var cEl) && cEl.ValueKind == JsonValueKind.Array)
+                            foreach (var c in cEl.EnumerateArray())
+                                columns.Add(c.ValueKind == JsonValueKind.String ? c.GetString() : c.ToString());
+                        if (gEl.TryGetProperty("rows", out var rEl) && rEl.ValueKind == JsonValueKind.Array)
+                            foreach (var r in rEl.EnumerateArray())
+                            {
+                                var row = new List<string>();
+                                if (r.ValueKind == JsonValueKind.Array)
+                                    foreach (var v in r.EnumerateArray())
+                                        row.Add(v.ValueKind == JsonValueKind.Null ? "" :
+                                                v.ValueKind == JsonValueKind.String ? v.GetString() : v.ToString());
+                                rows.Add(row);
+                            }
+                    }
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                string printResult;
+                if (!approve)
+                {
+                    printResult = "USER_REJECTED - the user declined the print. Continue and tell them nothing was printed.";
+                }
+                else
+                {
+                    await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Printing to " + printer + "..." });
+                    printResult = await LocalDeviceService.PrintGridAsync(printer, title, columns, rows);
+                }
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "PRINT_RESULT: " + printResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiPrintDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// User approved/rejected an AI-composed DDL/DML statement. On approve,
+        /// executes it via the guarded ai/executewrite endpoint, then resumes
+        /// the conversation with DB_WRITE_RESULT.
+        /// </summary>
+        private async Task HandleAiDbWriteDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null, sql = "";
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object &&
+                        pEl.TryGetProperty("sql", out var sqEl))
+                        sql = sqEl.GetString() ?? "";
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                string writeResult;
+                if (!approve)
+                {
+                    writeResult = "USER_REJECTED - the user declined this statement. Continue and tell them it was not executed.";
+                }
+                else if (string.IsNullOrWhiteSpace(sql))
+                {
+                    writeResult = "{\"success\":false,\"error\":\"No SQL statement in the approval\"}";
+                }
+                else
+                {
+                    await onEvent(new { action = "aiChatEvent", eventType = "status", text = "Executing approved statement..." });
+                    writeResult = await GetClaudeCliService().ExecuteDbWriteAsync(sql);
+                }
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "DB_WRITE_RESULT: " + writeResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiDbWriteDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// User approved/rejected an AI-composed email. On approve, sends it
+        /// via SMTP (Office 365 by default) with the settings supplied by the
+        /// page, then resumes the CLI conversation with EMAIL_RESULT.
+        /// </summary>
+        private async Task HandleAiEmailDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null;
+                string to = "", cc = "", subject = "", bodyHtml = "";
+                string smtpServer = "smtp.office365.com";
+                int smtpPort = 587;
+                string username = "", password = "";
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
+                    {
+                        to       = pEl.TryGetProperty("to",       out var t) ? t.GetString() ?? "" : "";
+                        cc       = pEl.TryGetProperty("cc",       out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : "";
+                        subject  = pEl.TryGetProperty("subject",  out var su) ? su.GetString() ?? "" : "";
+                        bodyHtml = pEl.TryGetProperty("bodyHtml", out var bh) ? bh.GetString() ?? "" : "";
+                    }
+                    if (root.TryGetProperty("smtp", out var smEl) && smEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (smEl.TryGetProperty("server",   out var sv) && sv.ValueKind == JsonValueKind.String) smtpServer = sv.GetString();
+                        if (smEl.TryGetProperty("port",     out var pt) && pt.ValueKind == JsonValueKind.Number) smtpPort = pt.GetInt32();
+                        if (smEl.TryGetProperty("username", out var un) && un.ValueKind == JsonValueKind.String) username = un.GetString();
+                        if (smEl.TryGetProperty("password", out var pw) && pw.ValueKind == JsonValueKind.String) password = pw.GetString();
+                    }
+                }
+
+                string emailResult;
+                if (!approve)
+                {
+                    emailResult = "USER_REJECTED - the user declined to send this email. Continue and tell them it was not sent.";
+                }
+                else if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+                {
+                    emailResult = "{\"success\":false,\"message\":\"Email settings are not configured in the app (username/password missing)\"}";
+                }
+                else
+                {
+                    try
+                    {
+                        using var client = new System.Net.Mail.SmtpClient(smtpServer, smtpPort);
+                        client.EnableSsl = true;
+                        client.Credentials = new System.Net.NetworkCredential(username, password);
+                        client.Timeout = 30000;
+
+                        var mail = new System.Net.Mail.MailMessage();
+                        mail.From = new System.Net.Mail.MailAddress(username);
+                        foreach (var r in to.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                            mail.To.Add(r.Trim());
+                        if (!string.IsNullOrWhiteSpace(cc))
+                            foreach (var r in cc.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+                                mail.CC.Add(r.Trim());
+                        mail.Subject = subject;
+                        mail.Body = bodyHtml;
+                        mail.IsBodyHtml = true;
+
+                        await Task.Run(() => client.Send(mail));
+                        emailResult = "{\"success\":true,\"message\":\"Email sent to " +
+                                      JsonEncodedText.Encode(to).ToString() + "\"}";
+                    }
+                    catch (System.Net.Mail.SmtpException smtpEx)
+                    {
+                        string msg = smtpEx.Message;
+                        if (msg.Contains("5.7.57") || msg.ToLower().Contains("authentication"))
+                            msg = "Authentication failed. Check email/password. For Office 365 with MFA use an App Password; if the tenant has disabled SMTP AUTH, ask IT to enable it for this mailbox.";
+                        emailResult = JsonSerializer.Serialize(new { success = false, message = msg });
+                    }
+                    catch (Exception ex)
+                    {
+                        emailResult = JsonSerializer.Serialize(new { success = false, message = ex.Message });
+                    }
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "EMAIL_RESULT: " + emailResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiEmailDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        private void HandleAiChatCancel(WebView2 wv, string requestId)
+        {
+            try
+            {
+                GetClaudeCliService().Cancel();
+                wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                {
+                    action = "aiChatCancelResponse",
+                    requestId = requestId,
+                    success = true
+                }));
+            }
+            catch (Exception ex)
+            {
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }
