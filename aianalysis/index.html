@@ -972,6 +972,11 @@ function handleTurnResponse(chat, err, resp) {
         renderPrintApprovalCard(chat, resp.pendingPrint, resp.apiConversation);
         return;
     }
+    // order-document print (SOAP PDF download + print) waiting for approval
+    if (resp.requiresApproval && resp.pendingPrintOrders) {
+        renderPrintOrdersApprovalCard(chat, resp.pendingPrintOrders, resp.apiConversation);
+        return;
+    }
 
     setBusy(false);
     const rounds = window._turnRounds;
@@ -1769,6 +1774,67 @@ function decidePrint(approve) {
         apiConversation: ctx.apiConversation,
         pending: { printer: ctx.pending.printer, title: ctx.pending.title },
         grid: ctx.grid || { columns: [], rows: [] }
+    }, function (err, resp) { handleTurnResponse(ctx.chat, err, resp); });
+}
+
+// ============================================================
+// Order-document print approval - each order's Sales Order PDF
+// is downloaded from Oracle BI Publisher (SOAP) and printed
+// (aiPrintOrdersDecision IPC)
+// ============================================================
+function renderPrintOrdersApprovalCard(chat, pending, apiConversation) {
+    setStatus('Waiting for your approval…');
+    const box = document.getElementById('messages');
+    const cardId = 'printorders-' + Date.now();
+    window._pendingPrintOrders = { chat: chat, pending: pending, cardId: cardId, apiConversation: apiConversation || null };
+    const orders = pending.orders || [];
+    const inst = (pending.instance || 'PROD').toUpperCase();
+    const chips = orders.map(o =>
+        `<span style="display:inline-block;background:white;border:1px solid #cbd5e1;border-radius:6px;padding:1px 8px;font-size:10px;font-family:monospace;margin:2px;">${esc(o)}</span>`).join('');
+
+    box.insertAdjacentHTML('beforeend', `
+        <div class="approval-card" id="${cardId}" style="border-color:#94a3b8;background:#f8fafc;">
+            <div class="ah" style="background:#e2e8f0;color:#334155;"><i class="fas fa-print"></i> Print order documents — approval required</div>
+            <div class="ab" style="color:#1e293b;">
+                <div><strong>${orders.length}</strong> order(s) — the official Sales Order PDF of each is downloaded from Oracle Fusion (BI Publisher) and printed:</div>
+                <div style="margin:5px 0;max-height:90px;overflow-y:auto;">${chips}</div>
+                <div><strong>Printer:</strong> ${esc(pending.printer || '(not set)')}
+                     &nbsp;·&nbsp; <strong>Instance:</strong> <span style="font-weight:800;color:${inst === 'TEST' ? '#b45309' : '#166534'};">${esc(inst)}</span></div>
+                ${pending.reason ? `<div style="margin-top:4px;font-size:10px;color:#64748b;">${esc(pending.reason)}</div>` : ''}
+                <div style="margin-top:4px;font-size:9.5px;color:#64748b;">PDFs are saved under C:\\fusion\\ai_chat\\prints\\ and sent via Acrobat / SumatraPDF / Windows.</div>
+            </div>
+            <div class="af" style="background:#f8fafc;">
+                <button class="btn-reject" onclick="decidePrintOrders(false)"><i class="fas fa-times"></i> Cancel</button>
+                <button class="btn-approve" style="background:#475569;" onclick="decidePrintOrders(true)"><i class="fas fa-print"></i> Print ${orders.length} order(s)</button>
+            </div>
+            <div class="adecision"></div>
+        </div>`);
+    box.scrollTop = box.scrollHeight;
+}
+
+function decidePrintOrders(approve) {
+    const ctx = window._pendingPrintOrders;
+    if (!ctx) return;
+    window._pendingPrintOrders = null;
+    const card = document.getElementById(ctx.cardId);
+    if (card) {
+        card.querySelector('.af')?.remove();
+        card.querySelector('.adecision').innerHTML =
+            `<div style="padding:6px 10px;font-size:10px;color:${approve ? '#15803d' : '#64748b'};">${approve ? '<i class="fas fa-print"></i> Downloading and printing…' : 'Cancelled — nothing was printed.'}</div>`;
+    }
+    setBusy(true);
+    setStatus(approve ? 'Downloading PDFs…' : 'Claude is thinking…');
+    sendMessageToCSharp({
+        action: 'aiPrintOrdersDecision',
+        approve: approve,
+        sessionId: ctx.chat.sessionId,
+        engine: currentEngine(),
+        apiConversation: ctx.apiConversation,
+        pending: {
+            orders: ctx.pending.orders || [],
+            printer: ctx.pending.printer,
+            instance: ctx.pending.instance
+        }
     }, function (err, resp) { handleTurnResponse(ctx.chat, err, resp); });
 }
 
@@ -2659,6 +2725,10 @@ const SLASH_COMMANDS = [
       template: 'Show the printers connected to this PC' },
     { cmd: '/print-result', cat: 'chat', write: true, desc: 'Print the last result to a printer (approval required)',
       template: 'Print the last result on printer PRINTER_NAME', ph: 'PRINTER_NAME' },
+    { cmd: '/print-order', cat: 'chat', write: true, desc: 'Print an order\'s Sales Order PDF (approval required)',
+      template: 'Print order ORDER_NUMBER', ph: 'ORDER_NUMBER' },
+    { cmd: '/print-trip-orders', cat: 'chat', write: true, desc: 'Print all order PDFs of a trip (approval required)',
+      template: 'Print all orders of trip TRIP_ID', ph: 'TRIP_ID' },
     { cmd: '/sysinfo', cat: 'chat', desc: 'Show this PC’s system info (drives, OS, user)',
       template: 'Show this PC’s system information' },
     { cmd: '/create-trip', cat: 'apex', write: true, desc: 'Create a new trip (interactive form)',
@@ -2753,6 +2823,8 @@ function showHelpBubble() {
         '**Scheduled jobs** — ask me to *schedule a job* (or use `/schedule`): I design a background database job (SQL checks + Fusion/APEX REST steps, once or repeating until done), you approve it in a card, and Oracle runs it even when this app is closed. Monitor, run-now or cancel it in the **Scheduled Jobs** tab (`/jobs`).',
         '',
         '**This PC — printers & devices** — ask *"show connected printers"* (`/printers`) or *"show this PC info"* (`/sysinfo`), then *"print that on Zebra-01"* (`/print-result`): the last result grid is printed as a paginated table on the printer you pick, after an approval card. No printer named? I use the Windows default or ask.',
+        '',
+        '**Print order documents** — say *"print order 418978"* (`/print-order`) or *"print all orders of trip 6812"* (`/print-trip-orders`): I fetch the trip\'s order numbers with SQL if needed, download each **official Sales Order PDF from Oracle Fusion (BI Publisher)** for the current instance, and after your approval send them to the printer you choose (max 20 per request).',
         '',
         '**WMS operations (write APIs)** — say *"create a trip for tomorrow"* or *"add these orders to trip 6812: …"* and I open the matching **interactive form** prefilled from our conversation. You review the fields, click Run, confirm the exact request — only then it executes, and every run is logged to `WMS_AI_API_LOG`. Pasted orders are validated with SQL against pending shipment lines first (valid ones pre-ticked). All writes are also runnable manually from the **APIs** tab (`/apis`).',
         '',

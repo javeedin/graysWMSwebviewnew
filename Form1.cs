@@ -1871,6 +1871,10 @@ navPanel.Controls.Add(wmsDevButton);
                                     await HandleAiPrintDecision(wv, messageJson, requestId);
                                     break;
 
+                                case "aiPrintOrdersDecision":
+                                    await HandleAiPrintOrdersDecision(wv, messageJson, requestId);
+                                    break;
+
                                 case "openFolder":
                                     HandleOpenFolder(wv, messageJson, requestId);
                                     break;
@@ -3793,6 +3797,13 @@ navPanel.Controls.Add(wmsDevButton);
                     title = result.PendingPrint.Title,
                     reason = result.PendingPrint.Reason
                 },
+                pendingPrintOrders = result.PendingPrintOrders == null ? null : new
+                {
+                    orders = result.PendingPrintOrders.Orders,
+                    printer = result.PendingPrintOrders.Printer,
+                    instance = result.PendingPrintOrders.Instance,
+                    reason = result.PendingPrintOrders.Reason
+                },
                 rounds = rounds
             }));
         }
@@ -3855,6 +3866,129 @@ navPanel.Controls.Add(wmsDevButton);
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine("[C# ERROR] aiJobDecision failed: " + ex.Message);
+                SendErrorResponse(wv, requestId, ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// User approved/rejected printing order documents. On approve, each
+        /// order's Sales Order PDF is downloaded from Oracle BI Publisher
+        /// (FusionPdfDownloader SOAP) and printed via PrinterService, then the
+        /// conversation resumes with PRINT_ORDERS_RESULT.
+        /// </summary>
+        private async Task HandleAiPrintOrdersDecision(WebView2 wv, string messageJson, string requestId)
+        {
+            try
+            {
+                bool approve = false;
+                string sessionId = null, printer = "", instance = "PROD";
+                AiEngineConfig engine = null;
+                string apiConversation = null;
+                var orders = new List<string>();
+
+                using (var doc = JsonDocument.Parse(messageJson))
+                {
+                    var root = doc.RootElement;
+                    approve = root.TryGetProperty("approve", out var aEl) && aEl.ValueKind == JsonValueKind.True;
+                    if (root.TryGetProperty("sessionId", out var sEl) && sEl.ValueKind == JsonValueKind.String)
+                        sessionId = sEl.GetString();
+                    engine = ParseAiEngine(root);
+                    if (root.TryGetProperty("apiConversation", out var acEl) && acEl.ValueKind == JsonValueKind.String)
+                        apiConversation = acEl.GetString();
+                    if (root.TryGetProperty("pending", out var pEl) && pEl.ValueKind == JsonValueKind.Object)
+                    {
+                        if (pEl.TryGetProperty("printer", out var prEl) && prEl.ValueKind == JsonValueKind.String)
+                            printer = prEl.GetString();
+                        if (pEl.TryGetProperty("instance", out var inEl) && inEl.ValueKind == JsonValueKind.String &&
+                            !string.IsNullOrWhiteSpace(inEl.GetString()))
+                            instance = inEl.GetString().ToUpperInvariant() == "TEST" ? "TEST" : "PROD";
+                        if (pEl.TryGetProperty("orders", out var oEl) && oEl.ValueKind == JsonValueKind.Array)
+                            foreach (var o in oEl.EnumerateArray())
+                                if (o.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(o.GetString()))
+                                    orders.Add(o.GetString().Trim());
+                    }
+                }
+
+                Func<object, Task> onEvent = (evt) =>
+                {
+                    try { wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(evt)); }
+                    catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[AI CHAT] event post failed: " + ex.Message); }
+                    return Task.CompletedTask;
+                };
+
+                string printResult;
+                if (!approve)
+                {
+                    printResult = "USER_REJECTED - the user declined the print. Continue and tell them nothing was printed.";
+                }
+                else if (orders.Count == 0 || string.IsNullOrWhiteSpace(printer))
+                {
+                    printResult = "{\"success\":false,\"error\":\"No orders or no printer in the approval\"}";
+                }
+                else
+                {
+                    var (fusionUser, fusionPass) = await FusionCredentialsService.GetAsync();
+                    if (string.IsNullOrEmpty(fusionUser))
+                    {
+                        printResult = "{\"success\":false,\"error\":\"Fusion credentials not available (ARMODULE/fusion webservice unreachable)\"}";
+                    }
+                    else
+                    {
+                        var downloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                        var printerService = new WMSApp.PrintManagement.PrinterService();
+                        string folder = Path.Combine(@"C:\fusion", "ai_chat", "prints", DateTime.Now.ToString("yyyy-MM-dd"));
+                        Directory.CreateDirectory(folder);
+
+                        var results = new List<object>();
+                        for (int i = 0; i < orders.Count; i++)
+                        {
+                            string order = orders[i];
+                            await onEvent(new { action = "aiChatEvent", eventType = "status",
+                                text = $"Order {order}: downloading PDF ({i + 1}/{orders.Count})..." });
+
+                            var dl = await downloader.DownloadSalesOrderPdfAsync(order, instance, fusionUser, fusionPass);
+                            if (!dl.Success)
+                            {
+                                results.Add(new { order, downloaded = false, printed = false, error = dl.ErrorMessage });
+                                continue;
+                            }
+
+                            string pdfPath = Path.Combine(folder, order + ".pdf");
+                            try
+                            {
+                                await File.WriteAllBytesAsync(pdfPath, Convert.FromBase64String(dl.Base64Content));
+                            }
+                            catch (Exception exSave)
+                            {
+                                results.Add(new { order, downloaded = true, printed = false, error = "Save failed: " + exSave.Message });
+                                continue;
+                            }
+
+                            await onEvent(new { action = "aiChatEvent", eventType = "status",
+                                text = $"Order {order}: printing on {printer} ({i + 1}/{orders.Count})..." });
+
+                            var pr = await printerService.PrintPdfAsync(pdfPath, printer);
+                            results.Add(new
+                            {
+                                order,
+                                downloaded = true,
+                                printed = pr.Success,
+                                method = pr.Success ? pr.PrintMethod : null,
+                                error = pr.Success ? null : pr.ErrorMessage,
+                                pdfPath
+                            });
+                        }
+                        printResult = JsonSerializer.Serialize(new { success = true, printer, instance, results });
+                    }
+                }
+
+                var result = await GetClaudeCliService().ResumeWithPromptAsync(
+                    "PRINT_ORDERS_RESULT: " + printResult, sessionId, engine, apiConversation, onEvent);
+                PostAiChatAnswer(wv, requestId, result);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[C# ERROR] aiPrintOrdersDecision failed: " + ex.Message);
                 SendErrorResponse(wv, requestId, ex.Message);
             }
         }

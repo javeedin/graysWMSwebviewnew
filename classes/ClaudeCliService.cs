@@ -61,6 +61,19 @@ namespace WMSApp
     }
 
     /// <summary>
+    /// Order-PDF print request waiting for on-screen user approval:
+    /// each order's sales-order PDF is downloaded from Oracle BI
+    /// Publisher (SOAP) and sent to the chosen Windows printer.
+    /// </summary>
+    public class AiPendingPrintOrders
+    {
+        public List<string> Orders { get; set; } = new List<string>();
+        public string Printer { get; set; }
+        public string Instance { get; set; }
+        public string Reason { get; set; }
+    }
+
+    /// <summary>
     /// A scheduled job definition waiting for on-screen user approval.
     /// JobJson is the model's raw schedule_job object.
     /// </summary>
@@ -105,6 +118,7 @@ namespace WMSApp
         public string GridJson { get; set; }     // raw {"action":"grid",...} object for interactive answers
         public string ApiFormJson { get; set; }  // raw {"action":"api_form",...} object - JS renders the form and runs the API after user confirmation
         public AiPendingPrint PendingPrint { get; set; }
+        public AiPendingPrintOrders PendingPrintOrders { get; set; }
         public string Error { get; set; }
         public string SessionId { get; set; }
         public bool RequiresApproval { get; set; }
@@ -131,7 +145,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V11";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V12";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -342,8 +356,12 @@ namespace WMSApp
             sb.AppendLine("{ \"action\": \"device\", \"op\": \"system_info\", \"reason\": \"one line\" }     // machine, user, OS, drives with free space, runs immediately");
             sb.AppendLine("{ \"action\": \"device\", \"op\": \"print\", \"printer\": \"exact printer name\", \"title\": \"heading on the printout\", \"reason\": \"one line\" }");
             sb.AppendLine();
+            sb.AppendLine("{ \"action\": \"device\", \"op\": \"print_orders\", \"orders\": [\"418978\",\"419001\"], \"printer\": \"exact printer name\", \"instance\": \"PROD|TEST\", \"reason\": \"one line\" }");
+            sb.AppendLine();
             sb.AppendLine("You receive DEVICE_RESULT: {...} for the read ops - format printers as a small markdown table marking the default one.");
             sb.AppendLine("op print sends THE LAST RESULT GRID currently shown in the app (the data of your latest sql/fusion round) to that printer as a paginated table - you cannot print arbitrary content. The app shows the user an approval card first and you then receive PRINT_RESULT: {success, printer, rowsPrinted, pages} or USER_REJECTED - confirm with action answer. Flow: if the user has not named a printer, run list_printers first and either use the default or ask which one via action answer; use the exact name from the list. If the user asks to print something not yet queried, run the sql action first so the result exists, then print.");
+            sb.AppendLine();
+            sb.AppendLine("op print_orders is for printing ORDER DOCUMENTS: for each order number the app downloads the official Sales Order PDF from Oracle BI Publisher (SOAP report GR_SalesOrder_Rep) on the given instance and prints it on the printer - use it whenever the user says print order / print the orders / print the trip's orders. Max 20 orders per request. Flow: (1) if the user says a trip (\"print all orders of trip 6812\"), FIRST run action sql to fetch that trip's order numbers for the current instance, then tell the user how many you found; (2) if no printer was named, run list_printers and use the default or ask; (3) send print_orders with the exact order numbers, printer name and the current instance. The app shows an approval card listing every order first. You then receive PRINT_ORDERS_RESULT: {results:[{order, downloaded, printed, method, error}]} or USER_REJECTED - summarize per order with action answer, calling out any failures.");
             sb.AppendLine();
             sb.AppendLine("## Sending emails");
             sb.AppendLine();
@@ -620,6 +638,42 @@ namespace WMSApp
                             continue;
                         }
 
+                        if (op == "print_orders")
+                        {
+                            // pause - the UI shows an approval card listing the orders,
+                            // then calls aiPrintOrdersDecision (download SOAP PDFs + print)
+                            var orders = new List<string>();
+                            if (root.TryGetProperty("orders", out var odEl) && odEl.ValueKind == JsonValueKind.Array)
+                                foreach (var o in odEl.EnumerateArray())
+                                {
+                                    string v = o.ValueKind == JsonValueKind.String ? o.GetString() : o.ToString();
+                                    if (!string.IsNullOrWhiteSpace(v)) orders.Add(v.Trim());
+                                }
+
+                            if (orders.Count == 0)
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"print_orders needs a non-empty orders array\"}";
+                                continue;
+                            }
+                            if (orders.Count > 20)
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Too many orders (" + orders.Count + ") - max 20 per print request. Split it and ask the user.\"}";
+                                continue;
+                            }
+
+                            result.Success = true;
+                            result.RequiresApproval = true;
+                            if (isApi) result.ApiConversation = JsonSerializer.Serialize(apiMsgs);
+                            result.PendingPrintOrders = new AiPendingPrintOrders
+                            {
+                                Orders   = orders,
+                                Printer  = root.TryGetProperty("printer",  out var poEl) && poEl.ValueKind == JsonValueKind.String ? poEl.GetString() : "",
+                                Instance = root.TryGetProperty("instance", out var piEl) && piEl.ValueKind == JsonValueKind.String ? piEl.GetString() : "PROD",
+                                Reason   = root.TryGetProperty("reason",   out var pnEl) && pnEl.ValueKind == JsonValueKind.String ? pnEl.GetString() : ""
+                            };
+                            return result;
+                        }
+
                         if (op == "print")
                         {
                             // pause - the UI shows a print approval card holding the
@@ -636,7 +690,7 @@ namespace WMSApp
                             return result;
                         }
 
-                        prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Unknown device op '" + op + "' - use list_printers, system_info or print\"}";
+                        prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Unknown device op '" + op + "' - use list_printers, system_info, print or print_orders\"}";
                         continue;
                     }
 
