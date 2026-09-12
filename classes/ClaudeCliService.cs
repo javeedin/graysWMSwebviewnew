@@ -92,6 +92,7 @@ namespace WMSApp
         public bool Success { get; set; }
         public string Markdown { get; set; }
         public string GridJson { get; set; }     // raw {"action":"grid",...} object for interactive answers
+        public string ApiFormJson { get; set; }  // raw {"action":"api_form",...} object - JS renders the form and runs the API after user confirmation
         public string Error { get; set; }
         public string SessionId { get; set; }
         public bool RequiresApproval { get; set; }
@@ -118,7 +119,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V9";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V10";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -295,6 +296,31 @@ namespace WMSApp
             sb.AppendLine("    { \"type\": \"sql\", \"sql\": \"SELECT ...\" } ] }");
             sb.AppendLine();
             sb.AppendLine("Rules: steps run in order inside the DATABASE (the app can be closed); rest URLs only on the ORDS host or the two Fusion hosts (efmh / efmh-test); always write Fusion step URLs with #FUSION_BASE# instead of a hardcoded host so the job follows its instance; auth fusion uses stored credentials; #VAR# substitutes values captured by an earlier step's extract; sql steps and completionSql must be plain SELECTs (the runner evaluates SELECT COUNT(*) of them). The app shows the user an approval card with the full plan - nothing is scheduled until approved. You then receive JOB_RESULT: {success, jobId, firstRun} or USER_REJECTED - confirm with action answer and tell the user to watch it in the Scheduled Jobs tab.");
+            sb.AppendLine();
+            sb.AppendLine("## WMS write APIs (interactive forms)");
+            sb.AppendLine();
+            sb.AppendLine("The app has a catalog of WMS write webservices (POST/PUT/DELETE - all READS are done with action sql, never these). When the user wants to perform one of these operations, reply with:");
+            sb.AppendLine();
+            sb.AppendLine("{ \"action\": \"api_form\", \"apiId\": \"trips.create\", \"values\": { \"trip_date\": \"2026-09-13\", \"priority\": 1 }, \"note\": \"short markdown shown above the form\" }");
+            sb.AppendLine();
+            sb.AppendLine("The app renders an editable form prefilled with your values; the user reviews, confirms, the app runs the API and logs it, and you receive API_RESULT: {apiId, success, status, response} as the next message - then confirm the outcome with action answer and REMEMBER returned ids (e.g. trip_id) as defaults for follow-up operations in this conversation.");
+            sb.AppendLine();
+            sb.AppendLine("Catalog (apiId - purpose - body/param fields you may prefill):");
+            sb.AppendLine("- trips.create - create a new trip - trip_date, cost_date (YYYY-MM-DD), vehicle, picker (id number), priority (number), loading_bay, notes");
+            sb.AppendLine("- trips.addorders - add orders to a trip - trip_id (number), orders (array of {order_number, account_number, account_name, order_date, order_type, salesrep_name, instance})");
+            sb.AppendLine("- trip.updatetrip - update trip header - p_trip_id, trip_lorry, trip_status, trip_loading_bay, trip_priority");
+            sb.AppendLine("- trip.assignpicker - assign picker to one order - p_trx_number (order number), p_picker_id, p_picker_name");
+            sb.AppendLine("- trip.pickerassignment - trip-level picker assignment - raw JSON body");
+            sb.AppendLine("- trip.deletetripline - remove one order from its trip - order_number");
+            sb.AppendLine("- trip.callpickwave - launch pick wave for one order - warehouse, order_number");
+            sb.AppendLine("- trip.pickrelease.oneorder - pick release one order - order_number");
+            sb.AppendLine("- trip.cancelorderline - cancel one order line - order_number, line_id");
+            sb.AppendLine("- trip.cancelnotpickedlines - cancel not-picked lines of an order - order_number");
+            sb.AppendLine("- trip.cancelscheduledlines - cancel scheduled lines of an order - order_number");
+            sb.AppendLine("- trip.updatepickconfirmstatus / trip.sets2vdata / trip.processs2v / storetrans.process / materialtrx.allocatelots - advanced, raw JSON body");
+            sb.AppendLine("- trip.cancels2vline - cancel staged S2V line - transaction_id;  trip.cancels2vlot - cancel S2V lot - lot_line_id");
+            sb.AppendLine();
+            sb.AppendLine("Rules: instance fields are filled by the app from the current instance - never include them in values. Prefill everything you can from the conversation (the trip you just created, the orders just discussed). ADD-ORDERS FLOW: when the user pastes order numbers to add to a trip, FIRST run action sql to validate them against the pending shipment lines for the current instance (which exist and are not already on a trip), THEN return api_form for trips.addorders with the valid orders in values.orders (the app shows them as tick rows) and list the invalid ones with reasons in note. If the user did not say which trip, default trip_id to the trip created/discussed in this conversation, else omit it and the form lets them pick. If API_RESULT says USER_CANCELLED, continue without it and tell the user.");
             sb.AppendLine();
             sb.AppendLine("## Sending emails");
             sb.AppendLine();
@@ -553,6 +579,17 @@ namespace WMSApp
                         result.Markdown = modelJson.RootElement.TryGetProperty("markdown", out var gmEl) &&
                                           gmEl.ValueKind == JsonValueKind.String ? gmEl.GetString() : "";
                         result.GridJson = modelJson.RootElement.GetRawText();
+                        return result;
+                    }
+
+                    if (string.Equals(action, "api_form", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // ends the turn like an answer: the page renders the form, the user
+                        // reviews/confirms, JS runs the API and continues with API_RESULT
+                        result.Success = true;
+                        result.Markdown = modelJson.RootElement.TryGetProperty("note", out var fnEl) &&
+                                          fnEl.ValueKind == JsonValueKind.String ? fnEl.GetString() : "";
+                        result.ApiFormJson = modelJson.RootElement.GetRawText();
                         return result;
                     }
 

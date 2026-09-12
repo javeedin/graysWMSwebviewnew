@@ -3753,6 +3753,7 @@ navPanel.Controls.Add(wmsDevButton);
                 success = result.Success,
                 markdown = result.Markdown,
                 grid = result.GridJson,
+                apiForm = result.ApiFormJson,
                 apiConversation = result.ApiConversation,
                 error = result.Error,
                 sessionId = result.SessionId,

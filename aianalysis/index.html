@@ -338,6 +338,7 @@
         <div class="main-tab active" id="ptab-chatbot" onclick="switchPage('chatbot')"><i class="fas fa-robot"></i> Chatbot</div>
         <div class="main-tab" id="ptab-reports" onclick="switchPage('reports')"><i class="fas fa-chart-line"></i> Saved Reports</div>
         <div class="main-tab" id="ptab-jobs" onclick="switchPage('jobs')"><i class="fas fa-clock"></i> Scheduled Jobs</div>
+        <div class="main-tab" id="ptab-apis" onclick="switchPage('apis')"><i class="fas fa-plug"></i> APIs</div>
     </div>
 
     <!-- ══════════ PAGE 1: CHATBOT ══════════ -->
@@ -489,6 +490,40 @@
         </div>
     </div><!-- /page-jobs -->
 
+    <!-- ══════════ PAGE 4: APIs (write webservices) ══════════ -->
+    <div class="page" id="page-apis" style="display:none;">
+        <!-- Left: API list -->
+        <div class="rp-left" style="width:340px;min-width:340px;">
+            <div class="rp-left-head">
+                <i class="fas fa-plug" style="color:#0891b2;"></i>
+                <span class="t">Write APIs</span>
+            </div>
+            <div style="padding:0.5rem 0.7rem;border-bottom:1px solid var(--border);">
+                <input id="api-search" type="text" placeholder="🔍 search APIs…" oninput="renderApiList()"
+                    style="width:100%;padding:4px 8px;border:1px solid var(--border);border-radius:6px;font-size:10.5px;">
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:5px;">
+                    POST / PUT / DELETE operations only — all reads run as SQL in the Chatbot.
+                    Every run needs confirmation and is logged to <code>WMS_AI_API_LOG</code>.
+                </div>
+            </div>
+            <div class="rp-list" id="api-list"></div>
+        </div>
+        <!-- Right: API detail + form -->
+        <div class="rp-main">
+            <div class="rp-main-head">
+                <span class="rtitle2" id="api-main-title"><i class="fas fa-plug" style="color:#0891b2;"></i> Select an API</span>
+            </div>
+            <div class="right-body" id="api-detail" style="background:var(--bg);padding:0.9rem 1.1rem;overflow-y:auto;">
+                <div style="text-align:center;color:#94a3b8;font-size:12px;padding:4rem 2rem;">
+                    <i class="fas fa-plug" style="font-size:30px;display:block;margin-bottom:10px;"></i>
+                    Pick a write API on the left to fill its form and run it —<br>
+                    or simply ask the Chatbot (e.g. <em>"create a trip for tomorrow"</em>) and it opens the form for you.
+                </div>
+            </div>
+        </div>
+    </div><!-- /page-apis -->
+
+<script src="api-catalog.js"></script>
 <script>
 // ============================================================
 // IPC bootstrap (WebView2 <-> C#)
@@ -935,6 +970,25 @@ function handleTurnResponse(chat, err, resp) {
 
     setBusy(false);
     const rounds = window._turnRounds;
+
+    // interactive API form: render it in the chat, user confirms, then
+    // confirmApiRun() continues the conversation with API_RESULT
+    if (resp.success && resp.apiForm) {
+        let formObj = null;
+        try { formObj = typeof resp.apiForm === 'string' ? JSON.parse(resp.apiForm) : resp.apiForm; } catch (e) { }
+        const note = (formObj && formObj.note) || resp.markdown || '';
+        const apiName = formObj && apiCatalogById(formObj.apiId) ? apiCatalogById(formObj.apiId).name : (formObj ? formObj.apiId : 'API');
+        chat.messages.push({ role: 'assistant', markdown: (note ? note + '\n\n' : '') + '_(opened the ' + apiName + ' form)_', rounds: rounds, ts: ats });
+        saveChats(); renderChatList();
+        if (note) appendAssistantBubble(note, rounds, ats, false);
+        const box = document.getElementById('messages');
+        if (formObj && formObj.apiId) renderApiFormCard(box, formObj.apiId, formObj.values || {}, 'chat', null);
+        else appendAssistantBubble('I could not open the API form (missing apiId).', [], ats, true);
+        box.scrollTop = box.scrollHeight;
+        setStatus('Fill the form and click Run — nothing executes without your confirmation.');
+        return;
+    }
+
     if (resp.success) {
         let gridObj = null;
         if (resp.grid) {
@@ -1643,12 +1697,313 @@ function copySqlData(d) {
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
 function switchPage(which) {
-    ['chatbot', 'reports', 'jobs'].forEach(p => {
+    ['chatbot', 'reports', 'jobs', 'apis'].forEach(p => {
         document.getElementById('ptab-' + p).classList.toggle('active', which === p);
         document.getElementById('page-' + p).style.display = which === p ? '' : 'none';
     });
     if (which === 'reports' && !window._reportsLoaded) loadReports();
     if (which === 'jobs') loadJobs();
+    if (which === 'apis') renderApiList();
+}
+
+// ============================================================
+// Write API forms - catalog list, interactive forms, confirm,
+// execute (executeGet/executePost IPC) and audit log
+// ============================================================
+const METHOD_COLORS = { POST: ['#fef3c7', '#b45309'], PUT: ['#dbeafe', '#1d4ed8'], DELETE: ['#fee2e2', '#b91c1c'], GET: ['#f1f5f9', '#475569'] };
+window._apiForms = {};
+let _apiFormSeq = 0;
+let openApiId = null;
+
+function methodBadge(m) {
+    const c = METHOD_COLORS[m] || METHOD_COLORS.GET;
+    return `<span style="background:${c[0]};color:${c[1]};padding:1px 7px;border-radius:6px;font-size:9px;font-weight:800;">${esc(m)}</span>`;
+}
+
+function appUserName() {
+    try {
+        return sessionStorage.getItem('loggedInUser') || localStorage.getItem('loggedInUser')
+            || localStorage.getItem('userName') || localStorage.getItem('username') || 'UNKNOWN';
+    } catch (e) { return 'UNKNOWN'; }
+}
+
+function renderApiList() {
+    const box = document.getElementById('api-list');
+    const q = (document.getElementById('api-search').value || '').toLowerCase();
+    const cat = window.WMS_API_CATALOG || [];
+    const groups = {};
+    cat.forEach(a => {
+        if (q && (a.id + ' ' + a.name + ' ' + a.url + ' ' + a.module).toLowerCase().indexOf(q) < 0) return;
+        (groups[a.module] = groups[a.module] || []).push(a);
+    });
+    let html = '';
+    Object.keys(groups).forEach(mod => {
+        html += `<div style="font-size:9.5px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin:8px 2px 4px;">${esc(mod)}</div>`;
+        groups[mod].forEach(a => {
+            html += `
+            <div onclick="openApi('${a.id}')" style="border:1px solid ${openApiId === a.id ? '#67e8f9' : 'var(--border)'};background:${openApiId === a.id ? '#ecfeff' : 'white'};border-radius:8px;padding:7px 9px;margin-bottom:5px;cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    ${methodBadge(a.method)}
+                    <span style="font-size:11px;font-weight:700;color:#0f172a;">${esc(a.name)}</span>
+                </div>
+                <div style="font-size:9.5px;color:#94a3b8;margin-top:2px;">${esc(a.id)}</div>
+            </div>`;
+        });
+    });
+    box.innerHTML = html || '<div style="font-size:11px;color:#94a3b8;">No APIs match.</div>';
+}
+
+function openApi(id) {
+    openApiId = id;
+    renderApiList();
+    const api = apiCatalogById(id);
+    if (!api) return;
+    document.getElementById('api-main-title').innerHTML =
+        `${methodBadge(api.method)} <span style="margin-left:6px;">${esc(api.name)}</span>`;
+    const detail = document.getElementById('api-detail');
+    detail.innerHTML = `
+        <div style="font-size:11.5px;color:#334155;margin-bottom:6px;">${esc(api.desc || '')}</div>
+        <div style="font-size:10px;color:#64748b;background:white;border:1px solid var(--border);border-radius:6px;padding:6px 9px;word-break:break-all;margin-bottom:10px;">
+            <strong>${esc(api.method)}</strong> ${esc(api.url)}
+            ${api.instanceIn ? `<div style="color:#0891b2;margin-top:3px;">+ ${esc(api.instanceIn.key)} = current instance (<strong>${esc(currentInstance())}</strong>)</div>` : ''}
+        </div>
+        ${api.note ? `<div style="font-size:10px;color:#b45309;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 9px;margin-bottom:10px;"><i class="fas fa-lightbulb"></i> ${esc(api.note)}</div>` : ''}
+        <div id="api-detail-form"></div>`;
+    renderApiFormCard(document.getElementById('api-detail-form'), id, {}, 'page', null);
+}
+
+// Renders an editable form for a catalog API.
+// container: element; prefill: {key:value}; source: 'chat' | 'page'
+function renderApiFormCard(container, apiId, prefill, source, note) {
+    const api = apiCatalogById(apiId);
+    if (!api) {
+        container.insertAdjacentHTML('beforeend',
+            `<div style="font-size:11px;color:#b91c1c;">Unknown API id: ${esc(String(apiId))}</div>`);
+        return;
+    }
+    const formId = 'apiform-' + (++_apiFormSeq) + '-' + Date.now();
+    window._apiForms[formId] = { api: api, source: source, prefill: prefill || {} };
+    prefill = prefill || {};
+
+    let fieldsHtml = '';
+    (api.fields || []).forEach((f, fi) => {
+        let v = prefill[f.key];
+        if ((v === undefined || v === null || v === '') && f.def !== undefined)
+            v = f.def === 'today' ? new Date().toISOString().slice(0, 10) : f.def;
+        const req = f.required ? ' <span style="color:#dc2626;">*</span>' : '';
+        const inTag = (f.in && f.in !== 'body') ? ` <span style="font-size:8.5px;color:#94a3b8;">(${f.in})</span>` : '';
+        const inputId = formId + '-f' + fi;
+
+        if (f.type === 'rows') {
+            const rows = Array.isArray(v) ? v : [];
+            const cols = (f.rows && f.rows.cols) || [];
+            let rowsHtml = rows.map((r, ri) => `
+                <label style="display:flex;align-items:center;gap:7px;padding:4px 7px;border-bottom:1px solid #f1f5f9;cursor:pointer;font-size:10.5px;">
+                    <input type="checkbox" class="${formId}-row" data-ri="${ri}" checked>
+                    ${cols.map(c => `<span style="min-width:70px;">${esc(r[c] !== undefined && r[c] !== null ? String(r[c]) : '')}</span>`).join('')}
+                </label>`).join('');
+            if (!rows.length)
+                rowsHtml = `<textarea id="${inputId}" placeholder='JSON array, e.g. [{"order_number":"418978", ...}]'
+                    style="width:100%;min-height:70px;border:none;padding:7px;font-family:monospace;font-size:10px;resize:vertical;"></textarea>`;
+            fieldsHtml += `
+                <div style="margin-bottom:8px;">
+                    <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">${esc(f.label)}${req} ${rows.length ? `<span style="font-size:9px;color:#64748b;">— untick any you don't want</span>` : ''}</div>
+                    <div style="border:1px solid var(--border);border-radius:6px;background:white;max-height:180px;overflow-y:auto;" data-rows-field="${f.key}">${rowsHtml}</div>
+                </div>`;
+            window._apiForms[formId]['rows_' + f.key] = rows;
+            return;
+        }
+
+        let input;
+        if (f.type === 'textarea' || f.type === 'json')
+            input = `<textarea id="${inputId}" data-key="${f.key}" style="width:100%;min-height:${f.type === 'json' ? 90 : 48}px;border:1px solid var(--border);border-radius:6px;padding:6px 8px;font-size:${f.type === 'json' ? '10px' : '11px'};${f.type === 'json' ? 'font-family:monospace;' : ''}resize:vertical;">${esc(v !== undefined && v !== null ? String(v) : '')}</textarea>`;
+        else
+            input = `<input id="${inputId}" data-key="${f.key}" type="${f.type === 'number' ? 'number' : f.type === 'date' ? 'date' : 'text'}" value="${esc(v !== undefined && v !== null ? String(v) : '')}"
+                style="width:100%;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;">`;
+        fieldsHtml += `
+            <div style="margin-bottom:7px;">
+                <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">${esc(f.label)}${req}${inTag}</div>
+                ${input}
+            </div>`;
+    });
+
+    container.insertAdjacentHTML('beforeend', `
+        <div class="approval-card" id="${formId}" style="border-color:#67e8f9;background:#ecfeff;max-width:560px;">
+            <div class="ah" style="background:#cffafe;color:#155e75;">
+                ${methodBadge(api.method)} <span style="margin-left:4px;">${esc(api.name)}</span>
+                <span style="margin-left:auto;font-size:9px;color:#0e7490;">${esc(currentInstance())}</span>
+            </div>
+            <div class="ab" style="color:#164e63;">
+                ${note ? `<div style="font-size:11px;margin-bottom:7px;">${esc(note)}</div>` : ''}
+                ${fieldsHtml}
+                <div id="${formId}-result"></div>
+            </div>
+            <div class="af" style="background:#ecfeff;">
+                ${source === 'chat' ? `<button class="btn-reject" onclick="cancelApiForm('${formId}')"><i class="fas fa-times"></i> Cancel</button>` : ''}
+                <button class="btn-approve" style="background:#0891b2;" id="${formId}-run" onclick="runApiFromForm('${formId}')"><i class="fas fa-play"></i> Run…</button>
+            </div>
+            <div class="adecision"></div>
+        </div>`);
+}
+
+function collectApiForm(formId) {
+    const ctx = window._apiForms[formId];
+    if (!ctx) return null;
+    const card = document.getElementById(formId);
+    const values = {};
+    const missing = [];
+    (ctx.api.fields || []).forEach(f => {
+        if (f.type === 'rows') {
+            const stored = ctx['rows_' + f.key] || [];
+            if (stored.length) {
+                const picked = [];
+                card.querySelectorAll('.' + formId + '-row:checked').forEach(cb => {
+                    const r = stored[parseInt(cb.getAttribute('data-ri'), 10)];
+                    if (r) picked.push(r);
+                });
+                values[f.key] = picked;
+                if (f.required && !picked.length) missing.push(f.label + ' (tick at least one row)');
+            } else {
+                const ta = card.querySelector('[data-rows-field="' + f.key + '"] textarea');
+                let arr = [];
+                try { arr = JSON.parse(ta && ta.value ? ta.value : '[]'); } catch (e) { missing.push(f.label + ' (invalid JSON array)'); }
+                if (!Array.isArray(arr)) { arr = []; missing.push(f.label + ' (must be a JSON array)'); }
+                values[f.key] = arr;
+                if (f.required && !arr.length && missing.indexOf(f.label + ' (tick at least one row)') < 0 && !missing.some(m => m.indexOf(f.label) === 0))
+                    missing.push(f.label + ' (add at least one row)');
+            }
+            return;
+        }
+        const el = card.querySelector('[data-key="' + f.key + '"]');
+        const v = el ? el.value.trim() : '';
+        if (f.type === 'json') {
+            if (v) { try { JSON.parse(v); } catch (e) { missing.push(f.label + ' (invalid JSON)'); } }
+            values[f.key] = v;
+        } else values[f.key] = v;
+        if (f.required && !v) missing.push(f.label);
+    });
+    return { ctx: ctx, values: values, missing: missing };
+}
+
+function runApiFromForm(formId) {
+    const col = collectApiForm(formId);
+    if (!col) return;
+    const resBox = document.getElementById(formId + '-result');
+    if (col.missing.length) {
+        resBox.innerHTML = `<div style="font-size:10.5px;color:#b91c1c;margin-top:4px;">Required: ${esc(col.missing.join(', '))}</div>`;
+        return;
+    }
+    // rows arrays go into the body as-is
+    const bodyValues = {};
+    (col.ctx.api.fields || []).forEach(f => { bodyValues[f.key] = col.values[f.key]; });
+    const req = buildApiRequest(col.ctx.api, bodyValues, currentInstance());
+
+    // rows fields: buildApiRequest skipped arrays? patch them into body
+    try {
+        const rowsFields = (col.ctx.api.fields || []).filter(f => f.type === 'rows');
+        if (rowsFields.length) {
+            const b = JSON.parse(req.body || '{}');
+            rowsFields.forEach(f => { b[f.key] = col.values[f.key] || []; });
+            req.body = JSON.stringify(b);
+        }
+    } catch (e) { }
+
+    showApiConfirm(formId, req);
+}
+
+function showApiConfirm(formId, req) {
+    const ctx = window._apiForms[formId];
+    document.getElementById('api-confirm-modal')?.remove();
+    window._apiConfirm = { formId: formId, req: req };
+    let pretty = req.body;
+    try { pretty = JSON.stringify(JSON.parse(req.body), null, 2); } catch (e) { }
+    document.body.insertAdjacentHTML('beforeend', `
+        <div id="api-confirm-modal" style="position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:1000;display:flex;align-items:center;justify-content:center;" onclick="if(event.target===this)this.remove()">
+            <div style="background:white;border-radius:12px;max-width:620px;width:92%;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.3);">
+                <div style="padding:12px 16px;border-bottom:1px solid var(--border);font-weight:800;font-size:13px;color:#0f172a;">
+                    <i class="fas fa-shield-halved" style="color:#0891b2;"></i> Confirm API operation
+                </div>
+                <div style="padding:12px 16px;overflow-y:auto;font-size:11px;color:#334155;">
+                    <div style="margin-bottom:6px;">${methodBadge(req.method)} <strong style="margin-left:5px;">${esc(ctx.api.name)}</strong>
+                        <span style="float:right;font-weight:800;color:${currentInstance() === 'TEST' ? '#b45309' : '#166534'};">${esc(currentInstance())}</span></div>
+                    <div style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px 9px;word-break:break-all;font-size:10px;margin-bottom:8px;">${esc(req.url)}</div>
+                    ${pretty && pretty !== '{}' ? `<div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">Request body</div>
+                    <pre style="background:#0f172a;color:#e2e8f0;border-radius:6px;padding:9px;font-size:10px;max-height:220px;overflow:auto;margin:0 0 8px;">${esc(pretty)}</pre>` : ''}
+                    <div style="font-size:10px;color:#64748b;">This call will be executed against <strong>${esc(currentInstance())}</strong> and logged to WMS_AI_API_LOG.</div>
+                </div>
+                <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+                    <button class="btn-reject" onclick="document.getElementById('api-confirm-modal').remove()"><i class="fas fa-arrow-left"></i> Back</button>
+                    <button class="btn-approve" style="background:#0891b2;" onclick="confirmApiRun()"><i class="fas fa-check"></i> Confirm &amp; Run</button>
+                </div>
+            </div>
+        </div>`);
+}
+
+function confirmApiRun() {
+    const c = window._apiConfirm;
+    if (!c) return;
+    document.getElementById('api-confirm-modal')?.remove();
+    window._apiConfirm = null;
+    const ctx = window._apiForms[c.formId];
+    const resBox = document.getElementById(c.formId + '-result');
+    const runBtn = document.getElementById(c.formId + '-run');
+    if (runBtn) { runBtn.disabled = true; runBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Running…'; }
+    resBox.innerHTML = '<div style="font-size:10.5px;color:#0e7490;margin-top:4px;"><i class="fas fa-circle-notch fa-spin"></i> Executing…</div>';
+
+    const msg = c.req.method === 'GET'
+        ? { action: 'executeGet', fullUrl: c.req.url }
+        : { action: 'executePost', fullUrl: c.req.url, body: c.req.body };
+
+    sendMessageToCSharp(msg, function (err, data) {
+        let ok = !err;
+        let respText = err ? String(err) : (typeof data === 'string' ? data : JSON.stringify(data));
+        let respObj = null;
+        try { respObj = JSON.parse(respText); } catch (e) { }
+        if (respObj && respObj.success === false) ok = false;
+
+        logApiRun(ctx.api, c.req, ok, respText, ctx.source === 'chat' ? 'CHAT' : 'APIS_TAB');
+
+        let prettyResp = respText;
+        try { prettyResp = JSON.stringify(JSON.parse(respText), null, 2); } catch (e) { }
+        resBox.innerHTML = `
+            <div style="font-size:10.5px;font-weight:800;color:${ok ? '#15803d' : '#b91c1c'};margin-top:6px;">
+                ${ok ? '<i class="fas fa-check-circle"></i> Success' : '<i class="fas fa-times-circle"></i> Failed'}
+            </div>
+            <pre style="background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:8px;font-size:10px;max-height:200px;overflow:auto;margin-top:4px;white-space:pre-wrap;word-break:break-all;">${esc((prettyResp || '').slice(0, 4000))}</pre>`;
+
+        if (ctx.source === 'chat') {
+            if (runBtn) runBtn.style.display = 'none';
+            const card = document.getElementById(c.formId);
+            card?.querySelector('.btn-reject')?.remove();
+            const payload = { apiId: ctx.api.id, success: ok, response: respText.slice(0, 6000) };
+            sendTurn('API_RESULT: ' + JSON.stringify(payload),
+                '▶ ' + ctx.api.name + ' — ' + (ok ? 'completed' : 'failed'));
+        } else if (runBtn) {
+            runBtn.disabled = false;
+            runBtn.innerHTML = '<i class="fas fa-play"></i> Run…';
+        }
+    });
+}
+
+function cancelApiForm(formId) {
+    const card = document.getElementById(formId);
+    if (!card) return;
+    card.querySelector('.af')?.remove();
+    card.querySelector('.adecision').innerHTML =
+        '<div style="padding:6px 10px;font-size:10px;color:#64748b;">Cancelled — nothing was executed.</div>';
+}
+
+// audit log: direct INSERT via the ai/executewrite endpoint
+function logApiRun(api, req, ok, respText, source) {
+    try {
+        const sql = buildApiLogSql(api, req, null, ok, respText,
+            currentInstance(), source || 'APIS_TAB', appUserName());
+        sendMessageToCSharp({
+            action: 'executePost',
+            fullUrl: AI_BASE + '/executewrite',
+            body: JSON.stringify({ sql: sql, appUser: appUserName() })
+        }, function () { /* fire and forget */ });
+    } catch (e) { console.log('[API LOG] failed:', e); }
 }
 
 // ============================================================
@@ -2233,6 +2588,11 @@ const SLASH_COMMANDS = [
     { cmd: '/save-report', cat: 'chat', desc: 'Save the last answer as a re-runnable report',
       template: 'Save this as a report. Name it REPORT_NAME and turn the filters into parameters where useful.', ph: 'REPORT_NAME' },
     { cmd: '/reports', cat: 'chat', desc: 'Open the saved Reports tab', local: 'reports' },
+    { cmd: '/apis', cat: 'chat', desc: 'Open the write APIs tab', local: 'apis' },
+    { cmd: '/create-trip', cat: 'apex', write: true, desc: 'Create a new trip (interactive form)',
+      template: 'Create a new trip for TRIP_DATE', ph: 'TRIP_DATE' },
+    { cmd: '/add-orders', cat: 'apex', write: true, desc: 'Validate pasted orders and add them to a trip',
+      template: 'Add these orders to trip TRIP_ID (validate them against pending shipment lines first): ', ph: 'TRIP_ID' },
     { cmd: '/schedule', cat: 'chat', write: true, desc: 'Schedule a background DB job (approval required)',
       template: 'Schedule a job: every 5 minutes, check trip TRIP_ID and cancel the Scheduled / Manual Reservation Required lines (including child lines) until none are left', ph: 'TRIP_ID' },
     { cmd: '/jobs', cat: 'chat', desc: 'Open the Scheduled Jobs tab', local: 'jobs' },
@@ -2277,6 +2637,7 @@ function applySlash(i) {
     if (c.local === 'help') { inp.value = ''; showHelpBubble(); return; }
     if (c.local === 'reports') { inp.value = ''; switchPage('reports'); return; }
     if (c.local === 'jobs') { inp.value = ''; switchPage('jobs'); return; }
+    if (c.local === 'apis') { inp.value = ''; switchPage('apis'); return; }
     if (c.local === 'emailSettings') { inp.value = ''; openEmailSettings(false); return; }
     if (c.local === 'engine') { inp.value = ''; openEngineSettings(); return; }
     inp.value = c.template;
@@ -2318,6 +2679,8 @@ function showHelpBubble() {
         '**Email** — say *"email this to name@company.com"* (or `/email`): I compose the mail with the data as a table, you review it in an **approval card**, and it\'s sent from your Office 365 account (configure once via the ✉ button or `/email-settings`).',
         '',
         '**Scheduled jobs** — ask me to *schedule a job* (or use `/schedule`): I design a background database job (SQL checks + Fusion/APEX REST steps, once or repeating until done), you approve it in a card, and Oracle runs it even when this app is closed. Monitor, run-now or cancel it in the **Scheduled Jobs** tab (`/jobs`).',
+        '',
+        '**WMS operations (write APIs)** — say *"create a trip for tomorrow"* or *"add these orders to trip 6812: …"* and I open the matching **interactive form** prefilled from our conversation. You review the fields, click Run, confirm the exact request — only then it executes, and every run is logged to `WMS_AI_API_LOG`. Pasted orders are validated with SQL against pending shipment lines first (valid ones pre-ticked). All writes are also runnable manually from the **APIs** tab (`/apis`).',
         '',
         '### Slash commands',
         '',
