@@ -275,3 +275,50 @@
             q(source, 20) + ", " + q(user || 'UNKNOWN', 100) + ")";
     };
 })();
+
+// ============================================================
+// DISCOVERED APIs - live registry from APEX ai/apicatalog
+// ============================================================
+// The GET handler in apex_sql/35_api_catalog_endpoint.sql reads
+// the ORDS metadata views and returns every module / method /
+// URI template with its parameters and JSON body fields. This
+// loader fetches it once at startup so new APEX endpoints are
+// considered by the AI without touching the curated catalog.
+(function () {
+    var CATALOG_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/ARMODULE/ai/apicatalog';
+
+    window.WMS_API_CATALOG_DISCOVERED = [];
+
+    window.loadDiscoveredApiCatalog = function (cb) {
+        if (typeof sendMessageToCSharp !== 'function') return;
+        sendMessageToCSharp({ action: 'executeGet', fullUrl: CATALOG_URL }, function (err, data) {
+            if (err) {
+                console.warn('[ApiCatalog] discovery failed (is ai/apicatalog created in APEX?):', err);
+                if (cb) cb(err, null);
+                return;
+            }
+            try {
+                var resp = typeof data === 'string' ? JSON.parse(data) : data;
+                if (resp && resp.items && resp.items.length) {
+                    window.WMS_API_CATALOG_DISCOVERED = resp.items;
+                    console.log('[ApiCatalog] discovered ' + resp.items.length + ' ORDS handlers from APEX');
+                    if (typeof renderApiList === 'function' && document.getElementById('api-list')) {
+                        renderApiList();
+                    }
+                    if (cb) cb(null, resp.items);
+                } else {
+                    console.warn('[ApiCatalog] discovery returned no items');
+                    if (cb) cb(null, []);
+                }
+            } catch (e) {
+                console.warn('[ApiCatalog] discovery parse failed:', e);
+                if (cb) cb(e, null);
+            }
+        });
+    };
+
+    // Fetch shortly after load (bridge listener must be registered first)
+    setTimeout(function () {
+        try { window.loadDiscoveredApiCatalog(); } catch (e) { }
+    }, 1500);
+})();

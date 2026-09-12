@@ -2596,6 +2596,34 @@ function renderApiList() {
             </div>`;
         });
     });
+    // Discovered APIs (live from APEX ai/apicatalog) — read-only reference,
+    // skipping endpoints the curated catalog already covers
+    const disc = window.WMS_API_CATALOG_DISCOVERED || [];
+    if (disc.length) {
+        const curatedUrls = new Set(cat.map(a => (a.method + ' ' + a.url).toLowerCase()));
+        let dhtml = '';
+        disc.forEach(d => {
+            const hay = (d.module + ' ' + d.method + ' ' + d.uriTemplate + ' ' + d.fullUrl).toLowerCase();
+            if (q && hay.indexOf(q) < 0) return;
+            if (curatedUrls.has((d.method + ' ' + d.fullUrl).toLowerCase())) return;
+            const params = []
+                .concat(d.uriParameters || [])
+                .concat(d.sourceBinds || [])
+                .concat((d.jsonBodyFields || []).map(f => f + ' (body)'));
+            dhtml += `
+            <div title="${esc(d.fullUrl)}" style="border:1px dashed var(--border);background:#fafbfd;border-radius:8px;padding:7px 9px;margin-bottom:5px;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    ${methodBadge(d.method)}
+                    <span style="font-size:11px;font-weight:700;color:#334155;">${esc(d.uriTemplate)}</span>
+                </div>
+                ${params.length ? `<div style="font-size:9.5px;color:#94a3b8;margin-top:2px;">params: ${esc(params.join(', '))}</div>` : ''}
+            </div>`;
+        });
+        if (dhtml) {
+            html += `<div style="font-size:9.5px;font-weight:800;color:#0e7490;text-transform:uppercase;letter-spacing:.5px;margin:12px 2px 4px;"><i class="fas fa-satellite-dish"></i> Discovered from APEX (${disc.length} handlers)</div>` + dhtml;
+        }
+    }
+
     box.innerHTML = html || '<div style="font-size:11px;color:#94a3b8;">No APIs match.</div>';
 }
 
