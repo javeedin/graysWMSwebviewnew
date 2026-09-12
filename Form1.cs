@@ -1884,6 +1884,29 @@ navPanel.Controls.Add(wmsDevButton);
                                     }
                                     break;
 
+                                case "aiPickFolder":
+                                    {
+                                        string currentFolder = null;
+                                        using (var pfDoc = JsonDocument.Parse(messageJson))
+                                            if (pfDoc.RootElement.TryGetProperty("current", out var cfEl) && cfEl.ValueKind == JsonValueKind.String)
+                                                currentFolder = cfEl.GetString();
+                                        using (var dlg = new FolderBrowserDialog())
+                                        {
+                                            dlg.Description = "Choose the download folder for AI-downloaded files";
+                                            dlg.UseDescriptionForTitle = true;
+                                            if (!string.IsNullOrWhiteSpace(currentFolder) && Directory.Exists(currentFolder))
+                                                dlg.SelectedPath = currentFolder;
+                                            bool okPick = dlg.ShowDialog(this) == DialogResult.OK;
+                                            wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(new
+                                            {
+                                                requestId,
+                                                success = okPick,
+                                                folder = okPick ? dlg.SelectedPath : null
+                                            }));
+                                        }
+                                    }
+                                    break;
+
                                 case "aiConnectPrinter":
                                     {
                                         string uncPath = null;
@@ -3678,6 +3701,9 @@ navPanel.Controls.Add(wmsDevButton);
                     engine = ParseAiEngine(root);
                     if (root.TryGetProperty("history", out var hEl) && hEl.ValueKind == JsonValueKind.Array)
                         historyJson = hEl.GetRawText();
+                    if (root.TryGetProperty("downloadFolder", out var dfEl) && dfEl.ValueKind == JsonValueKind.String &&
+                        !string.IsNullOrWhiteSpace(dfEl.GetString()))
+                        GetClaudeCliService().DownloadFolder = dfEl.GetString();
                 }
 
                 if (string.IsNullOrWhiteSpace(text))

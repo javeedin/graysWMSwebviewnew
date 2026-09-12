@@ -143,9 +143,13 @@ namespace WMSApp
         private const string QUERY_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/executequery";
 
+        /// <summary>Folder for AI-downloaded files. The page sends the user's
+        /// configured folder with each chat message; falls back to the default.</summary>
+        public string DownloadFolder { get; set; } = @"C:\fusion\ai_chat\downloads";
+
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V13";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V14";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -357,11 +361,15 @@ namespace WMSApp
             sb.AppendLine("{ \"action\": \"device\", \"op\": \"print\", \"printer\": \"exact printer name\", \"title\": \"heading on the printout\", \"reason\": \"one line\" }");
             sb.AppendLine();
             sb.AppendLine("{ \"action\": \"device\", \"op\": \"print_orders\", \"orders\": [\"418978\",\"419001\"], \"printer\": \"exact printer name\", \"instance\": \"PROD|TEST\", \"reason\": \"one line\" }");
+            sb.AppendLine("{ \"action\": \"device\", \"op\": \"download_orders\", \"orders\": [\"418978\",\"419001\"], \"instance\": \"PROD|TEST\", \"reason\": \"one line\" }   // runs immediately, no approval");
+            sb.AppendLine("{ \"action\": \"device\", \"op\": \"list_files\", \"reason\": \"one line\" }   // files in the user's download folder, runs immediately");
             sb.AppendLine();
             sb.AppendLine("The user's context line may include [DEFAULT_PRINTER: name] - the printer they configured for this app. For BOTH print and print_orders: when the user does not name a printer, use the DEFAULT_PRINTER directly without listing or asking. Only when it is absent, fall back to list_printers and use the Windows default or ask. A printer the user names always wins.");
             sb.AppendLine();
             sb.AppendLine("You receive DEVICE_RESULT: {...} for the read ops - format printers as a small markdown table marking the default one. list_printers may also return networkPrinters: shared printers published on the network that are NOT installed on this PC - show them separately and, if the user wants one, tell them to connect it via the printer button (or /default-printer) first; only installed printers are valid print targets.");
             sb.AppendLine("op print sends THE LAST RESULT GRID currently shown in the app (the data of your latest sql/fusion round) to that printer as a paginated table - you cannot print arbitrary content. The app shows the user an approval card first and you then receive PRINT_RESULT: {success, printer, rowsPrinted, pages} or USER_REJECTED - confirm with action answer. Flow: if the user has not named a printer, run list_printers first and either use the default or ask which one via action answer; use the exact name from the list. If the user asks to print something not yet queried, run the sql action first so the result exists, then print.");
+            sb.AppendLine();
+            sb.AppendLine("op download_orders DOWNLOADS order documents without printing: for each order number the app downloads the official Sales Order PDF from Oracle BI Publisher on the given instance and saves it into the user's configured download folder, named exactly {orderNumber}.pdf - NEVER ask the user for a folder or file name, both are fixed. Use it when the user says download order(s) / save the order PDFs. Max 20 per request; for a trip, run action sql first to get the order numbers. DEVICE_RESULT returns downloaded (per-order success/size) AND folderFiles (the folder's current contents) - ALWAYS show the user the file list as a small markdown table (file, size, modified) with the folder path after a download. op list_files returns the same listing on demand (\"show my downloaded files\").");
             sb.AppendLine();
             sb.AppendLine("op print_orders is for printing ORDER DOCUMENTS: for each order number the app downloads the official Sales Order PDF from Oracle BI Publisher (SOAP report GR_SalesOrder_Rep) on the given instance and prints it on the printer - use it whenever the user says print order / print the orders / print the trip's orders. Max 20 orders per request. Flow: (1) if the user says a trip (\"print all orders of trip 6812\"), FIRST run action sql to fetch that trip's order numbers for the current instance, then tell the user how many you found; (2) if no printer was named, run list_printers and use the default or ask; (3) send print_orders with the exact order numbers, printer name and the current instance. The app shows an approval card listing every order first. You then receive PRINT_ORDERS_RESULT: {results:[{order, downloaded, printed, method, error}]} or USER_REJECTED - summarize per order with action answer, calling out any failures.");
             sb.AppendLine();
@@ -640,6 +648,94 @@ namespace WMSApp
                             continue;
                         }
 
+                        if (op == "download_orders")
+                        {
+                            // downloads run immediately (read-only SOAP + local save, no approval)
+                            var dlOrders = new List<string>();
+                            if (root.TryGetProperty("orders", out var dloEl) && dloEl.ValueKind == JsonValueKind.Array)
+                                foreach (var o in dloEl.EnumerateArray())
+                                {
+                                    string v = o.ValueKind == JsonValueKind.String ? o.GetString() : o.ToString();
+                                    if (!string.IsNullOrWhiteSpace(v)) dlOrders.Add(v.Trim());
+                                }
+                            string dlInstance = root.TryGetProperty("instance", out var dliEl) && dliEl.ValueKind == JsonValueKind.String &&
+                                                dliEl.GetString().ToUpperInvariant() == "TEST" ? "TEST" : "PROD";
+
+                            if (dlOrders.Count == 0)
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"download_orders needs a non-empty orders array\"}";
+                                continue;
+                            }
+                            if (dlOrders.Count > 20)
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Too many orders (" + dlOrders.Count + ") - max 20 per download request. Split it and ask the user.\"}";
+                                continue;
+                            }
+
+                            var (fu, fp) = await FusionCredentialsService.GetAsync();
+                            if (string.IsNullOrEmpty(fu))
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Fusion credentials not available\"}";
+                                continue;
+                            }
+
+                            string folder = string.IsNullOrWhiteSpace(DownloadFolder) ? @"C:\fusion\ai_chat\downloads" : DownloadFolder;
+                            try { Directory.CreateDirectory(folder); }
+                            catch (Exception exDir)
+                            {
+                                prompt = "DEVICE_RESULT: " + JsonSerializer.Serialize(new { success = false, error = "Cannot create folder " + folder + ": " + exDir.Message });
+                                continue;
+                            }
+
+                            var dlDownloader = new WMSApp.PrintManagement.FusionPdfDownloader();
+                            var dlResults = new List<object>();
+                            for (int di = 0; di < dlOrders.Count; di++)
+                            {
+                                string order = dlOrders[di];
+                                await onEvent(new { action = "aiChatEvent", eventType = "status",
+                                    text = $"Order {order}: downloading PDF ({di + 1}/{dlOrders.Count})..." });
+                                var dl = await dlDownloader.DownloadSalesOrderPdfAsync(order, dlInstance, fu, fp);
+                                if (!dl.Success)
+                                {
+                                    dlResults.Add(new { order, success = false, error = dl.ErrorMessage });
+                                    continue;
+                                }
+                                try
+                                {
+                                    string fpath = Path.Combine(folder, order + ".pdf");
+                                    var bytes = Convert.FromBase64String(dl.Base64Content);
+                                    await File.WriteAllBytesAsync(fpath, bytes);
+                                    dlResults.Add(new { order, success = true, file = order + ".pdf", sizeKb = Math.Round(bytes.Length / 1024.0, 1) });
+                                }
+                                catch (Exception exSave)
+                                {
+                                    dlResults.Add(new { order, success = false, error = "Save failed: " + exSave.Message });
+                                }
+                            }
+
+                            prompt = "DEVICE_RESULT: " + JsonSerializer.Serialize(new
+                            {
+                                success = true,
+                                folder,
+                                instance = dlInstance,
+                                downloaded = dlResults,
+                                folderFiles = ListFolderFiles(folder)
+                            });
+                            continue;
+                        }
+
+                        if (op == "list_files")
+                        {
+                            string folder = string.IsNullOrWhiteSpace(DownloadFolder) ? @"C:\fusion\ai_chat\downloads" : DownloadFolder;
+                            prompt = "DEVICE_RESULT: " + JsonSerializer.Serialize(new
+                            {
+                                success = true,
+                                folder,
+                                files = ListFolderFiles(folder)
+                            });
+                            continue;
+                        }
+
                         if (op == "print_orders")
                         {
                             // pause - the UI shows an approval card listing the orders,
@@ -692,7 +788,7 @@ namespace WMSApp
                             return result;
                         }
 
-                        prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Unknown device op '" + op + "' - use list_printers, system_info, print or print_orders\"}";
+                        prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"Unknown device op '" + op + "' - use list_printers, system_info, print, print_orders, download_orders or list_files\"}";
                         continue;
                     }
 
@@ -899,6 +995,30 @@ namespace WMSApp
             result.Success = false;
             result.Error = "Conversation loop exceeded the round budget.";
             return result;
+        }
+
+        /// <summary>Newest-first listing of a folder (max 100 files) for DEVICE_RESULT.</summary>
+        private static List<object> ListFolderFiles(string folder)
+        {
+            var files = new List<object>();
+            try
+            {
+                if (!Directory.Exists(folder)) return files;
+                var infos = new DirectoryInfo(folder).GetFiles();
+                Array.Sort(infos, (a, b) => b.LastWriteTime.CompareTo(a.LastWriteTime));
+                foreach (var f in infos)
+                {
+                    files.Add(new
+                    {
+                        name = f.Name,
+                        sizeKb = Math.Round(f.Length / 1024.0, 1),
+                        modified = f.LastWriteTime.ToString("yyyy-MM-dd HH:mm")
+                    });
+                    if (files.Count >= 100) break;
+                }
+            }
+            catch { }
+            return files;
         }
 
         public void Cancel()

@@ -324,6 +324,9 @@
         <div class="title">🤖 AI Analysis <span class="ver-badge">v10.0.0</span></div>
         <button class="inst-chip prod" id="inst-chip" onclick="toggleInstance()"
             title="Fusion / data instance used by the AI — click to switch between PROD and TEST">PROD</button>
+        <button onclick="pickDownloadFolder()" id="folder-btn" title="Download folder for AI-downloaded files"
+            style="background:rgba(255,255,255,0.15);border:none;border-radius:8px;color:white;padding:4px 11px;font-size:12px;cursor:pointer;">
+            <i class="fas fa-folder-open"></i></button>
         <button onclick="openPrinterSettings()" id="printer-btn" title="Default printer for AI printing"
             style="background:rgba(255,255,255,0.15);border:none;border-radius:8px;color:white;padding:4px 11px;font-size:12px;cursor:pointer;">
             <i class="fas fa-print"></i></button>
@@ -906,6 +909,39 @@ function updateInstanceChip() {
 }
 
 // ============================================================
+// Download folder for AI-downloaded files (per PC, localStorage)
+// ============================================================
+const FOLDER_LS_KEY = 'aiDownloadFolder';
+const DEFAULT_DL_FOLDER = 'C:\\fusion\\ai_chat\\downloads';
+
+function getDownloadFolder() {
+    try { return localStorage.getItem(FOLDER_LS_KEY) || DEFAULT_DL_FOLDER; } catch (e) { return DEFAULT_DL_FOLDER; }
+}
+
+function updateFolderBtn() {
+    const btn = document.getElementById('folder-btn');
+    if (!btn) return;
+    btn.title = 'Download folder for AI-downloaded files: ' + getDownloadFolder() + ' (click to change)';
+    btn.style.background = getDownloadFolder() !== DEFAULT_DL_FOLDER ? 'rgba(255,255,255,0.32)' : 'rgba(255,255,255,0.15)';
+}
+
+function pickDownloadFolder() {
+    sendMessageToCSharp({ action: 'aiPickFolder', current: getDownloadFolder() }, function (err, resp) {
+        if (err || !resp || !resp.success || !resp.folder) return;   // cancelled
+        try { localStorage.setItem(FOLDER_LS_KEY, resp.folder); } catch (e) { }
+        updateFolderBtn();
+        const box = document.getElementById('messages');
+        if (box) {
+            box.insertAdjacentHTML('beforeend',
+                `<div style="text-align:center;margin:6px 0;font-size:10.5px;color:#475569;">
+                    — download folder set to <strong>${esc(resp.folder)}</strong> —
+                </div>`);
+            box.scrollTop = box.scrollHeight;
+        }
+    });
+}
+
+// ============================================================
 // Default printer for AI printing (per PC, localStorage)
 // ============================================================
 const PRINTER_LS_KEY = 'aiDefaultPrinter';
@@ -1032,7 +1068,7 @@ function sendTurn(promptText, displayText) {
     window._turnRounds = [];
     const dp = getDefaultPrinter();
     const ctxLine = '[CURRENT_INSTANCE: ' + currentInstance() + ']' + (dp ? ' [DEFAULT_PRINTER: ' + dp + ']' : '');
-    const msg = { action: 'aiChatSend', text: ctxLine + '\n' + promptText, sessionId: chat.sessionId };
+    const msg = { action: 'aiChatSend', text: ctxLine + '\n' + promptText, sessionId: chat.sessionId, downloadFolder: getDownloadFolder() };
     const eng = currentEngine();
     if (eng) {
         msg.engine = eng;
@@ -2837,6 +2873,13 @@ const SLASH_COMMANDS = [
     { cmd: '/printers', cat: 'chat', desc: 'List the printers connected to this PC',
       template: 'Show the printers connected to this PC' },
     { cmd: '/default-printer', cat: 'chat', desc: 'Choose the default printer for AI printing', local: 'defaultPrinter' },
+    { cmd: '/download-folder', cat: 'chat', desc: 'Choose the download folder for AI-downloaded files', local: 'downloadFolder' },
+    { cmd: '/download-order', cat: 'chat', desc: 'Download an order\'s Sales Order PDF to the download folder',
+      template: 'Download the PDF of order ORDER_NUMBER', ph: 'ORDER_NUMBER' },
+    { cmd: '/download-trip-orders', cat: 'chat', desc: 'Download all order PDFs of a trip',
+      template: 'Download the order PDFs of trip TRIP_ID', ph: 'TRIP_ID' },
+    { cmd: '/my-files', cat: 'chat', desc: 'List the files in the download folder',
+      template: 'Show the files in my download folder' },
     { cmd: '/print-result', cat: 'chat', write: true, desc: 'Print the last result to a printer (approval required)',
       template: 'Print the last result on printer PRINTER_NAME', ph: 'PRINTER_NAME' },
     { cmd: '/print-order', cat: 'chat', write: true, desc: 'Print an order\'s Sales Order PDF (approval required)',
@@ -2895,6 +2938,7 @@ function applySlash(i) {
     if (c.local === 'jobs') { inp.value = ''; switchPage('jobs'); return; }
     if (c.local === 'apis') { inp.value = ''; switchPage('apis'); return; }
     if (c.local === 'defaultPrinter') { inp.value = ''; openPrinterSettings(); return; }
+    if (c.local === 'downloadFolder') { inp.value = ''; pickDownloadFolder(); return; }
     if (c.local === 'emailSettings') { inp.value = ''; openEmailSettings(false); return; }
     if (c.local === 'engine') { inp.value = ''; openEngineSettings(); return; }
     inp.value = c.template;
@@ -2941,6 +2985,8 @@ function showHelpBubble() {
         '',
         '**Print order documents** — say *"print order 418978"* (`/print-order`) or *"print all orders of trip 6812"* (`/print-trip-orders`): I fetch the trip\'s order numbers with SQL if needed, download each **official Sales Order PDF from Oracle Fusion (BI Publisher)** for the current instance, and after your approval send them to the printer you choose (max 20 per request).',
         '',
+        '**Download order documents** — say *"download order 418978"* (`/download-order`) or *"download the order PDFs of trip 6812"* (`/download-trip-orders`): PDFs are saved straight into your **download folder** (📁 button or `/download-folder` to change it), each named `{orderNumber}.pdf`, no questions asked — and I show you the folder\'s file list right after. `/my-files` lists it any time.',
+        '',
         '**WMS operations (write APIs)** — say *"create a trip for tomorrow"* or *"add these orders to trip 6812: …"* and I open the matching **interactive form** prefilled from our conversation. You review the fields, click Run, confirm the exact request — only then it executes, and every run is logged to `WMS_AI_API_LOG`. Pasted orders are validated with SQL against pending shipment lines first (valid ones pre-ticked). All writes are also runnable manually from the **APIs** tab (`/apis`).',
         '',
         '### Slash commands',
@@ -2969,6 +3015,9 @@ function showHelpBubble() {
 
     // printer button tooltip shows the configured default printer
     updatePrinterBtn();
+
+    // folder button tooltip shows the configured download folder
+    updateFolderBtn();
 
     // Build/refresh CLAUDE.md workspace in background
     sendMessageToCSharp({ action: 'aiChatPrepare', forceRefresh: false }, function (err, resp) {
