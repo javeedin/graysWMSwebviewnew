@@ -43,6 +43,10 @@
     .cli-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
     .cli-chip.ok .dot { background: #4ade80; }
     .cli-chip.bad .dot { background: #f87171; }
+    .inst-chip { border: none; border-radius: 8px; padding: 4px 12px; font-size: 12px; font-weight: 700;
+        cursor: pointer; letter-spacing: 0.5px; }
+    .inst-chip.prod { background: #166534; color: #bbf7d0; }
+    .inst-chip.test { background: #b45309; color: #fef3c7; }
 
     /* ── Page tabs (Chatbot / Saved Reports) ───────────── */
     .main-tabs {
@@ -318,6 +322,8 @@
     <div class="topbar">
         <a class="back" href="../Home/index.html"><i class="fas fa-arrow-left"></i> Home</a>
         <div class="title">🤖 AI Analysis <span class="ver-badge">v10.0.0</span></div>
+        <button class="inst-chip prod" id="inst-chip" onclick="toggleInstance()"
+            title="Fusion / data instance used by the AI — click to switch between PROD and TEST">PROD</button>
         <button onclick="openEngineSettings()" title="AI engine setup — Claude CLI or API key"
             style="background:rgba(255,255,255,0.15);border:none;border-radius:8px;color:white;padding:4px 11px;font-size:12px;cursor:pointer;">
             <i class="fas fa-gear"></i></button>
@@ -818,6 +824,49 @@ function sendMessage() {
     sendTurn(text, text);
 }
 
+// ============================================================
+// Instance selector (PROD / TEST) - applies to Fusion calls, SQL
+// filters on INSTANCE_NAME columns, and scheduled jobs
+// ============================================================
+const INSTANCE_LS_KEY = 'aiInstance';
+
+function currentInstance() {
+    try {
+        const v = localStorage.getItem(INSTANCE_LS_KEY);
+        if (v === 'PROD' || v === 'TEST') return v;
+    } catch (e) { }
+    // fall back to the instance the user logged into the app with
+    try {
+        const login = (sessionStorage.getItem('loggedInInstance')
+            || localStorage.getItem('fusionInstance')
+            || localStorage.getItem('instanceName') || 'PROD').toUpperCase();
+        return login === 'TEST' ? 'TEST' : 'PROD';
+    } catch (e) { return 'PROD'; }
+}
+
+function toggleInstance() {
+    const next = currentInstance() === 'PROD' ? 'TEST' : 'PROD';
+    try { localStorage.setItem(INSTANCE_LS_KEY, next); } catch (e) { }
+    updateInstanceChip();
+    const box = document.getElementById('messages');
+    if (box) {
+        box.insertAdjacentHTML('beforeend',
+            `<div style="text-align:center;margin:6px 0;font-size:10.5px;color:${next === 'TEST' ? '#b45309' : '#166534'};">
+                — switched to <strong>${next}</strong> instance: Fusion calls, data filters and new jobs now target ${next} —
+            </div>`);
+        box.scrollTop = box.scrollHeight;
+    }
+}
+
+function updateInstanceChip() {
+    const chip = document.getElementById('inst-chip');
+    if (!chip) return;
+    const inst = currentInstance();
+    chip.textContent = inst;
+    chip.classList.toggle('prod', inst === 'PROD');
+    chip.classList.toggle('test', inst === 'TEST');
+}
+
 // promptText goes to Claude; displayText is what appears in the chat bubble/history
 function sendTurn(promptText, displayText) {
     if (busy) return;
@@ -835,7 +884,7 @@ function sendTurn(promptText, displayText) {
     setStatus('Claude is thinking…');
 
     window._turnRounds = [];
-    const msg = { action: 'aiChatSend', text: promptText, sessionId: chat.sessionId };
+    const msg = { action: 'aiChatSend', text: '[CURRENT_INSTANCE: ' + currentInstance() + ']\n' + promptText, sessionId: chat.sessionId };
     const eng = currentEngine();
     if (eng) {
         msg.engine = eng;
@@ -2290,6 +2339,9 @@ function showHelpBubble() {
 
     // engine chip: shows CLI status or "API mode · model"
     updateEngineChip();
+
+    // instance chip: PROD/TEST, defaulted from the login instance
+    updateInstanceChip();
 
     // Build/refresh CLAUDE.md workspace in background
     sendMessageToCSharp({ action: 'aiChatPrepare', forceRefresh: false }, function (err, resp) {

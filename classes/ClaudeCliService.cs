@@ -118,7 +118,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V8";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V9";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -304,6 +304,14 @@ namespace WMSApp
             sb.AppendLine("  \"bodyHtml\": \"<p>...</p><table>...</table>\", \"reason\": \"one line\" }");
             sb.AppendLine();
             sb.AppendLine("Rules: bodyHtml is a complete simple HTML fragment - short intro paragraph, then data as an HTML table with inline styles (border-collapse, 1px solid #ccc cells, bold header row); include the rows from your last result yourself (max 100 rows, note if truncated). The app shows the user an approval card with the recipients and body before sending, using the sender account configured in the app - you never see or need credentials. You then receive EMAIL_RESULT: {success, message} (or USER_REJECTED) - confirm to the user with action answer. If the user did not say who to send to, ask via action answer instead of guessing.");
+            sb.AppendLine();
+            sb.AppendLine("## Current instance (PROD / TEST)");
+            sb.AppendLine();
+            sb.AppendLine("Every user message starts with a line like [CURRENT_INSTANCE: TEST] - the instance the user selected in the app (it is app context, not part of what the user typed). Apply it everywhere:");
+            sb.AppendLine("- action fusion: set \"instance\" to the current instance.");
+            sb.AppendLine("- action schedule_job: set \"instance\" to the current instance.");
+            sb.AppendLine("- action sql / save_report: when a table has an INSTANCE_NAME column, filter it with INSTANCE_NAME = '<current instance>' (for saved reports, keep it as a fixed filter, not a parameter, unless the user asks).");
+            sb.AppendLine("The user's own words override it: if they explicitly name an instance (\"in PROD\", \"on test\"), use that one instead and say so in your answer.");
             sb.AppendLine();
             sb.AppendLine("## SQL rules");
             sb.AppendLine();
