@@ -346,6 +346,7 @@
         <div class="main-tab" id="ptab-jobs" onclick="switchPage('jobs')"><i class="fas fa-clock"></i> Scheduled Jobs</div>
         <div class="main-tab" id="ptab-apis" onclick="switchPage('apis')"><i class="fas fa-plug"></i> APIs</div>
         <div class="main-tab" id="ptab-policies" onclick="switchPage('policies')"><i class="fas fa-user-shield"></i> Policies</div>
+        <div class="main-tab" id="ptab-learn" onclick="switchPage('learn')"><i class="fas fa-graduation-cap"></i> Learn</div>
         <div class="main-tab" id="ptab-cando" onclick="switchPage('cando')"><i class="fas fa-wand-magic-sparkles"></i> What can I do?</div>
     </div>
 
@@ -561,6 +562,25 @@
             </div>
         </div>
     </div><!-- /page-policies -->
+
+    <!-- ══════════ PAGE: LEARN (training material) ══════════ -->
+    <div class="page" id="page-learn" style="display:none;">
+        <!-- Left: topics -->
+        <div class="rp-left" style="width:290px;min-width:290px;">
+            <div class="rp-left-head">
+                <i class="fas fa-graduation-cap" style="color:#16a34a;"></i>
+                <span class="t">Training topics</span>
+            </div>
+            <div class="rp-list" id="learn-topics"></div>
+        </div>
+        <!-- Middle: material -->
+        <div class="rp-main">
+            <div class="rp-main-head">
+                <span class="rtitle2" id="learn-title"><i class="fas fa-graduation-cap" style="color:#16a34a;"></i> Pick a topic</span>
+            </div>
+            <div class="right-body" id="learn-body" style="background:var(--bg);padding:1rem 1.3rem;overflow-y:auto;"></div>
+        </div>
+    </div><!-- /page-learn -->
 
     <!-- ══════════ PAGE 5: WHAT CAN I DO? ══════════ -->
     <div class="page" id="page-cando" style="display:none;">
@@ -1997,7 +2017,7 @@ function copySqlData(d) {
 const AI_BASE = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai';
 
 function switchPage(which) {
-    ['chatbot', 'reports', 'jobs', 'apis', 'policies', 'cando'].forEach(p => {
+    ['chatbot', 'reports', 'jobs', 'apis', 'policies', 'learn', 'cando'].forEach(p => {
         document.getElementById('ptab-' + p).classList.toggle('active', which === p);
         document.getElementById('page-' + p).style.display = which === p ? '' : 'none';
     });
@@ -2005,6 +2025,7 @@ function switchPage(which) {
     if (which === 'jobs') loadJobs();
     if (which === 'apis') renderApiList();
     if (which === 'policies') { if (!_polUser) _polUser = '*'; loadPoliciesPage(); }
+    if (which === 'learn') { renderLearnTopics(); if (!_learnTopic) openLearnTopic(LEARN_TOPICS[0].id); }
 }
 
 // ============================================================
@@ -2157,6 +2178,183 @@ function clientPolicy(actionKey) {
         (p.instance || '*').toUpperCase() === pi);
     const r = find(user, inst) || find(user, '*') || find('*', inst) || find('*', '*');
     return r ? { mode: (r.mode || 'ASK').toUpperCase(), maxBatch: r.maxBatch } : { mode: 'ASK' };
+}
+
+// ============================================================
+// Learn tab - training material. Topics on the left, material in
+// the middle. Pure content, no backend calls.
+// ============================================================
+function LT(title, body) { return body; }  // readability helper
+
+const LEARN_TOPICS = [
+  { cat: 'Getting started', id: 'basics', title: 'Your first questions', html: `
+    <p>The AI Digital Employee understands plain English. You don't need SQL, order screens or menus — describe what you want, the way you'd tell a colleague.</p>
+    <div class="lrn-try">Try these in the <strong>Chatbot</strong> tab:</div>
+    <ul>
+      <li><code>Give me the list of trips for today</code></li>
+      <li><code>How many print jobs failed this week? Break it down by day</code></li>
+      <li><code>Which orders have cancelled shipment lines?</code></li>
+    </ul>
+    <p>The answer appears in the chat; the data grid appears in the <strong>right panel</strong> where you can export it to Excel, CSV or PDF, or copy the SQL that was used. Small chips under each answer show every step the AI took — click one to inspect it.</p>
+    <p><strong>Follow-up questions work.</strong> After an answer you can say <em>"only the ones with priority 1"</em> or <em>"sort by customer"</em> — it remembers the conversation.</p>` },
+
+  { cat: 'Getting started', id: 'slash', title: 'Slash commands', html: `
+    <p>Type <code>/</code> in the message box to open the command palette — ready-made prompts so you don't have to type full sentences.</p>
+    <ul>
+      <li><code>/a</code> filters APEX (database) commands, <code>/f</code> filters Fusion commands</li>
+      <li><code>/create-trip</code>, <code>/add-orders</code>, <code>/print-order</code>, <code>/schedule</code> … each inserts a template — the highlighted placeholder (like <code>TRIP_ID</code>) is selected so you just type over it and press Enter</li>
+      <li><code>/help</code> shows the full list, <code>/new</code> starts a fresh conversation</li>
+    </ul>
+    <p>Arrow keys move through the palette, Tab or Enter picks one.</p>` },
+
+  { cat: 'Getting started', id: 'instance', title: 'PROD / TEST — the instance chip', html: `
+    <p>The colored chip in the top bar decides <strong>which environment everything targets</strong>: green = PROD (live data), amber = TEST (safe playground). Click it to switch.</p>
+    <ul>
+      <li>Questions filter to that instance's data automatically</li>
+      <li>Fusion calls, operation forms and scheduled jobs run against that instance</li>
+      <li>Your words win: say <em>"…in PROD"</em> and it uses PROD even if the chip shows TEST (and tells you so)</li>
+    </ul>
+    <div class="lrn-warn">Rule of thumb: learning or experimenting → flip to <strong>TEST</strong> first. The chip announces every switch in the chat so you always know where you are.</div>` },
+
+  { cat: 'Asking & analyzing', id: 'grids', title: 'Interactive grids (tick & act)', html: `
+    <p>When you want to <em>act</em> on rows, ask for a <strong>selectable grid</strong>:</p>
+    <div class="lrn-try"><code>Show the Manual Reservation lines of trip 6812 in a selectable grid so I can cancel specific lines</code> &nbsp;(or <code>/trip-manual-lines</code>)</div>
+    <p>You get checkbox rows with action buttons. Tick the rows you want, click the action (e.g. <em>Cancel selected lines</em>), and the AI performs it on exactly those rows — with an approval card first when policy requires one.</p>` },
+
+  { cat: 'Asking & analyzing', id: 'reports', title: 'Saved reports', html: `
+    <p>Turned a question into something you'll need weekly? Save it:</p>
+    <ol>
+      <li>After any answer, click <strong>“Save as report”</strong> (or type <code>/save-report</code>)</li>
+      <li>Give it a name and category — the AI turns the filters into <strong>parameters</strong> (trip, date range…)</li>
+      <li>Run it any time from the <strong>Saved Reports</strong> tab: it prompts for the parameters and always fetches <em>live</em> data</li>
+    </ol>
+    <p>Every report card has an <em>api</em> link showing the exact webservice call, so power users can test it in Postman.</p>` },
+
+  { cat: 'Operating the WMS', id: 'forms', title: 'Trips, pickers, pick release — the forms', html: `
+    <p>Say what you want to do and the AI opens the matching <strong>form, prefilled</strong> from your conversation:</p>
+    <ul>
+      <li><code>Create a trip for tomorrow</code> → Create Trip form (dates filled, you add vehicle/picker/bay)</li>
+      <li><code>Add these orders to that trip: 418978, 419001</code> → it first <strong>validates</strong> the orders against pending shipments, pre-ticks the valid ones, and remembers the trip you just created</li>
+      <li><code>Assign picker 14 to order 418978</code>, <code>Run pick release for order 419001</code>…</li>
+    </ul>
+    <p>Review the fields, click <strong>Run</strong>, confirm — done. The <strong>APIs</strong> tab lists every operation for manual use, and every run is logged with your name.</p>` },
+
+  { cat: 'Operating the WMS', id: 'children', title: 'Cancelling lines — child lines included', html: `
+    <p>Cancelling a main line the right way means cancelling its children too, and the AI follows the Shipping Agent's rule automatically:</p>
+    <ol>
+      <li><strong>Numbered sub-lines first:</strong> cancelling line 3 also takes 3.1, 3.2…</li>
+      <li><strong>BOGO fallback:</strong> no sub-lines? It reads the BOGO promotion mapping and finds the free/promo items of the same order</li>
+      <li>Children already cancelled / shipped / interfaced are <strong>skipped and reported</strong>, never touched</li>
+    </ol>
+    <div class="lrn-try"><code>Cancel the Manual Reservation lines of order 418978 including child lines</code> &nbsp;(or <code>/cancel-line</code>)</div>
+    <p>You always see the full plan — main lines, children marked “via SUB-LINE” or “via BOGO”, skipped ones with reasons — before anything is cancelled.</p>` },
+
+  { cat: 'Operating the WMS', id: 'scheduler', title: 'Scheduled jobs (works while you sleep)', html: `
+    <p>For work that must repeat, hand it to the database:</p>
+    <div class="lrn-try"><code>Every 10 minutes check trip 6812 and cancel the Manual Reservation lines (including child lines) until none are left</code> &nbsp;(or <code>/schedule</code>)</div>
+    <p>The AI designs the job (checks + actions + a completion condition), you approve the purple card, and Oracle runs it <strong>even when the app is closed</strong>. It stops by itself when the goal is reached, or at its caps (max runs / end date).</p>
+    <p>Monitor everything in the <strong>Scheduled Jobs</strong> tab: filter by date and status, open a job to see its plan and every run's log, press <em>Run Now</em> or <em>Cancel</em>.</p>` },
+
+  { cat: 'Documents & devices', id: 'printing', title: 'Printing orders and results', html: `
+    <p>Two kinds of printing:</p>
+    <ul>
+      <li><strong>Order documents:</strong> <code>Print order 418978</code> or <code>Print all orders of trip 6812</code> — the official Sales Order PDF of each order is downloaded from Oracle Fusion and printed (max 20 per request)</li>
+      <li><strong>Results:</strong> <code>Print that on Zebra-01</code> after any answer — the grid prints as a clean paginated table</li>
+    </ul>
+    <p>Set your <strong>default printer</strong> once with the 🖨 button (the list also finds shared network printers you can connect) and you never have to name a printer again. <code>/printers</code> lists what's installed.</p>` },
+
+  { cat: 'Documents & devices', id: 'downloads', title: 'Downloading order PDFs', html: `
+    <p><code>Download the order PDFs of trip 6812</code> (or <code>/download-order</code> / <code>/download-trip-orders</code>) saves each Sales Order PDF into your <strong>download folder</strong>, named <code>418978.pdf</code> — no questions asked — and shows you the folder's file list right after.</p>
+    <ul>
+      <li>📁 button (or <code>/download-folder</code>) changes the folder</li>
+      <li><code>/my-files</code> lists what's in it any time</li>
+    </ul>` },
+
+  { cat: 'Documents & devices', id: 'email', title: 'Emailing results', html: `
+    <p><code>Email this to dispatch@grays.com with a short summary</code> — the AI composes the mail with your data as a table, you review recipients and body in a card, and it sends from <strong>your</strong> Office 365 account.</p>
+    <p>One-time setup: ✉ button (or <code>/email-settings</code>) → your email + App Password (needed when MFA is on).</p>` },
+
+  { cat: 'Trust & control', id: 'approvals', title: 'Approvals & policies — who decides what', html: `
+    <p>The employee has <strong>authority limits</strong>. For every action there are three possible modes, set per user and per instance in the <strong>Policies</strong> tab:</p>
+    <ul>
+      <li><span style="background:#dcfce7;color:#15803d;padding:1px 8px;border-radius:8px;font-weight:800;font-size:10px;">AUTO</span> — it acts immediately and tells you afterwards (typical on TEST)</li>
+      <li><span style="background:#fef3c7;color:#92400e;padding:1px 8px;border-radius:8px;font-weight:800;font-size:10px;">ASK</span> — an approval card shows exactly what will run; nothing happens until you click (the default)</li>
+      <li><span style="background:#fee2e2;color:#b91c1c;padding:1px 8px;border-radius:8px;font-weight:800;font-size:10px;">DENY</span> — the action is refused with a message saying who to ask</li>
+    </ul>
+    <p>Reads (questions, lists) never need approval. Every write is audit-logged — who, when, from which machine, exact request and response.</p>` },
+
+  { cat: 'Trust & control', id: 'safety', title: 'Why it’s safe', html: `
+    <p>The AI can only use <strong>whitelisted tools</strong> — it cannot invent operations:</p>
+    <ul>
+      <li>Database questions are <strong>SELECT-only</strong>, single statement, row-capped, fully logged</li>
+      <li>Writes go through the same webservices the app's own pages use, behind policies and cards</li>
+      <li>Scheduled jobs are capped (≤200 runs, ≤30 days) and can only call approved hosts</li>
+      <li>Everything it does is in the logs: query log, API log, job run logs, approval decisions</li>
+    </ul>
+    <p>If it ever answers <em>"denied by policy"</em>, that's your administrator's setting — not a malfunction.</p>` },
+
+  { cat: 'Trust & control', id: 'engine', title: 'Engine setup (admin)', html: `
+    <p>The ⚙ button (or <code>/engine</code>) chooses how this PC talks to Claude:</p>
+    <ul>
+      <li><strong>Claude CLI</strong> — uses a Claude subscription signed in on this PC</li>
+      <li><strong>API key</strong> — pay-per-use; paste the key, pick a model (Sonnet recommended), press <em>Test</em></li>
+    </ul>
+    <p>The status chip in the top bar shows the active engine. Both behave identically in the chat.</p>` },
+
+  { cat: 'Trust & control', id: 'tips', title: 'Tips & troubleshooting', html: `
+    <ul>
+      <li><strong>Be specific:</strong> "trips for today with priority 1" beats "show trips". Include order/trip numbers when you have them.</li>
+      <li><strong>Wrong answer?</strong> Say so — <em>"that's the wrong column, I meant the loading bay"</em> — it corrects itself in the same conversation.</li>
+      <li><strong>Slow first answer</strong> after starting the app is normal — the AI is loading its knowledge of your schema.</li>
+      <li><strong>Check its work:</strong> click the round chips under an answer to see the exact SQL or API call; the right panel's <em>Copy SQL</em> gives you the query.</li>
+      <li><strong>Start over:</strong> <code>/new</code> clears the conversation when the topic changes completely — shorter conversations give sharper answers.</li>
+      <li><strong>Lost?</strong> The <em>What can I do?</em> tab is the full capability map; this Learn tab is the how-to.</li>
+    </ul>` }
+];
+
+let _learnTopic = null;
+
+function renderLearnTopics() {
+    const box = document.getElementById('learn-topics');
+    let html = '', lastCat = null;
+    LEARN_TOPICS.forEach((t, i) => {
+        if (t.cat !== lastCat) {
+            html += `<div style="font-size:9.5px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.5px;margin:${lastCat ? '10px' : '2px'} 2px 4px;">${esc(t.cat)}</div>`;
+            lastCat = t.cat;
+        }
+        html += `
+        <div onclick="openLearnTopic('${t.id}')" style="border:1px solid ${_learnTopic === t.id ? '#86efac' : 'var(--border)'};background:${_learnTopic === t.id ? '#f0fdf4' : 'white'};border-radius:8px;padding:8px 10px;margin-bottom:5px;cursor:pointer;display:flex;align-items:center;gap:7px;">
+            <span style="font-size:10px;color:#16a34a;font-weight:800;">${i + 1}</span>
+            <span style="font-size:11.5px;font-weight:600;color:#0f172a;">${esc(t.title)}</span>
+        </div>`;
+    });
+    box.innerHTML = html;
+}
+
+function openLearnTopic(id) {
+    _learnTopic = id;
+    renderLearnTopics();
+    const t = LEARN_TOPICS.find(x => x.id === id);
+    if (!t) return;
+    document.getElementById('learn-title').innerHTML =
+        `<i class="fas fa-graduation-cap" style="color:#16a34a;"></i> ${esc(t.title)}`;
+    document.getElementById('learn-body').innerHTML = `
+        <style>
+            #learn-body p, #learn-body li { font-size: 12px; color: #334155; line-height: 1.65; }
+            #learn-body p { margin: 0 0 10px; }
+            #learn-body ul, #learn-body ol { margin: 6px 0 12px; padding-left: 22px; }
+            #learn-body li { margin: 4px 0; }
+            #learn-body code { background: #eef2f7; color: #334155; padding: 1px 6px; border-radius: 4px; font-size: 11px; }
+            #learn-body .lrn-try { background: #f0fdf4; border-left: 3px solid #16a34a; border-radius: 0 8px 8px 0; padding: 8px 12px; margin: 10px 0; font-size: 12px; color: #14532d; }
+            #learn-body .lrn-warn { background: #fffbeb; border-left: 3px solid #f59e0b; border-radius: 0 8px 8px 0; padding: 8px 12px; margin: 10px 0; font-size: 12px; color: #78350f; }
+        </style>
+        <div style="max-width:720px;">${t.html}
+            <div style="margin-top:18px;padding-top:10px;border-top:1px solid var(--border);font-size:11px;color:#64748b;">
+                <i class="fas fa-lightbulb" style="color:#f59e0b;"></i>
+                Best way to learn: flip the chip to <strong>TEST</strong> and try the examples above in the Chatbot tab right now.
+            </div>
+        </div>`;
+    document.getElementById('learn-body').scrollTop = 0;
 }
 
 // ============================================================
@@ -3252,6 +3450,7 @@ const SLASH_COMMANDS = [
     { cmd: '/apis', cat: 'chat', desc: 'Open the write APIs tab', local: 'apis' },
     { cmd: '/what-can-i-do', cat: 'chat', desc: 'Open the capabilities overview tab', local: 'cando' },
     { cmd: '/policies', cat: 'chat', desc: 'Open the Policies tab (authority limits per user)', local: 'policies' },
+    { cmd: '/learn', cat: 'chat', desc: 'Open the Learn tab (training material)', local: 'learn' },
     { cmd: '/cancel-line', cat: 'apex', write: true, desc: 'Cancel a line INCLUDING its child lines (sub-lines / BOGO)',
       template: 'Cancel line LINE_NUMBER of order ORDER_NUMBER including its child lines (numbered sub-lines, or BOGO promo items if none)', ph: 'LINE_NUMBER' },
     { cmd: '/printers', cat: 'chat', desc: 'List the printers connected to this PC',
@@ -3323,6 +3522,7 @@ function applySlash(i) {
     if (c.local === 'apis') { inp.value = ''; switchPage('apis'); return; }
     if (c.local === 'cando') { inp.value = ''; switchPage('cando'); return; }
     if (c.local === 'policies') { inp.value = ''; switchPage('policies'); return; }
+    if (c.local === 'learn') { inp.value = ''; switchPage('learn'); return; }
     if (c.local === 'defaultPrinter') { inp.value = ''; openPrinterSettings(); return; }
     if (c.local === 'downloadFolder') { inp.value = ''; pickDownloadFolder(); return; }
     if (c.local === 'emailSettings') { inp.value = ''; openEmailSettings(false); return; }
