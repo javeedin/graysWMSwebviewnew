@@ -85,10 +85,22 @@
         {
             id: 'order.create', name: 'Create Sales Order (WMS DB)', module: 'Orders', method: 'POST',
             url: ORDS + '/ORDERCRATION/NEWORDER',
-            desc: 'Saves a new sales order in the APEX DB; a separate procedure interfaces it to Fusion. Raw JSON body composed from the APEX metadata (customer, price list items, order type, salesrep, PO, lines).',
-            instanceIn: null,
-            fields: [{ key: '_body', label: 'Order JSON', type: 'json', required: true, def: '{\n  "header": { },\n  "lines": [ ]\n}' }],
-            note: 'Option 1 of order creation - order is stored in the WMS DB first and interfaced to Fusion by the interface procedure. For direct Fusion creation (option 2) the chatbot uses the Fusion REST API instead.'
+            desc: 'Saves a new sales order in the APEX DB; a separate procedure interfaces it to Fusion. Header fields plus line rows selected from the customer\'s price list.',
+            instanceIn: { in: 'body', key: 'instance_name' },
+            fields: [
+                { key: 'customer_account', label: 'Customer account #', type: 'text', required: true },
+                { key: 'customer_name', label: 'Customer name', type: 'text', required: true },
+                { key: 'order_type', label: 'Order type', type: 'text', required: true },
+                { key: 'salesrep_name', label: 'Salesrep', type: 'text' },
+                { key: 'order_date', label: 'Order date', type: 'date', required: true, def: 'today' },
+                { key: 'po_number', label: 'PO number', type: 'text' },
+                { key: 'notes', label: 'Notes', type: 'textarea' },
+                {
+                    key: 'lines', label: 'Order Lines (from the customer\'s price list)', type: 'rows', required: true,
+                    rows: { cols: ['item_code', 'item_description', 'quantity', 'uom'] }
+                }
+            ],
+            note: 'Option 1 of order creation - the order is stored in the WMS DB and interfaced to Fusion by the interface procedure. Ask the chatbot to prefill the lines from the customer\'s price list; untick any line you don\'t want. For direct Fusion creation (option 2) the chatbot uses the Fusion REST API instead.'
         },
 
         // ---------------- Pickers ----------------

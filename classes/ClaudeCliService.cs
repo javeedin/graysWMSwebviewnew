@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V23";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V24";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -371,7 +371,7 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine("Order creation metadata (customers, their price lists, price list items, order types, salesreps) lives in the APEX DB - gather it with action sql against the schema catalog below; you do NOT need Fusion GETs for the data. After showing the composed order plan, ALWAYS ask the user (action answer) which route to use - never pick silently unless they already said:");
             sb.AppendLine();
-            sb.AppendLine("  OPTION 1 - Save to WMS DB: api_form order.create (POST /ORDERCRATION/NEWORDER). The order is stored in the APEX DB and a separate procedure interfaces it to Fusion later. Compose the JSON body from the APEX metadata; to learn the handler's exact expected body fields, fetch the API catalog once: action ords /WAREHOUSEMANAGEMENT/ai/apicatalog with params {\"p_module\":\"ORDERCRATION\",\"p_source\":\"Y\"} and read its jsonBodyFields/source.");
+            sb.AppendLine("  OPTION 1 - Save to WMS DB: api_form order.create (POST /ORDERCRATION/NEWORDER). The order is stored in the APEX DB and a separate procedure interfaces it to Fusion later. The form shows HEADER fields and a tickable LINES grid - prefill everything: values = { customer_account, customer_name, order_type, salesrep_name, order_date (YYYY-MM-DD), po_number, notes, lines: [ { item_code, item_description, quantity, uom } ] }. Prefill lines from the customer's price list (action sql) with the quantities the user asked for; the user unticks unwanted lines and confirms. The POSTed body is those keys flat plus lines[] and instance_name (app-filled).");
             sb.AppendLine("  OPTION 2 - Direct Fusion: POST salesOrdersForOrderHub per the recipe below (approval card).");
             sb.AppendLine();
             sb.AppendLine("Line items MUST come from the selected customer's price list in the APEX DB - validate every requested item against it and list any that are not on the price list instead of including them.");
