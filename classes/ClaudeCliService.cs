@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V18";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V19";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -336,6 +336,26 @@ namespace WMSApp
             sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/shipmentTransactionRequests   (WRITE) - shipping transaction request / pick release.");
             sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/shippingTransactions   (WRITE) - ship confirm.");
             sb.AppendLine("- DELETE /fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions/{TransactionInterfaceId}   (WRITE) - remove an errored staged transaction.");
+            sb.AppendLine();
+            sb.AppendLine("### Inventory management resources");
+            sb.AppendLine();
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/inventoryOnhandBalances?q=OrganizationCode={org};ItemNumber={item}");
+            sb.AppendLine("  On-hand quantity by organization / subinventory / locator / lot. Finder alternatives exist, but q filters on OrganizationCode, ItemNumber, SubinventoryCode work.");
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/inventoryCompletedTransactions?q=OrganizationName={org};ItemNumber={item}&orderBy=TransactionDate:desc");
+            sb.AppendLine("  Completed (historic) inventory transactions - receipts, issues, transfers. Filter with TransactionDate ranges to keep result sets small; always pass limit.");
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/inventoryItemLots?q=OrganizationCode={org};ItemNumber={item}");
+            sb.AppendLine("  Lot numbers of an item: LotNumber, StatusCode, ExpirationDate, OriginationDate.");
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/inventoryReservations?q=OrganizationName={org}");
+            sb.AppendLine("  Existing inventory reservations (demand/supply, quantities).");
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/itemsV2?q=ItemNumber={item};OrganizationCode={org} (or ItemDescription LIKE)");
+            sb.AppendLine("  Item master: description, UOM, statuses. Large - always filter and pass limit.");
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/transferOrders?q=HeaderNumber={number}");
+            sb.AppendLine("  Transfer orders between organizations (add ?expand=transferOrderLines for lines).");
+            sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/inventoryStagedTransactions   (WRITE) - stage a new inventory transaction (transfers, misc issues/receipts). Same resource as the GET above; the app's auto-inventory module uses it for Direct Organization Transfers.");
+            sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/inventoryReservations   (WRITE) - create a reservation; PATCH/DELETE on .../{ReservationId} adjust or release it.");
+            sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/receivingReceiptRequests   (WRITE) - create a receipt (receiving).");
+            sb.AppendLine();
+            sb.AppendLine("These resources are large: NEVER call them unfiltered - always a q filter plus limit (500 max). If a q attribute name is rejected, GET the resource with ?limit=1 first to inspect the real field names, then retry. The org used by this app is GIC (OrganizationName) / its OrganizationCode as seen in results.");
             sb.AppendLine();
             sb.AppendLine("Routing rule: when the user's message mentions \"fusion\", prefer these Fusion REST services over SQL. Otherwise prefer SQL against the local WMS schema; combine both when useful (e.g. FULFILL_LINE_ID from SQL, then a Fusion PATCH).");
             sb.AppendLine();
