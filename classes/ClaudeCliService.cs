@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V21";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V22";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -366,6 +366,26 @@ namespace WMSApp
             sb.AppendLine("3. SHOW THE PLAN before any write: a table of item, lot, organization, current expiration, new expiration. If anything is ambiguous, ask first.");
             sb.AppendLine("4. UPDATE one lot per call: PATCH {selfPath} with body { \"ExpirationDate\": \"YYYY-MM-DD\" } (WRITE - the user approves each card; the app handles the Oracle media type automatically). Dates always YYYY-MM-DD; interpret relative asks (\"+6 months\") from the current expiration and show the computed date in the plan.");
             sb.AppendLine("5. VERIFY: re-GET the updated lots and answer with a before/after table and any failures verbatim. A Fusion error such as a lot-status or open-transaction restriction is reported to the user, not retried blindly.");
+            sb.AppendLine();
+            sb.AppendLine("### Creating sales orders in Fusion (recipe)");
+            sb.AppendLine();
+            sb.AppendLine("POST /fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub creates an order (WRITE, approval card). The payload needs tenant-specific constants - NEVER guess them. Pipeline: Gather -> Calibrate -> Validate items -> Show plan -> Create -> Verify.");
+            sb.AppendLine();
+            sb.AppendLine("1. GATHER from the user: customer (account name/number), order type, salesperson, order date, PO number, and the lines (item + quantity). Anything missing -> ask; do not default silently.");
+            sb.AppendLine("2. CALIBRATE from a real order: GET salesOrdersForOrderHub?q=BuyingPartyName LIKE '%{customer}%'&limit=1&expand=lines (or any recent order if the customer has none). Copy from it the tenant constants: SourceTransactionSystem, BusinessUnitName, TransactionTypeCode, TransactionalCurrencyCode, the customer's BuyingPartyNumber/AccountNumber, and the OrderedUOMCode style of its lines. These calibrated values are the ONLY safe source - never invent them.");
+            sb.AppendLine("3. ITEMS / PRICE LIST: line items must be ones the customer actually buys. Validate each item exists (itemsV2 q=ItemNumber=...) and, when the user references the customer's price list, check the customer's recent order lines for those items; if the price list itself must be consulted, ask the user for it or query the Fusion pricing resources if available. NEVER put a price on lines - leave pricing to Fusion (FreezePriceFlag false).");
+            sb.AppendLine("4. SHOW THE PLAN: header fields table + lines table (item, description, qty, UOM) + the exact JSON you will POST. Wait for the approval card to carry the write.");
+            sb.AppendLine("5. CREATE - payload skeleton (fill {} only with gathered or calibrated values):");
+            sb.AppendLine("   { \"SourceTransactionNumber\": \"AI-{yyyymmddhhmmss}\", \"SourceTransactionId\": \"AI-{same}\", \"SourceTransactionSystem\": \"{calibrated}\",");
+            sb.AppendLine("     \"BusinessUnitName\": \"{calibrated}\", \"BuyingPartyNumber\": \"{customer}\", \"TransactionTypeCode\": \"{order type}\",");
+            sb.AppendLine("     \"RequestedShipDate\": \"YYYY-MM-DD\", \"CustomerPONumber\": \"{po}\", \"TransactionalCurrencyCode\": \"{calibrated}\",");
+            sb.AppendLine("     \"FreezePriceFlag\": false, \"FreezeShippingChargeFlag\": false, \"FreezeTaxFlag\": false, \"SubmittedFlag\": true,");
+            sb.AppendLine("     \"lines\": [ { \"SourceTransactionLineId\": \"1\", \"SourceTransactionLineNumber\": \"1\", \"SourceTransactionScheduleId\": \"1\", \"SourceScheduleNumber\": \"1\",");
+            sb.AppendLine("                  \"TransactionCategoryCode\": \"ORDER\", \"ProductNumber\": \"{item}\", \"OrderedQuantity\": {qty}, \"OrderedUOMCode\": \"{calibrated}\" } ] }");
+            sb.AppendLine("   Line ids count up per line (1,2,3...). Salesperson goes in a salesCredits child if the calibrated order shows one. If the user wants a DRAFT to review in Fusion first, set SubmittedFlag false and say so.");
+            sb.AppendLine("6. VERIFY: GET salesOrdersForOrderHub?q=SourceTransactionNumber={yours} and report the Fusion OrderNumber and status. Report Fusion errors verbatim; fix only what the error names and re-ask approval - never fire blind retries.");
+            sb.AppendLine();
+            sb.AppendLine("First runs of this recipe belong on the TEST instance unless the user explicitly says PROD.");
             sb.AppendLine();
             sb.AppendLine("### Discovering Fusion SCM APIs you don't know (self-describe)");
             sb.AppendLine();
