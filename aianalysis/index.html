@@ -2659,7 +2659,7 @@ function renderApiList() {
             <button onclick="loadDiscoveredApiCatalog()" title="Refresh from APEX" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-size:9px;cursor:pointer;color:#0e7490;"><i class="fas fa-sync-alt"></i></button>
         </div>` + (dhtml || '<div style="font-size:11px;color:#94a3b8;">No discovered APIs match.</div>');
     } else {
-        html += `<div style="font-size:10px;color:#94a3b8;margin:14px 2px 4px;"><i class="fas fa-satellite-dish"></i> API discovery: catalog not loaded — create the <code>ai/apicatalog</code> handler in APEX (apex_sql/35) <button onclick="loadDiscoveredApiCatalog()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-size:9px;cursor:pointer;color:#0e7490;margin-left:4px;">retry</button></div>`;
+        html += `<div style="font-size:10px;color:#94a3b8;margin:14px 2px 4px;"><i class="fas fa-satellite-dish"></i> API discovery: catalog not loaded — create the <code>ai/apicatalog</code> handler in APEX (apex_sql/42) <button onclick="loadDiscoveredApiCatalog()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-size:9px;cursor:pointer;color:#0e7490;margin-left:4px;">retry</button></div>`;
     }
 
     box.innerHTML = html || '<div style="font-size:11px;color:#94a3b8;">No APIs match.</div>';
