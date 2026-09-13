@@ -2596,32 +2596,70 @@ function renderApiList() {
             </div>`;
         });
     });
-    // Discovered APIs (live from APEX ai/apicatalog) — read-only reference,
-    // skipping endpoints the curated catalog already covers
+    // Discovered APIs (live from APEX ai/apicatalog) — ALL endpoints,
+    // categorized by ORDS module and functional area
     const disc = window.WMS_API_CATALOG_DISCOVERED || [];
     if (disc.length) {
         const curatedUrls = new Set(cat.map(a => (a.method + ' ' + a.url).toLowerCase()));
-        let dhtml = '';
+        let shown = 0;
+
+        // Group: module -> category (first URI path segment) -> endpoints
+        const byModule = {};
         disc.forEach(d => {
-            const hay = (d.module + ' ' + d.method + ' ' + d.uriTemplate + ' ' + d.fullUrl).toLowerCase();
+            const hay = (d.module + ' ' + d.method + ' ' + d.uriTemplate + ' ' + d.fullUrl + ' ' +
+                (d.sourceBinds || []).join(' ') + ' ' + (d.jsonBodyFields || []).join(' ')).toLowerCase();
             if (q && hay.indexOf(q) < 0) return;
-            if (curatedUrls.has((d.method + ' ' + d.fullUrl).toLowerCase())) return;
-            const params = []
-                .concat(d.uriParameters || [])
-                .concat(d.sourceBinds || [])
-                .concat((d.jsonBodyFields || []).map(f => f + ' (body)'));
-            dhtml += `
-            <div title="${esc(d.fullUrl)}" style="border:1px dashed var(--border);background:#fafbfd;border-radius:8px;padding:7px 9px;margin-bottom:5px;">
-                <div style="display:flex;align-items:center;gap:6px;">
-                    ${methodBadge(d.method)}
-                    <span style="font-size:11px;font-weight:700;color:#334155;">${esc(d.uriTemplate)}</span>
-                </div>
-                ${params.length ? `<div style="font-size:9.5px;color:#94a3b8;margin-top:2px;">params: ${esc(params.join(', '))}</div>` : ''}
-            </div>`;
+            shown++;
+            // Category = first path segment after the module prefix (trip, orders, printers, ai, ...)
+            const path = String(d.uriTemplate || '').replace(/^[^/]*\//, '');
+            const seg = (path.split('/')[0] || 'general').replace(/^:.*/, 'general');
+            const category = seg.charAt(0).toUpperCase() + seg.slice(1);
+            const mod = d.module || 'UNKNOWN';
+            byModule[mod] = byModule[mod] || {};
+            (byModule[mod][category] = byModule[mod][category] || []).push(d);
         });
-        if (dhtml) {
-            html += `<div style="font-size:9.5px;font-weight:800;color:#0e7490;text-transform:uppercase;letter-spacing:.5px;margin:12px 2px 4px;"><i class="fas fa-satellite-dish"></i> Discovered from APEX (${disc.length} handlers)</div>` + dhtml;
-        }
+
+        let dhtml = '';
+        Object.keys(byModule).sort().forEach(mod => {
+            const cats = byModule[mod];
+            const modCount = Object.values(cats).reduce((n, arr) => n + arr.length, 0);
+            let inner = '';
+            Object.keys(cats).sort().forEach(category => {
+                inner += `<div style="font-size:9px;font-weight:800;color:#94a3b8;text-transform:uppercase;letter-spacing:.5px;margin:7px 2px 3px;">${esc(category)} (${cats[category].length})</div>`;
+                cats[category]
+                    .sort((a, b) => (a.uriTemplate + a.method).localeCompare(b.uriTemplate + b.method))
+                    .forEach(d => {
+                        const isWrite = d.method !== 'GET';
+                        const isCurated = curatedUrls.has((d.method + ' ' + d.fullUrl).toLowerCase());
+                        const params = []
+                            .concat((d.uriParameters || []).map(p => ':' + p))
+                            .concat(d.sourceBinds || [])
+                            .concat((d.jsonBodyFields || []).map(f => f + ' (body)'));
+                        inner += `
+                        <div title="${esc(d.fullUrl)}" style="border:1px dashed var(--border);background:${isWrite ? '#fffbf5' : '#fafbfd'};border-radius:8px;padding:6px 9px;margin-bottom:4px;">
+                            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                ${methodBadge(d.method)}
+                                <span style="font-size:11px;font-weight:700;color:#334155;">${esc(d.uriTemplate)}</span>
+                                <span style="font-size:8.5px;font-weight:700;padding:1px 6px;border-radius:8px;${isWrite ? 'background:#fef3c7;color:#92400e;' : 'background:#dcfce7;color:#166534;'}">${isWrite ? 'WRITE' : 'READ'}</span>
+                                ${isCurated ? '<span style="font-size:8.5px;font-weight:700;padding:1px 6px;border-radius:8px;background:#e0f2fe;color:#0369a1;" title="Runnable from the curated list above">CURATED</span>' : ''}
+                            </div>
+                            ${params.length ? `<div style="font-size:9.5px;color:#94a3b8;margin-top:2px;">params: ${esc(params.join(', '))}</div>` : ''}
+                        </div>`;
+                    });
+            });
+            dhtml += `
+            <details ${q ? 'open' : ''} style="margin-bottom:6px;">
+                <summary style="cursor:pointer;font-size:10px;font-weight:800;color:#0e7490;text-transform:uppercase;letter-spacing:.5px;padding:4px 2px;user-select:none;"><i class="fas fa-database"></i> ${esc(mod)} <span style="color:#94a3b8;font-weight:600;">(${modCount})</span></summary>
+                <div style="padding-left:4px;">${inner}</div>
+            </details>`;
+        });
+
+        html += `<div style="display:flex;align-items:center;gap:8px;margin:14px 2px 6px;">
+            <span style="font-size:9.5px;font-weight:800;color:#0e7490;text-transform:uppercase;letter-spacing:.5px;"><i class="fas fa-satellite-dish"></i> Discovered from APEX — ${shown}${q ? ' matching' : ''} of ${disc.length} handlers</span>
+            <button onclick="loadDiscoveredApiCatalog()" title="Refresh from APEX" style="background:none;border:1px solid var(--border);border-radius:6px;padding:2px 7px;font-size:9px;cursor:pointer;color:#0e7490;"><i class="fas fa-sync-alt"></i></button>
+        </div>` + (dhtml || '<div style="font-size:11px;color:#94a3b8;">No discovered APIs match.</div>');
+    } else {
+        html += `<div style="font-size:10px;color:#94a3b8;margin:14px 2px 4px;"><i class="fas fa-satellite-dish"></i> API discovery: catalog not loaded — create the <code>ai/apicatalog</code> handler in APEX (apex_sql/35) <button onclick="loadDiscoveredApiCatalog()" style="background:none;border:1px solid var(--border);border-radius:6px;padding:1px 6px;font-size:9px;cursor:pointer;color:#0e7490;margin-left:4px;">retry</button></div>`;
     }
 
     box.innerHTML = html || '<div style="font-size:11px;color:#94a3b8;">No APIs match.</div>';
