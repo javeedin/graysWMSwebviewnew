@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V20";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V21";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -356,6 +356,16 @@ namespace WMSApp
             sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/receivingReceiptRequests   (WRITE) - create a receipt (receiving).");
             sb.AppendLine();
             sb.AppendLine("These resources are large: NEVER call them unfiltered - always a q filter plus limit (500 max). If a q attribute name is rejected, GET the resource with ?limit=1 first to inspect the real field names, then retry. The org used by this app is GIC (OrganizationName) / its OrganizationCode as seen in results.");
+            sb.AppendLine();
+            sb.AppendLine("### Updating lot expiration dates (recipe)");
+            sb.AppendLine();
+            sb.AppendLine("When the user asks to change expiration dates of lots - items pasted in chat or in an attached file - follow exactly this flow (declare it as a pipeline card: Find lots -> Show plan -> Update -> Verify):");
+            sb.AppendLine();
+            sb.AppendLine("1. PARSE the item/lot list from the message or attachment (item number + lot number; if only item numbers are given, fetch all lots of each item and ask which ones, or apply to all if the user said so).");
+            sb.AppendLine("2. FIND each lot: GET /fscmRestApi/resources/11.13.18.05/inventoryItemLots?q=OrganizationCode={org};ItemNumber={item};LotNumber={lot} - from each returned item capture the current ExpirationDate AND the rel=\"self\" link href; strip the host so you keep the /fscmRestApi/... path (it embeds the composite lot key - never build that key yourself). A lot not found is reported, never invented and never created.");
+            sb.AppendLine("3. SHOW THE PLAN before any write: a table of item, lot, organization, current expiration, new expiration. If anything is ambiguous, ask first.");
+            sb.AppendLine("4. UPDATE one lot per call: PATCH {selfPath} with body { \"ExpirationDate\": \"YYYY-MM-DD\" } (WRITE - the user approves each card; the app handles the Oracle media type automatically). Dates always YYYY-MM-DD; interpret relative asks (\"+6 months\") from the current expiration and show the computed date in the plan.");
+            sb.AppendLine("5. VERIFY: re-GET the updated lots and answer with a before/after table and any failures verbatim. A Fusion error such as a lot-status or open-transaction restriction is reported to the user, not retried blindly.");
             sb.AppendLine();
             sb.AppendLine("### Discovering Fusion SCM APIs you don't know (self-describe)");
             sb.AppendLine();
@@ -1789,6 +1799,20 @@ namespace WMSApp
 
                 var resp = await _http.SendAsync(req);
                 string respBody = await resp.Content.ReadAsStringAsync();
+
+                // Oracle REST singular-row updates (e.g. inventoryItemLots PATCH)
+                // require the ADF resource-item media type - retry once on 415
+                if ((int)resp.StatusCode == 415 && !string.IsNullOrEmpty(body) &&
+                    method != "GET" && method != "DELETE")
+                {
+                    using var retryReq = new HttpRequestMessage(new HttpMethod(method), url);
+                    retryReq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                        "Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes(username + ":" + password)));
+                    retryReq.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("application/json"));
+                    retryReq.Content = new StringContent(body, Encoding.UTF8, "application/vnd.oracle.adf.resourceitem+json");
+                    resp = await _http.SendAsync(retryReq);
+                    respBody = await resp.Content.ReadAsStringAsync();
+                }
                 sw.Stop();
 
                 round.ElapsedMs = sw.ElapsedMilliseconds;
