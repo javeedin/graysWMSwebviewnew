@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V27";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V28";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -376,10 +376,15 @@ namespace WMSApp
             sb.AppendLine("- If the user gave nothing to search with: ask for any fragment (name part, account number, location) - NEVER dump the full customer list and never guess.");
             sb.AppendLine("- Use the same grid-pick pattern when the salesrep or an item is ambiguous.");
             sb.AppendLine();
-            sb.AppendLine("  OPTION 1 - Save to WMS DB: api_form order.create (POST /ORDERCRATION/NEWORDER). The order is stored in the APEX DB and a separate procedure interfaces it to Fusion later. The form shows HEADER fields and a tickable LINES grid; on submit the app wraps them into the full NEWORDER OrderHeader payload itself - you only prefill the form values:");
+            sb.AppendLine("THE ORDER ENTRY FORM: answering with action api_form, apiId \"order.create\" opens a dedicated ORDER ENTRY dialog (not the generic form): header selectors (date, currency, customer with live search, price list, salesperson, order type, warehouse, subinventory, PO), a live totals panel (Gross / Discount / Tax / Net), an editable lines grid (item, qty, list, disc%, selling, tax, net) and an 'Add Items' search dialog over the customer's price list. The user finishes it and chooses Save-to-DB (the app POSTs NEWORDER itself) or Direct Fusion (you then get the reviewed values back and run the option 2 recipe). Prefill values:");
             sb.AppendLine("    values = { customer_name, bill_to_customer_number, cust_account_id, party_id, site_use_id, party_site_id, order_type, order_date (YYYY-MM-DD), po_number, salesrep_number, agent_name, location, warehouse, subinventory, pricelist, currency_code, login_id, comments,");
-            sb.AppendLine("               lines: [ { item_code, item_description, quantity, uom, selling_price, tax_code, inventory_item_id } ] }");
-            sb.AppendLine("    The customer ids (cust_account_id, party_id, site_use_id, party_site_id, bill_to_customer_number) and the line attributes (selling_price from the customer's price list, tax_code, uom, inventory_item_id) come from the APEX metadata via action sql - look for the customer/pricelist tables in the schema catalog. Prefill EVERY id you can find; ask the user only for what the data cannot answer (e.g. which order type). login_id = the logged-in app user.");
+            sb.AppendLine("               lines: [ { item_code, item_description, quantity, uom, list_price, discount_per, tax_rate, tax_code, inventory_item_id } ],");
+            sb.AppendLine("               _lookups: { customersSql, itemsSql, salesreps: [{number,name}], orderTypes: [..], warehouses: [..], subinventories: [..] } }");
+            sb.AppendLine("    _lookups is MANDATORY - it powers the form's own search dialogs, so build it from the schema catalog:");
+            sb.AppendLine("    - customersSql: a SELECT with a :SEARCH placeholder (the form substitutes an uppercase '%text%' literal) returning EXACTLY these column aliases: ACCOUNT_NAME, BILL_TO_CUSTOMER_NUMBER, CUST_ACCOUNT_ID, PARTY_ID, SITE_USE_ID, PARTY_SITE_ID, PRICELIST, LOCATION. Filter with UPPER(name) LIKE :SEARCH OR account number LIKE :SEARCH, max ~50 rows.");
+            sb.AppendLine("    - itemsSql: a SELECT with :SEARCH over the selected customer's price list items returning aliases: ITEM_CODE, ITEM_DESC, LIST_PRICE, TAX_CODE, TAX_RATE (percent), UOM, INVENTORY_ITEM_ID. Hard-code the chosen price list name into this SQL.");
+            sb.AppendLine("    - salesreps / orderTypes / warehouses / subinventories: small arrays fetched once via action sql.");
+            sb.AppendLine("    Prefill every header id you already know (from the customer grid pick) and any lines the user already asked for (with list_price/tax from the price list); leave the rest for the form. login_id = the logged-in app user. After the form: Save-to-DB returns API_RESULT (confirm with action answer); Direct Fusion returns the reviewed values in a user message - compose the GRAYS payload from them EXACTLY (the reviewed prices/discounts/taxes are final) and POST via action fusion.");
             sb.AppendLine("  OPTION 2 - Direct Fusion: POST salesOrdersForOrderHub per the recipe below (approval card).");
             sb.AppendLine();
             sb.AppendLine("Line items MUST come from the selected customer's price list in the APEX DB - validate every requested item against it and list any that are not on the price list instead of including them.");

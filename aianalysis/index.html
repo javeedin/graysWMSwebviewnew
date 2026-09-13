@@ -699,6 +699,7 @@
     </div><!-- /page-cando -->
 
 <script src="api-catalog.js"></script>
+<script src="order-entry.js"></script>
 <script>
 // ============================================================
 // IPC bootstrap (WebView2 <-> C#)
@@ -1570,7 +1571,11 @@ function handleTurnResponse(chat, err, resp) {
         saveChats(); renderChatList();
         if (note) appendAssistantBubble(note, rounds, ats, false);
         const box = document.getElementById('messages');
-        if (formObj && formObj.apiId) renderApiFormCard(box, formObj.apiId, formObj.values || {}, 'chat', null);
+        if (formObj && formObj.apiId === 'order.create' && typeof openOrderEntryForm === 'function') {
+            // Dedicated order entry dialog (header + lines + totals + item search)
+            openOrderEntryFromChat(formObj);
+        }
+        else if (formObj && formObj.apiId) renderApiFormCard(box, formObj.apiId, formObj.values || {}, 'chat', null);
         else appendAssistantBubble('I could not open the API form (missing apiId).', [], ats, true);
         box.scrollTop = box.scrollHeight;
         setStatus('Fill the form and click Run — nothing executes without your confirmation.');
@@ -3130,6 +3135,41 @@ function showApiConfirm(formId, req) {
                 </div>
             </div>
         </div>`);
+}
+
+// Opens the dedicated order entry dialog from a chat api_form and wires
+// its submit back into the conversation (DB route runs NEWORDER directly;
+// Fusion route hands the composed order to the model for option 2)
+function openOrderEntryFromChat(formObj) {
+    openOrderEntryForm({
+        values: formObj.values || {},
+        onSubmit: function (route, values, closeOk, fail) {
+            const api = apiCatalogById('order.create');
+            if (route === 'db') {
+                const req = buildApiRequest(api, values, currentInstance());
+                sendMessageToCSharp({ action: 'executePost', fullUrl: req.url, body: req.body }, function (err, data) {
+                    let ok = !err;
+                    let respText = err ? String(err) : (typeof data === 'string' ? data : JSON.stringify(data));
+                    try { const ro = JSON.parse(respText); if (ro && ro.success === false) ok = false; } catch (e) { }
+                    logApiRun(api, req, ok, respText, 'CHAT');
+                    if (!ok) { fail(respText.slice(0, 300)); return; }
+                    closeOk();
+                    sendTurn('API_RESULT: ' + JSON.stringify({ apiId: 'order.create', route: 'db', success: true, totals: values.totals, response: respText.slice(0, 4000) }),
+                        '▶ Order created in WMS DB — ' + values.customer_name + ' (' + values.lines.length + ' line(s), net ' + (values.totals ? values.totals.net.toFixed(2) : '') + ')');
+                });
+            } else {
+                // Direct Fusion: the model composes the GRAYS payload (option 2 recipe)
+                closeOk();
+                sendTurn('The user completed the order entry form and chose DIRECT FUSION creation (option 2). Compose the GRAYS salesOrdersForOrderHub payload from templates/fusion-order-template.json using EXACTLY these reviewed values (prices/discounts/taxes as given) and POST it via action fusion: '
+                    + JSON.stringify(values),
+                    '▶ Order form completed — create directly in Fusion for ' + values.customer_name + ' (' + values.lines.length + ' line(s))');
+            }
+        },
+        onCancel: function () {
+            sendTurn('API_RESULT: ' + JSON.stringify({ apiId: 'order.create', cancelled: true }),
+                '✖ Order entry cancelled');
+        }
+    });
 }
 
 function confirmApiRun() {
