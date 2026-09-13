@@ -14,7 +14,7 @@
 -- user_ords_handlers, user_ords_parameters.
 --
 -- In APEX RESTful Services:
---   Module:        ARMODULE            (or any existing module)
+--   Module:        WAREHOUSEMANAGEMENT (same module as ai/executewrite)
 --   URI Template:  ai/apicatalog
 --   Method:        GET
 --   Source Type:   PL/SQL
@@ -24,7 +24,7 @@
 --   ?p_source=Y                include handler source (first 4000 chars)
 --
 -- Test:
---   GET https://<host>/ords/WKSP_GRAYSAPP/ARMODULE/ai/apicatalog
+--   GET https://<host>/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/apicatalog
 -- ============================================================
 
 DECLARE

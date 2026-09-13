@@ -285,7 +285,7 @@
 // loader fetches it once at startup so new APEX endpoints are
 // considered by the AI without touching the curated catalog.
 (function () {
-    var CATALOG_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/ARMODULE/ai/apicatalog';
+    var CATALOG_URL = 'https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/apicatalog';
 
     window.WMS_API_CATALOG_DISCOVERED = [];
 
