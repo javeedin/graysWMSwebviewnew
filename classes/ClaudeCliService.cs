@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V16";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V17";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -517,6 +517,16 @@ namespace WMSApp
             sb.AppendLine("Multiple update blocks per answer are fine. Mark a step running when you start it,");
             sb.AppendLine("done/failed when its SQL round or approved write returns. Keep the same id for the");
             sb.AppendLine("whole task so all updates land on the same card.");
+            sb.AppendLine();
+            sb.AppendLine("## Attachments (files the user shares in chat)");
+            sb.AppendLine();
+            sb.AppendLine("The user can attach files or paste images in chat. Each is saved under attachments\\");
+            sb.AppendLine("inside your working directory and the message marks it as [ATTACHED IMAGE/PDF/EXCEL/FILE]");
+            sb.AppendLine("with its relative path. Open attachments with your Read tool when the user refers to them:");
+            sb.AppendLine("images and PDFs render directly; Excel files come with an extracted .txt (path given) and an");
+            sb.AppendLine("inline preview; CSV/TXT/JSON content is inlined in the message. For .docx or other binary");
+            sb.AppendLine("formats, try your tools and say plainly if the format is unreadable. Never invent file");
+            sb.AppendLine("content - if you have not read it, say so.");
             sb.AppendLine();
             sb.AppendLine("## Schema catalog");
             sb.AppendLine();

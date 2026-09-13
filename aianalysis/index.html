@@ -384,8 +384,16 @@
             <div class="status-bar" id="status-bar"></div>
             <div class="input-area">
                 <div class="slash-menu" id="slash-menu"></div>
+                <div id="attach-chips" style="display:none;flex-wrap:wrap;gap:6px;padding:2px 2px 6px;"></div>
                 <div class="input-row">
-                    <textarea id="prompt-input" rows="1" placeholder="Ask about your WMS data… type / for commands (/f Fusion, /a APEX)"
+                    <input type="file" id="attach-file-input" multiple style="display:none;"
+                        accept=".xlsx,.xls,.csv,.txt,.json,.pdf,.docx,.doc,.png,.jpg,.jpeg,.gif,.webp,.bmp"
+                        onchange="attachInputChanged(this)">
+                    <button class="btn" id="btn-attach" onclick="pickAttachment()" title="Attach a file (Excel, PDF, Word, image…) — or paste an image straight into the box"
+                        style="background:white;border:1.5px solid var(--border);color:#64748b;">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
+                    <textarea id="prompt-input" rows="1" placeholder="Ask about your WMS data… type / for commands (/f Fusion, /a APEX) — paste an image to attach it"
                         onkeydown="handleInputKeydown(event)"></textarea>
                     <button class="btn btn-cancel" id="btn-cancel" onclick="cancelTurn()"><i class="fas fa-stop"></i></button>
                     <button class="btn btn-send" id="btn-send" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
@@ -1110,13 +1118,158 @@ function fusionRespSnippet(r) {
     } catch (e) { return String(r.resultJson || '').slice(0, 4000); }
 }
 
+// ============================================================
+// Chat attachments — attach button + paste-an-image.
+// Files are saved into the AI workspace (attachments\) via the
+// aiSaveAttachment bridge so the model can read them with its
+// Read tool. Excel/CSV/text also get their content extracted.
+// ============================================================
+let pendingAttachments = [];
+const ATTACH_MAX_BYTES = 15 * 1024 * 1024;
+
+function pickAttachment() { document.getElementById('attach-file-input').click(); }
+
+function attachInputChanged(inp) {
+    Array.from(inp.files || []).forEach(addAttachmentFile);
+    inp.value = '';
+}
+
+function addAttachmentFile(file) {
+    if (!file) return;
+    if (file.size > ATTACH_MAX_BYTES) { setStatus('File too large (max 15 MB): ' + file.name); return; }
+    if (pendingAttachments.length >= 5) { setStatus('Max 5 attachments per message.'); return; }
+    pendingAttachments.push(file);
+    renderAttachChips();
+}
+
+function removeAttachment(i) { pendingAttachments.splice(i, 1); renderAttachChips(); }
+
+function attachIcon(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) return 'fa-image';
+    if (['xlsx', 'xls', 'csv'].includes(ext)) return 'fa-file-excel';
+    if (ext === 'pdf') return 'fa-file-pdf';
+    if (['docx', 'doc'].includes(ext)) return 'fa-file-word';
+    return 'fa-file';
+}
+
+function renderAttachChips() {
+    const box = document.getElementById('attach-chips');
+    if (!box) return;
+    if (!pendingAttachments.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.style.display = 'flex';
+    box.innerHTML = pendingAttachments.map((f, i) => `
+        <span style="display:inline-flex;align-items:center;gap:5px;border:1px solid var(--border);background:#f8fafc;border-radius:14px;padding:3px 10px;font-size:11px;color:#334155;">
+            <i class="fas ${attachIcon(f.name)}" style="color:#0e7490;"></i> ${esc(f.name)}
+            <span style="color:#94a3b8;font-size:9.5px;">${(f.size / 1024).toFixed(0)} KB</span>
+            <i class="fas fa-times" onclick="removeAttachment(${i})" style="cursor:pointer;color:#94a3b8;" title="Remove"></i>
+        </span>`).join('');
+}
+
+// Paste an image (screenshot etc.) straight into the prompt box
+document.addEventListener('DOMContentLoaded', function () {
+    const inp = document.getElementById('prompt-input');
+    if (!inp) return;
+    inp.addEventListener('paste', function (e) {
+        const items = (e.clipboardData || {}).items || [];
+        for (const it of items) {
+            if (it.kind === 'file') {
+                const f = it.getAsFile();
+                if (f && f.type.indexOf('image/') === 0) {
+                    const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+                    addAttachmentFile(new File([f], 'pasted-image-' + Date.now() + '.' + ext, { type: f.type }));
+                    e.preventDefault();
+                }
+            }
+        }
+    });
+});
+
+function bufToB64(buf) {
+    let bin = '';
+    const bytes = new Uint8Array(buf);
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK)
+        bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    return btoa(bin);
+}
+
+function saveAttachmentToWorkspace(name, base64) {
+    return new Promise((resolve, reject) => {
+        sendMessageToCSharp({ action: 'aiSaveAttachment', fileName: name, dataBase64: base64 }, (err, r) => {
+            if (err || !r || r.success === false) reject(new Error(err || (r && r.error) || 'save failed'));
+            else resolve(r.path);
+        });
+    });
+}
+
+async function extractExcelText(buf) {
+    try {
+        const wb = new ExcelJS.Workbook();
+        await wb.xlsx.load(buf);
+        let out = '';
+        wb.worksheets.forEach(ws => {
+            out += '=== Sheet: ' + ws.name + ' ===\n';
+            let rows = 0;
+            ws.eachRow({ includeEmpty: false }, (row) => {
+                if (rows++ >= 300) return;
+                out += row.values.slice(1).map(v => {
+                    if (v == null) return '';
+                    if (typeof v === 'object') return v.text || v.result || (v.richText ? v.richText.map(t => t.text).join('') : '') || '';
+                    return v;
+                }).join('\t') + '\n';
+            });
+            if (rows >= 300) out += '…(truncated at 300 rows)\n';
+            out += '\n';
+        });
+        return out.slice(0, 30000);
+    } catch (e) { return null; }
+}
+
+function relAttachPath(absPath) {
+    const m = String(absPath).match(/attachments[\\/].*$/);
+    return m ? m[0].replace(/\\/g, '/') : absPath;
+}
+
+async function prepareAttachments(files) {
+    const promptNotes = [], displayNotes = [];
+    for (const f of files) {
+        const buf = await f.arrayBuffer();
+        const path = await saveAttachmentToWorkspace(f.name, bufToB64(buf));
+        const rel = relAttachPath(path);
+        const ext = (f.name.split('.').pop() || '').toLowerCase();
+        displayNotes.push('📎 ' + f.name);
+
+        if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].includes(ext)) {
+            promptNotes.push(`[ATTACHED IMAGE] ${rel} — open it with your Read tool to view it.`);
+        } else if (ext === 'pdf') {
+            promptNotes.push(`[ATTACHED PDF] ${rel} — read it with your Read tool.`);
+        } else if (['xlsx', 'xls'].includes(ext)) {
+            const text = await extractExcelText(buf);
+            if (text) {
+                const extractedPath = await saveAttachmentToWorkspace(f.name + '.extracted.txt', bufToB64(new TextEncoder().encode(text).buffer));
+                promptNotes.push(`[ATTACHED EXCEL] ${rel} — extracted text at ${relAttachPath(extractedPath)}. Preview:\n${text.slice(0, 6000)}`);
+            } else {
+                promptNotes.push(`[ATTACHED EXCEL] ${rel} — could not extract locally; read the file with your tools.`);
+            }
+        } else if (['csv', 'txt', 'json'].includes(ext)) {
+            const text = new TextDecoder().decode(buf).slice(0, 8000);
+            promptNotes.push(`[ATTACHED FILE] ${rel} (${ext}). Content${text.length >= 8000 ? ' (first 8000 chars)' : ''}:\n${text}`);
+        } else {
+            promptNotes.push(`[ATTACHED FILE] ${rel} (${ext || 'unknown type'}) — try reading it with your tools; if the format is unreadable, tell the user plainly.`);
+        }
+    }
+    return { prompt: promptNotes.join('\n\n'), display: displayNotes.join('\n') };
+}
+
 function sendMessage() {
     const inp = document.getElementById('prompt-input');
     const text = inp.value.trim();
-    if (!text) return;
+    if (!text && !pendingAttachments.length) return;
     inp.value = '';
     inp.style.height = 'auto';
-    sendTurn(text, text);
+    const t = text || 'Please look at the attached file(s).';
+    sendTurn(t, t);
 }
 
 // ============================================================
@@ -1304,8 +1457,30 @@ function saveDefaultPrinter(name) {
 }
 
 // promptText goes to Claude; displayText is what appears in the chat bubble/history
-function sendTurn(promptText, displayText) {
+async function sendTurn(promptText, displayText) {
     if (busy) return;
+
+    // Upload any pending attachments into the AI workspace first
+    if (pendingAttachments.length) {
+        const files = pendingAttachments.slice();
+        pendingAttachments = [];
+        renderAttachChips();
+        setBusy(true);
+        setStatus('Uploading ' + files.length + ' attachment(s)…');
+        try {
+            const notes = await prepareAttachments(files);
+            promptText = promptText + '\n\n' + notes.prompt;
+            displayText = displayText + '\n' + notes.display;
+        } catch (e) {
+            setBusy(false);
+            setStatus('Attachment upload failed: ' + e.message);
+            pendingAttachments = files;   // give them back so the user can retry
+            renderAttachChips();
+            return;
+        }
+        setBusy(false);   // normal turn flow below sets it again
+    }
+
     let chat = activeChat();
     if (!chat) {
         chat = { id: 'c' + Date.now(), title: displayText.length > 42 ? displayText.slice(0, 42) + '…' : displayText, createdAt: Date.now(), sessionId: null, messages: [] };

@@ -1884,6 +1884,46 @@ navPanel.Controls.Add(wmsDevButton);
                                     }
                                     break;
 
+                                case "aiSaveAttachment":
+                                    {
+                                        // Saves a chat attachment into the AI workspace so the
+                                        // Claude CLI can read it with its Read tool
+                                        try
+                                        {
+                                            string attName = "file";
+                                            string attB64 = null;
+                                            using (var attDoc = JsonDocument.Parse(messageJson))
+                                            {
+                                                var attRoot = attDoc.RootElement;
+                                                if (attRoot.TryGetProperty("fileName", out var fnEl) && fnEl.ValueKind == JsonValueKind.String)
+                                                    attName = fnEl.GetString() ?? "file";
+                                                if (attRoot.TryGetProperty("dataBase64", out var dbEl) && dbEl.ValueKind == JsonValueKind.String)
+                                                    attB64 = dbEl.GetString();
+                                            }
+                                            if (string.IsNullOrEmpty(attB64))
+                                                throw new Exception("No file data received");
+
+                                            foreach (char bad in Path.GetInvalidFileNameChars())
+                                                attName = attName.Replace(bad, '_');
+
+                                            string attDir = Path.Combine(@"C:\fusion\ai_chat\workspace", "attachments");
+                                            Directory.CreateDirectory(attDir);
+                                            string attPath = Path.Combine(attDir, DateTime.Now.ToString("yyyyMMdd_HHmmss_fff") + "_" + attName);
+                                            File.WriteAllBytes(attPath, Convert.FromBase64String(attB64));
+
+                                            System.Diagnostics.Debug.WriteLine($"[aiSaveAttachment] Saved {attPath}");
+                                            wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(
+                                                new { requestId = requestId, success = true, path = attPath }));
+                                        }
+                                        catch (Exception exAtt)
+                                        {
+                                            System.Diagnostics.Debug.WriteLine("[C# ERROR] aiSaveAttachment failed: " + exAtt.Message);
+                                            wv.CoreWebView2.PostWebMessageAsJson(JsonSerializer.Serialize(
+                                                new { requestId = requestId, success = false, error = exAtt.Message }));
+                                        }
+                                    }
+                                    break;
+
                                 case "aiPickFolder":
                                     {
                                         string currentFolder = null;
