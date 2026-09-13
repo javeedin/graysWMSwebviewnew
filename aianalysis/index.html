@@ -891,8 +891,101 @@ function appendUserBubble(text, ts) {
     box.scrollTop = box.scrollHeight;
 }
 
+// ============================================================
+// Multi-step pipeline cards (data-flow diagram in chat)
+// The model declares a plan in a ```pipeline fence and reports
+// progress with ```pipeline-update fences; both are replaced by
+// a live card showing each stage and its status.
+// ============================================================
+window._aiPipelines = {};   // id -> {title, steps:[{label,kind}], statuses:[{status,note}]}
+
+const PIPE_KIND_ICONS = { read: 'fa-database', write: 'fa-pen-to-square', fusion: 'fa-cloud', file: 'fa-file', print: 'fa-print', email: 'fa-envelope' };
+const PIPE_STATUS = {
+    pending: { icon: 'fa-circle',        color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0', label: 'Pending' },
+    running: { icon: 'fa-circle-notch fa-spin', color: '#2563eb', bg: '#eff6ff', border: '#bfdbfe', label: 'Running' },
+    done:    { icon: 'fa-circle-check',  color: '#16a34a', bg: '#f0fdf4', border: '#bbf7d0', label: 'Done' },
+    failed:  { icon: 'fa-circle-xmark',  color: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Failed' },
+    skipped: { icon: 'fa-circle-minus',  color: '#94a3b8', bg: '#f8fafc', border: '#e2e8f0', label: 'Skipped' }
+};
+
+function pipelineCardHtml(id) {
+    const p = window._aiPipelines[id];
+    if (!p) return '';
+    const nodes = p.steps.map((s, i) => {
+        const st = p.statuses[i] || { status: 'pending' };
+        const cfg = PIPE_STATUS[st.status] || PIPE_STATUS.pending;
+        const kindIcon = PIPE_KIND_ICONS[s.kind] || 'fa-gear';
+        const arrow = i < p.steps.length - 1
+            ? `<div style="display:flex;align-items:center;color:#cbd5e1;font-size:14px;padding:0 2px;"><i class="fas fa-arrow-right"></i></div>` : '';
+        return `
+        <div style="display:flex;align-items:stretch;">
+            <div style="min-width:120px;max-width:170px;border:1.5px solid ${cfg.border};background:${cfg.bg};border-radius:10px;padding:7px 10px;text-align:center;">
+                <div style="font-size:9px;color:#94a3b8;margin-bottom:2px;"><i class="fas ${kindIcon}"></i> Step ${i + 1}</div>
+                <div style="font-size:11px;font-weight:700;color:#1e293b;line-height:1.25;">${esc(s.label)}</div>
+                <div style="font-size:10px;font-weight:700;color:${cfg.color};margin-top:4px;"><i class="fas ${cfg.icon}"></i> ${cfg.label}</div>
+                ${st.note ? `<div style="font-size:9.5px;color:#64748b;margin-top:2px;">${esc(st.note)}</div>` : ''}
+            </div>${arrow}
+        </div>`;
+    }).join('');
+    return `
+    <div class="ai-pipe-card ai-pipe-${esc(id)}" style="border:1px solid var(--border);border-radius:12px;background:white;padding:10px 12px;margin:6px 0;">
+        <div style="font-size:10px;font-weight:800;color:#0e7490;text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;"><i class="fas fa-diagram-project"></i> ${esc(p.title || 'Task pipeline')}</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;">${nodes}</div>
+    </div>`;
+}
+
+function refreshPipelineCards(id) {
+    document.querySelectorAll('.ai-pipe-' + CSS.escape(id)).forEach(el => {
+        el.outerHTML = pipelineCardHtml(id);
+    });
+}
+
 function renderMarkdown(md) {
-    try { return DOMPurify.sanitize(marked.parse(md || '')); }
+    try {
+        md = String(md || '');
+        const tokens = [];   // token -> card html, spliced back in after sanitize
+
+        // Declarations: ```pipeline { ... } ```
+        md = md.replace(/```pipeline\s*\n([\s\S]*?)```/g, function (_m, body) {
+            try {
+                const def = JSON.parse(body);
+                if (!def.id || !Array.isArray(def.steps) || !def.steps.length) return '';
+                const existing = window._aiPipelines[def.id];
+                window._aiPipelines[def.id] = {
+                    title: def.title || '',
+                    steps: def.steps.map(s => ({ label: String(s.label || ''), kind: String(s.kind || '') })),
+                    statuses: (existing && existing.steps.length === def.steps.length) ? existing.statuses : def.steps.map(() => ({ status: 'pending' }))
+                };
+                const tok = '%%AIPIPE' + tokens.length + '%%';
+                tokens.push({ tok: tok, id: def.id });
+                return '\n' + tok + '\n';
+            } catch (e) { return ''; }
+        });
+
+        // Updates: ```pipeline-update { ... } ``` — may hold one object per line
+        md = md.replace(/```pipeline-update\s*\n([\s\S]*?)```/g, function (_m, body) {
+            body.split('\n').forEach(function (line) {
+                line = line.trim();
+                if (!line) return;
+                try {
+                    const u = JSON.parse(line);
+                    const p = window._aiPipelines[u.id];
+                    if (!p) return;
+                    const idx = (parseInt(u.step, 10) || 0) - 1;
+                    if (idx < 0 || idx >= p.steps.length) return;
+                    p.statuses[idx] = { status: String(u.status || 'pending'), note: u.note ? String(u.note) : '' };
+                    refreshPipelineCards(u.id);   // update cards already in the DOM
+                } catch (e) { }
+            });
+            return '';
+        });
+
+        let html = DOMPurify.sanitize(marked.parse(md));
+        tokens.forEach(function (t) {
+            html = html.replace(t.tok, pipelineCardHtml(t.id));
+        });
+        return html;
+    }
     catch (e) { return esc(md); }
 }
 
