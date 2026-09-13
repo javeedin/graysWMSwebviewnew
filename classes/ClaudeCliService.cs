@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V19";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V20";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -356,6 +356,17 @@ namespace WMSApp
             sb.AppendLine("- POST /fscmRestApi/resources/11.13.18.05/receivingReceiptRequests   (WRITE) - create a receipt (receiving).");
             sb.AppendLine();
             sb.AppendLine("These resources are large: NEVER call them unfiltered - always a q filter plus limit (500 max). If a q attribute name is rejected, GET the resource with ?limit=1 first to inspect the real field names, then retry. The org used by this app is GIC (OrganizationName) / its OrganizationCode as seen in results.");
+            sb.AppendLine();
+            sb.AppendLine("### Discovering Fusion SCM APIs you don't know (self-describe)");
+            sb.AppendLine();
+            sb.AppendLine("Oracle Fusion documents itself over REST - use these when the user asks about a Fusion API");
+            sb.AppendLine("that is not in this catalog, or when you need exact attribute names:");
+            sb.AppendLine();
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05   -> index of EVERY SCM REST resource available on this pod (names + links). The response may arrive truncated; scan it for candidate resource names.");
+            sb.AppendLine("- GET /fscmRestApi/resources/11.13.18.05/{resource}/describe   -> full metadata of one resource: attributes (name, type, required, updatable), finders, actions, child resources. Large - it may arrive truncated at 25000 chars, so use it only when you need the definition.");
+            sb.AppendLine("- For just the field names of a resource, prefer GET {resource}?limit=1&onlyData=true - one sample record is much smaller than a describe.");
+            sb.AppendLine();
+            sb.AppendLine("NEVER call the global /fscmRestApi/resources/11.13.18.05/describe (all resources at once - many megabytes). Discovery calls are normal GET rounds: they run instantly but count against your round budget, so at most one index lookup and one describe per question. When the user asks \"what Fusion APIs are there for X\", answer from this catalog first and use the index only to go beyond it.");
             sb.AppendLine();
             sb.AppendLine("Routing rule: when the user's message mentions \"fusion\", prefer these Fusion REST services over SQL. Otherwise prefer SQL against the local WMS schema; combine both when useful (e.g. FULFILL_LINE_ID from SQL, then a Fusion PATCH).");
             sb.AppendLine();
