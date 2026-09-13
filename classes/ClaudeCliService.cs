@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V25";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V26";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -379,23 +379,17 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine("Line items MUST come from the selected customer's price list in the APEX DB - validate every requested item against it and list any that are not on the price list instead of including them.");
             sb.AppendLine();
-            sb.AppendLine("#### Option 2 recipe - direct Fusion (salesOrdersForOrderHub POST)");
+            sb.AppendLine("#### Option 2 recipe - direct Fusion (salesOrdersForOrderHub POST, GRAYS payload)");
             sb.AppendLine();
-            sb.AppendLine("The payload needs tenant-specific constants - NEVER guess them. Pipeline: Gather -> Calibrate -> Validate items -> Show plan -> Ask route -> Create -> Verify.");
+            sb.AppendLine("A REAL WORKING payload is in your working directory: templates/fusion-order-template.json - READ it with your Read tool before composing and follow its structure EXACTLY (GRAYS EFF segments, string \"true\" flags, charges with chargeComponents). Pipeline: Gather -> Metadata -> Price lines -> Show plan -> Create -> Verify.");
             sb.AppendLine();
-            sb.AppendLine("1. GATHER from the user: customer (account name/number), order type, salesperson, order date, PO number, and the lines (item + quantity). Anything missing -> ask; do not default silently.");
-            sb.AppendLine("2. CALIBRATE from a real order: GET salesOrdersForOrderHub?q=BuyingPartyName LIKE '%{customer}%'&limit=1&expand=lines (or any recent order if the customer has none). Copy from it the tenant constants: SourceTransactionSystem, BusinessUnitName, TransactionTypeCode, TransactionalCurrencyCode, the customer's BuyingPartyNumber/AccountNumber, and the OrderedUOMCode style of its lines. These calibrated values are the ONLY safe source - never invent them.");
-            sb.AppendLine("3. ITEMS / PRICE LIST: line items must be ones the customer actually buys. Validate each item exists (itemsV2 q=ItemNumber=...) and, when the user references the customer's price list, check the customer's recent order lines for those items; if the price list itself must be consulted, ask the user for it or query the Fusion pricing resources if available. NEVER put a price on lines - leave pricing to Fusion (FreezePriceFlag false).");
-            sb.AppendLine("4. SHOW THE PLAN: header fields table + lines table (item, description, qty, UOM) + the exact JSON you will POST. Wait for the approval card to carry the write.");
-            sb.AppendLine("5. CREATE - payload skeleton (fill {} only with gathered or calibrated values):");
-            sb.AppendLine("   { \"SourceTransactionNumber\": \"AI-{yyyymmddhhmmss}\", \"SourceTransactionId\": \"AI-{same}\", \"SourceTransactionSystem\": \"{calibrated}\",");
-            sb.AppendLine("     \"BusinessUnitName\": \"{calibrated}\", \"BuyingPartyNumber\": \"{customer}\", \"TransactionTypeCode\": \"{order type}\",");
-            sb.AppendLine("     \"RequestedShipDate\": \"YYYY-MM-DD\", \"CustomerPONumber\": \"{po}\", \"TransactionalCurrencyCode\": \"{calibrated}\",");
-            sb.AppendLine("     \"FreezePriceFlag\": false, \"FreezeShippingChargeFlag\": false, \"FreezeTaxFlag\": false, \"SubmittedFlag\": true,");
-            sb.AppendLine("     \"lines\": [ { \"SourceTransactionLineId\": \"1\", \"SourceTransactionLineNumber\": \"1\", \"SourceTransactionScheduleId\": \"1\", \"SourceScheduleNumber\": \"1\",");
-            sb.AppendLine("                  \"TransactionCategoryCode\": \"ORDER\", \"ProductNumber\": \"{item}\", \"OrderedQuantity\": {qty}, \"OrderedUOMCode\": \"{calibrated}\" } ] }");
-            sb.AppendLine("   Line ids count up per line (1,2,3...). Salesperson goes in a salesCredits child if the calibrated order shows one. If the user wants a DRAFT to review in Fusion first, set SubmittedFlag false and say so.");
-            sb.AppendLine("6. VERIFY: GET salesOrdersForOrderHub?q=SourceTransactionNumber={yours} and report the Fusion OrderNumber and status. Report Fusion errors verbatim; fix only what the error names and re-ask approval - never fire blind retries.");
+            sb.AppendLine("1. GATHER from the user: customer, order date, salesrep/agent, location, warehouse (default SHOPS), price list, and the lines (item + quantity). Anything missing -> ask.");
+            sb.AppendLine("2. METADATA from APEX (action sql): BuyingPartyNumber, billToCustomer CustomerAccountId + SiteUseId, shipToCustomer PartyId + SiteId, PaymentTerms (e.g. GRIMMEDIATE), and the customer's price list name. Constants: SourceTransactionSystem=OPS, BusinessUnitId=RequestingBusinessUnitId=300000003234003, currency MUR. NEVER invent an id - if the metadata query cannot find one, stop and tell the user.");
+            sb.AppendLine("3. PRICES ARE FROZEN AND SUPPLIED BY YOU (FreezePriceFlag/FreezeTaxFlag/FreezeShippingChargeFlag are the STRING \"true\"): every line carries one Sale charge (ChargeDefinitionCode QP_SALE_PRICE, GSAUnitPrice = net selling price) with 5 chargeComponents from the APEX price list and tax code:");
+            sb.AppendLine("   seq1 QP_LIST_PRICE (list), seq2 QP_DISCOUNT_ADJ (net - list, NEGATIVE when discounted), seq3 QP_EXCLUSIVE_TAX (tax amount), seq4 QP_NET_PRICE_PLUS_TAX, seq5 QP_NET_PRICE (net). HeaderCurrencyUnitPrice is per unit; HeaderCurrencyExtendedAmount = unit x quantity.");
+            sb.AppendLine("4. IDS AND EFF: SourceTransactionId = \"APEX:{unique cartid}\"; line SourceTransactionLineId unique integers, SourceTransactionLineNumber 1,2,3...; SourceChargeId \"C{n}\", components \"C{n}-CC{1..5}\". Header EFF (HeaderEffBGRAYSprivateVO, ContextCode GRAYS): priceList, comments \"REASON:\", comment1 \"LOCATION:{location}\", comment2 \"PAYREF:\", comments3 \"CARTID:{cartid}\", tripnumber = salesrep number, absSalesAgent = agent name. Line EFF (FulfillLineEffBGRAYSprivateVO): addDiscount, marketingDiscount, shippingorg = warehouse, originalQty, linetype ORD. salesCredits: one row, Percent \"100\", SalesCreditTypeId \"1\", SourceTransactionSalesCreditIdentifier = cartid.");
+            sb.AppendLine("5. SHOW THE PLAN: header table + lines table (item, qty, list, net, tax) + the full JSON. The approval card carries the POST.");
+            sb.AppendLine("6. VERIFY from the POST response itself: report the returned OrderNumber / HeaderId and any MessageText. Report Fusion errors verbatim; fix only what the error names and re-ask approval - never fire blind retries.");
             sb.AppendLine();
             sb.AppendLine("First runs of this recipe belong on the TEST instance unless the user explicitly says PROD.");
             sb.AppendLine();
@@ -615,9 +609,125 @@ namespace WMSApp
             sb.AppendLine("```");
 
             await File.WriteAllTextAsync(claudeMdPath, sb.ToString());
+
+            // Real working GRAYS payload for direct Fusion order creation -
+            // the model reads this template before composing an order (option 2)
+            try
+            {
+                string templatesDir = Path.Combine(WorkspaceDir, "templates");
+                Directory.CreateDirectory(templatesDir);
+                await File.WriteAllTextAsync(Path.Combine(templatesDir, "fusion-order-template.json"),
+                    GRAYS_FUSION_ORDER_TEMPLATE);
+            }
+            catch (Exception exTpl)
+            {
+                Debug.WriteLine("[ClaudeCliService] template write failed: " + exTpl.Message);
+            }
+
             _systemPromptCache = null;   // API mode re-reads the fresh prompt
             return objectCount;
         }
+
+        // Verbatim working payload (one line) for POST salesOrdersForOrderHub -
+        // GRAYS EFF segments, frozen prices via charges/chargeComponents
+        private const string GRAYS_FUSION_ORDER_TEMPLATE = """
+{
+    "SourceTransactionSystem": "OPS",
+    "SourceTransactionId": "APEX:359",
+    "TransactionalCurrencyCode": "MUR",
+    "BusinessUnitId": "300000003234003",
+    "BuyingPartyNumber": "GR115022",
+    "RequestedShipDate": "2024-05-07T00:00:00Z",
+    "TransactionOn": "2024-05-07T00:00:00Z",
+    "SubmittedFlag": "true",
+    "FreezePriceFlag": "true",
+    "FreezeShippingChargeFlag": "true",
+    "FreezeTaxFlag": "true",
+    "RequestingBusinessUnitId": "300000003234003",
+    "PaymentTerms": "GRIMMEDIATE",
+    "RequestedFulfillmentOrganizationCode": "SHOPS",
+    "billToCustomer": [
+        { "CustomerAccountId": 100000034247784, "SiteUseId": 100000034247851, "ContactId": null }
+    ],
+    "shipToCustomer": [
+        { "PartyId": "100000034247474", "SiteId": "100000034247627" }
+    ],
+    "salesCredits": [
+        { "SourceTransactionSalesCreditIdentifier": 359, "Percent": "100", "SalesCreditTypeId": "1" }
+    ],
+    "additionalInformation": [
+        {
+            "Category": "DOO_HEADERS_ADD_INFO",
+            "HeaderEffBGRAYSprivateVO": [
+                {
+                    "ContextCode": "GRAYS",
+                    "priceList": "VIP",
+                    "comments": "REASON:",
+                    "comment1": "LOCATION:COSMETICS SHOP BEAU PLAN",
+                    "comment2": "PAYREF:",
+                    "comments3": "CARTID:359",
+                    "tripnumber": "NJOHAR",
+                    "absSalesAgent": "JASHNA JHUGARSING"
+                }
+            ]
+        }
+    ],
+    "lines": [
+        {
+            "SourceTransactionLineId": 3347,
+            "SourceTransactionLineNumber": 1,
+            "SourceScheduleNumber": 1,
+            "SourceTransactionScheduleId": 1,
+            "OrderedUOMCode": "UN",
+            "OrderedQuantity": 1,
+            "ProductNumber": "GFI147051313U",
+            "TaxClassificationCode": "GROT1.4",
+            "PaymentTerms": "GRIMMEDIATE",
+            "TransactionCategoryCode": "ORDER",
+            "additionalInformation": [
+                {
+                    "Category": "DOO_FULFILL_LINES_ADD_INFO",
+                    "SourceTransactionLineIdentifier": 1,
+                    "SourceTransactionScheduleIdentifier": "_1",
+                    "FulfillLineEffBGRAYSprivateVO": [
+                        {
+                            "ContextCode": "GRAYS",
+                            "addDiscount": 8,
+                            "marketingDiscount": 7,
+                            "shippingorg": "SHOPS",
+                            "originalQty": 1,
+                            "linetype": "ORD"
+                        }
+                    ]
+                }
+            ],
+            "charges": [
+                {
+                    "SourceChargeId": "C1",
+                    "ApplyTo": "Price",
+                    "PricedQuantity": 1,
+                    "GSAUnitPrice": 382.5,
+                    "PriceType": "One time",
+                    "ChargeType": "Sale",
+                    "ChargeSubType": "Price",
+                    "ChargeCurrencyCode": "MUR",
+                    "SequenceNumber": 1,
+                    "ChargeDefinitionCode": "QP_SALE_PRICE",
+                    "PrimaryFlag": "true",
+                    "RollupFlag": "false",
+                    "chargeComponents": [
+                        { "SourceChargeComponentId": "C1-CC1", "PriceElementCode": "QP_LIST_PRICE", "PriceElementUsageCode": "LIST_PRICE", "HeaderCurrencyUnitPrice": 391.304, "HeaderCurrencyExtendedAmount": 391.304, "RollupFlag": "false", "SequenceNumber": 1 },
+                        { "SourceChargeComponentId": "C1-CC2", "PriceElementCode": "QP_NET_PRICE", "PriceElementUsageCode": "NET_PRICE", "HeaderCurrencyUnitPrice": 382.5, "HeaderCurrencyExtendedAmount": 382.5, "RollupFlag": "false", "SequenceNumber": 5 },
+                        { "SourceChargeComponentId": "C1-CC3", "PriceElementCode": "QP_EXCLUSIVE_TAX", "PriceElementUsageCode": "EXCLUSIVE_TAX", "HeaderCurrencyUnitPrice": 49.891, "HeaderCurrencyExtendedAmount": 49.891, "RollupFlag": "false", "SequenceNumber": 3 },
+                        { "SourceChargeComponentId": "C1-CC4", "PriceElementCode": "QP_NET_PRICE_PLUS_TAX", "PriceElementUsageCode": "NET_PRICE_PLUS_TAX", "HeaderCurrencyUnitPrice": 382.5, "HeaderCurrencyExtendedAmount": 382.5, "RollupFlag": "false", "SequenceNumber": 4 },
+                        { "SourceChargeComponentId": "C1-CC5", "PriceElementCode": "QP_DISCOUNT_ADJ", "PriceElementUsageCode": "PRICE_ADJUSTMENT", "HeaderCurrencyUnitPrice": -58.696, "HeaderCurrencyExtendedAmount": -58.696, "RollupFlag": "false", "SequenceNumber": 2 }
+                    ]
+                }
+            ]
+        }
+    ]
+}
+""";
 
         private static (string Catalog, int Count) CompactCatalog(string metadataJson)
         {
