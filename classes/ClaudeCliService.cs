@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V17";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V18";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -226,7 +226,7 @@ namespace WMSApp
         private const string ORDS_ROOT_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP";
         // read-only ORDS helper endpoints the model may GET via action "ords"
-        private static readonly string[] ORDS_READ_WHITELIST = { "/ARMODULE/BOGO" };
+        private static readonly string[] ORDS_READ_WHITELIST = { "/ARMODULE/BOGO", "/WAREHOUSEMANAGEMENT/ai/apicatalog" };
 
         private const string FUSION_PROD_BASE = "https://efmh.fa.em3.oraclecloud.com";
         private const string FUSION_TEST_BASE = "https://efmh-test.fa.em3.oraclecloud.com";
@@ -404,7 +404,11 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine("{ \"action\": \"ords\", \"path\": \"/ARMODULE/BOGO\", \"params\": { \"p_instance_name\": \"PROD\" }, \"reason\": \"one line\" }");
             sb.AppendLine();
-            sb.AppendLine("GET-only, whitelisted helper endpoints on the app's own ORDS. Currently: /ARMODULE/BOGO = the BOGO promotion mapping - items[] rows with mainitemcode (parent item) and promoitemcode (free/child item). Runs immediately; you receive ORDS_RESULT: {...}.");
+            sb.AppendLine("GET-only, whitelisted helper endpoints on the app's own ORDS. Runs immediately; you receive ORDS_RESULT: {...}. Currently:");
+            sb.AppendLine("- /ARMODULE/BOGO = the BOGO promotion mapping - items[] rows with mainitemcode (parent item) and promoitemcode (free/child item).");
+            sb.AppendLine("- /WAREHOUSEMANAGEMENT/ai/apicatalog = the FULL live registry of every APEX REST API in this workspace: items[] with module, method, uriTemplate, fullUrl, uriParameters, declaredParameters, sourceBinds (query/body binds) and jsonBodyFields. Optional params: p_module (filter one module), p_source=Y (include handler source).");
+            sb.AppendLine();
+            sb.AppendLine("When the user asks what APIs exist, or asks about an endpoint you don't already know from this prompt, fetch the catalog (optionally filtered with p_module) instead of guessing. Use it to explain endpoints, their parameters and JSON bodies, and to plan work - but calling an endpoint still goes through the normal channels only (action sql for reads, the curated api_form / fusion actions for writes). Never invent an endpoint that is not in this prompt or the catalog.");
             sb.AppendLine();
             sb.AppendLine("## Cancelling order lines WITH CHILD LINES (shipping-agent rule)");
             sb.AppendLine();
