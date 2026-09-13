@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V22";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V23";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -367,9 +367,18 @@ namespace WMSApp
             sb.AppendLine("4. UPDATE one lot per call: PATCH {selfPath} with body { \"ExpirationDate\": \"YYYY-MM-DD\" } (WRITE - the user approves each card; the app handles the Oracle media type automatically). Dates always YYYY-MM-DD; interpret relative asks (\"+6 months\") from the current expiration and show the computed date in the plan.");
             sb.AppendLine("5. VERIFY: re-GET the updated lots and answer with a before/after table and any failures verbatim. A Fusion error such as a lot-status or open-transaction restriction is reported to the user, not retried blindly.");
             sb.AppendLine();
-            sb.AppendLine("### Creating sales orders in Fusion (recipe)");
+            sb.AppendLine("### Creating sales orders (TWO ROUTES - always ask which one first)");
             sb.AppendLine();
-            sb.AppendLine("POST /fscmRestApi/resources/11.13.18.05/salesOrdersForOrderHub creates an order (WRITE, approval card). The payload needs tenant-specific constants - NEVER guess them. Pipeline: Gather -> Calibrate -> Validate items -> Show plan -> Create -> Verify.");
+            sb.AppendLine("Order creation metadata (customers, their price lists, price list items, order types, salesreps) lives in the APEX DB - gather it with action sql against the schema catalog below; you do NOT need Fusion GETs for the data. After showing the composed order plan, ALWAYS ask the user (action answer) which route to use - never pick silently unless they already said:");
+            sb.AppendLine();
+            sb.AppendLine("  OPTION 1 - Save to WMS DB: api_form order.create (POST /ORDERCRATION/NEWORDER). The order is stored in the APEX DB and a separate procedure interfaces it to Fusion later. Compose the JSON body from the APEX metadata; to learn the handler's exact expected body fields, fetch the API catalog once: action ords /WAREHOUSEMANAGEMENT/ai/apicatalog with params {\"p_module\":\"ORDERCRATION\",\"p_source\":\"Y\"} and read its jsonBodyFields/source.");
+            sb.AppendLine("  OPTION 2 - Direct Fusion: POST salesOrdersForOrderHub per the recipe below (approval card).");
+            sb.AppendLine();
+            sb.AppendLine("Line items MUST come from the selected customer's price list in the APEX DB - validate every requested item against it and list any that are not on the price list instead of including them.");
+            sb.AppendLine();
+            sb.AppendLine("#### Option 2 recipe - direct Fusion (salesOrdersForOrderHub POST)");
+            sb.AppendLine();
+            sb.AppendLine("The payload needs tenant-specific constants - NEVER guess them. Pipeline: Gather -> Calibrate -> Validate items -> Show plan -> Ask route -> Create -> Verify.");
             sb.AppendLine();
             sb.AppendLine("1. GATHER from the user: customer (account name/number), order type, salesperson, order date, PO number, and the lines (item + quantity). Anything missing -> ask; do not default silently.");
             sb.AppendLine("2. CALIBRATE from a real order: GET salesOrdersForOrderHub?q=BuyingPartyName LIKE '%{customer}%'&limit=1&expand=lines (or any recent order if the customer has none). Copy from it the tenant constants: SourceTransactionSystem, BusinessUnitName, TransactionTypeCode, TransactionalCurrencyCode, the customer's BuyingPartyNumber/AccountNumber, and the OrderedUOMCode style of its lines. These calibrated values are the ONLY safe source - never invent them.");
@@ -492,6 +501,7 @@ namespace WMSApp
             sb.AppendLine("Catalog (apiId - purpose - body/param fields you may prefill):");
             sb.AppendLine("- trips.create - create a new trip - trip_date, cost_date (YYYY-MM-DD), vehicle, picker (id number), priority (number), loading_bay, notes");
             sb.AppendLine("- trips.addorders - add orders to a trip - trip_id (number), orders (array of {order_number, account_number, account_name, order_date, order_type, salesrep_name, instance})");
+            sb.AppendLine("- order.create - create a sales order in the WMS DB (interfaced to Fusion later) - raw JSON body; see 'Creating sales orders' below");
             sb.AppendLine("- trip.updatetrip - update trip header - p_trip_id, trip_lorry, trip_status, trip_loading_bay, trip_priority");
             sb.AppendLine("- trip.assignpicker - assign picker to one order - p_trx_number (order number), p_picker_id, p_picker_name");
             sb.AppendLine("- trip.pickerassignment - trip-level picker assignment - raw JSON body");

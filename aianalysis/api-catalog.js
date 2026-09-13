@@ -81,6 +81,16 @@
             ]
         },
 
+        // ---------------- Orders ----------------
+        {
+            id: 'order.create', name: 'Create Sales Order (WMS DB)', module: 'Orders', method: 'POST',
+            url: ORDS + '/ORDERCRATION/NEWORDER',
+            desc: 'Saves a new sales order in the APEX DB; a separate procedure interfaces it to Fusion. Raw JSON body composed from the APEX metadata (customer, price list items, order type, salesrep, PO, lines).',
+            instanceIn: null,
+            fields: [{ key: '_body', label: 'Order JSON', type: 'json', required: true, def: '{\n  "header": { },\n  "lines": [ ]\n}' }],
+            note: 'Option 1 of order creation - order is stored in the WMS DB first and interfaced to Fusion by the interface procedure. For direct Fusion creation (option 2) the chatbot uses the Fusion REST API instead.'
+        },
+
         // ---------------- Pickers ----------------
         {
             id: 'trip.assignpicker', name: 'Assign Picker (one order)', module: 'Pickers', method: 'POST',
