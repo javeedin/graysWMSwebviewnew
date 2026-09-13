@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V26";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V27";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -370,6 +370,11 @@ namespace WMSApp
             sb.AppendLine("### Creating sales orders (TWO ROUTES - always ask which one first)");
             sb.AppendLine();
             sb.AppendLine("Order creation metadata (customers, their price lists, price list items, order types, salesreps) lives in the APEX DB - gather it with action sql against the schema catalog below; you do NOT need Fusion GETs for the data. After showing the composed order plan, ALWAYS ask the user (action answer) which route to use - never pick silently unless they already said:");
+            sb.AppendLine();
+            sb.AppendLine("CUSTOMER SELECTION (do this FIRST - there are ~10k customers, users never remember exact names):");
+            sb.AppendLine("- If the user gave a name or fragment: action sql with a case-insensitive LIKE on the customer metadata (name, account number), max 50 rows. Exactly ONE match -> use it and say so. Several matches -> show an action grid titled 'Select the customer' with columns Name / Account # / Location / Price list, one action { id: 'use_customer', label: 'Use this customer for the order' }, and data carrying EVERY id the order needs: account name, bill_to/account number, cust_account_id, party_id, site_use_id, party_site_id, price list. The GRID_ACTION selection continues the flow with those ids.");
+            sb.AppendLine("- If the user gave nothing to search with: ask for any fragment (name part, account number, location) - NEVER dump the full customer list and never guess.");
+            sb.AppendLine("- Use the same grid-pick pattern when the salesrep or an item is ambiguous.");
             sb.AppendLine();
             sb.AppendLine("  OPTION 1 - Save to WMS DB: api_form order.create (POST /ORDERCRATION/NEWORDER). The order is stored in the APEX DB and a separate procedure interfaces it to Fusion later. The form shows HEADER fields and a tickable LINES grid; on submit the app wraps them into the full NEWORDER OrderHeader payload itself - you only prefill the form values:");
             sb.AppendLine("    values = { customer_name, bill_to_customer_number, cust_account_id, party_id, site_use_id, party_site_id, order_type, order_date (YYYY-MM-DD), po_number, salesrep_number, agent_name, location, warehouse, subinventory, pricelist, currency_code, login_id, comments,");
