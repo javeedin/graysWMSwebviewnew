@@ -85,22 +85,106 @@
         {
             id: 'order.create', name: 'Create Sales Order (WMS DB)', module: 'Orders', method: 'POST',
             url: ORDS + '/ORDERCRATION/NEWORDER',
-            desc: 'Saves a new sales order in the APEX DB; a separate procedure interfaces it to Fusion. Header fields plus line rows selected from the customer\'s price list.',
-            instanceIn: { in: 'body', key: 'instance_name' },
+            desc: 'Saves a new sales order in the APEX DB (NEWORDER OrderHeader payload); a separate procedure interfaces it to Fusion. Header fields plus line rows from the customer\'s price list.',
+            instanceIn: null,   // NEWORDER payload has no instance field; buildBody shapes the body
             fields: [
-                { key: 'customer_account', label: 'Customer account #', type: 'text', required: true },
                 { key: 'customer_name', label: 'Customer name', type: 'text', required: true },
+                { key: 'bill_to_customer_number', label: 'Bill-to customer #', type: 'text', required: true },
+                { key: 'cust_account_id', label: 'Cust account ID', type: 'text', required: true },
+                { key: 'party_id', label: 'Party ID', type: 'text', required: true },
+                { key: 'site_use_id', label: 'Site use ID', type: 'text', required: true },
+                { key: 'party_site_id', label: 'Party site ID', type: 'text', required: true },
                 { key: 'order_type', label: 'Order type', type: 'text', required: true },
-                { key: 'salesrep_name', label: 'Salesrep', type: 'text' },
                 { key: 'order_date', label: 'Order date', type: 'date', required: true, def: 'today' },
                 { key: 'po_number', label: 'PO number', type: 'text' },
-                { key: 'notes', label: 'Notes', type: 'textarea' },
+                { key: 'salesrep_number', label: 'Salesrep number', type: 'text' },
+                { key: 'agent_name', label: 'Agent name', type: 'text' },
+                { key: 'location', label: 'Location', type: 'text' },
+                { key: 'warehouse', label: 'Warehouse', type: 'text', required: true, def: 'SHOPS' },
+                { key: 'subinventory', label: 'Subinventory', type: 'text', required: true },
+                { key: 'pricelist', label: 'Price list', type: 'text', required: true, def: 'PUBLIC' },
+                { key: 'currency_code', label: 'Currency', type: 'text', required: true, def: 'MUR' },
+                { key: 'login_id', label: 'Login ID', type: 'text', required: true },
+                { key: 'comments', label: 'Comments', type: 'textarea' },
                 {
                     key: 'lines', label: 'Order Lines (from the customer\'s price list)', type: 'rows', required: true,
-                    rows: { cols: ['item_code', 'item_description', 'quantity', 'uom'] }
+                    rows: { cols: ['item_code', 'item_description', 'quantity', 'uom', 'selling_price', 'tax_code', 'inventory_item_id'] }
                 }
             ],
-            note: 'Option 1 of order creation - the order is stored in the WMS DB and interfaced to Fusion by the interface procedure. Ask the chatbot to prefill the lines from the customer\'s price list; untick any line you don\'t want. For direct Fusion creation (option 2) the chatbot uses the Fusion REST API instead.'
+            // Wraps the reviewed form values into the exact NEWORDER OrderHeader payload
+            buildBody: function (v, instance) {
+                var nowIso = new Date().toISOString().slice(0, 19);
+                var cartId = Number(String(Date.now()).slice(-10));
+                var lines = (v.lines || []).map(function (r, i) {
+                    var qty = Number(r.quantity) || 1;
+                    var price = Number(r.selling_price) || 0;
+                    return {
+                        cartdetailsid: 0, cartid: 0,
+                        LINE_NUM: String(i + 1),
+                        CURRECY_CODE: v.currency_code || 'MUR',
+                        LIST_PRICE: price, SELLING_PRICE: price,
+                        TAX_AMOUNT: 0, NET: price * qty,
+                        WAREHOUSE: v.warehouse || '', SUBINVENTORY: v.subinventory || '',
+                        ITEM_CODE: r.item_code || '', ITEM_DESC: r.item_description || '',
+                        TAX_CODE: r.tax_code || '', UOM_CODE: r.uom || 'UN',
+                        LOT_NUMBER: String(cartId), LOT_EXPIRY: '',
+                        ORIGINALITEM: r.item_code || '',
+                        IsBogoItem: false, BogoItemReferenceNum: 0, BogoItemReferenceProductID: '',
+                        IsFlatDiscount: false, DISCOUNT_PER: 0, ADD_DISCOUNT: 0, LINE_COMMENTS: '',
+                        ORIGINAL_QTY: 0, LINE_TYPE: 'ORD', REFORDERNUMBER: null, MKT_DISCOUNT: 0, DISC_REFERENCE: '',
+                        BARCODE: '', INVENTORY_ITEM_ID: r.inventory_item_id || '',
+                        TOTAL_TAX: 0, TOTAL_NET: price * qty, TOTAL_GROSS: price * qty,
+                        QOH: 0, SFUTURE1: null, SFUTURE2: null, DFUTURE1: 0, DFUTURE2: 0,
+                        ORDER_DATE: nowIso, LOGIN_ID: v.login_id || '', LOGIN_NAME: v.login_id || '',
+                        MEMEBERSHIP_ID: '', PALYER_ID: '',
+                        ReturnDate: nowIso, RetunAmount: 0, TOTAL_DISCOUNT: 0, DiscountItem: 0,
+                        DiscountType: 'Percentage', IsDiscount: false, QTY: qty,
+                        OriginalOrderNumber: null, parent_line_num: 0, IsDeleted: false, IsReturned: false,
+                        CurrentIsReturned: false, AreButtonsEnabled: true
+                    };
+                });
+                var totalNet = lines.reduce(function (s, l) { return s + l.NET; }, 0);
+                var header = {
+                    cartid: cartId,
+                    ACCOUNT_NAME: v.customer_name || '', SOURCE_ORDER_NUMBER: null,
+                    agent_name: v.agent_name || '', location: v.location || '', return_reason: null,
+                    BILL_TO_CUSTOMER_NUMBER: v.bill_to_customer_number || '',
+                    PO_NUMBER: v.po_number || '',
+                    ORDER_DATE: (v.order_date || nowIso.slice(0, 10)) + 'T00:00:00',
+                    BUSINESS_UNIT_IDENTIFIER: '300000003234003', BUSINESS_UNIT: null,
+                    ORDER_TYPE: v.order_type || '', FREEZEPRICE: 'YES', FREEZETAX: 'YES',
+                    P_USERNAME: v.login_id || '',
+                    SITE_USE_ID: v.site_use_id || '', PARTY_SITE_ID: v.party_site_id || '',
+                    REQUESTINGLEGALUNIT: 'GRAYS INC', SHIP_TO_CUSTOMER_NUMBER: null,
+                    CUST_ACCOUNT_ID: v.cust_account_id || '', EBS_ORDER_NUMBER: '',
+                    SALESREP_NAME: '', SALESREP_NUMBER: v.salesrep_number || '',
+                    CURRENCY_CODE: v.currency_code || 'MUR', PARTY_ID: v.party_id || '',
+                    PAYMENT_TERMS: 'PAYMENT_TERM', DELIVERY_OFFICIER_NAME: '', DELIVERY_OFFICIER_NO: '',
+                    REF_REFERENCE: '', COMMENTS: v.comments || '', HOLD_STATUS: 'Completed',
+                    WAREHOUSE: v.warehouse || '', SUB_INVENTORY: v.subinventory || '',
+                    PRICELIST: v.pricelist || 'PUBLIC', PRICINGDATE: null,
+                    FUSION_INTERFACE_ST: 'NO', CONFIRM_ORDER_ST: 'NO',
+                    LOGIN_ID: v.login_id || '', LOGIN_NAME: v.login_id || '',
+                    MEMEBERSHIP_ID: '', PALYER_ID: '',
+                    TOTAL_TAX: 0, TOTAL_DISCOUNT: 0, TOTAL_NET: totalNet, TOTAL_GROSS: totalNet,
+                    QOH: 0, SFUTURE1: 'AIChat', SFUTURE2: null, DFUTURE1: 0, DFUTURE2: 0,
+                    ORDER_STATUS: 'CONFIRM', IsReturned: false, ReturnDate: null, RetunAmount: 0,
+                    DiscountItem: 0, DiscountType: 'Flat ', OriginalOrderNumber: null,
+                    approvestatus: null, approvedby: null, approvedDate: null,
+                    Holdreleasedate: null, holdreleasedby: null, customerConfirmationStatus: null,
+                    ITEM_COMMENTS: null, SHIPIING_COMMENT: null, DELIVERY_LOCATION: null,
+                    Payment_type: null, payment_reference: null, DELIVERY_DATE: null, DELIVERED_BY: null,
+                    ASSIGNED_BY: null, ASSIGNED_FROM: null, customer_BRN: null, customer_VATREGNO: null,
+                    customer_address: null, shopname: null, shopaddress: null, shopphone: null,
+                    ASSIGNED_DATE: '0001-01-01T00:00:00', Store_Lat: 0, Store_Long: 0,
+                    offline_order_number: String(cartId), order_Creation_mode: 'AIChat',
+                    OrderTime: new Date().toTimeString().slice(0, 8),
+                    Paymentdetails: [],
+                    lines: lines
+                };
+                return { OrderHeader: [header] };
+            },
+            note: 'Option 1 of order creation - the order is stored in the WMS DB (NEWORDER) and interfaced to Fusion by the interface procedure. The form values are wrapped into the full OrderHeader payload on submit. TOTAL/TAX amounts are computed as simple sums (no tax engine) - the interface procedure recalculates. Payments are empty (B2B order). Untick any line you don\'t want.'
         },
 
         // ---------------- Pickers ----------------
@@ -275,6 +359,12 @@
             if (api.instanceIn.in === 'query')
                 query.push(encodeURIComponent(api.instanceIn.key) + '=' + encodeURIComponent(instance));
             else { bodyObj[api.instanceIn.key] = instance; hasBodyField = true; }
+        }
+
+        // Optional transform: an api can reshape the collected form values
+        // into the endpoint's real payload (e.g. order.create -> OrderHeader)
+        if (typeof api.buildBody === 'function') {
+            body = JSON.stringify(api.buildBody(bodyObj, instance));
         }
 
         if (query.length) url += (url.indexOf('?') >= 0 ? '&' : '?') + query.join('&');

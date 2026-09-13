@@ -1,88 +1,40 @@
 -- ============================================================
--- WMS ORDER CREATION - NEWORDER REST HANDLER (skeleton)
+-- WMS ORDER CREATION - NEWORDER CONTRACT (reference)
 -- ============================================================
--- Receives the sales order composed in the AI chat's order.create
--- form (or any caller) and stores it in the APEX DB; a separate
--- procedure interfaces stored orders to Fusion.
+-- The NEWORDER handler ALREADY EXISTS in APEX:
+--   POST /ords/WKSP_GRAYSAPP/ORDERCRATION/NEWORDER
+-- This file documents the JSON contract it expects, as used by
+-- the AI chat's order.create form (aianalysis/api-catalog.js
+-- buildBody wraps the reviewed form values into this shape).
 --
--- In APEX RESTful Services:
---   Module:        ORDERCRATION        (as referenced by the app)
---   URI Template:  NEWORDER
---   Method:        POST
---   Source Type:   PL/SQL
+-- Top level: { "OrderHeader": [ { ...header..., "Paymentdetails": [...], "lines": [...] } ] }
 --
--- JSON body contract (exactly what the app's form POSTs):
--- {
---   "customer_account": "10021",
---   "customer_name":    "ABC Traders Ltd",
---   "order_type":       "STANDARD",
---   "salesrep_name":    "J Doe",
---   "order_date":       "2026-09-13",
---   "po_number":        "PO-4471",
---   "notes":            "",
---   "instance_name":    "PROD",
---   "lines": [
---     { "item_code": "10023", "item_description": "Item X", "quantity": 5, "uom": "Ea" }
---   ]
--- }
+-- Header keys (sample values):
+--   cartid: 2260000006                       ACCOUNT_NAME, agent_name, location
+--   BILL_TO_CUSTOMER_NUMBER: "GR132044"      PO_NUMBER, ORDER_DATE: "2024-05-17T00:00:00"
+--   BUSINESS_UNIT_IDENTIFIER: "300000003234003"
+--   ORDER_TYPE: "PDA-DD-CASH"                FREEZEPRICE/FREEZETAX: "YES"
+--   P_USERNAME, LOGIN_ID, LOGIN_NAME         SITE_USE_ID, PARTY_SITE_ID, PARTY_ID, CUST_ACCOUNT_ID
+--   REQUESTINGLEGALUNIT: "GRAYS INC"         SALESREP_NUMBER, CURRENCY_CODE: "MUR"
+--   PAYMENT_TERMS: "PAYMENT_TERM"            HOLD_STATUS: "Completed"
+--   WAREHOUSE: "SHOPS", SUB_INVENTORY        PRICELIST: "PUBLIC"
+--   FUSION_INTERFACE_ST: "NO", CONFIRM_ORDER_ST: "NO"
+--   TOTAL_TAX / TOTAL_DISCOUNT / TOTAL_NET / TOTAL_GROSS
+--   ORDER_STATUS: "CONFIRM"                  offline_order_number, OrderTime: "19:43:27"
+--   ... plus nullable POS fields (returns, delivery, shop, approval).
 --
--- TODO: replace the staging table names/columns with your real
--- order tables before creating the handler.
+-- Paymentdetails[] (POS payments; empty [] for chat-created B2B orders):
+--   { PaymentMode: "CASH", AMOUNT_Pay, TOTAL_AMOUNT, SOURCE_ORDER_NUMBER,
+--     CUSTOMER_NAME, ORDER_DATE: "17/05/2024", LOGIN_ID, LOCATION_NAME }
+--
+-- lines[] keys (sample values):
+--   LINE_NUM: "1", CURRECY_CODE: "MUR" (sic), LIST_PRICE, SELLING_PRICE,
+--   TAX_AMOUNT, NET, WAREHOUSE, SUBINVENTORY, ITEM_CODE, ITEM_DESC,
+--   TAX_CODE: "GROT1.4", UOM_CODE: "UN", LOT_NUMBER, LOT_EXPIRY,
+--   ORIGINALITEM, IsBogoItem, INVENTORY_ITEM_ID, BARCODE,
+--   TOTAL_TAX / TOTAL_NET / TOTAL_GROSS, QTY, LINE_TYPE: "ORD",
+--   ORDER_DATE, LOGIN_ID/LOGIN_NAME, parent_line_num, IsDeleted ...
+--
+-- Note the misspelled keys are part of the contract and must be kept:
+--   CURRECY_CODE, MEMEBERSHIP_ID, PALYER_ID, RetunAmount, SHIPIING_COMMENT
 -- ============================================================
-
-DECLARE
-    v_body        CLOB;
-    v_header_id   NUMBER;
-    v_line_count  PLS_INTEGER;
-BEGIN
-    v_body := :body_text;
-    APEX_JSON.parse(v_body);
-
-    -- ── Header ─────────────────────────────────────────────
-    INSERT INTO wms_order_headers_stg (          -- TODO real table
-        customer_account, customer_name, order_type, salesrep_name,
-        order_date, po_number, notes, instance_name,
-        status, created_on, created_by
-    ) VALUES (
-        APEX_JSON.get_varchar2('customer_account'),
-        APEX_JSON.get_varchar2('customer_name'),
-        APEX_JSON.get_varchar2('order_type'),
-        APEX_JSON.get_varchar2('salesrep_name'),
-        TO_DATE(APEX_JSON.get_varchar2('order_date'), 'YYYY-MM-DD'),
-        APEX_JSON.get_varchar2('po_number'),
-        APEX_JSON.get_varchar2('notes'),
-        NVL(APEX_JSON.get_varchar2('instance_name'), 'TEST'),
-        'NEW', SYSDATE, NVL(v('APP_USER'), USER)
-    ) RETURNING header_id INTO v_header_id;      -- TODO real PK column
-
-    -- ── Lines ──────────────────────────────────────────────
-    v_line_count := NVL(APEX_JSON.get_count('lines'), 0);
-    FOR i IN 1 .. v_line_count LOOP
-        INSERT INTO wms_order_lines_stg (        -- TODO real table
-            header_id, line_number, item_code, item_description,
-            quantity, uom
-        ) VALUES (
-            v_header_id, i,
-            APEX_JSON.get_varchar2('lines[%d].item_code', i),
-            APEX_JSON.get_varchar2('lines[%d].item_description', i),
-            APEX_JSON.get_number('lines[%d].quantity', i),
-            APEX_JSON.get_varchar2('lines[%d].uom', i)
-        );
-    END LOOP;
-
-    COMMIT;
-
-    APEX_JSON.open_object;
-    APEX_JSON.write('success',   TRUE);
-    APEX_JSON.write('headerId',  v_header_id);
-    APEX_JSON.write('lineCount', v_line_count);
-    APEX_JSON.write('status',    'NEW - awaiting Fusion interface');
-    APEX_JSON.close_object;
-EXCEPTION
-    WHEN OTHERS THEN
-        ROLLBACK;
-        APEX_JSON.open_object;
-        APEX_JSON.write('success', FALSE);
-        APEX_JSON.write('error',   SQLERRM);
-        APEX_JSON.close_object;
-END;
