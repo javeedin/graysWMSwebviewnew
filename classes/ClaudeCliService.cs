@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V31";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V32";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -370,6 +370,10 @@ namespace WMSApp
             sb.AppendLine("### Creating sales orders (TWO ROUTES - always ask which one first)");
             sb.AppendLine();
             sb.AppendLine("Order creation metadata (customers, their price lists, price list items, order types, salesreps) lives in the APEX DB - gather it with action sql against the schema catalog below; you do NOT need Fusion GETs for the data. After showing the composed order plan, ALWAYS ask the user (action answer) which route to use - never pick silently unless they already said:");
+            sb.AppendLine();
+            sb.AppendLine("## File intake processing (folder of PDFs/documents)");
+            sb.AppendLine();
+            sb.AppendLine("When asked to process files from the intake/download folder (e.g. order PDFs), work ONE FILE AT A TIME: list_files -> import_file -> Read the imported file -> run the matching trained process on its content -> move_file to 'processed' on success or 'error' on failure - and when a file fails, SAY WHY and continue with the next file. Show a pipeline card per batch and a final summary table (file, outcome, order/reference or error). Never process the same file twice: files still in the folder root are pending; processed/error subfolders are done.");
             sb.AppendLine();
             sb.AppendLine("## Trained processes (WMS_AI_PROCESSES) - CHECK FIRST");
             sb.AppendLine();
@@ -550,6 +554,8 @@ namespace WMSApp
             sb.AppendLine("{ \"action\": \"device\", \"op\": \"print_orders\", \"orders\": [\"418978\",\"419001\"], \"printer\": \"exact printer name\", \"instance\": \"PROD|TEST\", \"reason\": \"one line\" }");
             sb.AppendLine("{ \"action\": \"device\", \"op\": \"download_orders\", \"orders\": [\"418978\",\"419001\"], \"instance\": \"PROD|TEST\", \"reason\": \"one line\" }   // runs immediately, no approval");
             sb.AppendLine("{ \"action\": \"device\", \"op\": \"list_files\", \"reason\": \"one line\" }   // files in the user's download folder, runs immediately");
+            sb.AppendLine("{ \"action\": \"device\", \"op\": \"import_file\", \"file\": \"order123.pdf\", \"reason\": \"one line\" }   // copies that file from the download/intake folder into attachments/ - then READ it with your Read tool at the returned path (PDF/image/text)");
+            sb.AppendLine("{ \"action\": \"device\", \"op\": \"move_file\", \"file\": \"order123.pdf\", \"dest\": \"processed\", \"reason\": \"one line\" }   // moves the file into a subfolder of the intake folder (e.g. processed / error) - use after handling it");
             sb.AppendLine();
             sb.AppendLine("The user's context line may include [DEFAULT_PRINTER: name] - the printer they configured for this app. For BOTH print and print_orders: when the user does not name a printer, use the DEFAULT_PRINTER directly without listing or asking. Only when it is absent, fall back to list_printers and use the Windows default or ask. A printer the user names always wins.");
             sb.AppendLine();
@@ -1143,6 +1149,81 @@ namespace WMSApp
                                 folder,
                                 files = ListFolderFiles(folder)
                             });
+                            continue;
+                        }
+
+                        if (op == "import_file")
+                        {
+                            // Copies one file from the download/intake folder into the
+                            // workspace attachments so the model can Read it (PDF/image/text)
+                            string folder = string.IsNullOrWhiteSpace(DownloadFolder) ? @"C:\fusion\ai_chat\downloads" : DownloadFolder;
+                            string fname = root.TryGetProperty("file", out var ifEl) && ifEl.ValueKind == JsonValueKind.String ? ifEl.GetString() : "";
+                            if (string.IsNullOrWhiteSpace(fname) || fname.IndexOfAny(new[] { '/', '\\' }) >= 0 || fname.Contains(".."))
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"import_file needs a plain file name from list_files (no paths)\"}";
+                                continue;
+                            }
+                            string src = Path.Combine(folder, fname);
+                            if (!File.Exists(src))
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"File not found in the intake folder: " + fname + "\"}";
+                                continue;
+                            }
+                            try
+                            {
+                                string attDir = Path.Combine(WorkspaceDir, "attachments");
+                                Directory.CreateDirectory(attDir);
+                                string destName = DateTime.Now.ToString("yyyyMMdd_HHmmss_") + fname;
+                                File.Copy(src, Path.Combine(attDir, destName), true);
+                                prompt = "DEVICE_RESULT: " + JsonSerializer.Serialize(new
+                                {
+                                    success = true,
+                                    path = "attachments/" + destName,
+                                    sourceFile = fname,
+                                    note = "Read it with your Read tool at the given relative path."
+                                });
+                            }
+                            catch (Exception exImp)
+                            {
+                                prompt = "DEVICE_RESULT: " + JsonSerializer.Serialize(new { success = false, error = exImp.Message });
+                            }
+                            continue;
+                        }
+
+                        if (op == "move_file")
+                        {
+                            // Moves one file from the intake folder into a subfolder of it
+                            // (e.g. processed / error). Never leaves the intake folder tree.
+                            string folder = string.IsNullOrWhiteSpace(DownloadFolder) ? @"C:\fusion\ai_chat\downloads" : DownloadFolder;
+                            string fname = root.TryGetProperty("file", out var mfEl) && mfEl.ValueKind == JsonValueKind.String ? mfEl.GetString() : "";
+                            string destSeg = root.TryGetProperty("dest", out var mdEl) && mdEl.ValueKind == JsonValueKind.String ? mdEl.GetString() : "";
+                            bool badName = string.IsNullOrWhiteSpace(fname) || fname.IndexOfAny(new[] { '/', '\\' }) >= 0 || fname.Contains("..");
+                            bool badDest = string.IsNullOrWhiteSpace(destSeg) || !Regex.IsMatch(destSeg, @"^[A-Za-z0-9 _\-]{1,50}$");
+                            if (badName || badDest)
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"move_file needs file (plain name) and dest (a simple subfolder name such as processed or error)\"}";
+                                continue;
+                            }
+                            string srcPath = Path.Combine(folder, fname);
+                            if (!File.Exists(srcPath))
+                            {
+                                prompt = "DEVICE_RESULT: {\"success\":false,\"error\":\"File not found in the intake folder: " + fname + "\"}";
+                                continue;
+                            }
+                            try
+                            {
+                                string destDir = Path.Combine(folder, destSeg);
+                                Directory.CreateDirectory(destDir);
+                                string destPath = Path.Combine(destDir, fname);
+                                if (File.Exists(destPath))
+                                    destPath = Path.Combine(destDir, Path.GetFileNameWithoutExtension(fname) + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + Path.GetExtension(fname));
+                                File.Move(srcPath, destPath);
+                                prompt = "DEVICE_RESULT: " + JsonSerializer.Serialize(new { success = true, movedTo = destPath });
+                            }
+                            catch (Exception exMv)
+                            {
+                                prompt = "DEVICE_RESULT: " + JsonSerializer.Serialize(new { success = false, error = exMv.Message });
+                            }
                             continue;
                         }
 
