@@ -205,6 +205,7 @@ function openForm(key) {
         curKey = cur.form_key;
         jsonMode = false;
         pageTab = 'design';
+        resetTestPreview();
         renderList(); renderEditor();
     });
 }
@@ -212,6 +213,8 @@ function newForm() {
     cur = { form_key: '', name: '', description: '', active: 'Y', def: EMPTY_DEF(), isNew: true };
     curKey = '';
     jsonMode = false;
+    pageTab = 'design';
+    resetTestPreview();
     renderList(); renderEditor();
 }
 
@@ -296,24 +299,39 @@ function headerFieldCard(f, i, len) {
         '</div></div>';
 }
 
-function detailColCard(di, ci, c, len) {
-    const p = 'def.details.' + di + '.columns.' + ci + '.';
-    return '<div style="border:1px dashed var(--border);border-radius:7px;padding:7px 9px;margin-bottom:5px;background:white;">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">' +
-        '<span class="tag" style="background:#e0f2fe;color:#0369a1;">COL ' + (ci + 1) + ' — ' + esc(c.key || '?') + '</span>' +
-        '<div style="display:flex;gap:4px;">' +
-        '<button class="btn btn-o" style="padding:3px 8px;" ' + (ci === 0 ? 'disabled ' : '') + 'onclick="moveCol(' + di + ',' + ci + ',-1)"><i class="fas fa-arrow-up"></i></button>' +
-        '<button class="btn btn-o" style="padding:3px 8px;" ' + (ci === len - 1 ? 'disabled ' : '') + 'onclick="moveCol(' + di + ',' + ci + ',1)"><i class="fas fa-arrow-down"></i></button>' +
-        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delCol(' + di + ',' + ci + ')"><i class="fas fa-trash"></i></button></div></div>' +
-        '<div class="grid4">' +
-        fld('Key', inTxt(p + 'key', c.key)) +
-        fld('Label', inTxt(p + 'label', c.label)) +
-        fld('Type', inSel(p + 'type', c.type || 'text', COL_TYPES)) +
-        fld('Width px', inNum(p + 'width', c.width)) +
-        fld('Editable', inChk(p + 'editable', c.editable, 'editable')) +
-        fld('Default', inTxt(p + 'default', c.default)) +
-        fld('Formula (computed)', inTxt(p + 'formula', c.formula), 'over row keys, e.g. qty * price') +
-        '</div></div>';
+// Columns as a compact editable table - one row per column, with an
+// expandable Formula / Lookup SQL row underneath
+function detailColumnsTable(d, di) {
+    const cols = d.columns || [];
+    if (!cols.length) return '<div style="font-size:11px;color:#94a3b8;padding:6px 0;">No columns yet.</div>';
+    const body = cols.map((c, ci) => {
+        const p = 'def.details.' + di + '.columns.' + ci + '.';
+        const adv = c.formula || c.lookupSql;
+        return '<tr style="border-top:1px solid #f1f5f9;">' +
+            '<td style="color:#94a3b8;text-align:center;padding:4px 2px;">' + (ci + 1) + '</td>' +
+            '<td style="padding:3px;">' + inTxt(p + 'key', c.key) + '</td>' +
+            '<td style="padding:3px;">' + inTxt(p + 'label', c.label) + '</td>' +
+            '<td style="padding:3px;">' + inSel(p + 'type', c.type || 'text', COL_TYPES) + '</td>' +
+            '<td style="padding:3px;text-align:center;"><input type="checkbox" data-p="' + p + 'editable" data-kind="bool"' + (c.editable ? ' checked' : '') + ' title="editable"></td>' +
+            '<td style="padding:3px;width:70px;">' + inNum(p + 'width', c.width) + '</td>' +
+            '<td style="padding:3px;width:90px;">' + inTxt(p + 'default', c.default) + '</td>' +
+            '<td style="padding:3px;white-space:nowrap;text-align:right;">' +
+              '<button class="btn btn-o" style="padding:2px 7px;" ' + (ci === 0 ? 'disabled ' : '') + 'onclick="moveCol(' + di + ',' + ci + ',-1)"><i class="fas fa-arrow-up"></i></button>' +
+              '<button class="btn btn-o" style="padding:2px 7px;" ' + (ci === cols.length - 1 ? 'disabled ' : '') + 'onclick="moveCol(' + di + ',' + ci + ',1)"><i class="fas fa-arrow-down"></i></button>' +
+              '<button class="btn btn-d" style="padding:2px 7px;" onclick="delCol(' + di + ',' + ci + ')"><i class="fas fa-trash"></i></button></td>' +
+            '</tr>' +
+            '<tr><td></td><td colspan="7" style="padding:0 3px 6px;">' +
+              '<details' + (adv ? ' open' : '') + '>' +
+              '<summary style="font-size:9.5px;color:' + (adv ? '#0f766e' : '#94a3b8') + ';cursor:pointer;font-weight:700;">Formula / Lookup SQL' + (adv ? ' •' : '') + '</summary>' +
+              '<div class="grid2" style="margin-top:5px;">' +
+              fld('Formula (computed)', inTxt(p + 'formula', c.formula), 'over row keys, e.g. qty * price') +
+              fld('Lookup SQL (auto-fill the row)', inArea(p + 'lookupSql', c.lookupSql, '', 2), 'runs when THIS cell changes. :COLUMNKEY (row) + :FIELDKEY (header) placeholders; result aliases = column keys fill the rest of the row. e.g. SELECT ITEM_DESC AS DESCRIPTION, UNIT_PRICE AS PRICE FROM price_list_items WHERE ITEM_CODE = :ITEM AND PRICE_LIST = :PRICELIST') +
+              '</div></details></td></tr>';
+    }).join('');
+    return '<table style="width:100%;border-collapse:collapse;font-size:11px;background:white;border:1px dashed var(--border);border-radius:7px;">' +
+        '<thead><tr>' + ['#', 'Key', 'Label', 'Type', 'Edit', 'Width', 'Default', ''].map(h =>
+            '<th style="padding:5px 4px;text-align:left;font-size:9.5px;color:#475569;text-transform:uppercase;">' + h + '</th>').join('') +
+        '</tr></thead><tbody>' + body + '</tbody></table>';
 }
 
 function detailCard(d, di, len) {
@@ -341,7 +359,7 @@ function detailCard(d, di, len) {
         '<div style="margin-top:8px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
         '<span style="font-size:10.5px;font-weight:800;color:#475569;">Columns</span>' +
         '<button class="btn btn-o" style="padding:3px 10px;" onclick="addCol(' + di + ')"><i class="fas fa-plus"></i> Column</button></div>' +
-        (d.columns || []).map((c, ci) => detailColCard(di, ci, c, (d.columns || []).length)).join('') +
+        detailColumnsTable(d, di) +
         '</div></div>';
 }
 
@@ -418,11 +436,12 @@ function renderEditor() {
     if (pageTab === 'test') {
         html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">' +
             '<button class="btn btn-p" onclick="reloadTestForm()"><i class="fas fa-rotate"></i> Reload form</button>' +
-            '<span style="font-size:10.5px;color:#64748b;">This is the REAL form — pickers, lists, rules and buttons all execute (validations, saves, prints). Unsaved designer changes are included.</span>' +
+            '<span style="font-size:10.5px;color:#64748b;">The REAL form — pickers, lists, rules and buttons all execute. It keeps its state while you switch tabs; click Reload to pick up designer changes.</span>' +
         '</div>' +
-        '<div id="test-container"></div></div>';
+        '<div id="test-mount"></div></div>';
         box.innerHTML = html;
-        reloadTestForm();
+        document.getElementById('test-mount').appendChild(getTestContainer());
+        if (testLoadedKey !== (cur.form_key || '~new')) reloadTestForm();
         return;
     }
 
@@ -528,16 +547,35 @@ function normalizeDef() {
 }
 
 // ── preview & test tab ──────────────────────────────────────
+// The live form lives in a persistent container that is MOVED between
+// the editor and an off-screen stash on tab switches, so its state
+// (picked customer, typed lines) survives; only Reload rebuilds it.
+let testLoadedKey = null;
+let _testContainer = null, _testStash = null;
+function testStash() {
+    if (!_testStash) { _testStash = document.createElement('div'); _testStash.style.display = 'none'; document.body.appendChild(_testStash); }
+    return _testStash;
+}
+function getTestContainer() {
+    if (!_testContainer) { _testContainer = document.createElement('div'); _testContainer.id = 'test-container'; testStash().appendChild(_testContainer); }
+    return _testContainer;
+}
+function resetTestPreview() {
+    testLoadedKey = null;
+    try { WMSFormEngine.close(); } catch (e) { }
+    getTestContainer().innerHTML = '';
+}
 function setPageTab(t) {
     if (t === pageTab) return;
-    if (pageTab === 'test') WMSFormEngine.close();
+    if (pageTab === 'test') testStash().appendChild(getTestContainer());   // keep the live form alive
     pageTab = t;
     renderEditor();
 }
 function reloadTestForm() {
     normalizeDef();
+    testLoadedKey = cur.form_key || '~new';
     WMSFormEngine.open(JSON.parse(JSON.stringify(cur.def)), {
-        formKey: cur.form_key || 'preview', mode: 'run', container: 'test-container'
+        formKey: cur.form_key || 'preview', mode: 'run', container: getTestContainer()
     });
 }
 
@@ -693,6 +731,7 @@ function baiBuild() {
             const modal = document.getElementById('bai-modal');
             if (modal) modal.remove();
             jsonMode = false;
+            resetTestPreview();
             pageTab = 'test';   // land straight on the live preview
             renderList(); renderEditor();
             const ss = document.getElementById('save-status');

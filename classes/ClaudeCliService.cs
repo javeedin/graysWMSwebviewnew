@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V40";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V41";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -458,7 +458,8 @@ namespace WMSApp
             sb.AppendLine("      computed -> formula over header keys, e.g. \"qty_total * 1.15\" } ] },");
             sb.AppendLine("    details: [ { key, title, tab (detail blocks sharing a tab name group into TAB PAGES), required, allowManualRow, allowDelete, qtyKey (default qty),");
             sb.AppendLine("      pickerSql (:SEARCH + header :FIELDKEY placeholders), pickerMap { columnKey: SQLCOLUMN },");
-            sb.AppendLine("      columns: [ { key, label, type: text|number|computed, editable, formula, width, default } ],");
+            sb.AppendLine("      columns: [ { key, label, type: text|number|computed, editable, formula, width, default,");
+            sb.AppendLine("        lookupSql (ROW AUTO-FILL: runs when this cell changes; :COLUMNKEY placeholders bind from the row, :FIELDKEY from the header; the first result row's aliases (= column keys) fill the other columns - e.g. typing an item code fetches description/price/tax from the price list) } ],");
             sb.AppendLine("      totals: [columnKeys], lineRulesSql (companion rows: :COLUMNKEY from the parent row; result aliases = column keys; BUY_QTY/GET_QTY drive the companion qty - same idea as BOGO) } ],");
             sb.AppendLine("    reports: [ { key, title, sql (read-only SELECT; header :FIELDKEY placeholders follow the form values), autoRun } ] - each renders as a grid under the form with Refresh and Print buttons,");
             sb.AppendLine("    rules: { submitChecks: [ { sql (header :FIELDKEY placeholders), message, mode: FAIL_IF_ROWS|FAIL_IF_NO_ROWS } ] },");

@@ -490,6 +490,15 @@
                 syncRuleRows(det);
                 refreshDetail(det);
             });
+            // column lookup (auto-fill the rest of the row) runs on change,
+            // not per keystroke - e.g. type an item code, get desc + price
+            el.addEventListener('change', function () {
+                var det = findDetail(el.getAttribute('data-det'));
+                var ck = el.getAttribute('data-ck');
+                var col = ((det && det.columns) || []).find(function (c) { return c.key === ck; });
+                var row = (st.details[det.key] || [])[Number(el.getAttribute('data-ri'))];
+                if (col && col.lookupSql && row && String(row[ck]) !== '') runRowLookup(det, row, col);
+            });
         });
     }
 
@@ -522,6 +531,10 @@
                     if (inp && document.activeElement !== inp) inp.value = r[c.key];
                 } else if (c.type === 'number' || c.type === 'computed') {
                     td.textContent = fmt(r[c.key]);
+                } else if (!(r._rule && ci === 0)) {
+                    // plain text cells too (filled by row lookups); keep the
+                    // RULE tag on a rule row's first cell intact
+                    td.textContent = r[c.key] === undefined || r[c.key] === null ? '' : String(r[c.key]);
                 }
             });
         });
@@ -736,6 +749,33 @@
                 applyLineRules(det, newIdxs, function (added) { if (added) { captureHeader(); render(); } });
             });
         }, 60);
+    }
+
+    // ── column lookup: typed value auto-fills the row ───────
+    // A column with lookupSql runs when its cell changes: :COLUMNKEY
+    // placeholders bind from the row, header :FIELDKEY placeholders from
+    // the form. The first result row's aliases (= column keys) fill the
+    // other columns of the same row. E.g. type an item code -> the
+    // description, price and tax arrive from the price list.
+    function runRowLookup(det, row, col) {
+        var sql = bindHeaderSql(String(col.lookupSql));
+        (det.columns || []).forEach(function (c) {
+            sql = sql.replace(new RegExp(':' + c.key.toUpperCase() + '\\b', 'g'), sqlLit(row[c.key]));
+        });
+        console.log('[FormEngine] row lookup', col.key, 'SQL:', sql);
+        runSql(sql, function (err, rows) {
+            if (!st) return;
+            if (err) { console.warn('[FormEngine] row lookup failed:', err); return; }
+            if (!rows.length) return;
+            var r0 = rows[0];
+            (det.columns || []).forEach(function (c) {
+                var v = r0[c.key.toUpperCase()];
+                if (v !== undefined && c.key !== col.key) row[c.key] = v;
+            });
+            computeRow(det, row);
+            syncRuleRows(det);
+            refreshDetail(det);
+        });
     }
 
     // ── line rules (companion rows, e.g. BOGO) ──────────────
