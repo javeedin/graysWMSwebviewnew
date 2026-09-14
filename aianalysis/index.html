@@ -1355,7 +1355,42 @@ function sendMessage() {
     inp.value = '';
     inp.style.height = 'auto';
     const t = text || 'Please look at the attached file(s).';
+    // Instant path: a bare "open the order form" request never needs the
+    // model - the dialog self-loads its pickers and trained rules on open
+    if (!pendingAttachments.length && isBareOrderFormRequest(t)) {
+        instantOpenOrderForm(t);
+        return;
+    }
     sendTurn(t, t);
+}
+
+// True only for requests that ONLY ask to open the order entry form -
+// anything carrying data (a customer, items, quantities) goes to the bot
+function isBareOrderFormRequest(text) {
+    const s = String(text).toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (s.length > 60 || /\d/.test(s)) return false;
+    if (!/\border\b/.test(s)) return false;
+    if (!/\b(form|entry|dialog|screen|window)\b/.test(s)) return false;
+    if (!/\b(open|show|start|launch|display|new|create)\b/.test(s)) return false;
+    if (/\b(for|customer|with|item|items|qty|quantity|report|list|status|update|cancel|close)\b/.test(s)) return false;
+    return true;
+}
+
+function instantOpenOrderForm(displayText) {
+    let chat = activeChat();
+    if (!chat) {
+        chat = { id: 'c' + Date.now(), title: 'Order entry', createdAt: Date.now(), sessionId: null, messages: [] };
+        chats.push(chat);
+        activeChatId = chat.id;
+    }
+    const ts = Date.now();
+    chat.messages.push({ role: 'user', text: displayText, ts: ts });
+    appendUserBubble(displayText, ts);
+    const note = 'Opening the Order Entry form. Pickers, dropdowns and trained rules load inside the form itself, so a blank form needs no AI round.';
+    chat.messages.push({ role: 'assistant', markdown: note, rounds: [], ts: ts + 1 });
+    saveChats(); renderChatList();
+    appendAssistantBubble(note, [], ts + 1, false);
+    openOrderEntryFromChat({ values: { login_id: appUserName() } }, { instant: true });
 }
 
 // ============================================================
@@ -3226,7 +3261,15 @@ function showApiConfirm(formId, req) {
 // Opens the dedicated order entry dialog from a chat api_form and wires
 // its submit back into the conversation (DB route runs NEWORDER directly;
 // Fusion route hands the composed order to the model for option 2)
-function openOrderEntryFromChat(formObj) {
+function openOrderEntryFromChat(formObj, opts) {
+    const instant = !!(opts && opts.instant);
+    // Local chat note without a model round (used by the instant open path)
+    function localNote(md) {
+        const chat = activeChat();
+        const ts = Date.now();
+        if (chat) { chat.messages.push({ role: 'assistant', markdown: md, rounds: [], ts: ts }); saveChats(); }
+        appendAssistantBubble(md, [], ts, false);
+    }
     openOrderEntryForm({
         values: formObj.values || {},
         onSubmit: function (route, values, closeOk, fail) {
@@ -3240,6 +3283,8 @@ function openOrderEntryFromChat(formObj) {
                     logApiRun(api, req, ok, respText, 'CHAT');
                     if (!ok) { fail(respText.slice(0, 300)); return; }
                     closeOk();
+                    const summary = '✅ **Order created in WMS DB** — ' + values.customer_name + ' (' + values.lines.length + ' line(s), net ' + (values.totals ? values.totals.net.toFixed(2) : '') + ')';
+                    if (instant) { localNote(summary); return; }
                     sendTurn('API_RESULT: ' + JSON.stringify({ apiId: 'order.create', route: 'db', success: true, totals: values.totals, response: respText.slice(0, 4000) }),
                         '▶ Order created in WMS DB — ' + values.customer_name + ' (' + values.lines.length + ' line(s), net ' + (values.totals ? values.totals.net.toFixed(2) : '') + ')');
                 });
@@ -3252,6 +3297,7 @@ function openOrderEntryFromChat(formObj) {
             }
         },
         onCancel: function () {
+            if (instant) { localNote('✖ Order entry cancelled.'); return; }
             sendTurn('API_RESULT: ' + JSON.stringify({ apiId: 'order.create', cancelled: true }),
                 '✖ Order entry cancelled');
         }
