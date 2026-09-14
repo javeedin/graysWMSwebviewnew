@@ -281,30 +281,51 @@ const COL_TYPES = ['text', 'number', 'computed'];
 const ACTION_TYPES = ['ords', 'sql', 'local_file', 'chat', 'print', 'close'];
 const ACTION_STYLES = ['primary', 'default', 'danger'];
 
-function headerFieldCard(f, i, len) {
-    const p = 'def.header.fields.' + i + '.';
-    return '<div class="card">' +
-        '<div class="card-h"><span class="tag" style="background:#ccfbf1;color:#0f766e;">FIELD ' + (i + 1) + ' — ' + esc(f.key || '?') + '</span>' +
-        '<div style="display:flex;gap:4px;">' + moveBtns('moveField', i, len) +
-        '<button class="btn btn-d" style="padding:3px 8px;" onclick="delField(' + i + ')"><i class="fas fa-trash"></i></button></div></div>' +
-        '<div class="grid4">' +
-        fld('Key', inTxt(p + 'key', f.key)) +
-        fld('Label', inTxt(p + 'label', f.label)) +
-        fld('Type', inSel(p + 'type', f.type || 'text', FIELD_TYPES)) +
-        fld('Default', inTxt(p + 'default', f.default), '$TODAY, $USER or a literal') +
-        fld('Required', inChk(p + 'required', f.required, 'required')) +
-        fld('Span (cols)', inNum(p + 'span', f.span)) +
-        fld('Tab page', inTxt(p + 'tab', f.tab), 'fields with the same tab name group into a header tab page') +
-        fld('Min / Max', inNum(p + 'min', f.min) + '<div style="height:4px;"></div>' + inNum(p + 'max', f.max)) +
-        '</div>' +
-        '<div class="grid2" style="margin-top:7px;">' +
-        sqlFld('Value SQL (auto-populate)', p + 'valueSql', f.valueSql, 'fills THIS field automatically: SQL returns one value (first column or alias VALUE). Use :OTHERFIELD — re-runs whenever that field changes, e.g. SELECT price_list FROM grfu_customer WHERE account_number = :ACCOUNT_NUMBER') +
-        sqlFld('List SQL (select)', p + 'listSql', f.listSql, 'aliases VALUE, LABEL. Use :OTHERFIELD to make a DEPENDENT list — it reloads when that field changes') +
-        sqlFld('Picker SQL (picker)', p + 'pickerSql', f.pickerSql, ':SEARCH placeholder; user searches and picks a row') +
-        fld('Picker map (picker)', inArea(p + 'map', f.map, 'json', 2), 'JSON: { "headerFieldKey": "SQLCOLUMN" } — which columns fill which fields') +
-        fld('Display column (picker) / Formula (computed)',
-            inTxt(p + 'display', f.display) + '<div style="height:4px;"></div>' + inTxt(p + 'formula', f.formula, 'placeholder="formula e.g. qty * price"')) +
-        '</div></div>';
+// Header fields as a compact table - one row per field; the pen button
+// opens the field's full attribute editor (SQLs, picker map, formula)
+function headerFieldsTable(fields) {
+    if (!fields.length) return '<div style="font-size:11px;color:#94a3b8;">No fields yet.</div>';
+    const body = fields.map((f, i) => {
+        const p = 'def.header.fields.' + i + '.';
+        const adv = !!(f.valueSql || f.listSql || f.pickerSql || f.map || f.display || f.formula || f.min !== undefined || f.max !== undefined || f.hint);
+        return '<tr style="border-top:1px solid #f1f5f9;">' +
+            '<td style="color:#94a3b8;text-align:center;padding:4px 2px;">' + (i + 1) + '</td>' +
+            '<td style="padding:3px;">' + inTxt(p + 'key', f.key) + '</td>' +
+            '<td style="padding:3px;">' + inTxt(p + 'label', f.label) + '</td>' +
+            '<td style="padding:3px;">' + inSel(p + 'type', f.type || 'text', FIELD_TYPES) + '</td>' +
+            '<td style="padding:3px;text-align:center;"><input type="checkbox" data-p="' + p + 'required" data-kind="bool"' + (f.required ? ' checked' : '') + ' title="required"></td>' +
+            '<td style="padding:3px;width:85px;">' + inTxt(p + 'tab', f.tab) + '</td>' +
+            '<td style="padding:3px;width:55px;">' + inNum(p + 'span', f.span) + '</td>' +
+            '<td style="padding:3px;width:95px;">' + inTxt(p + 'default', f.default) + '</td>' +
+            '<td style="padding:3px;white-space:nowrap;text-align:right;">' +
+              '<button class="btn ' + (adv ? 'btn-p' : 'btn-o') + '" style="padding:2px 8px;" onclick="toggleFieldAdv(' + i + ')" title="Edit attributes (value/list/picker SQL, map, formula)"><i class="fas fa-pen"></i></button>' +
+              '<button class="btn btn-o" style="padding:2px 7px;" ' + (i === 0 ? 'disabled ' : '') + 'onclick="moveField(' + i + ',-1)"><i class="fas fa-arrow-up"></i></button>' +
+              '<button class="btn btn-o" style="padding:2px 7px;" ' + (i === fields.length - 1 ? 'disabled ' : '') + 'onclick="moveField(' + i + ',1)"><i class="fas fa-arrow-down"></i></button>' +
+              '<button class="btn btn-d" style="padding:2px 7px;" onclick="delField(' + i + ')"><i class="fas fa-trash"></i></button></td>' +
+            '</tr>' +
+            '<tr id="fld-adv-' + i + '"' + (adv ? '' : ' hidden') + '><td></td><td colspan="8" style="padding:2px 3px 10px;">' +
+              '<div style="border:1px dashed var(--border);border-radius:8px;padding:9px 11px;background:#fbfcfe;">' +
+              '<div class="grid2">' +
+              sqlFld('Value SQL (auto-populate)', p + 'valueSql', f.valueSql, 'fills THIS field automatically: SQL returns one value (first column or alias VALUE). Use :OTHERFIELD — re-runs whenever that field changes') +
+              sqlFld('List SQL (select)', p + 'listSql', f.listSql, 'aliases VALUE, LABEL. Use :OTHERFIELD to make a DEPENDENT list — it reloads when that field changes') +
+              sqlFld('Picker SQL (picker)', p + 'pickerSql', f.pickerSql, ':SEARCH placeholder; user searches and picks a row') +
+              fld('Picker map (picker)', inArea(p + 'map', f.map, 'json', 2), 'JSON: { "headerFieldKey": "SQLCOLUMN" } — which columns fill which fields') +
+              '</div>' +
+              '<div class="grid4" style="margin-top:7px;">' +
+              fld('Display column (picker)', inTxt(p + 'display', f.display), 'column shown in the field') +
+              fld('Formula (computed)', inTxt(p + 'formula', f.formula), 'over header keys') +
+              fld('Min', inNum(p + 'min', f.min)) +
+              fld('Max', inNum(p + 'max', f.max)) +
+              '</div></div></td></tr>';
+    }).join('');
+    return '<table style="width:100%;border-collapse:collapse;font-size:11px;background:white;border:1px dashed var(--border);border-radius:7px;">' +
+        '<thead><tr>' + ['#', 'Key', 'Label', 'Type', 'Req', 'Tab', 'Span', 'Default', ''].map(h =>
+            '<th style="padding:5px 4px;text-align:left;font-size:9.5px;color:#475569;text-transform:uppercase;">' + h + '</th>').join('') +
+        '</tr></thead><tbody>' + body + '</tbody></table>';
+}
+function toggleFieldAdv(i) {
+    const tr = document.getElementById('fld-adv-' + i);
+    if (tr) tr.hidden = !tr.hidden;
 }
 
 // Columns as a compact editable table - one row per column, with an
@@ -480,7 +501,7 @@ function renderEditor() {
       // header fields
       '<div class="sec"><div class="sec-h"><span><i class="fas fa-table-cells"></i> Header fields (master) — ' + d.header.fields.length + '</span>' +
         '<button class="btn btn-p" style="padding:4px 10px;" onclick="addField()"><i class="fas fa-plus"></i> Field</button></div><div class="sec-b">' +
-        (d.header.fields.map((f, i) => headerFieldCard(f, i, d.header.fields.length)).join('') || '<div style="font-size:11px;color:#94a3b8;">No fields yet.</div>') +
+        headerFieldsTable(d.header.fields) +
       '</div></div>' +
 
       // details

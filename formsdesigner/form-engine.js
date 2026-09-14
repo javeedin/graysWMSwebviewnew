@@ -102,6 +102,16 @@
     function bindSearch(sql, text) {
         return String(sql).replace(/:SEARCH\b/g, "'%" + String(text || '').replace(/'/g, "''").toUpperCase() + "%'");
     }
+    // Auto-binding safety net for PICKER SQL: any placeholder still left
+    // after :SEARCH and the header fields takes the search text as a plain
+    // literal - users often write :ITEM or :TEXT instead of :SEARCH, which
+    // would otherwise hit ORA-01008 (not all variables bound).
+    function bindLeftoverSearch(sql, text) {
+        var lit = "'" + String(text || '').replace(/'/g, "''").toUpperCase() + "'";
+        var out = String(sql).replace(/:[A-Za-z_]\w*/g, lit);
+        if (out !== String(sql)) console.warn('[FormEngine] picker SQL had unbound placeholders - bound them to the search text. Prefer :SEARCH.');
+        return out;
+    }
     // which header fields does this SQL depend on?
     function sqlDeps(sql) {
         var deps = [];
@@ -665,7 +675,7 @@
         var f = ((st.def.header && st.def.header.fields) || []).find(function (x) { return x.key === fkey; });
         if (!f || !f.pickerSql) { alert('No picker SQL configured for ' + fkey); return; }
         pickerDialog(f.label || fkey, function (q) {
-            var sql = bindSearch(bindHeaderSql(f.pickerSql), q);
+            var sql = bindLeftoverSearch(bindSearch(bindHeaderSql(f.pickerSql), q), q);
             console.log('[FormEngine] picker SQL:', sql);
             runSql(sql, function (err, rows) {
                 var box = document.getElementById('fe-picker-res');
@@ -708,7 +718,7 @@
         pickerDialog(det.title || detKey,
             function (q) {
                 captureHeader();
-                var sql = bindSearch(bindHeaderSql(det.pickerSql), q);
+                var sql = bindLeftoverSearch(bindSearch(bindHeaderSql(det.pickerSql), q), q);
                 console.log('[FormEngine] detail picker SQL:', sql);
                 runSql(sql, function (err, rows) {
                     var box = document.getElementById('fe-picker-res');
