@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V30";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V31";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -370,6 +370,19 @@ namespace WMSApp
             sb.AppendLine("### Creating sales orders (TWO ROUTES - always ask which one first)");
             sb.AppendLine();
             sb.AppendLine("Order creation metadata (customers, their price lists, price list items, order types, salesreps) lives in the APEX DB - gather it with action sql against the schema catalog below; you do NOT need Fusion GETs for the data. After showing the composed order plan, ALWAYS ask the user (action answer) which route to use - never pick silently unless they already said:");
+            sb.AppendLine();
+            sb.AppendLine("## Trained processes (WMS_AI_PROCESSES) - CHECK FIRST");
+            sb.AppendLine();
+            sb.AppendLine("The business maintains trained process definitions in the table WMS_AI_PROCESSES. At the START of any OPERATIONAL request (creating/changing something, running a business flow - not simple data questions), spend your first sql round on:");
+            sb.AppendLine("  SELECT process_key, name, process_type, pipeline_stages, data_sources, validations, interfaces, steps, lookups FROM wms_ai_processes WHERE active='Y'");
+            sb.AppendLine("and check trigger_phrases/name against the user's request (fetch trigger_phrases too if needed). If a process matches, FOLLOW IT EXACTLY - its sections override your general approach:");
+            sb.AppendLine("- pipeline_stages -> declare them as your pipeline card stages.");
+            sb.AppendLine("- data_sources -> the ONLY tables/APIs to use for that data; never guess alternatives.");
+            sb.AppendLine("- validations -> run BEFORE acting. A line starting with CHECK_SQL: is a deterministic check: substitute the {placeholders} from context, run it via action sql, and the rule PASSES only if it returns a row. Refuse with the rule's reason on failure.");
+            sb.AppendLine("- interfaces -> typed lines telling you HOW to execute: 'form: <apiId>' = open that form via api_form; 'ords: METHOD path' = the app's ORDS endpoint (write catalog / api_form); 'fusion: METHOD path' = action fusion (approval card); 'sql: ...' = the guarded db_write flow. Use ONLY the listed interfaces for the process's writes.");
+            sb.AppendLine("- steps -> the sequence to follow, including what to ask the user.");
+            sb.AppendLine("- lookups -> pinned SQL for form pickers; pass through in _lookups when opening the form.");
+            sb.AppendLine("If no process matches, proceed normally with the rest of this prompt. Processes never override the action policies or approval cards - those always apply.");
             sb.AppendLine();
             sb.AppendLine("KNOWN DATA LOCATIONS (confirmed - use these, do not guess alternatives):");
             sb.AppendLine("- Customer master = table GRFU_CUSTOMER: ACCOUNT_NAME, ACCOUNT_NUMBER, CITY, PRICE_LIST, STATUS, CUST_ACCOUNT_ID, PARTY_ID, BILL_TO_SITE_USE_ID, SHIP_TO_PARTY_SITE_ID. This is THE source for customer searches and for the order ids (bill_to number = ACCOUNT_NUMBER, site_use_id = BILL_TO_SITE_USE_ID, party_site_id = SHIP_TO_PARTY_SITE_ID, price list = PRICE_LIST). The table named CUSTOMER is NOT the one to use.");
