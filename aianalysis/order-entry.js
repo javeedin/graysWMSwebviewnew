@@ -20,6 +20,19 @@
 //                      SITE_USE_ID, PARTY_SITE_ID, PRICELIST, LOCATION
 //       salesreps      [ {number,name} ]      orderTypes [ "..." ]
 //       warehouses     [ "..." ]              subinventories [ "..." ]
+//       lineRulesSql   SELECT with :ITEM_CODE (parent item) returning
+//                      companion lines to auto-add (e.g. BOGO): aliases
+//                      ITEM_CODE, ITEM_DESC, BUY_QTY, GET_QTY, PRICE,
+//                      TAX_CODE (optional TAX_RATE, UOM, INVENTORY_ITEM_ID).
+//                      Runs on every item added and once for prefilled
+//                      lines. Companion qty = floor(parentQty/BUY_QTY)*GET_QTY
+//                      and tracks parent qty edits live.
+//       submitChecks   [ {sql, message, mode} ] pre-submit validations.
+//                      mode FAIL_IF_ROWS (default: rows = violations) or
+//                      FAIL_IF_NO_ROWS (row required to pass). Failures
+//                      block Create Order and show message.
+//       Both support header placeholders :CUSTOMER, :PRICELIST,
+//       :ORDER_TYPE, :ORDER_DATE, :WAREHOUSE (substituted as literals).
 //
 // All lookup SQL runs read-only through the guarded ai/executequery
 // gateway. Totals: selling = list * (1 - disc%/100); line tax =
@@ -68,6 +81,105 @@
         var sql = String(sqlTemplate).replace(/:SEARCH/g, "'%" + lit + "%'");
         console.log('[OrderEntry] lookup SQL:', sql);
         return sql;
+    }
+
+    function sqlLit(v) { return "'" + String(v === undefined || v === null ? '' : v).replace(/'/g, "''") + "'"; }
+
+    // Header placeholders for rule/check SQL (:CUSTOMER etc. -> literals)
+    function bindHeaderPlaceholders(sql) {
+        var h = st.header;
+        var repl = [
+            [':CUSTOMER',   h.bill_to_customer_number || h.customer_name || ''],
+            [':PRICELIST',  h.pricelist || ''],
+            [':ORDER_TYPE', h.order_type || ''],
+            [':ORDER_DATE', h.order_date || ''],
+            [':WAREHOUSE',  h.warehouse || '']
+        ];
+        repl.forEach(function (p) {
+            sql = sql.replace(new RegExp(p[0] + '\\b', 'g'), sqlLit(p[1]));
+        });
+        return sql;
+    }
+
+    // ── line rules engine (companion lines, e.g. BOGO) ──────
+    // For each parent line, runs lineRulesSql with :ITEM_CODE bound to the
+    // parent's item code. Every returned row becomes an auto-added
+    // companion line: qty = floor(parentQty / BUY_QTY) * GET_QTY, price =
+    // PRICE from the rule row, flagged is_bogo and linked to the parent.
+    // Dedup is by parent item code, so a rule fires once per parent item.
+    function applyLineRules(parentIdxs, after) {
+        var ruleSql = st && st.lookups.lineRulesSql;
+        if (!ruleSql || !parentIdxs || !parentIdxs.length) { if (after) after(); return; }
+        var queue = parentIdxs.slice();
+        var added = 0;
+        (function next() {
+            if (!st) return;
+            if (!queue.length) { if (after) after(added); return; }
+            var idx = queue.shift();
+            var parent = st.lines[idx];
+            if (!parent || parent.is_bogo) { next(); return; }
+            var already = (st.lines || []).some(function (l) {
+                return l.is_bogo && l.bogo_ref_item === parent.item_code;
+            });
+            if (already) { next(); return; }
+            var sql = bindHeaderPlaceholders(
+                String(ruleSql).replace(/:ITEM_CODE\b/g, sqlLit(parent.item_code)));
+            console.log('[OrderEntry] line rule SQL for', parent.item_code + ':', sql);
+            runSql(sql, function (err, rows) {
+                if (!st) return;
+                if (err) { console.warn('[OrderEntry] line rule failed:', err); next(); return; }
+                (rows || []).forEach(function (r) {
+                    if (!r.ITEM_CODE) return;
+                    var buyQty = num(r.BUY_QTY) || 1;
+                    var getQty = num(r.GET_QTY) || 1;
+                    var qty = Math.floor((num(parent.quantity) || 0) / buyQty) * getQty;
+                    if (qty <= 0) return;
+                    st.lines.push({
+                        item_code: r.ITEM_CODE, item_description: r.ITEM_DESC || r.ITEM_CODE,
+                        quantity: qty, uom: r.UOM || parent.uom || 'UN',
+                        list_price: num(r.PRICE), discount_per: 0,
+                        tax_rate: num(r.TAX_RATE), tax_code: r.TAX_CODE || '',
+                        inventory_item_id: r.INVENTORY_ITEM_ID || '',
+                        is_bogo: true, bogo_ref_line: idx + 1, bogo_ref_item: parent.item_code,
+                        _buy_qty: buyQty, _get_qty: getQty
+                    });
+                    added++;
+                });
+                next();
+            });
+        })();
+    }
+
+    // ── pre-submit checks ───────────────────────────────────
+    // checks: [{sql, message, mode}] - mode FAIL_IF_ROWS (default; returned
+    // rows are violations) or FAIL_IF_NO_ROWS (at least one row must come
+    // back to pass). First failure stops the chain and blocks submit.
+    function runSubmitChecks(checks, pass, fail) {
+        var queue = (checks || []).slice();
+        (function next() {
+            if (!st) return;
+            if (!queue.length) { pass(); return; }
+            var chk = queue.shift();
+            if (!chk || !chk.sql) { next(); return; }
+            var sql = bindHeaderPlaceholders(String(chk.sql));
+            console.log('[OrderEntry] submit check SQL:', sql);
+            runSql(sql, function (err, rows) {
+                if (!st) return;
+                if (err) { fail((chk.message || 'Validation') + ' — check failed to run: ' + err); return; }
+                var mode = String(chk.mode || 'FAIL_IF_ROWS').toUpperCase();
+                var bad = mode === 'FAIL_IF_NO_ROWS' ? !(rows || []).length : !!(rows || []).length;
+                if (bad) {
+                    var detail = (rows && rows.length && mode !== 'FAIL_IF_NO_ROWS')
+                        ? '\n\n' + rows.slice(0, 5).map(function (r) {
+                            return Object.keys(r).map(function (k) { return k + '=' + r[k]; }).join(', ');
+                          }).join('\n')
+                        : '';
+                    fail((chk.message || 'A validation rule failed.') + detail);
+                    return;
+                }
+                next();
+            });
+        })();
     }
 
     // Debug footer under picker results: shows the SQL that actually ran
@@ -221,6 +333,18 @@
     // refresh computed cells + totals without rebuilding inputs (keeps focus)
     function refreshLinesOnly() {
         var rows = document.querySelectorAll('#oe-lines tr');
+        // companion (BOGO) lines track their parent's quantity live
+        (st.lines || []).forEach(function (l, i) {
+            if (!l.is_bogo || !l._buy_qty) return;
+            var parent = (st.lines || []).find(function (p) { return !p.is_bogo && p.item_code === l.bogo_ref_item; });
+            if (!parent) return;
+            var newQty = Math.floor((num(parent.quantity) || 0) / l._buy_qty) * (l._get_qty || 1);
+            if (newQty !== num(l.quantity)) {
+                l.quantity = newQty;
+                var qtyInp = document.querySelector('#oe-lines input[data-i="' + i + '"][data-f="quantity"]');
+                if (qtyInp) qtyInp.value = newQty;
+            }
+        });
         (st.lines || []).forEach(function (l, i) {
             var c = lineCalc(l);
             var tds = rows[i] ? rows[i].children : null;
@@ -332,10 +456,12 @@
         }, function () {
             var cbs = document.querySelectorAll('#oe-picker .oe-item-cb:checked');
             if (!cbs.length) return;
+            var newIdxs = [];
             Array.prototype.forEach.call(cbs, function (cb) {
                 var i = Number(cb.getAttribute('data-i'));
                 var r = found[i];
                 var qtyEl = document.querySelector('#oe-picker .oe-item-qty[data-i="' + i + '"]');
+                newIdxs.push(st.lines.length);
                 st.lines.push({
                     item_code: r.ITEM_CODE, item_description: r.ITEM_DESC,
                     quantity: qtyEl ? (Number(qtyEl.value) || 1) : 1,
@@ -347,11 +473,21 @@
             });
             document.getElementById('oe-picker').remove();
             captureHeader(); render();
+            applyLineRules(newIdxs, function (added) {
+                if (st && added) { captureHeader(); render(); }
+            });
         }, true);
     };
 
     window._oeDelLine = function (i) {
+        var gone = st.lines[i];
         st.lines.splice(i, 1);
+        // removing a parent also removes its auto-added companion lines
+        if (gone && !gone.is_bogo) {
+            st.lines = st.lines.filter(function (l) {
+                return !(l.is_bogo && l._buy_qty && l.bogo_ref_item === gone.item_code);
+            });
+        }
         captureHeader(); render();
     };
 
@@ -379,6 +515,25 @@
         if (!h.order_type) { alert('Select an order type.'); return; }
 
         var route = (document.querySelector('input[name="oe-route"]:checked') || {}).value || 'db';
+
+        // trained validations run first - any failure blocks the submit
+        var btn0 = document.getElementById('oe-submit');
+        if ((st.lookups.submitChecks || []).length) {
+            if (btn0) { btn0.disabled = true; btn0.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Validating…'; }
+            runSubmitChecks(st.lookups.submitChecks, function () {
+                if (btn0) { btn0.disabled = false; btn0.innerHTML = '<i class="fas fa-check"></i> Create Order'; }
+                doSubmit(route);
+            }, function (msg) {
+                if (btn0) { btn0.disabled = false; btn0.innerHTML = '<i class="fas fa-check"></i> Create Order'; }
+                alert('Order validation failed:\n\n' + msg);
+            });
+            return;
+        }
+        doSubmit(route);
+    };
+
+    function doSubmit(route) {
+        var h = st.header;
         var t = totals();
 
         // form values in order.create shape (buildBody wraps them for NEWORDER)
@@ -416,7 +571,7 @@
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-check"></i> Create Order'; }
             alert('Order creation failed: ' + errMsg);
         });
-    };
+    }
 
     // ── entry point ─────────────────────────────────────────
     // cfg: { values: {header fields + lines + _lookups}, onSubmit(route, values, ok, fail), onCancel() }
@@ -428,7 +583,7 @@
         // SQL is known, hardcode it there for deterministic behavior.
         var pin = window.WMS_ORDER_LOOKUPS || {};
         ['customersSql', 'itemsSql', 'salesrepsSql', 'orderTypesSql', 'warehousesSql', 'subinventoriesSql',
-         'salesreps', 'orderTypes', 'warehouses', 'subinventories'].forEach(function (k) {
+         'salesreps', 'orderTypes', 'warehouses', 'subinventories', 'lineRulesSql', 'submitChecks'].forEach(function (k) {
             if (pin[k]) lk[k] = pin[k];
         });
         st = {
@@ -457,7 +612,9 @@
             lookups: {
                 customersSql: lk.customersSql || '', itemsSql: lk.itemsSql || '',
                 salesreps: lk.salesreps || [], orderTypes: lk.orderTypes || [],
-                warehouses: lk.warehouses || [], subinventories: lk.subinventories || []
+                warehouses: lk.warehouses || [], subinventories: lk.subinventories || [],
+                lineRulesSql: lk.lineRulesSql || '',        // companion-line rules (e.g. BOGO)
+                submitChecks: Array.isArray(lk.submitChecks) ? lk.submitChecks : []
             },
             onSubmit: cfg.onSubmit, onCancel: cfg.onCancel
         };
@@ -466,7 +623,8 @@
             salesreps: (lk.salesreps || []).length || (lk.salesrepsSql ? 'sql' : 0),
             orderTypes: (lk.orderTypes || []).length || (lk.orderTypesSql ? 'sql' : 0),
             warehouses: (lk.warehouses || []).length || (lk.warehousesSql ? 'sql' : 0),
-            subinventories: (lk.subinventories || []).length || (lk.subinventoriesSql ? 'sql' : 0)
+            subinventories: (lk.subinventories || []).length || (lk.subinventoriesSql ? 'sql' : 0),
+            lineRulesSql: !!lk.lineRulesSql, submitChecks: (lk.submitChecks || []).length
         });
         render();
 
@@ -505,6 +663,14 @@
         // and backfill the gaps so pricing/item search work regardless of
         // how complete the model's prefill was
         hydrateCustomerIfNeeded();
+
+        // Line rules also cover lines the model prefilled - e.g. a BOGO
+        // main item typed in chat still gets its companion line added
+        if (st.lines.length && st.lookups.lineRulesSql) {
+            applyLineRules(st.lines.map(function (_, i) { return i; }), function (added) {
+                if (st && added) { captureHeader(); render(); }
+            });
+        }
     };
 
     function hydrateCustomerIfNeeded() {
