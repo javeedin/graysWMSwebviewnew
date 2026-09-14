@@ -496,5 +496,44 @@
             loadList(lk.subinventoriesSql,
                 function (r) { return r.SUBINVENTORY || Object.values(r)[0]; },
                 function (v) { st.lookups.subinventories = v; });
+
+        // Self-hydrate: a customer was prefilled but the price list or an
+        // id is missing - look the customer up with the pinned customersSql
+        // and backfill the gaps so pricing/item search work regardless of
+        // how complete the model's prefill was
+        hydrateCustomerIfNeeded();
     };
+
+    function hydrateCustomerIfNeeded() {
+        if (!st || !st.lookups.customersSql) return;
+        var h = st.header;
+        var haveCustomer = h.customer_name || h.bill_to_customer_number;
+        var missing = !h.pricelist || !h.cust_account_id || !h.party_id || !h.site_use_id || !h.party_site_id;
+        if (!haveCustomer || !missing) return;
+
+        var searchKey = h.bill_to_customer_number || h.customer_name;
+        runSql(bindSearch(st.lookups.customersSql, searchKey), function (err, rows) {
+            if (err || !rows || !rows.length || !st) {
+                if (err) console.warn('[OrderEntry] customer hydrate failed:', err);
+                return;
+            }
+            // exact account-number match first, then exact name, then single result
+            var r = rows.find(function (x) { return h.bill_to_customer_number && String(x.BILL_TO_CUSTOMER_NUMBER) === String(h.bill_to_customer_number); })
+                 || rows.find(function (x) { return h.customer_name && String(x.ACCOUNT_NAME).toUpperCase() === String(h.customer_name).toUpperCase(); })
+                 || (rows.length === 1 ? rows[0] : null);
+            if (!r) { console.warn('[OrderEntry] customer hydrate: no unique match for', searchKey); return; }
+
+            captureHeader();   // keep any edits the user made meanwhile
+            if (!h.customer_name) h.customer_name = r.ACCOUNT_NAME;
+            if (!h.bill_to_customer_number) h.bill_to_customer_number = r.BILL_TO_CUSTOMER_NUMBER;
+            if (!h.cust_account_id) h.cust_account_id = r.CUST_ACCOUNT_ID;
+            if (!h.party_id) h.party_id = r.PARTY_ID;
+            if (!h.site_use_id) h.site_use_id = r.SITE_USE_ID;
+            if (!h.party_site_id) h.party_site_id = r.PARTY_SITE_ID;
+            if (!h.pricelist && r.PRICELIST) h.pricelist = r.PRICELIST;
+            if (!h.location && r.LOCATION) h.location = r.LOCATION;
+            console.log('[OrderEntry] customer hydrated from lookup:', h.customer_name, '| price list:', h.pricelist || '(none on customer record)');
+            render();
+        });
+    }
 })();
