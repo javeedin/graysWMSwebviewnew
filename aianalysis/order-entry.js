@@ -127,7 +127,7 @@
             return '<tr>' +
                 '<td style="padding:4px 6px;text-align:center;color:#94a3b8;">' + (i + 1) + '</td>' +
                 '<td style="padding:4px 6px;font-weight:600;color:#0f172a;white-space:nowrap;">' + esc2(l.item_code) + '</td>' +
-                '<td style="padding:4px 6px;color:#475569;min-width:160px;">' + esc2(l.item_description) + '</td>' +
+                '<td style="padding:4px 6px;color:#475569;min-width:160px;">' + esc2(l.item_description) + (l.is_bogo ? ' <span style="font-size:8.5px;font-weight:800;padding:1px 6px;border-radius:8px;background:#dcfce7;color:#166534;">FREE · BOGO</span>' : '') + '</td>' +
                 '<td style="padding:2px;"><input type="number" min="0" step="1" value="' + esc2(l.quantity) + '" data-i="' + i + '" data-f="quantity" class="oe-cell" style="width:60px;padding:4px;border:1px solid #e2e8f0;border-radius:5px;font-size:11px;text-align:right;"></td>' +
                 '<td style="padding:4px 6px;text-align:right;">' + fmt(c.list) + '</td>' +
                 '<td style="padding:2px;"><input type="number" min="0" max="100" step="0.01" value="' + esc2(l.discount_per || 0) + '" data-i="' + i + '" data-f="discount_per" class="oe-cell" style="width:58px;padding:4px;border:1px solid #e2e8f0;border-radius:5px;font-size:11px;text-align:right;" title="Discount %"></td>' +
@@ -398,7 +398,8 @@
                     quantity: c.qty, uom: l.uom || 'UN',
                     selling_price: c.selling, list_price: c.list,
                     discount_per: c.disc, tax_amount: c.tax,
-                    tax_code: l.tax_code || '', inventory_item_id: l.inventory_item_id || ''
+                    tax_code: l.tax_code || '', inventory_item_id: l.inventory_item_id || '',
+                    is_bogo: !!l.is_bogo, bogo_ref_line: l.bogo_ref_line || 0, bogo_ref_item: l.bogo_ref_item || ''
                 };
             }),
             totals: t
@@ -448,7 +449,8 @@
                     quantity: l.quantity || 1, uom: l.uom || 'UN',
                     list_price: num(l.list_price), discount_per: num(l.discount_per),
                     tax_rate: num(l.tax_rate), tax_code: l.tax_code || '',
-                    inventory_item_id: l.inventory_item_id || ''
+                    inventory_item_id: l.inventory_item_id || '',
+                    is_bogo: !!l.is_bogo, bogo_ref_line: l.bogo_ref_line || 0, bogo_ref_item: l.bogo_ref_item || ''
                 };
             }),
             lookups: {

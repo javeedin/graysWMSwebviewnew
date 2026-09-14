@@ -213,7 +213,7 @@ namespace WMSApp
 
         private const int MAX_SQL_ROUNDS = 5;
         private const int CLI_TIMEOUT_SECONDS = 240;
-        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V32";
+        private const string PROMPT_TEMPLATE_MARKER = "FUSION-CATALOG-V33";
         private const string JOBS_CREATE_URL =
             "https://g09254cbbf8e7af-graysprod.adb.eu-frankfurt-1.oraclecloudapps.com/ords/WKSP_GRAYSAPP/WAREHOUSEMANAGEMENT/ai/jobs/create";
         private const string DB_WRITE_URL =
@@ -398,7 +398,8 @@ namespace WMSApp
             sb.AppendLine();
             sb.AppendLine("THE ORDER ENTRY FORM: answering with action api_form, apiId \"order.create\" opens a dedicated ORDER ENTRY dialog (not the generic form): header selectors (date, currency, customer with live search, price list, salesperson, order type, warehouse, subinventory, PO), a live totals panel (Gross / Discount / Tax / Net), an editable lines grid (item, qty, list, disc%, selling, tax, net) and an 'Add Items' search dialog over the customer's price list. The user finishes it and chooses Save-to-DB (the app POSTs NEWORDER itself) or Direct Fusion (you then get the reviewed values back and run the option 2 recipe). Prefill values:");
             sb.AppendLine("    values = { customer_name, bill_to_customer_number, cust_account_id, party_id, site_use_id, party_site_id, order_type, order_date (YYYY-MM-DD), po_number, salesrep_number, agent_name, location, warehouse, subinventory, pricelist, currency_code, login_id, comments,");
-            sb.AppendLine("               lines: [ { item_code, item_description, quantity, uom, list_price, discount_per, tax_rate, tax_code, inventory_item_id } ],");
+            sb.AppendLine("               lines: [ { item_code, item_description, quantity, uom, list_price, discount_per, tax_rate, tax_code, inventory_item_id, is_bogo, bogo_ref_line, bogo_ref_item } ],");
+            sb.AppendLine("    Free/promotional lines: set is_bogo true, bogo_ref_line = the parent line's number (1-based), bogo_ref_item = the parent's item code, list_price = the item's price with discount_per 100 (selling 0). The payload carries these as IsBogoItem / BogoItemReferenceNum / BogoItemReferenceProductID.");
             sb.AppendLine("               _lookups: { customersSql, itemsSql, salesrepsSql, orderTypesSql, warehousesSql, subinventoriesSql } }");
             sb.AppendLine("    _lookups is MANDATORY and consists of SQL STRINGS ONLY - the FORM runs them itself through the query gateway, costing you ZERO sql rounds. Never open the form without them. Build each from the schema catalog:");
             sb.AppendLine("    - customersSql: SELECT with a :SEARCH placeholder (the form substitutes an uppercase '%text%' literal) returning EXACTLY these column aliases: ACCOUNT_NAME, BILL_TO_CUSTOMER_NUMBER, CUST_ACCOUNT_ID, PARTY_ID, SITE_USE_ID, PARTY_SITE_ID, PRICELIST, LOCATION. Filter with UPPER(name) LIKE :SEARCH OR UPPER(account number) LIKE :SEARCH, add FETCH FIRST 50 ROWS ONLY.");
