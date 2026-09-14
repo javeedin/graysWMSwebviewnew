@@ -630,33 +630,7 @@
 
         // Dropdown lists may arrive as SQL instead of arrays - the form
         // loads them itself on open (saves the model's round budget)
-        var pendingLoads = 0;
-        function loadList(sql, map, assign) {
-            if (!sql) return;
-            pendingLoads++;
-            runSql(sql, function (err, rows) {
-                pendingLoads--;
-                if (err) { console.warn('[OrderEntry] list load failed:', err); return; }
-                assign(rows.map(map));
-                if (pendingLoads === 0 && st) { captureHeader(); render(); }
-            });
-        }
-        if (!st.lookups.salesreps.length && lk.salesrepsSql)
-            loadList(lk.salesrepsSql,
-                function (r) { return { number: r.SALESREP_NUMBER || r.NUMBER || Object.values(r)[0], name: r.SALESREP_NAME || r.NAME || Object.values(r)[1] || '' }; },
-                function (v) { st.lookups.salesreps = v; });
-        if (!st.lookups.orderTypes.length && lk.orderTypesSql)
-            loadList(lk.orderTypesSql,
-                function (r) { return r.ORDER_TYPE || Object.values(r)[0]; },
-                function (v) { st.lookups.orderTypes = v; });
-        if (!st.lookups.warehouses.length && lk.warehousesSql)
-            loadList(lk.warehousesSql,
-                function (r) { return r.WAREHOUSE || Object.values(r)[0]; },
-                function (v) { st.lookups.warehouses = v; });
-        if (!st.lookups.subinventories.length && lk.subinventoriesSql)
-            loadList(lk.subinventoriesSql,
-                function (r) { return r.SUBINVENTORY || Object.values(r)[0]; },
-                function (v) { st.lookups.subinventories = v; });
+        loadDropdownLists(lk);
 
         // Self-hydrate: a customer was prefilled but the price list or an
         // id is missing - look the customer up with the pinned customersSql
@@ -666,12 +640,93 @@
 
         // Line rules also cover lines the model prefilled - e.g. a BOGO
         // main item typed in chat still gets its companion line added
-        if (st.lines.length && st.lookups.lineRulesSql) {
-            applyLineRules(st.lines.map(function (_, i) { return i; }), function (added) {
-                if (st && added) { captureHeader(); render(); }
-            });
-        }
+        runPrefilledLineRules();
+
+        // Anything still missing (fast-path open, or an incomplete model
+        // reply) is self-loaded from the trained process row in the DB
+        loadProcessLookupsFromDb();
     };
+
+    function runPrefilledLineRules() {
+        if (!st || !st.lines.length || !st.lookups.lineRulesSql) return;
+        applyLineRules(st.lines.map(function (_, i) { return i; }), function (added) {
+            if (st && added) { captureHeader(); render(); }
+        });
+    }
+
+    var pendingLoads = 0;
+    function loadList(sql, map, assign) {
+        if (!sql) return;
+        pendingLoads++;
+        runSql(sql, function (err, rows) {
+            pendingLoads--;
+            if (!st) return;
+            if (err) { console.warn('[OrderEntry] list load failed:', err); return; }
+            assign(rows.map(map));
+            if (pendingLoads === 0) { captureHeader(); render(); }
+        });
+    }
+
+    // Loads any dropdown whose values are still empty from the SQL keys of
+    // the given lookups source (model-supplied _lookups or the DB row)
+    function loadDropdownLists(src) {
+        if (!st || !src) return;
+        if (!st.lookups.salesreps.length && src.salesrepsSql)
+            loadList(src.salesrepsSql,
+                function (r) { return { number: r.SALESREP_NUMBER || r.NUMBER || Object.values(r)[0], name: r.SALESREP_NAME || r.NAME || Object.values(r)[1] || '' }; },
+                function (v) { st.lookups.salesreps = v; });
+        if (!st.lookups.orderTypes.length && src.orderTypesSql)
+            loadList(src.orderTypesSql,
+                function (r) { return r.ORDER_TYPE || Object.values(r)[0]; },
+                function (v) { st.lookups.orderTypes = v; });
+        if (!st.lookups.warehouses.length && src.warehousesSql)
+            loadList(src.warehousesSql,
+                function (r) { return r.WAREHOUSE || Object.values(r)[0]; },
+                function (v) { st.lookups.warehouses = v; });
+        if (!st.lookups.subinventories.length && src.subinventoriesSql)
+            loadList(src.subinventoriesSql,
+                function (r) { return r.SUBINVENTORY || Object.values(r)[0]; },
+                function (v) { st.lookups.subinventories = v; });
+    }
+
+    // ── self-load lookups & rules from the trained process row ──
+    // The order.creation row's LOOKUPS column may hold a JSON object with
+    // the same keys as _lookups (customersSql, itemsSql, salesrepsSql,
+    // orderTypesSql, warehousesSql, subinventoriesSql, lineRulesSql,
+    // submitChecks). The form pulls it on open and fills ONLY the gaps -
+    // pinned WMS_ORDER_LOOKUPS and model-supplied values always win. This
+    // makes the fast-path "open the order form" (no model _lookups round)
+    // fully functional, and delivers trained rules with zero model rounds.
+    function loadProcessLookupsFromDb() {
+        if (!st) return;
+        var lkp = st.lookups;
+        var missing = !lkp.customersSql || !lkp.itemsSql || !lkp.lineRulesSql || !lkp.submitChecks.length ||
+                      !lkp.salesreps.length || !lkp.orderTypes.length || !lkp.warehouses.length || !lkp.subinventories.length;
+        if (!missing) return;
+        runSql("SELECT lookups FROM wms_ai_processes WHERE process_key = 'order.creation' AND active = 'Y'", function (err, rows) {
+            if (!st) return;
+            if (err || !rows.length || !rows[0].LOOKUPS) {
+                if (err) console.warn('[OrderEntry] process lookups self-load skipped:', err);
+                return;
+            }
+            var db;
+            try { db = JSON.parse(rows[0].LOOKUPS); } catch (e) {
+                console.warn('[OrderEntry] wms_ai_processes.lookups is not valid JSON - ignored');
+                return;
+            }
+            var filled = [];
+            if (!lkp.customersSql && db.customersSql) { lkp.customersSql = db.customersSql; filled.push('customersSql'); }
+            if (!lkp.itemsSql && db.itemsSql) { lkp.itemsSql = db.itemsSql; filled.push('itemsSql'); }
+            if (!lkp.lineRulesSql && db.lineRulesSql) { lkp.lineRulesSql = db.lineRulesSql; filled.push('lineRulesSql'); }
+            if (!lkp.submitChecks.length && Array.isArray(db.submitChecks) && db.submitChecks.length) {
+                lkp.submitChecks = db.submitChecks; filled.push('submitChecks');
+            }
+            loadDropdownLists(db);
+            if (filled.length) console.log('[OrderEntry] self-loaded from process row:', filled.join(', '));
+            if (filled.indexOf('customersSql') >= 0) hydrateCustomerIfNeeded();
+            if (filled.indexOf('lineRulesSql') >= 0) runPrefilledLineRules();
+        });
+    }
 
     function hydrateCustomerIfNeeded() {
         if (!st || !st.lookups.customersSql) return;
