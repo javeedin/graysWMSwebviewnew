@@ -263,6 +263,14 @@ function inArea(path, val, kind, rows) {
 function fld(label, inner, hint) {
     return '<div><label class="lbl">' + label + '</label>' + inner + (hint ? '<div class="hint">' + hint + '</div>' : '') + '</div>';
 }
+// SQL editor field: textarea + a Test SQL button that binds sample
+// values for the :PLACEHOLDERS and runs it through the query gateway
+function sqlFld(label, path, val, hint, rows) {
+    return fld(label,
+        inArea(path, val, '', rows || 2) +
+        '<div style="text-align:right;margin-top:3px;"><button class="btn btn-o" style="padding:2px 10px;font-size:10px;" onclick="openSqlTester(\'' + path + '\')"><i class="fas fa-flask"></i> Test SQL</button></div>',
+        hint);
+}
 function moveBtns(fn, i, len) {
     return '<button class="btn btn-o" style="padding:3px 8px;" ' + (i === 0 ? 'disabled' : '') + ' onclick="' + fn + '(' + i + ',-1)"><i class="fas fa-arrow-up"></i></button>' +
            '<button class="btn btn-o" style="padding:3px 8px;" ' + (i === len - 1 ? 'disabled' : '') + ' onclick="' + fn + '(' + i + ',1)"><i class="fas fa-arrow-down"></i></button>';
@@ -290,9 +298,9 @@ function headerFieldCard(f, i, len) {
         fld('Min / Max', inNum(p + 'min', f.min) + '<div style="height:4px;"></div>' + inNum(p + 'max', f.max)) +
         '</div>' +
         '<div class="grid2" style="margin-top:7px;">' +
-        fld('Value SQL (auto-populate)', inArea(p + 'valueSql', f.valueSql, '', 2), 'fills THIS field automatically: SQL returns one value (first column or alias VALUE). Use :OTHERFIELD — re-runs whenever that field changes, e.g. SELECT price_list FROM grfu_customer WHERE account_number = :ACCOUNT_NUMBER') +
-        fld('List SQL (select)', inArea(p + 'listSql', f.listSql, '', 2), 'aliases VALUE, LABEL. Use :OTHERFIELD to make a DEPENDENT list — it reloads when that field changes') +
-        fld('Picker SQL (picker)', inArea(p + 'pickerSql', f.pickerSql, '', 2), ':SEARCH placeholder; user searches and picks a row') +
+        sqlFld('Value SQL (auto-populate)', p + 'valueSql', f.valueSql, 'fills THIS field automatically: SQL returns one value (first column or alias VALUE). Use :OTHERFIELD — re-runs whenever that field changes, e.g. SELECT price_list FROM grfu_customer WHERE account_number = :ACCOUNT_NUMBER') +
+        sqlFld('List SQL (select)', p + 'listSql', f.listSql, 'aliases VALUE, LABEL. Use :OTHERFIELD to make a DEPENDENT list — it reloads when that field changes') +
+        sqlFld('Picker SQL (picker)', p + 'pickerSql', f.pickerSql, ':SEARCH placeholder; user searches and picks a row') +
         fld('Picker map (picker)', inArea(p + 'map', f.map, 'json', 2), 'JSON: { "headerFieldKey": "SQLCOLUMN" } — which columns fill which fields') +
         fld('Display column (picker) / Formula (computed)',
             inTxt(p + 'display', f.display) + '<div style="height:4px;"></div>' + inTxt(p + 'formula', f.formula, 'placeholder="formula e.g. qty * price"')) +
@@ -325,7 +333,7 @@ function detailColumnsTable(d, di) {
               '<summary style="font-size:9.5px;color:' + (adv ? '#0f766e' : '#94a3b8') + ';cursor:pointer;font-weight:700;">Formula / Lookup SQL' + (adv ? ' •' : '') + '</summary>' +
               '<div class="grid2" style="margin-top:5px;">' +
               fld('Formula (computed)', inTxt(p + 'formula', c.formula), 'over row keys, e.g. qty * price') +
-              fld('Lookup SQL (auto-fill the row)', inArea(p + 'lookupSql', c.lookupSql, '', 2), 'runs when THIS cell changes. :COLUMNKEY (row) + :FIELDKEY (header) placeholders; result aliases = column keys fill the rest of the row. e.g. SELECT ITEM_DESC AS DESCRIPTION, UNIT_PRICE AS PRICE FROM price_list_items WHERE ITEM_CODE = :ITEM AND PRICE_LIST = :PRICELIST') +
+              sqlFld('Lookup SQL (auto-fill the row)', p + 'lookupSql', c.lookupSql, 'runs when THIS cell changes. :COLUMNKEY (row) + :FIELDKEY (header) placeholders; result aliases = column keys fill the rest of the row. e.g. SELECT ITEM_DESC AS DESCRIPTION, UNIT_PRICE AS PRICE FROM price_list_items WHERE ITEM_CODE = :ITEM AND PRICE_LIST = :PRICELIST') +
               '</div></details></td></tr>';
     }).join('');
     return '<table style="width:100%;border-collapse:collapse;font-size:11px;background:white;border:1px dashed var(--border);border-radius:7px;">' +
@@ -351,10 +359,10 @@ function detailCard(d, di, len) {
         fld('Required', inChk(p + 'required', d.required, 'at least one row')) +
         '</div>' +
         '<div class="grid2" style="margin-top:7px;">' +
-        fld('Row picker SQL', inArea(p + 'pickerSql', d.pickerSql, '', 2), ':SEARCH + header :FIELDKEY placeholders (e.g. :PRICELIST)') +
+        sqlFld('Row picker SQL', p + 'pickerSql', d.pickerSql, ':SEARCH + header :FIELDKEY placeholders (e.g. :PRICELIST)') +
         fld('Picker map', inArea(p + 'pickerMap', d.pickerMap, 'json', 2), 'JSON { "columnKey": "SQLCOLUMN" } — fills added rows') +
         '</div>' +
-        fld('Line rules SQL (companion rows, e.g. BOGO)', inArea(p + 'lineRulesSql', d.lineRulesSql, '', 2),
+        sqlFld('Line rules SQL (companion rows, e.g. BOGO)', p + 'lineRulesSql', d.lineRulesSql,
             ':COLUMNKEY placeholders from the parent row + header placeholders. Aliases = column keys; BUY_QTY/GET_QTY compute the companion qty') +
         '<div style="margin-top:8px;"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
         '<span style="font-size:10.5px;font-weight:800;color:#475569;">Columns</span>' +
@@ -372,7 +380,7 @@ function reportCard(r, i, len) {
         fld('Title', inTxt(p + 'title', r.title)) +
         fld('Auto run on open', inChk(p + 'autoRun', r.autoRun, 'run automatically')) +
         '</div>' +
-        fld('Report SQL', inArea(p + 'sql', r.sql, '', 3), 'read-only SELECT; header :FIELDKEY placeholders make it follow the form values. Rendered as a grid with Refresh + Print buttons') +
+        sqlFld('Report SQL', p + 'sql', r.sql, 'read-only SELECT; header :FIELDKEY placeholders make it follow the form values. Rendered as a grid with Refresh + Print buttons', 3) +
         '</div>';
 }
 
@@ -380,7 +388,7 @@ function checkCard(c, i, len) {
     const p = 'def.rules.submitChecks.' + i + '.';
     return '<div class="card"><div class="card-h"><span class="tag" style="background:#fee2e2;color:#b91c1c;">CHECK ' + (i + 1) + '</span>' +
         '<button class="btn btn-d" style="padding:3px 8px;" onclick="delCheck(' + i + ')"><i class="fas fa-trash"></i></button></div>' +
-        fld('SQL', inArea(p + 'sql', c.sql, '', 2), 'header :FIELDKEY placeholders allowed') +
+        sqlFld('SQL', p + 'sql', c.sql, 'header :FIELDKEY placeholders allowed') +
         '<div class="grid2" style="margin-top:6px;">' +
         fld('Message on failure', inTxt(p + 'message', c.message)) +
         fld('Mode', inSel(p + 'mode', c.mode || 'FAIL_IF_ROWS', ['FAIL_IF_ROWS', 'FAIL_IF_NO_ROWS']), 'FAIL_IF_ROWS: returned rows are violations. FAIL_IF_NO_ROWS: a row is required to pass') +
@@ -602,6 +610,81 @@ function saveForm() {
         status.innerHTML = '<span style="color:#15803d;"><i class="fas fa-check-circle"></i> Saved. The AI chat and all app pages see this version immediately.</span>';
         cur.form_key = key; cur.isNew = false; curKey = key;
         loadForms();
+    });
+}
+
+// ── SQL tester ──────────────────────────────────────────────
+// Binds sample values for :PLACEHOLDERS the same way the engine does
+// (:SEARCH -> '%TEXT%' uppercase, others -> quoted literals) and runs
+// the statement through the read-only query gateway.
+let _sqlTestPath = null;
+function openSqlTester(path) {
+    _sqlTestPath = path;
+    const sql = String(getPath(cur, path) || '');
+    if (!sql.trim()) { alert('Enter the SQL first, then click Test SQL.'); return; }
+    const phs = [...new Set(sql.match(/:[A-Za-z_]\w*/g) || [])];
+    const old = document.getElementById('sqltest-modal');
+    if (old) old.remove();
+    const html =
+    '<div id="sqltest-modal" style="position:fixed;inset:0;background:rgba(15,23,42,0.6);z-index:30500;display:flex;align-items:center;justify-content:center;">' +
+      '<div style="background:white;width:94%;max-width:820px;max-height:88vh;border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.35);">' +
+        '<div style="padding:0.7rem 1.1rem;background:#0f766e;display:flex;justify-content:space-between;align-items:center;">' +
+          '<div style="font-weight:800;font-size:13px;color:white;"><i class="fas fa-flask"></i> Test SQL</div>' +
+          '<button onclick="document.getElementById(\'sqltest-modal\').remove()" style="background:none;border:none;color:white;font-size:1.2rem;cursor:pointer;">&times;</button>' +
+        '</div>' +
+        '<div style="padding:0.8rem 1.1rem;overflow-y:auto;">' +
+          '<div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">STATEMENT</div>' +
+          '<pre class="mono" style="background:#f8fafc;border:1px solid var(--border);border-radius:7px;padding:8px;font-size:10.5px;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto;">' + esc(sql) + '</pre>' +
+          (phs.length
+            ? '<div style="font-size:10px;font-weight:700;color:#475569;margin:8px 0 4px;">SAMPLE VALUES FOR PLACEHOLDERS</div>' +
+              '<div class="grid3">' + phs.map((p, i) =>
+                fld(esc(p), '<input type="text" class="in sqltest-ph" data-ph="' + esc(p) + '" placeholder="' + (p === ':SEARCH' ? 'search text (empty = match all)' : 'sample value') + '">')).join('') + '</div>'
+            : '<div style="font-size:10px;color:#94a3b8;margin-top:6px;">No placeholders detected — runs as-is.</div>') +
+          '<div style="margin:10px 0 6px;display:flex;gap:8px;align-items:center;">' +
+            '<button class="btn btn-p" onclick="sqlTestRun()"><i class="fas fa-play"></i> Run (max 50 rows)</button>' +
+            '<span id="sqltest-status" style="font-size:11px;"></span>' +
+          '</div>' +
+          '<div id="sqltest-res"></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    const first = document.querySelector('#sqltest-modal .sqltest-ph');
+    if (first) setTimeout(() => first.focus(), 60);
+}
+function sqlTestRun() {
+    let sql = String(getPath(cur, _sqlTestPath) || '');
+    const status = document.getElementById('sqltest-status');
+    const res = document.getElementById('sqltest-res');
+    document.querySelectorAll('#sqltest-modal .sqltest-ph').forEach(inp => {
+        const ph = inp.getAttribute('data-ph');
+        const v = inp.value;
+        const lit = ph === ':SEARCH'
+            ? "'%" + String(v).replace(/'/g, "''").toUpperCase() + "%'"
+            : "'" + String(v).replace(/'/g, "''") + "'";
+        sql = sql.replace(new RegExp(ph.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'g'), lit);
+    });
+    status.innerHTML = '<span style="color:#0e7490;"><i class="fas fa-spinner fa-spin"></i> Running…</span>';
+    res.innerHTML = '';
+    runQuery(sql.replace(/;\s*$/, ''), function (err, rows) {
+        if (err) {
+            status.innerHTML = '<span style="color:#b91c1c;font-weight:700;">Error</span>';
+            res.innerHTML = '<div style="font-size:11px;color:#b91c1c;background:#fff7f7;border:1px solid #fca5a5;border-radius:7px;padding:8px;">' + esc(err) + '</div>' +
+                '<details style="margin-top:6px;"><summary style="font-size:9.5px;color:#94a3b8;cursor:pointer;">SQL that ran</summary><pre class="mono" style="font-size:10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px;white-space:pre-wrap;word-break:break-all;">' + esc(sql) + '</pre></details>';
+            return;
+        }
+        const shown = rows.slice(0, 50);
+        status.innerHTML = '<span style="color:#15803d;font-weight:700;"><i class="fas fa-check-circle"></i> ' + rows.length + ' row(s)</span>';
+        if (!shown.length) { res.innerHTML = '<div style="font-size:11px;color:#94a3b8;padding:8px;">Query ran fine but returned no rows — check the sample values.</div>'; }
+        else {
+            const cols = Object.keys(shown[0]);
+            res.innerHTML = '<div style="border:1px solid var(--border);border-radius:8px;overflow:auto;max-height:280px;">' +
+                '<table style="width:100%;border-collapse:collapse;font-size:11px;"><thead><tr style="background:#f8fafc;position:sticky;top:0;">' +
+                cols.map(c => '<th style="padding:5px 7px;text-align:left;">' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' +
+                shown.map(r => '<tr style="border-bottom:1px solid #f1f5f9;">' + cols.map(c => '<td style="padding:4px 7px;">' + esc(r[c]) + '</td>').join('') + '</tr>').join('') +
+                '</tbody></table></div>';
+        }
+        res.innerHTML += '<details style="margin-top:6px;"><summary style="font-size:9.5px;color:#94a3b8;cursor:pointer;">SQL that ran</summary><pre class="mono" style="font-size:10px;background:#f8fafc;border:1px solid var(--border);border-radius:6px;padding:6px;white-space:pre-wrap;word-break:break-all;">' + esc(sql) + '</pre></details>';
     });
 }
 
