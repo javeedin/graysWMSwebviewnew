@@ -288,6 +288,7 @@
                 Array.prototype.forEach.call(box.querySelectorAll('.oe-cust-row'), function (el) {
                     el.addEventListener('click', function () {
                         var r = rows[Number(el.getAttribute('data-i'))];
+                        captureHeader();   // keep user edits FIRST, then apply the picked row
                         st.header.customer_name = r.ACCOUNT_NAME;
                         st.header.bill_to_customer_number = r.BILL_TO_CUSTOMER_NUMBER;
                         st.header.cust_account_id = r.CUST_ACCOUNT_ID;
@@ -297,7 +298,7 @@
                         if (r.PRICELIST) st.header.pricelist = r.PRICELIST;
                         if (r.LOCATION) st.header.location = r.LOCATION;
                         document.getElementById('oe-picker').remove();
-                        captureHeader(); render();
+                        render();
                     });
                 });
             });
